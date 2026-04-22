@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-22
+
 ### Added
 
 - Initial scaffolding: plugin manifest, directory layout, session-start launcher scripts,
