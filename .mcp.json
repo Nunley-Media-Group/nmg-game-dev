@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "blender": {
+      "command": "uvx",
+      "args": ["blender-mcp@1.5.6"],
+      "description": "Blender MCP — ahujasid/blender-mcp, PyPI blender-mcp 1.5.6"
+    },
+    "unreal": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@0.1.38",
+        "http://127.0.0.1:8088/mcp",
+        "--transport",
+        "http-only",
+        "--allow-http"
+      ],
+      "description": "VibeUE UE MCP HTTP bridge — kevinpbuckley/VibeUE v0.1.0 in-editor plugin; mcp-remote 0.1.38 bridges Claude to the editor's HTTP endpoint on port 8088"
+    },
+    "meshy": {
+      "command": "npx",
+      "args": ["meshy-mcp-server@1.2.3"],
+      "env": { "MESHY_API_KEY": "${MESHY_API_KEY}" },
+      "description": "Meshy.io MCP — meshy-mcp-server 1.2.3 (npm)"
+    }
+  }
+}
