@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "bash scripts/start-blender-mcp.sh" },
+          { "type": "command", "command": "bash scripts/start-unreal-mcp.sh" }
+        ]
+      }
+    ]
+  }
+}
