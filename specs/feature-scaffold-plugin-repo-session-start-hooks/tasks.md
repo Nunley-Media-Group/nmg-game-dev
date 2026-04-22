@@ -1,8 +1,8 @@
 # Tasks: Scaffold plugin + repo + session-start hooks
 
-**Issues**: #1
+**Issues**: #1, #2
 **Date**: 2026-04-22
-**Status**: Planning
+**Status**: Amended
 **Author**: Rich Nunley
 
 ---
@@ -169,7 +169,7 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 **Depends**: T001
 **Acceptance**:
 - [ ] Shebang + `set -euo pipefail` + executable bit.
-- [ ] Idempotent: `UE_MCP_PORT` (default 8088) already `LISTEN` → exit 0 in ≤ 100 ms.
+- [ ] Idempotent: `UE_MCP_PORT` (default 8088, the port **VibeUE** binds inside UE) already `LISTEN` → exit 0 in ≤ 100 ms.
 - [ ] Resolves UE editor via `UE_ROOT` (default `/Users/Shared/Epic Games/UE_5.7`) + fixed relative path `Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor`.
 - [ ] Missing editor → exits 1 with remediation mentioning `UE_ROOT`.
 - [ ] `UE_PROJECT` resolution: env → single `*.uproject` in `$PWD` → `$PWD/fixtures/dogfood.uproject` → fail with remediation.
@@ -317,6 +317,7 @@ T001..T015 ──▶ T016 (final gate check)
 | Issue | Date | Summary |
 |-------|------|---------|
 | #1 | 2026-04-22 | Initial feature spec |
+| #2 | 2026-04-22 | Cleanup: T008 idempotency note clarified — UE_MCP_PORT is bound by VibeUE, not by anything nmg-game-dev ships |
 
 ---
 

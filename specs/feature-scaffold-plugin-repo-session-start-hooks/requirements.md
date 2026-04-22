@@ -1,8 +1,8 @@
 # Requirements: Scaffold plugin + repo + session-start hooks
 
-**Issues**: #1
+**Issues**: #1, #2
 **Date**: 2026-04-22
-**Status**: Draft
+**Status**: Amended
 **Author**: Rich Nunley
 
 ---
@@ -28,12 +28,14 @@ Concretely:
 - The `.claude/settings.json` artifact that registers them as `SessionStart` hooks ships as a **consumer template** at `templates/consumer/.claude/settings.json`. It is never loaded by Claude Code in this repo — it exists so `onboard-consumer` (a later v1 issue) can copy it into downstream projects.
 - There is no `.claude/settings.json` at this repo's root registering SessionStart hooks.
 
-### UE MCP — VibeUE-pattern HTTP bridge
+### UE MCP — VibeUE in-editor plugin
 
-`steering/tech.md` § Technology Stack pins UE control on a "Unreal MCP / VibeUE-style HTTP bridge". This issue treats **VibeUE** as the concrete choice:
-- `.mcp.json` pins the VibeUE MCP server as the `unreal` entry.
-- `start-unreal-mcp.sh` launches UE Editor against the consumer's `.uproject`; once the nmg-game-dev UE plugin is present and enabled in that project (delivered by issue #3), its `NmgGameDevMCP` editor-only module binds the HTTP bridge on `UE_MCP_PORT` (default 8088) — the bridge VibeUE talks to.
-- For this foundational issue, the UE plugin source is out of scope. The launcher still ships; the port-bind side of the contract is validated in issue #3 when the plugin module is implemented.
+`steering/tech.md` § Technology Stack pins UE control on **VibeUE** (an in-editor UE plugin):
+- `.mcp.json` pins VibeUE as the `unreal` entry.
+- `start-unreal-mcp.sh` launches UE Editor against the consumer's `.uproject`. Once VibeUE is enabled in that project (installed by `onboard-consumer`, future v1 issue), VibeUE itself binds the HTTP bridge on `UE_MCP_PORT` (default 8088) at editor startup. Claude connects through the `mcp-remote` transport to VibeUE's `/mcp` endpoint.
+- For this foundational issue, neither the nmg-game-dev UE plugin nor VibeUE is built or installed. The launcher still ships; the port-bind side of the contract is validated when VibeUE is enabled in a consumer `.uproject`.
+
+> *Updated 2026-04-22 per #2 review*: an earlier draft of this section described an `NmgGameDevMCP` editor-only module that nmg-game-dev would ship to bind the HTTP bridge. Investigation against `https://github.com/kevinpbuckley/VibeUE` showed VibeUE owns the editor MCP wire end-to-end (closed bridge, no plugin-extension API). Building a competing module would either collide on the port or duplicate VibeUE's ~950-method service surface, so #2 dropped `NmgGameDevMCP` and now ships only Runtime + Editor modules. References below to "the nmg-game-dev UE plugin binding the bridge" were incorrect and are corrected in line.
 
 ### `.mcp.json` is dual-purpose
 
@@ -106,7 +108,7 @@ This is explicitly a foundational issue (`foundational` label); blocks `#2, #3, 
 **And** `UE_ROOT` resolves to an installed Unreal Engine 5.7 install (default `/Users/Shared/Epic Games/UE_5.7`)
 **When** the script is invoked
 **Then** `start-blender-mcp.sh` detaches Blender with the MCP add-on enabled on `BLENDER_MCP_PORT` (default 9876) and returns control to the shell in under ~2 s
-**And** `start-unreal-mcp.sh` detaches UE Editor opened against the target `.uproject` on `UE_MCP_PORT` (default 8088) and returns control to the shell in under ~2 s
+**And** `start-unreal-mcp.sh` detaches UE Editor opened against the target `.uproject` (VibeUE binds `UE_MCP_PORT`, default 8088, inside UE — the launcher does not bind any port itself) and returns control to the shell in under ~2 s
 **And** neither script blocks the shell on Blender / UE boot
 
 ### AC4: Launcher scripts are idempotent
@@ -235,7 +237,7 @@ Feature: Scaffold plugin + repo + session-start hooks
 | FR9 | `CLAUDE.md` — entry-point pointer doc (mirrors ghost1's shape) | Must | Points at steering docs + SDLC entry |
 | FR10 | `.mcp.json` at repo root — pinned MCP server config: `blender` (`ahujasid/blender-mcp`), `unreal` (VibeUE), `meshy`. Dual-purpose: used here for contributor testing AND copied by `onboard-consumer` into consumer projects. No consumer-only template variant. | Must | VibeUE chosen as the concrete UE MCP; exact package identifier + pinned version resolved in design |
 | FR11 | Top-level directories from `steering/structure.md` exist (with `.gitkeep` where otherwise empty) | Must | `specs/.gitkeep`, `steering/` already seeded — do NOT regenerate per issue body |
-| FR12 | Dogfood UE `.uproject` fixture used when `start-unreal-mcp.sh` is invoked from inside this repo | Should | Minimal blank UE 5.7 project; gives the launcher a valid target so contributors can smoke-test without a consumer. The `NmgGameDevMCP` bridge port-bind is not validated here — that arrives with issue #3. |
+| FR12 | Dogfood UE `.uproject` fixture used when `start-unreal-mcp.sh` is invoked from inside this repo | Should | Minimal blank UE 5.7 project; gives the launcher a valid target so contributors can smoke-test without a consumer. VibeUE's port-bind is not validated here — that arrives when VibeUE is enabled in a consumer `.uproject` (via `onboard-consumer`). *(Updated 2026-04-22: previously said "NmgGameDevMCP bridge port-bind" validated by #2/#3; corrected per #2 review — VibeUE owns the bind, not us.)* |
 
 ---
 
@@ -284,7 +286,7 @@ No persistent data model is introduced. Configuration artifacts only:
 
 Explicitly NOT included in this issue (tracked as other v1 issues per issue #1's own "Out of scope" list):
 
-- UE plugin sources beyond the plugin manifest stub needed to boot the MCP bridge on session-start.
+- UE plugin sources (`.uplugin`, modules, helpers). All UE plugin content lands in #2. *(Updated 2026-04-22: previously said "beyond the plugin manifest stub needed to boot the MCP bridge on session-start" — the bridge is owned by VibeUE, not nmg-game-dev, so no stub is needed in this issue and #2 ships only Runtime + Editor modules.)*
 - Blender add-on implementation — only the `__init__.py` / `bl_info` shim needed for `start-blender-mcp.sh` to discover and enable an add-on name.
 - Any skills under `skills/` beyond schema-stubbed `SKILL.md` placeholders.
 - Texture-gen tool integration (v1 spike, separately).
@@ -319,6 +321,7 @@ Explicitly NOT included in this issue (tracked as other v1 issues per issue #1's
 | Issue | Date | Summary |
 |-------|------|---------|
 | #1 | 2026-04-22 | Initial feature spec |
+| #2 | 2026-04-22 | Cleanup: drop NmgGameDevMCP framing — VibeUE owns the editor MCP bridge end-to-end (no nmg-game-dev module binds the port) |
 
 ---
 
