@@ -1,6 +1,6 @@
 {
   "name": "nmg-game-dev",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Blender-first, Unreal-shipped content pipeline for NMG games — skills, MCP servers, Blender add-on, UE plugin, build/sign/ship",
   "authors": [{ "name": "Nunley Media Group" }],
   "capabilities": {

@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-22
+
+### Added
+
+- UE plugin skeleton: Runtime and Editor modules, AssetResolver, automation test runner. (#2)
+
 ## [0.2.0] - 2026-04-22
 
 ### Added
