@@ -10,6 +10,7 @@ readme = "CLAUDE.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]
 license = { text = "Proprietary" }
+dependencies = ["pydantic>=2,<3"]
 
 [project.optional-dependencies]
 dev = [
@@ -39,8 +40,23 @@ select = ["E", "F", "I", "N", "UP", "B"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+# tests/blender/ requires the Blender-bundled Python runtime (bpy, addon_utils)
+# which cannot be installed in the dev venv — excluded from type-checking.
+exclude = ["tests/blender/"]
+
+[[tool.mypy.overrides]]
+module = ["_scaffold_contract"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
 bdd_features_base_dir = "tests/bdd/features"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.2",
+    "pytest>=9.0.3",
+    "pytest-bdd>=8.1.0",
+    "ruff>=0.15.11",
+]
