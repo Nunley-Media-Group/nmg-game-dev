@@ -125,7 +125,7 @@ The validation in step 5 is what closes AC5: malformed input never silently prod
 {
   "FileVersion": 3,
   "Version": 1,
-  "VersionName": "0.1.0",                        // tracked to repo-root VERSION (steering/tech.md § Versioning)
+  "VersionName": "0.2.0",                        // tracked to repo-root VERSION (steering/tech.md § Versioning)
   "FriendlyName": "nmg-game-dev",
   "Description": "NMG game development pipeline — Runtime helpers (variant resolver) and Editor authoring hooks. The Claude-to-editor MCP wire is provided by VibeUE separately.",
   "Category": "NMG",
@@ -216,8 +216,8 @@ UE module lifecycle only — no application state introduced.
 ### Initialized log message format
 
 ```
-LogNmgGameDev: Display: NmgGameDevRuntime Initialized v0.1.0
-LogNmgGameDev: Display: NmgGameDevEditor  Initialized v0.1.0
+LogNmgGameDev: Display: NmgGameDevRuntime Initialized v0.2.0
+LogNmgGameDev: Display: NmgGameDevEditor  Initialized v0.2.0
 ```
 
 Format: `LogNmgGameDev: <Verbosity>: <ModuleName> Initialized v<VersionName>` — fixed-format so AC2's grep is `grep -E 'LogNmgGameDev: Display: Nmg.+ Initialized'` and produces exactly two matches. Closes the related Open Question.

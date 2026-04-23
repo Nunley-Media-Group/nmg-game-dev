@@ -42,7 +42,7 @@ The split exists because shipping editor code in player builds is forbidden — 
 
 ### Versioning relationship to `VERSION`
 
-Per `steering/tech.md` § Versioning, the plugin's `VersionName` field tracks the repo-root `VERSION` file (single source of truth). At the time this issue lands, `VERSION` reads `0.1.0` from `#1`; the `.uplugin`'s `VersionName` MUST be set to that exact value. Future bumps via `/open-pr` propagate to both files in the same commit.
+Per `steering/tech.md` § Versioning, the plugin's `VersionName` field tracks the repo-root `VERSION` file (single source of truth). At the time this issue lands, `VERSION` reads `0.2.0` (bumped from `#1`'s `0.1.0` when `/open-pr` merged `#1`); the `.uplugin`'s `VersionName` MUST be set to that exact value. Future bumps via `/open-pr` propagate to both files in the same commit.
 
 ### Module-naming and visibility decisions deferred to design
 
@@ -61,7 +61,7 @@ This issue **blocks** `#6` (ship skills — needs a buildable UE plugin to packa
 **Given** `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` exists at the path declared in `steering/structure.md`
 **When** UnrealBuildTool parses the manifest during a project regenerate (`-projectfiles`)
 **Then** UBT exits 0 with no manifest-parse errors
-**And** the manifest declares `FriendlyName`, `Version` (numeric), `VersionName` (string, equal to the repo-root `VERSION` value `0.1.0`), `EngineVersion: "5.7.0"`, two `Modules` entries (`NmgGameDevRuntime`, `NmgGameDevEditor`), and the platform whitelist documented in design
+**And** the manifest declares `FriendlyName`, `Version` (numeric), `VersionName` (string, equal to the repo-root `VERSION` value `0.2.0`), `EngineVersion: "5.7.0"`, two `Modules` entries (`NmgGameDevRuntime`, `NmgGameDevEditor`), and the platform whitelist documented in design
 **And** every `Modules` entry declares `Type` (`Runtime` for the first; `Editor` for the second) and `LoadingPhase`
 
 ### AC2: Plugin loads in a UE 5.7 project — both modules report loaded
@@ -133,7 +133,7 @@ Feature: UE plugin skeleton — Runtime + Editor modules
     Given the .uplugin file at plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin
     When UBT parses the manifest
     Then no parse errors occur
-    And the manifest declares VersionName "0.1.0", two modules, and platform whitelist
+    And the manifest declares VersionName "0.2.0", two modules, and platform whitelist
 
   Scenario: Both modules load in UE 5.7
     Given the dogfood fixture has the plugin enabled
@@ -180,7 +180,7 @@ Feature: UE plugin skeleton — Runtime + Editor modules
 
 | ID | Requirement | Priority | Notes |
 |----|-------------|----------|-------|
-| FR1 | `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` — manifest declaring `FriendlyName`, `Version`, `VersionName` (tracked to `VERSION` per `steering/tech.md` § Versioning), `EngineVersion: "5.7.0"`, two `Modules` entries, and per-module platform whitelist | Must | `VersionName` MUST equal repo-root `VERSION` at the time the spec lands (`0.1.0`) |
+| FR1 | `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` — manifest declaring `FriendlyName`, `Version`, `VersionName` (tracked to `VERSION` per `steering/tech.md` § Versioning), `EngineVersion: "5.7.0"`, two `Modules` entries, and per-module platform whitelist | Must | `VersionName` MUST equal repo-root `VERSION` at the time the spec lands (`0.2.0`) |
 | FR2 | `Source/NmgGameDevRuntime/NmgGameDevRuntime.Build.cs` — module build rules; `Type=Runtime`; minimum dependency surface (`Core`, `CoreUObject`, `Engine` — no editor-only deps) | Must | Per `steering/tech.md` § Coding Standards (UE C++): "Editor-only code lives in a separate `*Editor` module" |
 | FR3 | `Source/NmgGameDevRuntime/Public/NmgAssetResolver.h` + `Private/NmgAssetResolver.cpp` — `UNmgAssetResolver` class exposing `ResolveVariantPath(FSoftObjectPath)` callable from Blueprint under category `nmg-game-dev` (matches the file template intent in `steering/structure.md` § File Templates) | Must | Variant-aware: Desktop on `Windows`/`Mac`/`Linux`, Mobile on `IOS`/`Android`; failure mode per AC5 |
 | FR4 | `Source/NmgGameDevRuntime/Private/NmgGameDevRuntimeModule.cpp` — `FNmgGameDevRuntimeModule : IModuleInterface` with `StartupModule` / `ShutdownModule` placeholders that emit one `Initialized` log line on `LogNmgGameDev` | Must | Log channel `LogNmgGameDev` defined here so both modules share it |

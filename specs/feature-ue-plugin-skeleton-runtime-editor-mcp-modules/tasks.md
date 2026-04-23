@@ -11,12 +11,12 @@
 
 | Phase | Tasks | Status |
 |-------|-------|--------|
-| Setup | 3 | [ ] |
-| Backend (Runtime module) | 5 | [ ] |
-| Backend (Editor module) | 2 | [ ] |
-| Integration | 2 | [ ] |
-| Testing | 3 | [ ] |
-| **Total** | **15 tasks** | |
+| Setup | 3 | [x] |
+| Backend (Runtime module) | 5 | [x] |
+| Backend (Editor module) | 2 | [x] |
+| Integration | 2 | [x] |
+| Testing | 3 | [x] |
+| **Total** | **15 tasks** | Completed 2026-04-22 (verify-code) |
 
 (No Frontend phase — this issue ships no UI.)
 
@@ -31,7 +31,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] File matches the schema in `design.md` § `.uplugin` schema (UE 5.7) verbatim
-- [ ] `VersionName` field equals the current value of repo-root `VERSION` (`0.1.0` at issue-land time)
+- [ ] `VersionName` field equals the current value of repo-root `VERSION` (`0.2.0` at issue-land time — bumped from `0.1.0` when `#1`'s `/open-pr` landed)
 - [ ] `EngineVersion` is `"5.7.0"`
 - [ ] Two `Modules` entries: `NmgGameDevRuntime` (`Type=Runtime`, `LoadingPhase=Default`) and `NmgGameDevEditor` (`Type=Editor`, `LoadingPhase=Default`)
 - [ ] `PlatformAllowList` per module matches AC8 (Runtime: Mac/Win64/Linux/IOS/Android; Editor: Mac/Win64/Linux)
