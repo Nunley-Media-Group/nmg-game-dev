@@ -1,0 +1,119 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "Richards-Mac-Studio.local",
+			"instance": "C569E4B35247FECDF25B57AA769AB120",
+			"instanceName": "Richards-Mac-Studio.local-74392",
+			"platform": "MacEditor",
+			"oSVersion": "macOS 26.3.1 25D2128",
+			"model": "Default",
+			"gPU": "Apple M1 Max",
+			"cPUModel": "Apple M1 Max",
+			"rAMInGB": 32,
+			"renderMode": "SM6",
+			"rHI": "",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.04.23-00.12.47",
+	"succeeded": 6,
+	"succeededWithWarnings": 0,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.10089103877544403,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "emits a single LogNmgGameDev warning per malformed input",
+			"fullTestPath": "NmgGameDev.Runtime.AssetResolver.emits a single LogNmgGameDev warning per malformed input",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"C569E4B35247FECDF25B57AA769AB120"
+			],
+			"duration": 0.016547832638025284,
+			"dateTime": "2026.04.23-00.12.47",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "resolves Desktop variant on host desktop platforms",
+			"fullTestPath": "NmgGameDev.Runtime.AssetResolver.resolves Desktop variant on host desktop platforms",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"C569E4B35247FECDF25B57AA769AB120"
+			],
+			"duration": 0.016668293625116348,
+			"dateTime": "2026.04.23-00.12.47",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "returns input unchanged on path with /Desktop/ already present",
+			"fullTestPath": "NmgGameDev.Runtime.AssetResolver.returns input unchanged on path with /Desktop/ already present",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"C569E4B35247FECDF25B57AA769AB120"
+			],
+			"duration": 0.016535207629203796,
+			"dateTime": "2026.04.23-00.12.47",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "returns input unchanged on path with /Mobile/ already present",
+			"fullTestPath": "NmgGameDev.Runtime.AssetResolver.returns input unchanged on path with /Mobile/ already present",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"C569E4B35247FECDF25B57AA769AB120"
+			],
+			"duration": 0.018875084817409515,
+			"dateTime": "2026.04.23-00.12.47",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "returns input unchanged on too-short path",
+			"fullTestPath": "NmgGameDev.Runtime.AssetResolver.returns input unchanged on too-short path",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"C569E4B35247FECDF25B57AA769AB120"
+			],
+			"duration": 0.016427624970674515,
+			"dateTime": "2026.04.23-00.12.47",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "returns input unchanged when asset name does not match parent folder name",
+			"fullTestPath": "NmgGameDev.Runtime.AssetResolver.returns input unchanged when asset name does not match parent folder name",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"C569E4B35247FECDF25B57AA769AB120"
+			],
+			"duration": 0.015837002545595169,
+			"dateTime": "2026.04.23-00.12.47",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}

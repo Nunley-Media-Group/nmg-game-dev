@@ -67,7 +67,7 @@ Developer in Claude Code
 | Shell scripts | bash | `set -euo pipefail`; shellcheck-clean |
 | 3D generation (supplement) | Meshy.io | via MCP |
 | 3D + asset control (primary) | Blender MCP (`ahujasid/blender-mcp`) | pinned per `.mcp.json` |
-| UE control | Unreal MCP / VibeUE-style HTTP bridge | pinned per `.mcp.json` |
+| UE control | VibeUE in-editor plugin (binds 127.0.0.1:8088/mcp inside UE) | pinned per `.mcp.json`; NMG does NOT author its own UE-side bridge |
 | Texture generation | **TBD — v1 spike** | picked during v1; pluggable interface |
 
 ### External Services
@@ -223,7 +223,7 @@ The framework ships two idempotent launch scripts, wired as `SessionStart` hooks
 | Script | Responsibility | Port |
 |--------|----------------|------|
 | `start-blender-mcp.sh` | Launches Blender (via `BLENDER_BIN` or `BLENDER_APP` env) with the Blender MCP add-on enabled; registers a deferred timer to start the socket server after the UI is ready. | `BLENDER_MCP_PORT` (default 9876) |
-| `start-unreal-mcp.sh` | Launches UE Editor with the consumer's `.uproject`; the nmg-game-dev UE plugin binds the MCP HTTP bridge on startup. | `UE_MCP_PORT` (default 8088) |
+| `start-unreal-mcp.sh` | Launches UE Editor with the consumer's `.uproject`; **VibeUE** (the in-editor plugin pinned in `.mcp.json`, installed by `onboard-consumer`) binds the MCP HTTP bridge on startup. nmg-game-dev's UE plugin contributes Runtime helpers + Editor authoring hooks but does NOT bind any port. | `UE_MCP_PORT` (default 8088) — read by VibeUE's Project Settings |
 
 **Contract invariants** (every launch script MUST honor):
 

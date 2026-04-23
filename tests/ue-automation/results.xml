@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="NmgGameDev" tests="6" failures="0" errors="0" skipped="0" time="0.101">
+  <testcase classname="NmgGameDev.Runtime.AssetResolver" name="emits a single LogNmgGameDev warning per malformed input" time="0.017">
+  </testcase>
+  <testcase classname="NmgGameDev.Runtime.AssetResolver" name="resolves Desktop variant on host desktop platforms" time="0.017">
+  </testcase>
+  <testcase classname="NmgGameDev.Runtime.AssetResolver" name="returns input unchanged on path with /Desktop/ already present" time="0.017">
+  </testcase>
+  <testcase classname="NmgGameDev.Runtime.AssetResolver" name="returns input unchanged on path with /Mobile/ already present" time="0.019">
+  </testcase>
+  <testcase classname="NmgGameDev.Runtime.AssetResolver" name="returns input unchanged on too-short path" time="0.016">
+  </testcase>
+  <testcase classname="NmgGameDev.Runtime.AssetResolver" name="returns input unchanged when asset name does not match parent folder name" time="0.016">
+  </testcase>
+</testsuite>

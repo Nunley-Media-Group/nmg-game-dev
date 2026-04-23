@@ -3,6 +3,20 @@
   "EngineAssociation": "5.7",
   "Category": "",
   "Description": "nmg-game-dev dogfood fixture — contributor smoke-test target for start-unreal-mcp.sh. NOT SHIPPED TO CONSUMERS.",
-  "Modules": [],
-  "Plugins": []
+  "Modules": [
+    {
+      "Name": "Dogfood",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "nmg-game-dev",
+      "Enabled": true
+    }
+  ],
+  "AdditionalPluginDirectories": [
+    "../plugins"
+  ]
 }

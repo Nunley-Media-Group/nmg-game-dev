@@ -1,8 +1,8 @@
 # Design: Scaffold plugin + repo + session-start hooks
 
-**Issues**: #1
+**Issues**: #1, #2
 **Date**: 2026-04-22
-**Status**: Draft
+**Status**: Amended
 **Author**: Rich Nunley
 
 ---
@@ -324,7 +324,7 @@ exit 0
 
 | Env var | Default | Purpose |
 |---------|---------|---------|
-| `UE_MCP_PORT` | `8088` | TCP port the UE plugin's MCP bridge binds |
+| `UE_MCP_PORT` | `8088` | TCP port the **VibeUE** in-editor plugin binds (read by VibeUE's Project Settings; nmg-game-dev does NOT bind any port) |
 | `UE_ROOT` | `/Users/Shared/Epic Games/UE_5.7` | UE install root |
 | `UE_PROJECT` | `fixtures/dogfood.uproject` (inside nmg-game-dev) / `$PWD/*.uproject` (in a consumer) | Target `.uproject` file |
 
@@ -376,8 +376,8 @@ exit 0
 ```
 
 **Design notes**:
-- Port binding is the UE plugin's responsibility, not this script's. The script's job is to open UE with the right project; the plugin does the binding. This issue does NOT implement the plugin (issue #3); the port-bind side of the contract is validated later.
-- If the consumer's `.uproject` does not have the nmg-game-dev UE plugin enabled (e.g., before issue #3 lands, or if `onboard-consumer` has not yet been run), UE will boot without the MCP bridge. The script still exits 0 — that's correct behavior; the MCP registration in `.mcp.json` is what surfaces the missing bridge as a connection error in Claude, not this launcher.
+- Port binding is **VibeUE's** responsibility, not this script's and not nmg-game-dev's UE plugin. The script's job is to open UE with the right project; VibeUE (a separate third-party UE plugin pinned in `.mcp.json`) is what actually binds the MCP HTTP bridge inside the editor. nmg-game-dev's own UE plugin (issue #2) ships Runtime + Editor modules only — no HTTP bridge module. *(Updated 2026-04-22 per #2 review: the original draft of this spec described an `NmgGameDevMCP` module that we would author; investigation against `kevinpbuckley/VibeUE` showed VibeUE owns the editor MCP wire end-to-end and writing a competing module would collide on the port.)*
+- If the consumer's `.uproject` does not have **VibeUE** enabled (e.g., before `onboard-consumer` has been run), UE will boot without the MCP bridge. The script still exits 0 — that's correct behavior; the MCP registration in `.mcp.json` is what surfaces the missing bridge as a connection error in Claude, not this launcher.
 - `UE_EDITOR` path follows UE 5.7 Apple Silicon layout. Linux / Windows parity is out of scope per requirements § Non-Functional.
 
 ### 5. `.mcp.json`
@@ -395,7 +395,7 @@ Single file, dual-purpose (contributor testing + copied by `onboard-consumer` in
     "unreal": {
       "command": "uvx",
       "args": ["vibeue-mcp@<pinned-version>"],
-      "description": "VibeUE UE MCP HTTP bridge client"
+      "description": "VibeUE in-editor plugin — binds 127.0.0.1:8088/mcp inside UE; nmg-game-dev's own UE plugin does NOT bind any MCP port (per issue #2 review)"
     },
     "meshy": {
       "command": "uvx",
@@ -621,6 +621,7 @@ Feature file: `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.featu
 | Issue | Date | Summary |
 |-------|------|---------|
 | #1 | 2026-04-22 | Initial feature spec |
+| #2 | 2026-04-22 | Cleanup: launcher design notes corrected — VibeUE binds the editor MCP bridge; nmg-game-dev's UE plugin does not |
 
 ---
 

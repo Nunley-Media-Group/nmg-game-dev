@@ -25,13 +25,13 @@ nmg-game-dev/
 │       │   │   ├── Public/
 │       │   │   ├── Private/
 │       │   │   └── Tests/         # *.spec.cpp UE Automation tests
-│       │   ├── NmgGameDevEditor/  # Editor-only module — NOT shipped in game builds
-│       │   │   ├── Public/
-│       │   │   ├── Private/
-│       │   │   └── Tests/
-│       │   └── NmgGameDevMCP/     # Editor-only MCP HTTP bridge for Claude control
+│       │   └── NmgGameDevEditor/  # Editor-only module — NOT shipped in game builds
 │       │       ├── Public/
-│       │       └── Private/
+│       │       ├── Private/
+│       │       └── Tests/
+│       │       # Note: the Claude → editor MCP wire is owned by VibeUE
+│       │       # (third-party UE plugin pinned in `.mcp.json`); nmg-game-dev does
+│       │       # NOT ship its own MCP module.
 │       ├── Content/               # Plugin-owned UE content (templates, defaults)
 │       └── Resources/             # Plugin icon, thumbnails
 ├── skills/                        # Claude Code skills shipped to consumers
@@ -183,12 +183,11 @@ Developer prompt (e.g., /new-prop Weapons/Katana standard "...")
 | Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call into `src/nmg_game_dev/pipeline/` | Directly touch MCP sockets, know UE or Blender internals |
 | Pipeline (`src/nmg_game_dev/pipeline/`) | Compose stages; cache intermediate artifacts; enforce ordering | Handle Claude I/O, write skill UX |
 | Stage implementations | Talk to exactly one MCP or one tool | Compose multi-stage flows |
-| MCP servers (Blender add-on, UE plugin MCP bridge, texture-gen) | Expose tool endpoints; own tool implementation | Know about skills or pipelines upstream |
+| MCP servers (Blender add-on, VibeUE editor plugin, texture-gen) | Expose tool endpoints; own tool implementation. VibeUE is third-party; nmg-game-dev does NOT author the UE-side bridge. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
 | Ship (`src/nmg_game_dev/ship/`) | Build, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
 | UE Runtime module | Ship inside consumer games; variant-aware asset resolvers; perf-critical helpers | Anything editor-only; anything authoring |
-| UE Editor module | Editor-time helpers; import pipelines | Ship inside cooked game content |
-| UE MCP module | HTTP bridge for Claude to drive the editor | Non-MCP editor features |
+| UE Editor module | Editor-time helpers; import pipelines | Ship inside cooked game content; bind any HTTP bridge (VibeUE owns that) |
 
 ---
 
