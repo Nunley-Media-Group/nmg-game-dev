@@ -97,20 +97,23 @@ def test_naming_contract_panels(enabled_addon: str) -> None:
 
 def test_naming_contract_property_groups(enabled_addon: str) -> None:
     """Every nmg property group starts with 'NmgGameDev' and ends with 'Props' (AC3)."""
+    import sys  # noqa: PLC0415
+
     import bpy  # noqa: PLC0415
 
-    nmg_groups = [
-        name
-        for name in dir(bpy.types)
-        if (
-            (cls := getattr(bpy.types, name, None)) is not None
-            and isinstance(cls, type)
-            and issubclass(cls, bpy.types.PropertyGroup)
-            and name.startswith("NmgGameDev")
-        )
+    # Blender 5.x does not expose registered PropertyGroups via dir(bpy.types)
+    # under their Python class name (only Operators and Panels surface that
+    # way).  REGISTER_CLASSES is the canonical list of classes the add-on
+    # commits to registering — inspect it directly.
+    addon = sys.modules[enabled_addon]
+    prop_groups = [
+        cls
+        for cls in addon.REGISTER_CLASSES
+        if isinstance(cls, type) and issubclass(cls, bpy.types.PropertyGroup)
     ]
-    assert nmg_groups, "No NmgGameDev* property groups found"
-    for name in nmg_groups:
+    assert prop_groups, "No PropertyGroup subclasses in REGISTER_CLASSES"
+    for cls in prop_groups:
+        name = cls.__name__
         assert name.startswith("NmgGameDev") and name.endswith("Props"), (
             f"PropertyGroup '{name}' violates AC3: "
             "must start with 'NmgGameDev' and end with 'Props'"
