@@ -1,0 +1,66 @@
+# File: tests/bdd/features/pipeline_*.feature (split by scenario group at test time)
+#
+# Generated from: specs/feature-pipeline-composition-core-variant-aware-stage-runner/requirements.md
+# Issue: #4
+
+Feature: Pipeline composition core — variant-aware stage runner
+  As an internal NMG game developer
+  I want a single Python entrypoint that composes Blender-first and Meshy-supplement pipeline stages
+  So that downstream skills produce Desktop + Mobile assets idempotently without speaking MCP directly
+
+  Background:
+    Given the artifact cache is rooted at a clean temporary directory
+    And the MCP clients are scripted fakes with no real Blender, UE, or Meshy processes
+
+  # --- Happy Path: Blender-first end-to-end (AC1) ---
+
+  Scenario: Run a Blender-first pipeline end-to-end on a fixture
+    Given the Blender MCP fake is reachable
+    And a fixture prompt with category "Props", name "TestCrate", tier "standard", description "wooden supply crate"
+    When I call pipeline.run with source "blender"
+    Then the stages execute in order: generate, texture, cleanup, variants, quality, import_ue
+    And the result's desktop_path ends with "Content/Props/TestCrate/Desktop/"
+    And the result's mobile_path  ends with "Content/Props/TestCrate/Mobile/"
+    And result.stages_executed contains all six stage names
+    And result.cache_hits is empty
+
+  # --- Alternative Path: Meshy-supplement end-to-end (AC2) ---
+
+  Scenario: Run a Meshy-supplement pipeline end-to-end on a fixture
+    Given the Meshy MCP fake is reachable
+    And the Blender MCP fake is reachable
+    And the UE MCP fake is reachable
+    And a fixture prompt with category "Guards", name "Patrol", tier "hero", description "futuristic patrol guard"
+    When I call pipeline.run with source "meshy"
+    Then the generate stage called the Meshy MCP fake exactly once
+    And the cleanup, variants, and quality stages called the Blender MCP fake
+    And the import_ue stage called the UE MCP fake exactly once
+    And the result's desktop_path ends with "Content/Guards/Patrol/Desktop/"
+    And the result's mobile_path  ends with "Content/Guards/Patrol/Mobile/"
+
+  # --- Error Handling: Quality-gate halt with remediation (AC4) ---
+
+  Scenario: Quality gate failure halts the run with remediation
+    Given the Blender MCP fake is reachable
+    And the UE MCP fake is reachable
+    And the variants stage is configured to produce a mobile variant that exceeds its poly budget
+    And a fixture prompt with category "Props", name "OverBudgetCrate", tier "standard", description "a crate intentionally over mobile budget"
+    When I call pipeline.run with source "blender"
+    Then a PipelineError is raised with code "quality.mobile_budget_exceeded"
+    And the error's remediation string mentions the failing mobile poly budget
+    And the import_ue stage is never invoked
+    And no partial asset is written under the consumer Content/ tree
+
+  # --- Edge Case: Idempotent resume after partial failure (AC3) ---
+
+  Scenario: Idempotent re-entry at a partial failure point
+    Given a prior pipeline.run attempt succeeded through generate, texture, and cleanup
+    And the prior attempt failed at the variants stage
+    And the artifact cache retains the generate, texture, and cleanup artifacts
+    And a fixture prompt with category "Props", name "ResumeCrate", tier "standard", description "a crate used to exercise idempotent resume"
+    When I call pipeline.run with the same prompt and source "blender"
+    Then the generate, texture, and cleanup stages are served from cache
+    And the variants, quality, and import_ue stages execute
+    And result.cache_hits equals ["generate", "texture", "cleanup"]
+    And result.stages_executed equals ["variants", "quality", "import_ue"]
+    And the Blender MCP fake was not invoked for the cached stages
