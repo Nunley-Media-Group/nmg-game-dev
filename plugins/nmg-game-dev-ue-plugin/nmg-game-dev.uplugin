@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
   "Version": 1,
-  "VersionName": "0.3.0",
+  "VersionName": "0.4.0",
   "FriendlyName": "nmg-game-dev",
   "Description": "NMG game development pipeline — Runtime helpers (variant resolver) and Editor authoring hooks. The Claude-to-editor MCP wire is provided by VibeUE separately.",
   "Category": "NMG",

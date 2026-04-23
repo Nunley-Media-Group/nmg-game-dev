@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-22
+
+### Added
+
+- Blender add-on skeleton: operator/panel/property-group stubs, mcp_server integration seam, headless test harness. (#3)
+
 ## [0.3.0] - 2026-04-22
 
 ### Added

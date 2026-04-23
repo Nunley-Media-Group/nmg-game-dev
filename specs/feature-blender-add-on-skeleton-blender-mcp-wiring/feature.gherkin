@@ -1,0 +1,97 @@
+# File: specs/feature-blender-add-on-skeleton-blender-mcp-wiring/feature.gherkin
+#
+# Generated from: specs/feature-blender-add-on-skeleton-blender-mcp-wiring/requirements.md
+# Issue: #3
+
+Feature: Blender add-on skeleton and MCP wiring
+  As an internal NMG game developer
+  I want the nmg-game-dev-blender-addon installed with stub operators, panels, a property group, and an MCP integration seam (not a server) into the existing ahujasid/blender-mcp host
+  So that every downstream Blender-facing skill has a stable place to land operators that the pinned Blender MCP host can invoke via execute_blender_code
+
+  Background:
+    Given Blender 4.2 LTS or latest stable is installed
+    And the VERSION file at the repo root contains a semver value
+
+  # --- Happy Path: registration ---
+
+  Scenario: Add-on installs and enables cleanly on Blender 4.2 LTS and latest
+    Given the nmg_game_dev_blender_addon is installed via the Extensions system or the legacy add-on path
+    When addon_utils.enable("nmg_game_dev_blender_addon", default_set=True, persistent=True) runs
+    Then the call returns without raising
+    And every class in REGISTER_CLASSES is registered with bpy.types
+    And calling unregister() followed by register() succeeds with no leaked classes
+
+  # --- Happy Path: coexistence with external MCP host ---
+
+  Scenario: Add-on coexists with ahujasid/blender-mcp and binds no additional port
+    Given scripts/start-blender-mcp.sh has enabled ahujasid/blender-mcp and its socket server is listening on BLENDER_MCP_PORT
+    When the nmg_game_dev_blender_addon is also enabled
+    Then both add-ons load without conflict, registration errors, or duplicate-class warnings
+    And the Blender process binds no additional TCP port beyond BLENDER_MCP_PORT
+    And the ahujasid/blender-mcp host can invoke any nmg operator via execute_blender_code("bpy.ops.nmggamedev.<op>()")
+    And disabling either add-on leaves the other functional
+
+  # --- Contract: naming ---
+
+  Scenario: Operators, panels, and property groups follow the naming contract
+    Given the nmg_game_dev_blender_addon is loaded
+    When the registered classes in bpy.types are inspected
+    Then every nmg operator's bl_idname begins with "nmggamedev."
+    And every nmg panel's bl_idname begins with "NMGGAMEDEV_PT_"
+    And every nmg property group class name begins with "NmgGameDev" and ends with "Props"
+
+  # --- Happy Path: operator stubs ---
+
+  Scenario Outline: Operator stubs are callable and return FINISHED with no scene mutation
+    Given the nmg_game_dev_blender_addon is loaded in a Blender session with a minimal scene
+    When bpy.ops.nmggamedev.<op>() is invoked
+    Then the result equals {"FINISHED"}
+    And the logger "nmg_game_dev_blender_addon" emits an INFO record "nmggamedev.<op>: stub invoked"
+    And the scene contents are unchanged compared to before the call
+
+    Examples:
+      | op                 |
+      | cleanup_desktop    |
+      | optimize_mobile    |
+      | generate_variants  |
+
+  # --- UI: panel discoverability ---
+
+  Scenario: Main 3D-viewport N-panel is discoverable under the NMG category
+    Given the nmg_game_dev_blender_addon is loaded in a GUI Blender session
+    When the user opens the 3D viewport's N-panel
+    Then a panel whose bl_idname begins with "NMGGAMEDEV_PT_" is visible
+    And the panel sits under the N-panel category "NMG"
+
+  Scenario: Panel class registers in Blender background mode
+    Given Blender is running in --background mode
+    When the nmg_game_dev_blender_addon is enabled
+    Then NMGGAMEDEV_PT_main_panel is present in bpy.types even though its draw() is never called
+
+  # --- Contract: version sync ---
+
+  Scenario: bl_info version tuple matches the VERSION file
+    Given the repo's VERSION file contains the string "X.Y.Z"
+    When plugins/nmg-game-dev-blender-addon/__init__.py is imported
+    Then bl_info["version"] equals the tuple (X, Y, Z)
+    And /open-pr's bl_info.version rewrite target resolves to this exact tuple literal
+
+  # --- Headless test harness ---
+
+  Scenario: Headless test harness runs the add-on end-to-end
+    Given tests/blender/ contains at least one pytest test that exercises every operator stub
+    And scripts/run-blender-tests.sh exists and is executable
+    When scripts/run-blender-tests.sh is invoked from the repo root
+    Then Blender is resolved via BLENDER_BIN, BLENDER_APP, or the documented default
+    And Blender launches in --background mode
+    And tests/blender/_runner.py ensurepips pytest (if not already installed) and drives pytest
+    And the nmg_game_dev_blender_addon loads and every operator-stub test passes
+    And the script exits 0
+
+  # --- Verification gate ---
+
+  Scenario: gate-blender-headless passes on touched paths
+    Given a diff that touches plugins/nmg-game-dev-blender-addon/** or tests/blender/**
+    When /verify-code evaluates gate-blender-headless per steering/tech.md § Verification Gates
+    Then scripts/run-blender-tests.sh runs
+    And the gate passes with exit code 0
