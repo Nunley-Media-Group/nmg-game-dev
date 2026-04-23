@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nmg-game-dev"
-version = "0.4.0"
+version = "0.5.0"
 description = "Blender-first, Unreal-shipped content pipeline for NMG games"
 readme = "CLAUDE.md"
 requires-python = ">=3.11"
