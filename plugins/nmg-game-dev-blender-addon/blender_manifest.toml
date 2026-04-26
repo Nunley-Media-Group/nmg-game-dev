@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "nmg_game_dev_blender_addon"
-version = "0.3.0"
+version = "0.5.0"
 name = "NMG Game Dev"
 tagline = "Blender-first content pipeline operators for NMG games"
 maintainer = "Nunley Media Group"

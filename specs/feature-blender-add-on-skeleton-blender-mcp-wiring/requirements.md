@@ -23,7 +23,7 @@ This issue delivers the add-on itself — nmg's OWN Blender add-on with operator
 
 ### Relationship to the external Blender MCP host
 
-`ahujasid/blender-mcp` is the **sole** MCP host for Blender-side capabilities. It binds the socket, receives tool calls from Claude, and executes Python inside Blender. **nmg-game-dev does not ship its own Blender MCP server** — it does not fork, vendor, or parallel `ahujasid/blender-mcp`, and it does not bind any port. The nmg add-on contributes `bpy` operators registered in the same Blender process; the host invokes them via Python execution (`bpy.ops.nmggamedev.<verb>_<noun>(...)`). The two add-ons coexist in the same Blender instance and remain independently enable-able.
+`ahujasid/blender-mcp` is the **sole** MCP host for Blender-side capabilities. It binds the socket, receives tool calls from Codex, and executes Python inside Blender. **nmg-game-dev does not ship its own Blender MCP server** — it does not fork, vendor, or parallel `ahujasid/blender-mcp`, and it does not bind any port. The nmg add-on contributes `bpy` operators registered in the same Blender process; the host invokes them via Python execution (`bpy.ops.nmggamedev.<verb>_<noun>(...)`). The two add-ons coexist in the same Blender instance and remain independently enable-able.
 
 ### Scope of the nmg-side MCP integration seam
 
@@ -83,7 +83,7 @@ The remaining open design question — resolved in `design.md` — is the **mech
 **Given** the repo's `VERSION` file contains `X.Y.Z` (per `steering/tech.md` § Versioning)
 **When** `plugins/nmg-game-dev-blender-addon/__init__.py` is imported
 **Then** `bl_info["version"]` equals the tuple `(X, Y, Z)`
-**And** `/open-pr`'s `bl_info.version` rewrite target (per the Versioning mapping table) resolves to this exact literal
+**And** `$nmg-sdlc:open-pr`'s `bl_info.version` rewrite target (per the Versioning mapping table) resolves to this exact literal
 
 ### AC7: Headless test harness works via run-blender-tests.sh
 
@@ -97,7 +97,7 @@ The remaining open design question — resolved in `design.md` — is the **mech
 ### AC8: `gate-blender-headless` passes on the touched paths
 
 **Given** a diff that touches `plugins/nmg-game-dev-blender-addon/**` or `tests/blender/**`
-**When** `/verify-code` evaluates `gate-blender-headless` (per `steering/tech.md` § Verification Gates)
+**When** `$nmg-sdlc:verify-code` evaluates `gate-blender-headless` (per `steering/tech.md` § Verification Gates)
 **Then** the gate runs `scripts/run-blender-tests.sh` and exits 0
 
 ### Generated Gherkin Preview
@@ -153,7 +153,7 @@ Feature: Blender add-on skeleton and MCP wiring
 
   Scenario: gate-blender-headless passes on touched paths
     Given a diff touching plugins/nmg-game-dev-blender-addon/** or tests/blender/**
-    When /verify-code evaluates gate-blender-headless
+    When $nmg-sdlc:verify-code evaluates gate-blender-headless
     Then scripts/run-blender-tests.sh runs and exits 0
 ```
 
@@ -171,7 +171,7 @@ Feature: Blender add-on skeleton and MCP wiring
 | FR6 | Property groups (e.g., `NmgGameDevPipelineProps`) scaffolded — at minimum a `StringProperty` for the active variant and an `EnumProperty` for the active preset. | Should | Enables downstream skills to persist UI state; real fields grow as skills land. |
 | FR7 | `scripts/run-blender-tests.sh` — resolves Blender via `BLENDER_BIN` / `BLENDER_APP` in the same order as `start-blender-mcp.sh`; invokes `blender --background --python <pytest-runner>.py` against `tests/blender/`; exits with the test result. | Must | Backs `gate-blender-headless` per `steering/tech.md` § Verification Gates. |
 | FR8 | `tests/blender/` — at least one smoke test that enables the add-on, exercises every operator stub, confirms the panel class is registered, and asserts the naming contract (AC3) holds for every registered class. | Must | Uses pytest under Blender's bundled Python. |
-| FR9 | The add-on's `bl_info["version"]` tuple is kept in sync with `VERSION` per the mapping table in `steering/tech.md` § Versioning. | Must | `/open-pr` rewrites the tuple literal; FR1 must produce a literal the rewriter can parse. |
+| FR9 | The add-on's `bl_info["version"]` tuple is kept in sync with `VERSION` per the mapping table in `steering/tech.md` § Versioning. | Must | `$nmg-sdlc:open-pr` rewrites the tuple literal; FR1 must produce a literal the rewriter can parse. |
 | FR10 | Every operator stub's `bl_options` is a conservative default (`{"REGISTER", "UNDO"}`) and they accept a valid context without assuming any selection. | Should | Prevents crashes when invoked via MCP without prior UI interaction. |
 | FR11 | Add-on loads in `--background` mode without attempting to draw UI; panel `poll()` (if any) guards for headless context. | Must | Required for AC7 and AC8. |
 

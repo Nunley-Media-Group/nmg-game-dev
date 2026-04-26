@@ -74,7 +74,7 @@ Feature: Blender add-on skeleton and MCP wiring
     Given the repo's VERSION file contains the string "X.Y.Z"
     When plugins/nmg-game-dev-blender-addon/__init__.py is imported
     Then bl_info["version"] equals the tuple (X, Y, Z)
-    And /open-pr's bl_info.version rewrite target resolves to this exact tuple literal
+    And $nmg-sdlc:open-pr's bl_info.version rewrite target resolves to this exact tuple literal
 
   # --- Headless test harness ---
 
@@ -92,6 +92,6 @@ Feature: Blender add-on skeleton and MCP wiring
 
   Scenario: gate-blender-headless passes on touched paths
     Given a diff that touches plugins/nmg-game-dev-blender-addon/** or tests/blender/**
-    When /verify-code evaluates gate-blender-headless per steering/tech.md § Verification Gates
+    When $nmg-sdlc:verify-code evaluates gate-blender-headless per steering/tech.md § Verification Gates
     Then scripts/run-blender-tests.sh runs
     And the gate passes with exit code 0

@@ -44,8 +44,6 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 - `plugins/nmg-game-dev-blender-addon/.gitkeep`
 - `plugins/nmg-game-dev-ue-plugin/.gitkeep`
 - `skills/.gitkeep`
-- `commands/.gitkeep`
-- `agents/.gitkeep`
 - `mcp-servers/.gitkeep`
 - `tests/unit/.gitkeep`
 - `tests/bdd/features/.gitkeep`
@@ -59,29 +57,29 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 - `docs/decisions/.gitkeep`
 - `scripts/` (directory only — content in Phase 2)
 - `fixtures/` (directory only — content in Phase 2)
-- `templates/consumer/.claude/` (directory only — content in Phase 2)
+- `templates/consumer/.codex/` (directory only — content in Phase 2)
 
 **Type**: Create
 **Depends**: None
 **Acceptance**:
 - [ ] Every top-level directory listed in `steering/structure.md` § Project Layout exists at the repo root.
 - [ ] Directories with no other content in this issue carry a `.gitkeep` so they survive `git add`.
-- [ ] `specs/`, `steering/`, `.claude-plugin/` are NOT re-created (already seeded / owned by later tasks respectively).
+- [ ] `specs/`, `steering/`, `.codex-plugin/` are NOT re-created (already seeded / owned by later tasks respectively).
 - [ ] `ls <dir>` on every created directory returns either the `.gitkeep` or the content committed by a later task in this issue.
 
-### T002: Write `.claude-plugin/plugin.json`
+### T002: Write `.codex-plugin/plugin.json`
 
-**File(s)**: `.claude-plugin/plugin.json`
+**File(s)**: `.codex-plugin/plugin.json`
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
 - [ ] Valid JSON; loads without error.
-- [ ] Declares `name: "nmg-game-dev"`, `version: "0.1.0"`, `description`, `authors` (array with `{name: "Nunley Media Group"}`).
-- [ ] Declares `capabilities.skills = "skills/"`, `.commands = "commands/"`, `.agents = "agents/"` — all relative paths (install-scope-invariant).
+- [ ] Declares `name: "nmg-game-dev"`, `version: "0.5.0"`, `description`, `author = {name: "Nunley Media Group"}`, and `skills = "./skills/"`.
+- [ ] Does not declare legacy `capabilities`, `commands`, `agents`, or host-specific `requires` fields.
 - [ ] No absolute paths anywhere in the file.
-- [ ] If Claude Code exposes a `claude plugin validate` command, it exits 0. Otherwise `python -c "import json; json.load(open('.claude-plugin/plugin.json'))"` exits 0 AND required-key pytest (T015a) passes.
+- [ ] If Codex exposes a `codex plugin validate` command, it exits 0. Otherwise `python -c "import json; json.load(open('.codex-plugin/plugin.json'))"` exits 0 AND required-key pytest (T015a) passes.
 
-**Notes**: Use the shape from design.md § Artifact specifications #1. Drop the `$schema` field if Claude Code doesn't publish that URL — implementation task verifies.
+**Notes**: Use the shape from design.md § Artifact specifications #1. Drop the `$schema` field if Codex doesn't publish that URL — implementation task verifies.
 
 ### T003: Seed `VERSION` and `CHANGELOG.md`
 
@@ -89,21 +87,21 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
-- [ ] `VERSION` contains exactly `0.1.0\n` (one line, trailing newline).
+- [ ] `VERSION` contains exactly `0.5.0\n` (one line, trailing newline).
 - [ ] `CHANGELOG.md` has an `## [Unreleased]` heading and an `### Added` subsection referencing `#1`.
-- [ ] No content from a pre-`0.1.0` state.
+- [ ] No content from a pre-`0.5.0` state.
 
-**Notes**: `/open-pr` will append to `[Unreleased]` on every subsequent PR. Format per `steering/tech.md` § Versioning + Keep-a-Changelog 1.1.0.
+**Notes**: `$nmg-sdlc:open-pr` will append to `[Unreleased]` on every subsequent PR. Format per `steering/tech.md` § Versioning + Keep-a-Changelog 1.1.0.
 
-### T004: Write `CLAUDE.md` entry-point pointer doc
+### T004: Write `AGENTS.md` entry-point pointer doc
 
-**File(s)**: `CLAUDE.md`
+**File(s)**: `AGENTS.md`
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
 - [ ] Opens with a one-paragraph project summary aligned with `steering/product.md` § Mission.
 - [ ] Links to `steering/product.md`, `steering/tech.md`, `steering/structure.md`.
-- [ ] Mentions `/draft-issue` as the SDLC entry point.
+- [ ] Mentions `$nmg-sdlc:draft-issue` as the SDLC entry point.
 - [ ] Does NOT duplicate content from steering docs (pointer-only).
 - [ ] Explicitly notes install-scope invariance (AC11) so contributors understand the consumer-vs-this-repo distinction.
 
@@ -113,7 +111,7 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 **Type**: Create
 **Depends**: T001
 **Acceptance**:
-- [ ] `[project]` block: `name = "nmg-game-dev"`, `version = "0.1.0"`, `description`, `readme = "CLAUDE.md"`, `requires-python = ">=3.11"`, `authors = [{ name = "Nunley Media Group" }]`, `license = { text = "Proprietary" }`.
+- [ ] `[project]` block: `name = "nmg-game-dev"`, `version = "0.5.0"`, `description`, `readme = "AGENTS.md"`, `requires-python = ">=3.11"`, `authors = [{ name = "Nunley Media Group" }]`, `license = { text = "Proprietary" }`.
 - [ ] `[project.optional-dependencies].dev` includes `pytest>=8`, `pytest-bdd>=7`, `ruff>=0.4`, `mypy>=1.10`.
 - [ ] `[build-system]` uses `hatchling`.
 - [ ] `[tool.hatch.build.targets.wheel] packages = ["src/nmg_game_dev"]`.
@@ -134,7 +132,7 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 **Type**: Create
 **Depends**: T005
 **Acceptance**:
-- [ ] Top-level `__init__.py` declares `__version__ = "0.1.0"` and has a one-line module docstring.
+- [ ] Top-level `__init__.py` declares `__version__ = "0.5.0"` and has a one-line module docstring.
 - [ ] Each submodule `__init__.py` has a one-line docstring and `from __future__ import annotations`.
 - [ ] `python -c "import nmg_game_dev; import nmg_game_dev.pipeline; import nmg_game_dev.variants; import nmg_game_dev.quality; import nmg_game_dev.ship"` exits 0.
 - [ ] `ruff check src/` exits 0.
@@ -193,17 +191,17 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 
 **Notes**: Implementation task records the three pinned versions in the PR description for traceability. Pins are revisited in a future maintenance issue when Dependabot-equivalent tooling lands.
 
-### T010: Create `templates/consumer/.claude/settings.json` + README
+### T010: Create `templates/consumer/.codex/hooks.json` + README
 
 **File(s)**:
-- `templates/consumer/.claude/settings.json`
+- `templates/consumer/.codex/hooks.json`
 - `templates/consumer/README.md`
 
 **Type**: Create
 **Depends**: T001, T007, T008
 **Acceptance**:
-- [ ] `templates/consumer/.claude/settings.json` declares a `hooks.SessionStart` entry with two `{ type: "command", command: "bash scripts/<launcher>.sh" }` entries referencing `start-blender-mcp.sh` and `start-unreal-mcp.sh` — both paths relative to the consumer's repo root.
-- [ ] NO `.claude/settings.json` exists at this repo's root. Verify with `test ! -f .claude/settings.json`.
+- [ ] `templates/consumer/.codex/hooks.json` declares a `hooks.SessionStart` entry with two `{ type: "command", command: "bash scripts/<launcher>.sh" }` entries referencing `start-blender-mcp.sh` and `start-unreal-mcp.sh` — both paths relative to the consumer's repo root.
+- [ ] NO `.codex/hooks.json` exists at this repo's root. Verify with `test ! -f .codex/hooks.json`.
 - [ ] `templates/consumer/README.md` explains: (a) this directory is a consumer-onboarding template, (b) `onboard-consumer` (future v1 issue) copies it into downstream projects, (c) why it lives here and not at repo root (link to `requirements.md` § "Scope of session-start hooks — consumer-game-only").
 - [ ] Valid JSON (loads without error).
 
@@ -228,7 +226,7 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 
 **File(s)**: `specs/feature-scaffold-plugin-repo-session-start-hooks/feature.gherkin`
 **Type**: Create
-**Depends**: (None — written during Phase 3 of `/write-spec`; task declared here for `/write-code` / `/verify-code` traceability)
+**Depends**: (None — written during Phase 3 of `/write-spec`; task declared here for `$nmg-sdlc:write-code` / `$nmg-sdlc:verify-code` traceability)
 **Acceptance**:
 - [ ] Contains exactly one `Scenario` per acceptance criterion (AC1–AC11) — 11 scenarios minimum, plus the optional AC5b scenario → 12 total.
 - [ ] Feature heading matches the spec title.
@@ -262,14 +260,14 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 **Type**: Create
 **Depends**: T002, T003, T004, T005, T009, T010, T011
 **Acceptance**:
-- [ ] **T015a — plugin.json schema**: loads `.claude-plugin/plugin.json` as JSON; asserts required keys (`name`, `version`, `description`, `authors`, `capabilities`). (Supports AC1.)
+- [ ] **T015a — plugin.json schema**: loads `.codex-plugin/plugin.json` as JSON; asserts required keys (`name`, `version`, `description`, `author`, `skills`) and absence of legacy capability fields. (Supports AC1.)
 - [ ] **T015b — directory layout**: asserts every directory in `steering/structure.md` § Project Layout exists at repo root. (Supports AC2.)
 - [ ] **T015c — .mcp.json pinning**: asserts no `latest`/`main`/`HEAD` substrings; asserts all three servers declared. (Supports AC8.)
-- [ ] **T015d — no-leak grep**: scans `.claude-plugin/plugin.json`, `scripts/start-*-mcp.sh`, `templates/consumer/.claude/settings.json`, `.mcp.json`, and `pyproject.toml` for banned substrings: absolute `/Users/<name>/` paths (except documented defaults), `fixtures/dogfood.uproject` references, `.claude/plugins/` or `~/.claude/plugins/` hard-codes. (Supports AC10, AC11.)
-- [ ] **T015e — no repo-root SessionStart wiring**: asserts `.claude/settings.json` does NOT exist at repo root. (Supports AC5b.)
-- [ ] **T015f — version triangulation**: asserts `VERSION`, `.claude-plugin/plugin.json`'s `version`, and `pyproject.toml`'s `project.version` all equal `0.1.0`. (Supports AC7 + `steering/tech.md` versioning-mapping.)
+- [ ] **T015d — no-leak grep**: scans `.codex-plugin/plugin.json`, `scripts/start-*-mcp.sh`, `templates/consumer/.codex/hooks.json`, `.mcp.json`, and `pyproject.toml` for banned substrings: absolute `/Users/<name>/` paths (except documented defaults), `fixtures/dogfood.uproject` references, or hard-coded install-scope paths. (Supports AC10, AC11.)
+- [ ] **T015e — no repo-root SessionStart wiring**: asserts `.codex/hooks.json` does NOT exist at repo root. (Supports AC5b.)
+- [ ] **T015f — version triangulation**: asserts `VERSION`, `.codex-plugin/plugin.json`'s `version`, and `pyproject.toml`'s `project.version` all equal `0.5.0`. (Supports AC7 + `steering/tech.md` versioning-mapping.)
 - [ ] **T015g — CHANGELOG shape**: asserts `CHANGELOG.md` contains `## [Unreleased]`. (Supports AC7.)
-- [ ] **T015h — CLAUDE.md pointers**: asserts `CLAUDE.md` references `steering/product.md`, `steering/tech.md`, `steering/structure.md`, and `/draft-issue`. (Supports AC9.)
+- [ ] **T015h — AGENTS.md pointers**: asserts `AGENTS.md` references `steering/product.md`, `steering/tech.md`, `steering/structure.md`, and `$nmg-sdlc:draft-issue`. (Supports AC9.)
 - [ ] `pytest tests/unit/` exits 0.
 
 ### T016: Verify project-wide gates pass on the scaffolding
@@ -283,7 +281,7 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 - [ ] `gate-python-unit` (`pytest tests/unit/`) exits 0.
 - [ ] `gate-python-bdd` (`pytest tests/bdd/`) exits 0.
 - [ ] `gate-shellcheck` (`shellcheck -S style scripts/*.sh`) exits 0.
-- [ ] `gate-markdown-lint` (`markdownlint docs/ steering/ *.md`) exits 0 — note: `specs/` is excluded per `steering/tech.md` pattern. If markdownlint surfaces formatting nits in `CHANGELOG.md` or `CLAUDE.md`, fix inline.
+- [ ] `gate-markdown-lint` (`markdownlint docs/ steering/ *.md`) exits 0 — note: `specs/` is excluded per `steering/tech.md` pattern. If markdownlint surfaces formatting nits in `CHANGELOG.md` or `AGENTS.md`, fix inline.
 - [ ] Gates that don't apply in this issue (e.g., `gate-ue-automation`, `gate-blender-headless`, `gate-ship-smoke`) are skipped cleanly — document any skip reasons in the verify-code output per `steering/tech.md` `verify-skip` convention.
 
 ---

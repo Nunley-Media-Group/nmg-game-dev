@@ -2,7 +2,7 @@
 # run-blender-tests.sh — Headless Blender test driver.
 #
 # Backs gate-blender-headless (steering/tech.md § Verification Gates).
-# Invoked by /verify-code when a diff touches plugins/nmg-game-dev-blender-addon/**
+# Invoked by $nmg-sdlc:verify-code when a diff touches plugins/nmg-game-dev-blender-addon/**
 # or tests/blender/**.
 #
 # Blender resolution order mirrors scripts/start-blender-mcp.sh lines 19-33:

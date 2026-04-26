@@ -7,7 +7,7 @@ All feature development should align with these guidelines.
 
 ## Mission
 
-**nmg-game-dev is an opinionated, Blender-first content-generation framework for Unreal Engine games used by the Nunley Media Group game team to turn creative intent into production-ready UE assets through Claude-orchestrated, free-flow ad-hoc workflows that enforce quality without sacrificing iteration speed — and it is also the delivery vehicle used to ship full games to players.**
+**nmg-game-dev is an opinionated, Blender-first content-generation framework for Unreal Engine games used by the Nunley Media Group game team to turn creative intent into production-ready UE assets through Codex-orchestrated, free-flow ad-hoc workflows that enforce quality without sacrificing iteration speed — and it is also the delivery vehicle used to ship full games to players.**
 
 The framework wears two hats:
 
@@ -16,7 +16,7 @@ The framework wears two hats:
 
 It is consumed as:
 
-1. A **Claude Code plugin** — skills and slash commands that wrap the full game-dev loop: asset generation, level dressing, build, sign, ship.
+1. A **Codex plugin** — skills that wrap the full game-dev loop: asset generation, level dressing, build, sign, ship.
 2. A **Blender add-on** — authoring-side tooling for generation, cleanup, and optimization.
 3. An **Unreal Engine plugin** — editor-side tooling for import, retarget, platform-variant handling, and runtime helpers that ship inside the consumer's game.
 
@@ -30,7 +30,7 @@ The headline capability: **Blender, driven by MCP and a texture-design tool (TBD
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Works inside Claude Code day-to-day; prefers adhoc skills over multi-step SDLC ceremony for creative work | Expose capability as short slash commands and skills; keep heavyweight spec cycles optional, not required |
+| Works inside Codex day-to-day; prefers adhoc skills over multi-step SDLC ceremony for creative work | Expose capability as short, focused skills; keep heavyweight spec cycles optional, not required |
 | Fluent in Unreal Engine + Blender, comfortable with Python; mixed comfort with MCP server authoring | Skill UX must abstract MCP plumbing; skill authors use nmg-sdlc internally when building new skills |
 | Iterates on asset quality visually — reruns generation, tweaks prompts, reimports | Idempotent pipeline stages; fast cache of intermediate artifacts; re-entry at any stage |
 | Ships to multiple platforms (desktop + mobile) per consumer project | Variant-aware from the authoring step; never require a retrofit pass to add a mobile variant |
@@ -56,8 +56,8 @@ The headline capability: **Blender, driven by MCP and a texture-design tool (TBD
 
 1. **Blender-first, Meshy-capable** — the framework gets Blender to Meshy-parity (or better) for text-to-3D + texture, and still lets Meshy step in when its strengths apply (fast ideation, niche categories). No lock-in to either source.
 2. **Creative freedom with quality gates** — adhoc iteration is the default path; quality (polycount, texture budgets, manifest correctness, player-facing perf) is enforced automatically, not by human review.
-3. **Drop-in plugin shape** — a consumer project runs `claude plugin add nmg-game-dev` (or equivalent), installs the Blender add-on and UE plugin, and immediately has the full skill suite available. Onboarding is a first-class deliverable, not an afterthought.
-4. **Claude-native orchestration** — every pipeline stage and every ship step is addressable by a skill or MCP tool. The developer's interface is chat + natural language, not a bespoke CLI.
+3. **Drop-in plugin shape** — a consumer project installs `nmg-game-dev` from a Codex plugin marketplace or this repo, installs the Blender add-on and UE plugin, and immediately has the full skill suite available. Onboarding is a first-class deliverable, not an afterthought.
+4. **Codex-native orchestration** — every pipeline stage and every ship step is addressable by a skill or MCP tool. The developer's interface is chat + natural language, not a bespoke CLI.
 5. **Repo to store-ready in one framework** — generate content, build per platform, sign, notarize, package. The same framework that creates the assets also delivers the game.
 
 ---
@@ -67,7 +67,7 @@ The headline capability: **Blender, driven by MCP and a texture-design tool (TBD
 | Principle | Description |
 |-----------|-------------|
 | Blender is the primary authoring surface | New capability lands in Blender first; Meshy is a supplement. When forced to choose, invest in Blender tooling. |
-| Adhoc by default, ceremony when you need it | Short slash commands for 90% of creative work. Formal spec cycles for architectural changes or consumer-facing API. |
+| Adhoc by default, ceremony when you need it | Short skills for 90% of creative work. Formal spec cycles for architectural changes or consumer-facing API. |
 | Quality is automatic or it doesn't exist | Every asset-producing skill ends with a verification gate. No "we'll check it later." |
 | Variants are first-class, not an afterthought | Desktop and Mobile are modeled from the first generation step. No retrofit pass. |
 | Idempotent, resumable, cacheable | Any stage can be rerun without redoing upstream work. Generation is expensive; cache aggressively. |
@@ -117,7 +117,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 ### Journey 1: Internal dev generates a prop, Blender-first
 
 ```
-1. Developer types /new-prop Weapons/Katana standard "Tachi-style katana, weathered"
+1. Developer invokes `$new-prop Weapons/Katana standard "Tachi-style katana, weathered"`
 2. nmg-game-dev orchestrates: texture-gen tool → Blender MCP (mesh + materials) → quality gate → Blender MCP (desktop + mobile variants) → UE MCP (import)
 3. Developer sees both variants under Content/Weapons/Katana/{Desktop,Mobile}/ in the consumer project
 4. If quality gate fails, skill surfaces the failure and the iteration prompt
@@ -126,7 +126,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 ### Journey 2: Internal dev uses Meshy because the category benefits from it
 
 ```
-1. Developer types /new-character Guards/Patrol "Futuristic patrol guard, light armor" --source meshy
+1. Developer invokes `$new-character Guards/Patrol "Futuristic patrol guard, light armor" --source meshy`
 2. nmg-game-dev routes: Meshy MCP (generation) → Blender MCP (cleanup + mobile optimize) → UE MCP (import)
 3. Same variant output, same quality gates
 ```
@@ -135,15 +135,15 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 ```
 1. Clone the consumer project; run the nmg-game-dev onboarding skill
-2. Skill installs the Claude Code plugin, Blender add-on, UE plugin; prompts for API keys
-3. First /new-prop or /new-character invocation works end-to-end
+2. Skill installs the Codex plugin, Blender add-on, UE plugin; prompts for API keys
+3. First `$new-prop` or `$new-character` invocation works end-to-end
 4. Consumer's first commit includes only their new content — no framework bootstrap noise
 ```
 
 ### Journey 4: Ship a build to players
 
 ```
-1. Developer types /ship mobile (or desktop, or all)
+1. Developer invokes `$build-platform mobile` (or desktop, or all)
 2. nmg-game-dev drives UE packaging → code signing → notarization (macOS) → cook-manifest verification per platform
 3. Output is a store-ready artifact: .ipa / .aab / .app / .exe
 4. Quality gates block the ship if any fail; failures surface the remediation prompt, not a raw log

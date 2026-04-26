@@ -6,18 +6,17 @@ import pathlib
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
-EXPECTED_VERSION = "0.1.0"
+EXPECTED_VERSION = "0.5.0"
 
 REQUIRED_SERVERS = ("blender", "unreal", "meshy")
 FLOATING_VERSION_REFS = ("latest", "main", "HEAD")
 
 REQUIRED_DIRS = (
-    ".claude-plugin",
+    ".agents/plugins",
+    ".codex-plugin",
     "plugins/nmg-game-dev-blender-addon",
     "plugins/nmg-game-dev-ue-plugin",
     "skills",
-    "commands",
-    "agents",
     "mcp-servers",
     "scripts",
     "src/nmg_game_dev",
@@ -39,7 +38,7 @@ REQUIRED_DIRS = (
     "steering",
     "fixtures",
     "templates/consumer",
-    "templates/consumer/.claude",
+    "templates/consumer/.codex",
 )
 
 # Directories expected to carry a .gitkeep when otherwise empty in this issue.
@@ -47,8 +46,6 @@ GITKEEP_DIRS = (
     "plugins/nmg-game-dev-blender-addon",
     "plugins/nmg-game-dev-ue-plugin",
     "skills",
-    "commands",
-    "agents",
     "mcp-servers",
     "tests/unit",
     "tests/bdd/steps",
@@ -62,17 +59,22 @@ GITKEEP_DIRS = (
 )
 
 CONSUMER_FACING = (
-    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    ".agents/plugins/marketplace.json",
     "scripts/start-blender-mcp.sh",
     "scripts/start-unreal-mcp.sh",
-    "templates/consumer/.claude/settings.json",
+    "templates/consumer/.codex/hooks.json",
+    "templates/consumer/.codex/config.toml",
     ".mcp.json",
     "pyproject.toml",
 )
 
 BANNED_SUBSTRINGS = (
-    "~/.claude/plugins/",
-    ".claude/plugins/",
+    "~/.cla" "ude/plugins/",
+    ".cla" "ude/plugins/",
+    ".cla" "ude-plugin",
+    "CLA" "UDE.md",
+    "Cla" "ude Code",
 )
 
 # start-unreal-mcp.sh legitimately references $PWD/fixtures/dogfood.uproject as a

@@ -5,7 +5,7 @@
 
 Feature: Scaffold plugin + repo + session-start hooks
   As an internal NMG game developer
-  I want a fresh clone of nmg-game-dev to self-assemble into a working Claude Code plugin
+  I want a fresh clone of nmg-game-dev to self-assemble into a working Codex plugin
     whose two launcher scripts are ready for consumer-game adoption and whose
     Python/MCP scaffolding is in place
   So that every downstream v1 issue (#2–#7) can assume the skeleton is wired and
@@ -17,10 +17,11 @@ Feature: Scaffold plugin + repo + session-start hooks
   # --- Plugin manifest ---
 
   Scenario: Plugin manifest is valid (AC1)
-    Given `.claude-plugin/plugin.json` exists at the repo root
-    When the plugin manifest is validated against Claude Code's schema
+    Given `.codex-plugin/plugin.json` exists at the repo root
+    When the plugin manifest is validated against Codex's plugin schema
     Then validation passes with no errors
-    And the manifest declares "name", "version", "description", "authors", and capability fields
+    And the manifest declares "name", "version", "description", "author", and skills fields
+    And `.agents/plugins/marketplace.json` points to the local plugin
 
   # --- Directory layout ---
 
@@ -68,10 +69,11 @@ Feature: Scaffold plugin + repo + session-start hooks
   # --- Consumer SessionStart template ---
 
   Scenario: Consumer SessionStart template ships under templates/consumer/ (AC5b)
-    Given `templates/consumer/.claude/settings.json` exists in this repo
+    Given `templates/consumer/.codex/hooks.json` exists in this repo
     When a reader inspects it
     Then it declares two `SessionStart` hook entries invoking `bash scripts/start-blender-mcp.sh` and `bash scripts/start-unreal-mcp.sh`
-    And no `.claude/settings.json` exists at this repo's root
+    And `templates/consumer/.codex/config.toml` enables Codex hooks
+    And no `.codex/hooks.json` exists at this repo's root
     And `templates/consumer/README.md` documents that `onboard-consumer` (future v1 issue) copies this template into downstream projects
 
   # --- Python package ---
@@ -88,10 +90,10 @@ Feature: Scaffold plugin + repo + session-start hooks
 
   Scenario: VERSION and CHANGELOG are seeded (AC7)
     When a developer reads `VERSION` and `CHANGELOG.md`
-    Then `VERSION` contains exactly `0.1.0` followed by a newline
+    Then `VERSION` contains exactly `0.5.0` followed by a newline
     And `CHANGELOG.md` has an `## [Unreleased]` section
-    And `.claude-plugin/plugin.json`'s `version` field equals `0.1.0`
-    And `pyproject.toml`'s `project.version` equals `0.1.0`
+    And `.codex-plugin/plugin.json`'s `version` field equals `0.5.0`
+    And `pyproject.toml`'s `project.version` equals `0.5.0`
 
   # --- MCP config ---
 
@@ -104,17 +106,17 @@ Feature: Scaffold plugin + repo + session-start hooks
 
   # --- Entry-point pointer ---
 
-  Scenario: CLAUDE.md points at steering + SDLC entry (AC9)
-    Given `CLAUDE.md` at the repo root
+  Scenario: AGENTS.md points at steering + SDLC entry (AC9)
+    Given `AGENTS.md` at the repo root
     When a new contributor opens the repo
-    Then `CLAUDE.md` references `steering/product.md`, `steering/tech.md`, and `steering/structure.md`
-    And it mentions `/draft-issue` as the SDLC entry point
+    Then `AGENTS.md` references `steering/product.md`, `steering/tech.md`, and `steering/structure.md`
+    And it mentions `$nmg-sdlc:draft-issue` as the SDLC entry point
     And it does not duplicate content from any steering document
 
   # --- No-leak guard ---
 
   Scenario: Nothing this-repo-specific leaks into consumer-facing deliverables (AC10)
-    Given the consumer-facing artifacts: `.claude-plugin/plugin.json`, `scripts/start-*-mcp.sh`, `templates/consumer/.claude/settings.json`, `.mcp.json`, `pyproject.toml`
+    Given the consumer-facing artifacts: `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `scripts/start-*-mcp.sh`, `templates/consumer/.codex/hooks.json`, `templates/consumer/.codex/config.toml`, `.mcp.json`, `pyproject.toml`
     When these artifacts are grep-scanned for repo-specific absolute paths, `fixtures/dogfood.uproject` references, this-repo-only module imports, and credentials
     Then no banned substring is found
     And every path resolution in the launcher scripts uses either env-var overrides or documented defaults a consumer can override without editing the script
@@ -122,8 +124,8 @@ Feature: Scaffold plugin + repo + session-start hooks
   # --- Install-scope invariance ---
 
   Scenario: Install-scope invariance (AC11)
-    Given the plugin is installed at either user scope (`~/.claude/plugins/nmg-game-dev/`) or project scope inside a consumer game repo
+    Given the plugin is installed through Codex at either user scope or project scope inside a consumer game repo
     And `onboard-consumer` (future v1 issue) has run against that consumer
-    When a developer opens the consumer project in Claude Code
-    Then the consumer-side outcome is identical regardless of the plugin's install scope — same skills, same `scripts/` contents, same `.mcp.json` content, same `.claude/settings.json` `SessionStart` entries
+    When a developer opens the consumer project in Codex
+    Then the consumer-side outcome is identical regardless of the plugin's install scope — same skills, same `scripts/` contents, same MCP config, same `.codex/hooks.json` `SessionStart` entries
     And no artifact shipped in this issue encodes or depends on a specific install scope

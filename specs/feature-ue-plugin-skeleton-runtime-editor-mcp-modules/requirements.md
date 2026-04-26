@@ -25,7 +25,7 @@ This issue fills the plugin: the `.uplugin` manifest, two C++ modules, the Asset
 
 The original issue body and `#1`'s spec assumed `NmgGameDevMCP` would be a third module that binds an HTTP bridge on `UE_MCP_PORT`. Investigation during this spec's review (`https://github.com/kevinpbuckley/VibeUE`) showed that `VibeUE` — already pinned in `.mcp.json` from `#1` — IS itself the in-editor UE plugin that binds `127.0.0.1:8088/mcp`. Its bridge is closed (no plugin-extension API), and writing a competing `NmgGameDevMCP` would either collide on the port or duplicate the entire ~950-method service surface VibeUE already provides.
 
-**Resolution**: drop `NmgGameDevMCP` from this issue entirely. The Claude → editor wire is owned by VibeUE end-to-end. NMG's contribution to the editor is the `NmgGameDevEditor` module (authoring hooks for future asset-pipeline skills) and the `NmgGameDevRuntime` module (helpers that ship in cooked games).
+**Resolution**: drop `NmgGameDevMCP` from this issue entirely. The Codex → editor wire is owned by VibeUE end-to-end. NMG's contribution to the editor is the `NmgGameDevEditor` module (authoring hooks for future asset-pipeline skills) and the `NmgGameDevRuntime` module (helpers that ship in cooked games).
 
 Concretely:
 - The dogfood `.uproject`'s `Plugins` array enables `nmg-game-dev`. Contributors who want to smoke-test the VibeUE round-trip clone VibeUE manually into `fixtures/Plugins/VibeUE/` (not part of this issue's deliverables — VibeUE is a third-party plugin pulled per its own install instructions).
@@ -42,7 +42,7 @@ The split exists because shipping editor code in player builds is forbidden — 
 
 ### Versioning relationship to `VERSION`
 
-Per `steering/tech.md` § Versioning, the plugin's `VersionName` field tracks the repo-root `VERSION` file (single source of truth). At the time this issue lands, `VERSION` reads `0.2.0` (bumped from `#1`'s `0.1.0` when `/open-pr` merged `#1`); the `.uplugin`'s `VersionName` MUST be set to that exact value. Future bumps via `/open-pr` propagate to both files in the same commit.
+Per `steering/tech.md` § Versioning, the plugin's `VersionName` field tracks the repo-root `VERSION` file (single source of truth). At the time this issue lands, `VERSION` reads `0.2.0` (bumped from `#1`'s `0.1.0` when `$nmg-sdlc:open-pr` merged `#1`); the `.uplugin`'s `VersionName` MUST be set to that exact value. Future bumps via `$nmg-sdlc:open-pr` propagate to both files in the same commit.
 
 ### Module-naming and visibility decisions deferred to design
 
@@ -228,7 +228,7 @@ No persistent data model. Runtime artifacts only:
 ### External Dependencies
 - [ ] Unreal Engine 5.7 installed on the contributor's machine (already required by `#1` for `start-unreal-mcp.sh`). Default path `/Users/Shared/Epic Games/UE_5.7`; overridden via `UE_ROOT`.
 - [ ] UE 5.7 modules: `Engine`, `CoreUObject`, `UnrealEd` (for the editor module). All ship with the engine — no third-party deps.
-- [ ] **VibeUE** is NOT a dependency of this issue. It's required at consumer-onboarding time (`#7`) so Claude can drive the editor, but no code in this issue depends on or interacts with VibeUE.
+- [ ] **VibeUE** is NOT a dependency of this issue. It's required at consumer-onboarding time (`#7`) so Codex can drive the editor, but no code in this issue depends on or interacts with VibeUE.
 
 ### Blocked By
 - None at the time of writing. `#1` already merged (commit `f295656`).
@@ -249,7 +249,7 @@ Explicitly NOT included in this issue:
 - Console SDK support (PlayStation / Xbox / Switch) — explicitly out of scope per `steering/product.md` § Won't Have. (Linux IS in scope — see NFR Platforms.)
 - Hot-reload friendliness across the modules (UE's hot reload of editor modules is fragile; no special accommodation in this skeleton).
 - Plugin packaging (`UnrealEditor -run=BuildPlugin`) — `gate-ue-automation` runs against the dogfood fixture, not against a packaged `.uplugin` artifact. Packaging is a `#6` concern.
-- `gate-ue-automation` runtime wiring inside `/verify-code` — this issue ships `scripts/run-ue-tests.sh`, the gate's runtime entry, but does not modify the gate's invocation surface in `nmg-sdlc`.
+- `gate-ue-automation` runtime wiring inside `$nmg-sdlc:verify-code` — this issue ships `scripts/run-ue-tests.sh`, the gate's runtime entry, but does not modify the gate's invocation surface in `nmg-sdlc`.
 - Shipping VibeUE inside the `nmg-game-dev` repo. VibeUE is a third-party plugin pulled per its own install instructions; contributors who want to smoke-test the VibeUE round-trip clone it manually into `fixtures/Plugins/VibeUE/`.
 
 ---

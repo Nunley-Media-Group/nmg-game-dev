@@ -14,7 +14,7 @@
         "http-only",
         "--allow-http"
       ],
-      "description": "VibeUE UE MCP HTTP bridge — kevinpbuckley/VibeUE v0.1.0 in-editor plugin; mcp-remote 0.1.38 bridges Claude to the editor's HTTP endpoint on port 8088"
+      "description": "VibeUE UE MCP HTTP bridge — kevinpbuckley/VibeUE v0.1.0 in-editor plugin; mcp-remote 0.1.38 bridges Codex to the editor's HTTP endpoint on port 8088"
     },
     "meshy": {
       "command": "npx",

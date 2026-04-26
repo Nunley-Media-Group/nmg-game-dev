@@ -360,7 +360,7 @@ T001 (pyproject.toml)
 
 ## Verification gates applicable to this feature
 
-Per `steering/tech.md` § Verification Gates (diff conditions evaluated at `/verify-code` time):
+Per `steering/tech.md` § Verification Gates (diff conditions evaluated at `$nmg-sdlc:verify-code` time):
 
 - `gate-python-lint` — all tasks touch `**/*.py`
 - `gate-python-types` — all tasks touch `**/*.py`

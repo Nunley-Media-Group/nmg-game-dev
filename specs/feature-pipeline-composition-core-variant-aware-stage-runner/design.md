@@ -337,7 +337,7 @@ Not applicable — this is a pure-logic composition layer with no UI state. Stat
 
 ## UI Components
 
-Not applicable — backend/tooling code. Consumer-facing surface is the Python API; skills (future issues) render UI-equivalent prompts in Claude Code.
+Not applicable — backend/tooling code. Consumer-facing surface is the Python API; skills (future issues) render UI-equivalent prompts in Codex.
 
 ---
 

@@ -7,7 +7,7 @@ def version_tuple() -> tuple[int, int, int]:
     """Return the repo-root VERSION as a (major, minor, patch) int tuple.
 
     Walks up from this file until VERSION is found. Raises RuntimeError on
-    missing or malformed input — never returns zeros silently, so /open-pr's
+    missing or malformed input — never returns zeros silently, so $nmg-sdlc:open-pr's
     version-rewrite has a deterministic target.
     """
     start = Path(__file__).resolve().parent

@@ -27,7 +27,7 @@ No database changes. No state management beyond Blender-side property groups. No
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ Claude Code (host process)                                               │
+│ Codex (host process)                                               │
 │   .mcp.json pins blender-mcp@1.5.6                                       │
 └──────────────────────┬───────────────────────────────────────────────────┘
                        │ MCP stdio → uvx blender-mcp
@@ -79,7 +79,7 @@ Key properties:
 5. `NMGGAMEDEV_OT_cleanup_desktop.execute()` runs:
      - Logs "nmggamedev.cleanup_desktop: stub invoked" (via logger, to stderr)
      - Returns {"FINISHED"}
-6. Blender returns the operator result through the socket → MCP → Claude
+6. Blender returns the operator result through the socket → MCP → Codex
 ```
 
 For the headless test harness, Steps 1-4 collapse to "pytest under `blender --background` calls `bpy.ops.nmggamedev.cleanup_desktop()` directly".
@@ -117,7 +117,7 @@ For the headless test harness, Steps 1-4 collapse to "pytest under `blender --ba
 | `log_stub_invocation(op_name: str) -> None` | `utils/logging.py` | `logging.getLogger("nmg_game_dev_blender_addon").info("%s: stub invoked", op_name)` — emitted to stderr (per `steering/tech.md` § MCP server contract: stderr only). |
 | `resolve_variant_path(parent: Path, variant: Literal["Desktop", "Mobile"]) -> Path` | `utils/variants.py` | Mirrors `steering/structure.md` § split-variant asset convention; pure function. |
 
-### MCP-level API (how Claude / the pipeline reaches nmg operators)
+### MCP-level API (how Codex / the pipeline reaches nmg operators)
 
 **No new MCP tools.** Invocation uses the existing `ahujasid/blender-mcp` tool `execute_blender_code`:
 
@@ -228,7 +228,7 @@ Panel draw code is short (≤ 30 lines). `poll()` returns True always — the pa
 
 | Option | Description | Pros | Cons | Decision |
 |--------|-------------|------|------|----------|
-| **A: Manifest-register** | nmg add-on registers a tool manifest with `ahujasid/blender-mcp` at enable time; host advertises `nmggamedev.*` as first-class MCP tools. | Strongly-typed tool schemas; Claude auto-completion over nmg ops; no host-side Python-exec indirection. | `ahujasid/blender-mcp@1.5.6` does NOT expose an add-on contribution API — verified by its public tool surface (tools are baked into the server, not dynamically registered). Adding such an API requires forking the host, which contradicts `steering/tech.md`'s "pin MCP server versions, review each upgrade" constraint. | **Rejected — host does not support it.** |
+| **A: Manifest-register** | nmg add-on registers a tool manifest with `ahujasid/blender-mcp` at enable time; host advertises `nmggamedev.*` as first-class MCP tools. | Strongly-typed tool schemas; Codex auto-completion over nmg ops; no host-side Python-exec indirection. | `ahujasid/blender-mcp@1.5.6` does NOT expose an add-on contribution API — verified by its public tool surface (tools are baked into the server, not dynamically registered). Adding such an API requires forking the host, which contradicts `steering/tech.md`'s "pin MCP server versions, review each upgrade" constraint. | **Rejected — host does not support it.** |
 | **B: bpy-direct via `execute_blender_code`** | Pipeline code issues `execute_blender_code("bpy.ops.nmggamedev.cleanup_desktop()")`. Host relays the Python to Blender. | Works today on the pinned host. No host-side changes. Zero new surface area. Stub-friendly — adding a new nmg operator is a pure Blender-side change. | Slightly weaker typing (pipeline code is the contract, not the MCP schema). Debug errors surface as Python tracebacks inside the `execute_blender_code` response. | **Selected.** |
 | **C: Separate MCP endpoint** | Run a second MCP server in the nmg add-on on its own port. | Full control over tool schemas. | Doubles the MCP surface; contradicts Phase 1 requirement that nmg ship no second server; forces every consumer to run two socket servers. | **Explicitly ruled out — see Requirements § Out of Scope.** |
 
@@ -280,7 +280,7 @@ Decision: **ship with both install paths viable** — `blender_manifest.toml` en
 | Operator stubs | Integration (headless Blender) | AC4 | `tests/blender/test_operator_stubs.py` | Same |
 | Coexistence with host | Integration (headless Blender) | AC2 | `tests/blender/test_coexistence.py` — marked `requires_host`; skipped if `ahujasid/blender-mcp` is not installed in Blender's addons path | Same |
 | Test harness itself | Smoke | AC7 | `scripts/run-blender-tests.sh` exits 0 on the above | `scripts/run-blender-tests.sh` |
-| Verification gate | Contract | AC8 | `/verify-code` evaluates `gate-blender-headless` | `/verify-code` |
+| Verification gate | Contract | AC8 | `$nmg-sdlc:verify-code` evaluates `gate-blender-headless` | `$nmg-sdlc:verify-code` |
 
 ### Fixtures
 

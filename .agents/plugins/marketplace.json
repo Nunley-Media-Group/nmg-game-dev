@@ -1,0 +1,20 @@
+{
+  "name": "nmg-game-dev",
+  "interface": {
+    "displayName": "NMG Game Dev"
+  },
+  "plugins": [
+    {
+      "name": "nmg-game-dev",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Game Development"
+    }
+  ]
+}

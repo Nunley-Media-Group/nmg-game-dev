@@ -175,7 +175,7 @@ Explicitly not included in this feature:
 - **Retargeting, animation import, level dressing.** Covered by dedicated skills/features in v1.
 - **Cache eviction / GC.** Cache is append-only in v1; eviction is a post-v1 refinement unless disk pressure surfaces it during v1 consumer adoption.
 - **Parallel stage execution.** Stages run sequentially per `steering/structure.md` Pipeline Flow; any future parallelization is a separate spec.
-- **Consumer project's cook-manifest gates.** The `quality/` module prepares manifest inputs; the actual `gate-cook-manifest-*` checks run during `/ship`, not here.
+- **Consumer project's cook-manifest gates.** The `quality/` module prepares manifest inputs; the actual `gate-cook-manifest-*` checks run during `$build-platform`, not here.
 
 ---
 

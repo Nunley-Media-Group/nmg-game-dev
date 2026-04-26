@@ -9,8 +9,8 @@ All code should follow these guidelines for consistency.
 
 ```
 nmg-game-dev/
-├── .claude-plugin/
-│   └── plugin.json                # Claude Code plugin manifest (what consumers install)
+├── .codex-plugin/
+│   └── plugin.json                # Codex plugin manifest (what consumers install)
 ├── plugins/
 │   ├── nmg-game-dev-blender-addon/
 │   │   ├── __init__.py            # bl_info + register/unregister
@@ -29,12 +29,12 @@ nmg-game-dev/
 │       │       ├── Public/
 │       │       ├── Private/
 │       │       └── Tests/
-│       │       # Note: the Claude → editor MCP wire is owned by VibeUE
+│       │       # Note: the Codex → editor MCP wire is owned by VibeUE
 │       │       # (third-party UE plugin pinned in `.mcp.json`); nmg-game-dev does
 │       │       # NOT ship its own MCP module.
 │       ├── Content/               # Plugin-owned UE content (templates, defaults)
 │       └── Resources/             # Plugin icon, thumbnails
-├── skills/                        # Claude Code skills shipped to consumers
+├── skills/                        # Codex skills shipped to consumers
 │   ├── new-character/
 │   │   ├── SKILL.md               # Skill definition + frontmatter
 │   │   └── references/            # Large context files loaded on demand
@@ -44,22 +44,12 @@ nmg-game-dev/
 │   ├── retarget-animation/
 │   ├── dress-level/
 │   ├── generate-texture/          # Driven by the TBD texture-gen tool
-│   ├── build-platform/            # /ship per-platform orchestrator
+│   ├── build-platform/            # $build-platform per-platform orchestrator
 │   ├── sign-and-notarize/         # macOS + iOS signing
 │   ├── verify-cook-manifest/      # Runtime of gate-cook-manifest-*
 │   ├── audit-mobile-budgets/      # Runtime of gate-mobile-budgets
 │   ├── onboard-consumer/          # Installs hooks + configs into consumer project
-│   └── spec-to-assets/            # Bridge from /write-code (nmg-sdlc) into asset skills
-├── commands/                      # Ad-hoc slash commands (non-SDLC shortcuts)
-│   ├── new-character.md           # /new-character thin wrapper over the skill
-│   ├── new-prop.md
-│   ├── ship.md
-│   ├── verify-build.md
-│   ├── notarize.md
-│   └── audit.md
-├── agents/                        # Specialized agent definitions shipped with plugin
-│   ├── asset-reviewer.md          # Reviews generated asset quality against product bar
-│   └── build-diagnostician.md     # Triages build failures
+│   └── spec-to-assets/            # Bridge from $nmg-sdlc:write-code (nmg-sdlc) into asset skills
 ├── mcp-servers/                   # NMG-authored MCP servers (beyond Blender/UE plugin hosts)
 │   └── texture-gen/               # Wraps whichever tool the v1 spike picks
 │       ├── pyproject.toml
@@ -73,7 +63,7 @@ nmg-game-dev/
 │   ├── verify-cook-manifest.sh
 │   ├── run-blender-tests.sh
 │   ├── run-ue-tests.sh
-│   ├── ship-smoke.sh              # /verify-code's gate-ship-smoke backer
+│   ├── ship-smoke.sh              # $nmg-sdlc:verify-code's gate-ship-smoke backer
 │   ├── bump-uproject-version.py
 │   └── tests/                     # pytest for the scripts themselves
 ├── src/
@@ -105,9 +95,9 @@ nmg-game-dev/
 │   └── structure.md
 ├── .mcp.json                      # Pinned MCP server config (Blender, Unreal, Meshy, texture-gen)
 ├── pyproject.toml                 # Python package + dev dependencies
-├── VERSION                        # Plain-text semver, managed by /open-pr
-├── CHANGELOG.md                   # Managed by /open-pr
-└── CLAUDE.md                      # Entry-point pointer document
+├── VERSION                        # Plain-text semver, managed by $nmg-sdlc:open-pr
+├── CHANGELOG.md                   # Managed by $nmg-sdlc:open-pr
+└── AGENTS.md                      # Entry-point pointer document
 ```
 
 ---
@@ -117,7 +107,7 @@ nmg-game-dev/
 ### Pipeline Flow (authoring — invoked by a skill)
 
 ```
-Developer prompt (e.g., /new-prop Weapons/Katana standard "...")
+Developer prompt (e.g., $new-prop Weapons/Katana standard "...")
         │
         ▼
 ┌───────────────────────┐
@@ -152,7 +142,7 @@ Developer prompt (e.g., /new-prop Weapons/Katana standard "...")
 ### Ship Flow (build + release)
 
 ```
-/ship <platform>
+$build-platform <platform>
         │
         ▼
 ┌───────────────────────┐
@@ -181,7 +171,7 @@ Developer prompt (e.g., /new-prop Weapons/Katana standard "...")
 | Layer | Does | Doesn't Do |
 |-------|------|------------|
 | Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call into `src/nmg_game_dev/pipeline/` | Directly touch MCP sockets, know UE or Blender internals |
-| Pipeline (`src/nmg_game_dev/pipeline/`) | Compose stages; cache intermediate artifacts; enforce ordering | Handle Claude I/O, write skill UX |
+| Pipeline (`src/nmg_game_dev/pipeline/`) | Compose stages; cache intermediate artifacts; enforce ordering | Handle Codex I/O, write skill UX |
 | Stage implementations | Talk to exactly one MCP or one tool | Compose multi-stage flows |
 | MCP servers (Blender add-on, VibeUE editor plugin, texture-gen) | Expose tool endpoints; own tool implementation. VibeUE is third-party; nmg-game-dev does NOT author the UE-side bridge. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
@@ -222,13 +212,12 @@ Developer prompt (e.g., /new-prop Weapons/Katana standard "...")
 | Public header | `NmgGameDev/Public/*.h` | `Public/NmgAssetResolver.h` |
 | Test spec | `*.spec.cpp` in `Tests/` | `Tests/NmgAssetResolver.spec.cpp` |
 
-### Skills + commands
+### Skills
 
 | Element | Convention | Example |
 |---------|------------|---------|
 | Skill directory | `kebab-case` | `skills/new-character/` |
 | Skill file | `SKILL.md` (uppercase) | `skills/new-character/SKILL.md` |
-| Command file | `kebab-case.md` | `commands/new-character.md` |
 | Frontmatter `name` | matches directory | `name: new-character` |
 
 ### UE Asset naming (for plugin-owned content)
@@ -275,7 +264,7 @@ A single asset with aggressive LODs would still ship the full source mesh in eve
 ```markdown
 ---
 name: <kebab-case-name>
-description: <one-line description used by Claude's skill picker>
+description: <one-line description used by Codex's skill picker>
 required_mcp: [blender, unreal, meshy?, texture-gen?]
 required_env: [UE_ROOT?, MESHY_API_KEY?]
 unattended_safe: true | false
@@ -371,7 +360,7 @@ public:
 | Desktop asset referenced from the Mobile variant (or vice versa) | Cross-variant leak into cooked packages | Use `UNmgAssetResolver` parent Blueprint; never hard-link across the boundary |
 | Hard-coded Blender / UE paths in any shipped script | Breaks on every consumer that didn't clone the reference project | Env vars with documented defaults; fail with an actionable message when unset |
 | Texture-gen tool accessed outside the TBD contract interface | Locks the framework to one tool, prevents the spike outcome from landing cleanly | Always go through `src/nmg_game_dev/pipeline/texture.py`'s abstract interface |
-| Session-start hook that blocks the shell | Claude session never reaches prompt | Scripts must detach with `nohup … & disown` and return in well under the hook timeout |
+| Session-start hook that blocks the shell | Codex session never reaches prompt | Scripts must detach with `nohup … & disown` and return in well under the hook timeout |
 | Importing Blender add-on modules from pytest without headless mode | Crashes on CI / non-GUI hosts | Always invoke via `blender --background --python` or use the test harness in `tests/blender/` |
 | New consumer-facing capability without matching docs update | Drift between what the framework does and what users believe it does | Onboarding + skill-reference doc updates are part of the same PR as the capability |
 
@@ -379,6 +368,6 @@ public:
 
 ## References
 
-- `CLAUDE.md` — project overview (added when scaffolding lands).
+- `AGENTS.md` — project overview (added when scaffolding lands).
 - `steering/product.md` — product direction.
 - `steering/tech.md` — technical standards, verification gates, session-start contract.

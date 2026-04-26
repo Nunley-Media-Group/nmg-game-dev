@@ -3,7 +3,7 @@
   "Version": 1,
   "VersionName": "0.5.0",
   "FriendlyName": "nmg-game-dev",
-  "Description": "NMG game development pipeline — Runtime helpers (variant resolver) and Editor authoring hooks. The Claude-to-editor MCP wire is provided by VibeUE separately.",
+  "Description": "NMG game development pipeline — Runtime helpers (variant resolver) and Editor authoring hooks. The Codex-to-editor MCP wire is provided by VibeUE separately.",
   "Category": "NMG",
   "CreatedBy": "Nunley Media Group",
   "CreatedByURL": "https://github.com/Nunley-Media-Group/nmg-game-dev",

@@ -9,15 +9,13 @@ load-bearing — nmg-sdlc matches on them literally.
 ## Architecture Overview
 
 ```
-Developer in Claude Code
+Developer in Codex
         │
-        │  slash commands / natural language
+        │  skills / natural language
         ▼
 ┌────────────────────────────────────────────────────────────┐
-│ nmg-game-dev Claude Code plugin                            │
+│ nmg-game-dev Codex plugin                            │
 │   skills/ (asset gen, optimization, build, ship, verify)   │
-│   commands/ (ad-hoc shortcuts)                             │
-│   agents/ (specialized review / verification agents)       │
 └───────┬─────────────────────────┬────────────────┬─────────┘
         │                         │                │
         ▼                         ▼                ▼
@@ -45,7 +43,7 @@ Developer in Claude Code
         ▼
 ┌────────────────────────────────────────────────────────────┐
 │ Installed artifacts from nmg-game-dev                      │
-│   • Claude Code plugin (skills + commands + MCP configs)   │
+│   • Codex plugin (skills + MCP configs)                    │
 │   • Blender add-on (authoring tools)                       │
 │   • UE plugin (editor tools + runtime module shipped in    │
 │     the consumer's game binary)                            │
@@ -58,8 +56,8 @@ Developer in Claude Code
 
 | Layer | Technology | Version |
 |-------|------------|---------|
-| Orchestration | nmg-sdlc (Claude Code plugin, used to BUILD nmg-game-dev) | latest |
-| Distribution | Claude Code plugin (what nmg-game-dev SHIPS) | targets current Claude Code |
+| Orchestration | nmg-sdlc (Codex plugin, used to BUILD nmg-game-dev) | latest |
+| Distribution | Codex plugin (what nmg-game-dev SHIPS) | targets current Codex |
 | Host tooling | Python | 3.11+ (matches Blender bundled python) |
 | Authoring surface | Blender | 4.x LTS (oldest supported 4.2 LTS) |
 | Game engine | Unreal Engine | 5.7 (Apple Silicon native) |
@@ -90,7 +88,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 | File | Path | Notes |
 |------|------|-------|
 | `VERSION` | (entire file) | Plain semver, one line |
-| `.claude-plugin/plugin.json` | `version` | Claude Code plugin manifest |
+| `.codex-plugin/plugin.json` | `version` | Codex plugin manifest |
 | `plugins/nmg-game-dev-blender-addon/__init__.py` | `bl_info.version` | Blender add-on tuple (major, minor, patch) |
 | `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` | `VersionName` | UE plugin manifest |
 | `pyproject.toml` | `project.version` | Python tooling package |
@@ -100,11 +98,11 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 - **JSON files**: dot-notation (e.g., `version`, `packages.mylib.version`).
 - **TOML files**: dot-notation matching TOML keys (e.g., `project.version`).
 - **Plain text**: `line:N` or omit Path if the whole file is the version.
-- **Python `bl_info` tuple**: special-cased — `/open-pr` rewrites the tuple literal.
+- **Python `bl_info` tuple**: special-cased — `$nmg-sdlc:open-pr` rewrites the tuple literal.
 
 ### Version Bump Classification
 
-`/open-pr` and the `sdlc-runner.mjs` deterministic bump postcondition read this table.
+`$nmg-sdlc:open-pr` and the `sdlc-runner.mjs` deterministic bump postcondition read this table.
 
 | Label | Bump Type | Description |
 |-------|-----------|-------------|
@@ -115,7 +113,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 
 **Default**: if no label matches, bump type is **minor**.
 
-**Major bumps are manual-only** — `/open-pr #N --major`. Unattended runs never apply a major bump.
+**Major bumps are manual-only** — `$nmg-sdlc:open-pr #N --major`. Unattended runs never apply a major bump.
 
 **Breaking changes use minor bumps.** Communicate with `**BREAKING CHANGE:**` prefix in CHANGELOG entries and a `### Migration Notes` sub-section.
 
@@ -129,9 +127,9 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 
 | Metric | Target | Rationale |
 |--------|--------|-----------|
-| `/new-prop` end-to-end (standard tier) | ≤ 90 s on M-series Mac | Adhoc iteration requires tight loops |
-| `/new-character` end-to-end (hero) | ≤ 5 min on M-series Mac | Characters are the slowest asset; budget is generous but bounded |
-| `/ship desktop` cold build | ≤ 20 min | Includes UE cook + sign + notarize |
+| `$new-prop` end-to-end (standard tier) | ≤ 90 s on M-series Mac | Adhoc iteration requires tight loops |
+| `$new-character` end-to-end (hero) | ≤ 5 min on M-series Mac | Characters are the slowest asset; budget is generous but bounded |
+| `$build-platform desktop` cold build | ≤ 20 min | Includes UE cook + sign + notarize |
 | Skill cold-start (first invocation per session) | ≤ 2 s | MCP handshake + env validation only |
 
 ### Performance (runtime — shipped UE plugin code)
@@ -146,7 +144,7 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 | Requirement | Implementation |
 |-------------|----------------|
 | Authentication (to external services) | API keys via env vars; never in git |
-| Credential storage | `.claude/secrets.json` (gitignored) for session-local overrides; production uses keychain / CI secrets |
+| Credential storage | `.codex/secrets.json` (gitignored) for session-local overrides; production uses keychain / CI secrets |
 | Signing identities | Read from OS keychain (macOS) or env (`ANDROID_KEYSTORE_PASSWORD`); never echoed to logs |
 | Third-party MCP trust | Pin MCP server versions in `.mcp.json`; review each upgrade |
 | Supply chain | `pyproject.toml` pins exact versions for build-critical deps; `uv.lock` / `requirements.lock` committed |
@@ -199,11 +197,11 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 
 Every consumer-facing skill MUST:
 
-1. Have a one-line `description` that fits in the Claude skills list.
+1. Have a one-line `description` that fits in the Codex skills list.
 2. Declare its required MCP servers in its frontmatter.
 3. Fail fast with an actionable error if a required env var or MCP is missing.
 4. Be idempotent — safe to rerun on partial failure.
-5. Respect `.claude/unattended-mode` (no prompts when present; fall back to documented defaults).
+5. Respect `.codex/unattended-mode` (no prompts when present; fall back to documented defaults).
 
 ### MCP server contract
 
@@ -216,9 +214,9 @@ Every nmg-game-dev-authored MCP server MUST:
 
 ### Session-start contract (Blender MCP + Unreal MCP auto-launch)
 
-Neither Blender nor Unreal Editor boot themselves when a Claude session starts, and every downstream skill assumes their MCP endpoints are already reachable. nmg-game-dev owns this bootstrap and distributes it to consumer projects via the Claude Code plugin.
+Neither Blender nor Unreal Editor boot themselves when a Codex session starts, and every downstream skill assumes their MCP endpoints are already reachable. nmg-game-dev owns this bootstrap and distributes it to consumer projects via the Codex plugin.
 
-The framework ships two idempotent launch scripts, wired as `SessionStart` hooks in every consumer's `.claude/settings.json` by the onboarding skill:
+The framework ships two idempotent launch scripts, wired as `SessionStart` hooks in every consumer's `.codex/hooks.json` by the onboarding skill. The same onboarding step enables hooks in `.codex/config.toml`.
 
 | Script | Responsibility | Port |
 |--------|----------------|------|
@@ -228,13 +226,13 @@ The framework ships two idempotent launch scripts, wired as `SessionStart` hooks
 **Contract invariants** (every launch script MUST honor):
 
 1. **Idempotent** — if the target port is already `LISTEN`, exit 0 immediately. No double-launch.
-2. **Detached** — `nohup … & disown`; return to the shell (and Claude Code) in under the hook timeout.
+2. **Detached** — `nohup … & disown`; return to the shell (and Codex) in under the hook timeout.
 3. **Actionable failure** — exit non-zero with a one-line remediation hint if the binary or project file is missing.
 4. **Path resolution** — prefer env-var overrides (`BLENDER_BIN`, `UE_ROOT`, `BLENDER_APP`), fall back to documented defaults, never hard-code the reference-project location.
 5. **Logs** — stdout/stderr to `/tmp/<tool>-mcp.log`; path is documented in the skill that consumes it so failure triage is copy-paste.
 6. **Plugin/addon discovery** — the Blender script probes multiple candidate addon names (Extensions system `bl_ext.*` and legacy folder names) and enables the first one installed. The UE script relies on the nmg-game-dev UE plugin being enabled in the consumer's `.uproject`.
 
-The onboarding skill (one of the v1 deliverables) installs these scripts into each consumer's `scripts/` directory and injects the `SessionStart` hook entries into `.claude/settings.json`. Without this auto-launch path, the adhoc workflow is broken on every cold session.
+The onboarding skill (one of the v1 deliverables) installs these scripts into each consumer's `scripts/` directory, injects the `SessionStart` hook entries into `.codex/hooks.json`, and enables `codex_hooks` in `.codex/config.toml`. Without this auto-launch path, the adhoc workflow is broken on every cold session.
 
 ### Texture-gen tool interface (TBD contract)
 
@@ -270,13 +268,13 @@ This contract lets the spike swap implementations without cascading changes.
 # tests/bdd/features/new_prop.feature
 Feature: Generate a new prop Blender-first
   As an NMG game developer
-  I want to run /new-prop and get both desktop and mobile variants
-  So that I can iterate on content without leaving Claude
+  I want to run $new-prop and get both desktop and mobile variants
+  So that I can iterate on content without leaving Codex
 
   Scenario: Standard-tier prop, Blender-first
     Given the Blender MCP is running
     And the texture-gen tool is configured
-    When I run /new-prop Weapons/Crate standard "wooden supply crate"
+    When I run $new-prop Weapons/Crate standard "wooden supply crate"
     Then both Desktop and Mobile variants exist under Content/Weapons/Crate/
     And the mobile variant passes gate-mobile-budgets
     And the desktop variant is unbudgeted
@@ -320,7 +318,7 @@ def _(blender_mcp):
 
 ## Verification Gates
 
-`/verify-code` enforces these. Each declares when it applies.
+`$nmg-sdlc:verify-code` enforces these. Each declares when it applies.
 
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
@@ -334,9 +332,9 @@ def _(blender_mcp):
 | `gate-mcp-schema` | Diff touches `mcp-servers/**` | `scripts/validate-mcp-tools.py` | Exit code 0 |
 | `gate-shellcheck` | Diff touches `**/*.sh` | `shellcheck -S style scripts/*.sh` | Exit code 0 |
 | `gate-markdown-lint` | Diff touches `**/*.md` | `markdownlint docs/ steering/ *.md` | Exit code 0 |
-| `gate-ship-smoke` | Diff touches `skills/build-*/` or `skills/ship/**` or UE plugin runtime | `scripts/ship-smoke.sh` | Exit code 0 — dry run of `/ship` on fixture project succeeds |
+| `gate-ship-smoke` | Diff touches `skills/build-*/` or `skills/ship/**` or UE plugin runtime | `scripts/ship-smoke.sh` | Exit code 0 — dry run of `$build-platform` on fixture project succeeds |
 
-Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` note in the spec's `tasks.md` with a justification. `/verify-code` surfaces skipped gates in the PR body.
+Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` note in the spec's `tasks.md` with a justification. `$nmg-sdlc:verify-code` surfaces skipped gates in the PR body.
 
 ### Condition Evaluation Rules
 
@@ -364,7 +362,7 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 | `UE_ROOT` | Override if UE 5.7 isn't at the default Epic Games path |
 | `BLENDER_BIN` | Override if Blender isn't on `$PATH` |
 | `TEXTURE_GEN_*` | TBD — defined when the v1 spike picks the tool |
-| `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS notarization (`/ship macos` / `/ship ios`) |
+| `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS notarization (`$build-platform macos` / `$build-platform ios`) |
 | `IOS_PROVISIONING_PROFILE` | iOS builds |
 | `ANDROID_HOME` / `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` | Android builds |
 | `WINDOWS_BUILD_HOST` / `_USER` / `_SSH_KEY` / `WINDOWS_REMOTE_PROJECT_PATH` | Windows remote builds |
@@ -380,6 +378,6 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 
 ## References
 
-- `CLAUDE.md` for project overview (added when scaffolding lands).
+- `AGENTS.md` for project overview (added when scaffolding lands).
 - `steering/product.md` for product direction.
 - `steering/structure.md` for code organization.

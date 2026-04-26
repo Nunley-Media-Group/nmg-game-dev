@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "nmg-game-dev"
 version = "0.5.0"
 description = "Blender-first, Unreal-shipped content pipeline for NMG games"
-readme = "CLAUDE.md"
+readme = "AGENTS.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]
 license = { text = "Proprietary" }

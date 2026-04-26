@@ -13,7 +13,7 @@ This design fills the empty `plugins/nmg-game-dev-ue-plugin/` directory shipped 
 
 The single load-bearing architectural choice is **strict module visibility**: the runtime module's `Build.cs` lists only `Core`, `CoreUObject`, and `Engine`. It does NOT depend on `UnrealEd`, `Slate`, `EditorSubsystem`, or anything else editor-only. This is enforced by AC3 (cook test): if a runtime header `#include`s an editor-only type, UBT fails the cook of the dogfood fixture.
 
-The Claude → editor MCP wire is owned end-to-end by VibeUE (a separate, third-party UE plugin pinned in `.mcp.json` from `#1`). Nothing in this design binds an HTTP port, registers an HTTP route, or reads `UE_MCP_PORT`. See requirements § "MCP scope correction" for why this changed during review.
+The Codex → editor MCP wire is owned end-to-end by VibeUE (a separate, third-party UE plugin pinned in `.mcp.json` from `#1`). Nothing in this design binds an HTTP port, registers an HTTP route, or reads `UE_MCP_PORT`. See requirements § "MCP scope correction" for why this changed during review.
 
 The variant resolver is a single `static UFUNCTION` on a `UBlueprintFunctionLibrary` subclass. The function reads platform context from `UGameplayStatics::GetPlatformName()` (works at runtime, mockable in tests) rather than from `#if PLATFORM_*` macros (compile-time, unmockable). Fail-closed behavior matches AC5 — invalid input returns the input unchanged plus a `LogNmgGameDev` warning; never crashes, never returns `FSoftObjectPath()`.
 
@@ -127,7 +127,7 @@ The validation in step 5 is what closes AC5: malformed input never silently prod
   "Version": 1,
   "VersionName": "0.2.0",                        // tracked to repo-root VERSION (steering/tech.md § Versioning)
   "FriendlyName": "nmg-game-dev",
-  "Description": "NMG game development pipeline — Runtime helpers (variant resolver) and Editor authoring hooks. The Claude-to-editor MCP wire is provided by VibeUE separately.",
+  "Description": "NMG game development pipeline — Runtime helpers (variant resolver) and Editor authoring hooks. The Codex-to-editor MCP wire is provided by VibeUE separately.",
   "Category": "NMG",
   "CreatedBy": "Nunley Media Group",
   "CreatedByURL": "https://github.com/Nunley-Media-Group/nmg-game-dev",

@@ -51,7 +51,7 @@ Per `steering/structure.md`, "Frontend" here means Blender-hosted UI (N-panel). 
 - [ ] No import of `bpy` (so the helper is unit-testable outside Blender).
 - [ ] `from __future__ import annotations` at top; type hints on every function (per `steering/tech.md` § Coding Standards — Python).
 
-**Notes**: Walk-up search pattern so the add-on can live under `plugins/...` at repo root OR installed under a Blender user-scripts path where `VERSION` isn't a sibling. When not found, default to returning `(0, 0, 0)` is tempting but wrong — fail loudly so `/open-pr`'s version-rewrite never silently resolves to zeros.
+**Notes**: Walk-up search pattern so the add-on can live under `plugins/...` at repo root OR installed under a Blender user-scripts path where `VERSION` isn't a sibling. When not found, default to returning `(0, 0, 0)` is tempting but wrong — fail loudly so `$nmg-sdlc:open-pr`'s version-rewrite never silently resolves to zeros.
 
 ### T002: Create utils logging + variants helpers
 
@@ -78,7 +78,7 @@ Per `steering/structure.md`, "Frontend" here means Blender-hosted UI (N-panel). 
 **Acceptance**:
 - [ ] `schema_version = "1.0.0"`.
 - [ ] `id = "nmg_game_dev_blender_addon"`.
-- [ ] `version` mirrors `VERSION` (updated by `/open-pr`'s version-rewrite path).
+- [ ] `version` mirrors `VERSION` (updated by `$nmg-sdlc:open-pr`'s version-rewrite path).
 - [ ] `blender_version_min = "4.2.0"`.
 - [ ] `name = "NMG Game Dev"`, `tagline` short, `maintainer` "Nunley Media Group".
 - [ ] `type = "add-on"`.
@@ -175,7 +175,7 @@ Per `steering/structure.md`, "Frontend" here means Blender-hosted UI (N-panel). 
 - [ ] Calling `unregister(); register()` is idempotent and raises nothing (AC1).
 - [ ] No network / file I/O during `register()` beyond `version_tuple()`'s `VERSION` read (FR11, NFR Security).
 
-**Notes**: `bl_info["version"]` MUST be a tuple literal that `/open-pr`'s rewriter can parse. Generate the tuple via `version_tuple()` at module-import time so the bump script has a deterministic target.
+**Notes**: `bl_info["version"]` MUST be a tuple literal that `$nmg-sdlc:open-pr`'s rewriter can parse. Generate the tuple via `version_tuple()` at module-import time so the bump script has a deterministic target.
 
 ---
 

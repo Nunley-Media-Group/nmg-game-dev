@@ -9,13 +9,13 @@
 
 ## Overview
 
-This foundational issue assembles the `nmg-game-dev` repo into a valid Claude Code plugin whose consumer-facing deliverables (launcher scripts, `.mcp.json`, consumer SessionStart template, plugin manifest) are wired to function identically whether the plugin is later installed at user scope (`~/.claude/plugins/nmg-game-dev/`) or at project scope inside a consumer game repo.
+This foundational issue assembles the `nmg-game-dev` repo into a valid Codex plugin whose consumer-facing deliverables (launcher scripts, `.mcp.json`, consumer SessionStart template, plugin manifest) are wired to function identically whether the plugin is later installed at user scope or at project scope inside a consumer game repo.
 
 The work splits into three physical deliverable groups:
 
-1. **Plugin identity + SDLC versioning surface** — `.claude-plugin/plugin.json`, `VERSION`, `CHANGELOG.md`, `CLAUDE.md`, `pyproject.toml`, and the empty `src/nmg_game_dev/` submodule stubs. These give every downstream issue a place to land without re-debating layout.
+1. **Plugin identity + SDLC versioning surface** — `.codex-plugin/plugin.json`, `VERSION`, `CHANGELOG.md`, `AGENTS.md`, `pyproject.toml`, and the empty `src/nmg_game_dev/` submodule stubs. These give every downstream issue a place to land without re-debating layout.
 2. **Session-start launcher contract** — `scripts/start-blender-mcp.sh` and `scripts/start-unreal-mcp.sh`, two idempotent, nohup-detached shell scripts that honor `steering/tech.md` § Session-start contract's six invariants. Shipped as consumer deliverables; invoked manually inside this repo for smoke-testing against the bundled dogfood `.uproject`.
-3. **Consumer-install templates + MCP config** — `templates/consumer/.claude/settings.json` (copied into each consumer by `onboard-consumer`) and `.mcp.json` (dual-purpose: lives at this repo's root for contributor testing AND is the canonical source `onboard-consumer` copies into consumer repos).
+3. **Consumer-install templates + MCP config** — `templates/consumer/.codex/hooks.json` (copied into each consumer by `onboard-consumer`) and `.mcp.json` (dual-purpose: lives at this repo's root for contributor testing AND is the canonical source `onboard-consumer` copies into consumer repos).
 
 The key architectural decision already locked in by requirements (AC11): **install-scope invariance**. Nothing this issue ships may encode a specific install scope. Path resolution is either relative, env-var-overridden, or through a documented default a consumer can override without editing the artifact.
 
@@ -29,15 +29,16 @@ The "layers" for this scaffolding feature are groups of files, not code modules.
 
 ```
 nmg-game-dev/
-├── .claude-plugin/
-│   └── plugin.json                 ← Plugin identity + capability declarations (AC1, FR1)
+├── .codex-plugin/
+│   └── plugin.json                 ← Plugin identity + skills path (AC1, FR1)
 │
 ├── .mcp.json                       ← MCP server config — dual-purpose (AC8, FR10)
 │
 ├── templates/
 │   └── consumer/
-│       ├── .claude/
-│       │   └── settings.json       ← SessionStart hook registration for CONSUMERS (AC5b, FR2)
+│       ├── .codex/
+│       │   ├── hooks.json          ← SessionStart hook registration for CONSUMERS (AC5b, FR2)
+│       │   └── config.toml         ← Enables Codex hooks + MCP server config for consumers
 │       └── README.md               ← Documents that onboard-consumer owns this template
 │
 ├── scripts/
@@ -52,9 +53,9 @@ nmg-game-dev/
 │   ├── quality/__init__.py         ← Empty submodule stub
 │   └── ship/__init__.py            ← Empty submodule stub
 │
-├── VERSION                         ← "0.1.0\n" (AC7, FR7)
+├── VERSION                         ← "0.5.0\n" (AC7, FR7)
 ├── CHANGELOG.md                    ← [Unreleased] section (AC7, FR8)
-├── CLAUDE.md                       ← Entry-point pointer (AC9, FR9)
+├── AGENTS.md                       ← Entry-point pointer (AC9, FR9)
 │
 ├── fixtures/
 │   └── dogfood.uproject            ← Minimal UE 5.7 project for contributor smoke-test (FR12)
@@ -65,8 +66,6 @@ nmg-game-dev/
 │   └── nmg-game-dev-ue-plugin/.gitkeep         ← (content: issue #3)
 │
 ├── skills/.gitkeep                 ← (content: later v1 issues)
-├── commands/.gitkeep
-├── agents/.gitkeep
 ├── mcp-servers/.gitkeep
 ├── tests/
 │   ├── unit/.gitkeep
@@ -88,7 +87,7 @@ nmg-game-dev/
 **Not in this issue** (explicit defer):
 - `plugins/nmg-game-dev-blender-addon/**` beyond `.gitkeep` → issue #2
 - `plugins/nmg-game-dev-ue-plugin/**` beyond `.gitkeep` → issue #3
-- Any real skill / command / agent content
+- Any real skill content
 
 ### Data flow — launcher invocation (the two contexts)
 
@@ -97,11 +96,11 @@ Two invocation paths. The scripts are identical; only the trigger differs.
 #### Context 1 — consumer game project, SessionStart hook fires
 
 ```
-Developer opens consumer game repo in Claude Code
+Developer opens consumer game repo in Codex
         │
         ▼
-Claude Code reads consumer's .claude/settings.json
-        │  (populated by onboard-consumer from templates/consumer/.claude/settings.json)
+Codex reads consumer's .codex/hooks.json
+        │  (populated by onboard-consumer from templates/consumer/.codex/hooks.json)
         ▼
 SessionStart hooks fire:
   • scripts/start-blender-mcp.sh   (consumer's scripts/, copied by onboard-consumer)
@@ -125,7 +124,7 @@ Contributor:  bash scripts/start-blender-mcp.sh
         │
         ▼
 Same script path as Context 1 — probe, resolve, detach, log.
-The difference: no .claude/settings.json in this repo registers these as hooks.
+The difference: no .codex/hooks.json in this repo registers these as hooks.
 The dogfood fixtures/dogfood.uproject is what start-unreal-mcp.sh opens here
 (by default, overridable via UE_PROJECT env var — see CLI contract below).
 ```
@@ -134,53 +133,46 @@ The dogfood fixtures/dogfood.uproject is what start-unreal-mcp.sh opens here
 
 | Artifact | Does | Does NOT do |
 |----------|------|-------------|
-| `.claude-plugin/plugin.json` | Declare plugin identity (name, version, description, authors) + capability surface that Claude Code reads at install | Encode paths to the host machine, list this-repo-only directories, ship secrets |
+| `.codex-plugin/plugin.json` | Declare plugin identity (name, version, description, author) + skills path that Codex reads at install | Encode paths to the host machine, list this-repo-only directories, ship secrets |
 | `scripts/start-blender-mcp.sh` | Detect existing listener, resolve Blender path, launch in background with MCP addon enabled, log | Block the shell, write to stdout (detached process logs to `/tmp/…`), manage add-on installation (the add-on arrives in issue #2 — this script only *enables* the installed add-on) |
 | `scripts/start-unreal-mcp.sh` | Detect existing listener, resolve UE root, open the target `.uproject`, detach | Install the UE plugin (issue #3), manage project configuration, block on UE editor initialization |
-| `templates/consumer/.claude/settings.json` | Declare SessionStart hook entries with relative paths into the consumer's `scripts/` | Contain this-repo-specific paths, reference the dogfood fixture |
+| `templates/consumer/.codex/hooks.json` | Declare SessionStart hook entries with relative paths into the consumer's `scripts/` | Contain this-repo-specific paths, reference the dogfood fixture |
 | `.mcp.json` | Register pinned MCP servers by name + version + transport | Encode credentials, reference this-repo-specific paths, pin to `latest` or `main` |
 | `pyproject.toml` | Package metadata (`nmg_game_dev`), pinned dev deps (ruff, mypy, pytest, pytest-bdd), console-scripts entry if any | Declare runtime deps that don't exist yet (empty submodules don't need them); pin to a future Python version not supported by Blender 4.2 LTS |
 | `src/nmg_game_dev/**/__init__.py` | Mark package boundaries so later issues can add modules without layout churn | Contain any real logic (deliberately empty) |
 | `VERSION` | Be the single source of truth for the project's semver | Track anything else |
-| `CHANGELOG.md` | Give `/open-pr` an `[Unreleased]` section to append entries under | Carry content from before v0.1.0 |
-| `CLAUDE.md` | Point a new Claude session at steering docs + `/draft-issue` SDLC entry | Repeat content from steering (pointer-only) |
+| `CHANGELOG.md` | Give `$nmg-sdlc:open-pr` an `[Unreleased]` section to append entries under | Carry content from before v0.5.0 |
+| `AGENTS.md` | Point a new Codex session at steering docs + `$nmg-sdlc:draft-issue` SDLC entry | Repeat content from steering (pointer-only) |
 | `fixtures/dogfood.uproject` | Give `start-unreal-mcp.sh` a valid UE target when invoked inside this repo | Ship anywhere outside this repo; contain any real game content |
 
 ---
 
 ## Artifact specifications
 
-### 1. `.claude-plugin/plugin.json`
+### 1. `.codex-plugin/plugin.json`
 
-Claude Code plugin manifest. Versioning tracks `VERSION` (see `steering/tech.md` § Versioning).
+Codex plugin manifest. Versioning tracks `VERSION` (see `steering/tech.md` § Versioning).
 
 ```jsonc
 {
-  "$schema": "https://schemas.claude.com/plugin-manifest.schema.json",
+  "$schema": "https://schemas.codex.com/plugin-manifest.schema.json",
   "name": "nmg-game-dev",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Blender-first, Unreal-shipped content pipeline for NMG games — skills, MCP servers, Blender add-on, UE plugin, build/sign/ship",
-  "authors": [{ "name": "Nunley Media Group" }],
-  "capabilities": {
-    "skills": "skills/",
-    "commands": "commands/",
-    "agents": "agents/"
-  },
-  "requires": {
-    "claudeCode": ">=current"
-  }
+  "author": { "name": "Nunley Media Group" },
+  "skills": "./skills/"
 }
 ```
 
 **Design notes**:
-- `"capabilities"` paths are relative to the plugin root and resolve correctly for both user-scope and project-scope installs.
-- `$schema` field is opportunistic — if Claude Code doesn't publish that schema URL, drop the field; implementation task verifies.
-- `authors` is a single-entry array; future contributors appended.
-- No skills/commands/agents ship in this issue — the capability directories exist with `.gitkeep`s so the manifest resolves.
+- `"skills"` is relative to the plugin root and resolves correctly for both user-scope and project-scope installs.
+- `$schema` is omitted until Codex publishes a stable manifest schema URL.
+- `author` follows Codex's canonical publisher field shape.
+- No skills ship in this issue — `skills/.gitkeep` keeps the path present until real skill content lands.
 
-### 2. `templates/consumer/.claude/settings.json`
+### 2. `templates/consumer/.codex/hooks.json`
 
-Consumer-only template. Inert in this repo (lives under `templates/consumer/`, not `.claude/`).
+Consumer-only template. Inert in this repo (lives under `templates/consumer/`, not `.codex/`).
 
 ```jsonc
 {
@@ -200,11 +192,11 @@ Consumer-only template. Inert in this repo (lives under `templates/consumer/`, n
 
 Accompanied by `templates/consumer/README.md` documenting:
 - The file is a template consumed by `onboard-consumer` (future v1 issue), not by `nmg-game-dev` itself.
-- Target path in consumer: `<consumer>/.claude/settings.json` (merged with existing settings if present).
+- Target path in consumer: `<consumer>/.codex/hooks.json` (merged with existing hooks if present).
 - Why the hooks live here not in this repo's root: see requirements § "Scope of session-start hooks — consumer-game-only".
 
 **Design notes**:
-- The SessionStart hook schema follows Claude Code's published format. If Claude Code renames/restructures the hook config before implementation, adjust at implementation time — the shape is Claude Code's contract, not this issue's to define.
+- The SessionStart hook schema follows Codex's published format. If Codex renames/restructures the hook config before implementation, adjust at implementation time — the shape is Codex's contract, not this issue's to define.
 - Paths are relative to the consumer's project root (`scripts/start-*-mcp.sh`). This relies on `onboard-consumer` having copied the scripts into the consumer's `scripts/` first — documented in the README.
 
 ### 3. `scripts/start-blender-mcp.sh`
@@ -377,7 +369,7 @@ exit 0
 
 **Design notes**:
 - Port binding is **VibeUE's** responsibility, not this script's and not nmg-game-dev's UE plugin. The script's job is to open UE with the right project; VibeUE (a separate third-party UE plugin pinned in `.mcp.json`) is what actually binds the MCP HTTP bridge inside the editor. nmg-game-dev's own UE plugin (issue #2) ships Runtime + Editor modules only — no HTTP bridge module. *(Updated 2026-04-22 per #2 review: the original draft of this spec described an `NmgGameDevMCP` module that we would author; investigation against `kevinpbuckley/VibeUE` showed VibeUE owns the editor MCP wire end-to-end and writing a competing module would collide on the port.)*
-- If the consumer's `.uproject` does not have **VibeUE** enabled (e.g., before `onboard-consumer` has been run), UE will boot without the MCP bridge. The script still exits 0 — that's correct behavior; the MCP registration in `.mcp.json` is what surfaces the missing bridge as a connection error in Claude, not this launcher.
+- If the consumer's `.uproject` does not have **VibeUE** enabled (e.g., before `onboard-consumer` has been run), UE will boot without the MCP bridge. The script still exits 0 — that's correct behavior; the MCP registration in `.mcp.json` is what surfaces the missing bridge as a connection error in Codex, not this launcher.
 - `UE_EDITOR` path follows UE 5.7 Apple Silicon layout. Linux / Windows parity is out of scope per requirements § Non-Functional.
 
 ### 5. `.mcp.json`
@@ -423,9 +415,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nmg-game-dev"
-version = "0.1.0"
+version = "0.5.0"
 description = "Blender-first, Unreal-shipped content pipeline for NMG games"
-readme = "CLAUDE.md"
+readme = "AGENTS.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]
 license = { text = "Proprietary" }
@@ -454,7 +446,7 @@ strict = true
 ```
 
 **Design notes**:
-- `version = "0.1.0"` matches `VERSION` per `steering/tech.md` § Versioning's mapping table (`/open-pr` keeps them in sync).
+- `version = "0.5.0"` matches `VERSION` per `steering/tech.md` § Versioning's mapping table (`$nmg-sdlc:open-pr` keeps them in sync).
 - `requires-python = ">=3.11"` matches Blender 4.2 LTS bundled Python.
 - Dev deps pinned with `>=` lower bounds, not exact pins — exact pins belong in a lockfile (`uv.lock`), which is a later-issue concern. Issue #1 just needs the deps declared; `gate-python-lint` and `gate-python-types` will exercise them once skills / real code land.
 - No runtime deps under `[project]` — the empty submodule stubs don't import anything yet.
@@ -468,7 +460,7 @@ Five empty files (one per module). Example top-level:
 """nmg-game-dev — Blender-first, Unreal-shipped content pipeline for NMG games."""
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.5.0"
 ```
 
 Each submodule (`pipeline/`, `variants/`, `quality/`, `ship/`) is a single-line `__init__.py`:
@@ -481,9 +473,9 @@ from __future__ import annotations
 **Design notes**:
 - Each stub gets a one-line module docstring so ruff's D-rules pass if enabled later. Keeps issue #1's scope tight.
 
-### 8. `VERSION`, `CHANGELOG.md`, `CLAUDE.md`
+### 8. `VERSION`, `CHANGELOG.md`, `AGENTS.md`
 
-**`VERSION`** — literally `0.1.0\n`. One line, trailing newline.
+**`VERSION`** — literally `0.5.0\n`. One line, trailing newline.
 
 **`CHANGELOG.md`**:
 
@@ -500,19 +492,19 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Initial scaffolding: plugin manifest, directory layout, session-start launcher scripts, MCP config, Python package, consumer SessionStart template. (#1)
 ```
 
-**`CLAUDE.md`**:
+**`AGENTS.md`**:
 
 ```markdown
 # nmg-game-dev
 
-Blender-first, Unreal-shipped content pipeline for NMG games. Distributed as a Claude Code plugin, a Blender add-on, and a UE plugin. Installed at user or project scope — outcome identical per `specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md` AC11.
+Blender-first, Unreal-shipped content pipeline for NMG games. Distributed as a Codex plugin, a Blender add-on, and a UE plugin. Installed at user or project scope — outcome identical per `specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md` AC11.
 
 ## Where to start
 
 - **Product direction**: `steering/product.md`
 - **Technical standards + gates**: `steering/tech.md`
 - **Code organization**: `steering/structure.md`
-- **Start a new unit of work**: `/draft-issue` (nmg-sdlc entry point)
+- **Start a new unit of work**: `$nmg-sdlc:draft-issue` (nmg-sdlc entry point)
 
 ## What this file is
 
@@ -546,8 +538,8 @@ Accompanied by `fixtures/README.md` noting the `NOT SHIPPED TO CONSUMERS` constr
 
 | Option | Description | Pros | Cons | Decision |
 |--------|-------------|------|------|----------|
-| **A: Ship `.claude/settings.json` at repo root with SessionStart hooks enabled** | Wire Blender/UE to auto-launch every time a contributor opens this repo in Claude Code | Dogfoods the consumer path end-to-end on every contributor session | Slow session start (~2s delay); boots tools contributors often don't need (e.g., when only editing Python); user explicitly said hooks should NOT fire in this repo | **Rejected** — requirements § "Scope of session-start hooks — consumer-game-only" |
-| **B (Selected): Consumer-only template at `templates/consumer/.claude/settings.json` + manual-invoke scripts in this repo** | Scripts ship as deliverables; settings.json template exists for `onboard-consumer` to copy | Aligns with user direction; contributors opt into launching Blender/UE; consumer outcome unchanged | Requires documentation so contributors know to manually run the scripts when testing the full pipeline | **Selected** |
+| **A: Ship `.codex/hooks.json` at repo root with SessionStart hooks enabled** | Wire Blender/UE to auto-launch every time a contributor opens this repo in Codex | Dogfoods the consumer path end-to-end on every contributor session | Slow session start (~2s delay); boots tools contributors often don't need (e.g., when only editing Python); user explicitly said hooks should NOT fire in this repo | **Rejected** — requirements § "Scope of session-start hooks — consumer-game-only" |
+| **B (Selected): Consumer-only template at `templates/consumer/.codex/hooks.json` + manual-invoke scripts in this repo** | Scripts ship as deliverables; hooks.json template exists for `onboard-consumer` to copy | Aligns with user direction; contributors opt into launching Blender/UE; consumer outcome unchanged | Requires documentation so contributors know to manually run the scripts when testing the full pipeline | **Selected** |
 | **C: Separate `.mcp.json` for this repo vs. `templates/consumer/.mcp.json`** | One for contributor testing, one for consumer onboarding | Clean separation of concerns | Duplicates pinned versions; drift risk; no meaningful difference in the actual server config | **Rejected** — requirements § ".mcp.json is dual-purpose" |
 | **D: Pin MCP servers at the bleeding edge (`latest` / `main`)** | Always pick up the newest MCP features | Features without manual bumps | User explicitly requires pinning (AC8); floating refs break reproducibility | **Rejected** — requirements AC8 |
 | **E: Use `tree-sitter` / `ripgrep`-based add-on discovery instead of `addon_utils.enable` candidates list** | Scan Blender's addon directory directly, pick the first `blender_mcp*` match | Handles unknown future names | Fragile — Blender's Extensions system already exposes a canonical list; we'd be reinventing | **Rejected** — candidates list is explicit and diff-reviewable |
@@ -581,14 +573,14 @@ Accompanied by `fixtures/README.md` noting the `NOT SHIPPED TO CONSUMERS` constr
 | Layer | Type | Coverage |
 |-------|------|----------|
 | Launcher scripts | BDD (pytest-bdd orchestrating bash) + shellcheck (`gate-shellcheck`) | AC3–AC5: detach, idempotency, remediation on missing binary |
-| `.claude-plugin/plugin.json` | Schema check in pytest (`json.load` + required-key assertions; optional `claude plugin validate` if exposed by Claude Code CLI) | AC1 |
+| `.codex-plugin/plugin.json` | Schema check in pytest (`json.load` + required-key assertions; optional `codex plugin validate` if exposed by Codex CLI) | AC1 |
 | Directory layout | pytest asserting `Path(...).is_dir()` for each directory in `steering/structure.md` | AC2 |
 | `.mcp.json` | pytest asserting required keys + no `latest` / `main` version strings | AC8 |
-| `templates/consumer/.claude/settings.json` | pytest asserting SessionStart entries + absence of repo-root `.claude/settings.json` | AC5b |
+| `templates/consumer/.codex/hooks.json` | pytest asserting SessionStart entries + absence of repo-root `.codex/hooks.json` | AC5b |
 | `pyproject.toml` + `src/nmg_game_dev/` | `pip install -e .[dev]` in CI; `python -c "import nmg_game_dev"`; `ruff check .`; `pytest` | AC6 |
-| `VERSION` / `CHANGELOG.md` / `CLAUDE.md` | pytest string / structural assertions | AC7, AC9 |
+| `VERSION` / `CHANGELOG.md` / `AGENTS.md` | pytest string / structural assertions | AC7, AC9 |
 | Leak-prevention (AC10) | `grep`-based pytest scanning consumer-facing artifacts for banned substrings: absolute user paths, dogfood fixture refs outside `fixtures/`, this-repo-only module imports | AC10 |
-| Install-scope invariance (AC11) | Documented manual-test procedure in `docs/onboarding/` (full automation blocked on `onboard-consumer` — a later v1 issue) + a pytest guard that grep-scans the consumer-facing artifacts for any reference to `.claude/plugins/` vs. `~/.claude/plugins/` hard-codes | AC11 |
+| Install-scope invariance (AC11) | Documented manual-test procedure in `docs/onboarding/` (full automation blocked on `onboard-consumer` — a later v1 issue) + a pytest guard that grep-scans the consumer-facing artifacts for hard-coded install-scope paths | AC11 |
 
 Feature file: `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature` (delivered in Phase 3 tasks, referenced from `specs/feature-scaffold-plugin-repo-session-start-hooks/feature.gherkin`).
 
@@ -600,9 +592,9 @@ Feature file: `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.featu
 |------|------------|--------|------------|
 | Blender MCP add-on API (operator name / discovery path) changes between versions | Medium | Medium | Multi-candidate discovery list; `BLENDER_MCP_ADDON` env override for manual pinning; implementation task verifies against the actual add-on that issue #2 will deliver |
 | VibeUE package identifier differs from expected (e.g., not yet on PyPI) | Medium | Low | Implementation task: check VibeUE's canonical distribution channel (git tag, npm, PyPI) before pinning in `.mcp.json`; fall back to `uvx --from git+…` syntax if needed |
-| `claude plugin validate` CLI surface not published in current Claude Code releases | Low | Low | AC1 pass criterion is "validation passes with no errors" — if no CLI command exists, fall back to a schema assertion pytest (see Testing Strategy). Implementation task picks the currently-working surface. |
-| SessionStart hook schema in `templates/consumer/.claude/settings.json` evolves before `onboard-consumer` lands | Low | Medium | Keep the template minimal (just SessionStart with two commands). `onboard-consumer` (future issue) re-derives the template if Claude Code's schema changes, rather than forking on a stale version. |
-| Contributors forget the scripts are manual-only here and expect auto-launch | Low | Low | `CLAUDE.md` + `templates/consumer/README.md` both explain the scope. Session-start contract is documented in `steering/tech.md`. |
+| `codex plugin validate` CLI surface not published in current Codex releases | Low | Low | AC1 pass criterion is "validation passes with no errors" — if no CLI command exists, fall back to a schema assertion pytest (see Testing Strategy). Implementation task picks the currently-working surface. |
+| SessionStart hook schema in `templates/consumer/.codex/hooks.json` evolves before `onboard-consumer` lands | Low | Medium | Keep the template minimal (just SessionStart with two commands). `onboard-consumer` (future issue) re-derives the template if Codex's schema changes, rather than forking on a stale version. |
+| Contributors forget the scripts are manual-only here and expect auto-launch | Low | Low | `AGENTS.md` + `templates/consumer/README.md` both explain the scope. Session-start contract is documented in `steering/tech.md`. |
 | Dogfood `.uproject` leaks into a consumer during `onboard-consumer` | Low | High | AC10 pytest scan; `fixtures/README.md` warning; `onboard-consumer` (future issue) must whitelist what it copies — `fixtures/` is explicitly excluded |
 | macOS-only paths (`/Applications/Blender.app`, `/Users/Shared/Epic Games/UE_5.7`) break a future Linux/Windows port | Low | Low | Out of scope per requirements § Non-Functional. Tracked as a future issue when the first non-macOS consumer appears. |
 
@@ -612,7 +604,7 @@ Feature file: `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.featu
 
 - [ ] Final pinned versions for `blender-mcp`, `vibeue-mcp`, `meshy-mcp` in `.mcp.json` — resolved at implementation time (T-wire-mcp-config). The spec's hard requirement is "pinned to a specific released version/tag; never `latest`/`main`".
 - [ ] Exact Blender MCP add-on entry-point function name (`bpy.ops.blender_mcp.start_server` is a placeholder) — reconciled when issue #2 ships the add-on.
-- [ ] Whether `onboard-consumer` (future v1 issue) will merge into an existing consumer `.claude/settings.json` or refuse to overwrite — not this issue's decision, flagged here so the `templates/consumer/README.md` can cross-reference.
+- [ ] Whether `onboard-consumer` (future v1 issue) will merge into an existing consumer `.codex/hooks.json` or refuse to overwrite — not this issue's decision, flagged here so the `templates/consumer/README.md` can cross-reference.
 
 ---
 
@@ -630,7 +622,7 @@ Feature file: `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.featu
 Before moving to TASKS phase:
 
 - [x] Architecture follows existing project patterns (per `steering/structure.md` § Project Layout)
-- [x] All interface changes documented with schemas (launcher CLI contract, plugin.json shape, .mcp.json shape, settings.json template shape, pyproject shape)
+- [x] All interface changes documented with schemas (launcher CLI contract, plugin.json shape, .mcp.json shape, hooks.json template shape, pyproject shape)
 - [x] Database/storage changes planned — N/A (noted explicitly)
 - [x] State management approach — N/A (noted explicitly)
 - [x] UI components — N/A (noted explicitly)
