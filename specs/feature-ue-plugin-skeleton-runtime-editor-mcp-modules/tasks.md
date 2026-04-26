@@ -22,6 +22,19 @@
 
 ---
 
+## Task Format
+
+```
+### T[NNN]: [Task Title]
+**File(s)**: absolute repo-rooted path(s)
+**Type**: Create | Modify
+**Depends**: T[NNN], T[NNN] or None
+**Acceptance**: verifiable checklist
+**Notes**: implementation hints
+```
+
+---
+
 ## Phase 1: Setup
 
 ### T001: Author the `.uplugin` manifest
@@ -31,7 +44,7 @@
 **Depends**: None
 **Acceptance**:
 - [ ] File matches the schema in `design.md` § `.uplugin` schema (UE 5.7) verbatim
-- [ ] `VersionName` field equals the current value of repo-root `VERSION` (`0.2.0` at issue-land time — bumped from `0.1.0` when `#1`'s `/open-pr` landed)
+- [ ] `VersionName` field equals the current value of repo-root `VERSION` (`0.2.0` at issue-land time — bumped from `0.1.0` when `#1`'s `$nmg-sdlc:open-pr` landed)
 - [ ] `EngineVersion` is `"5.7.0"`
 - [ ] Two `Modules` entries: `NmgGameDevRuntime` (`Type=Runtime`, `LoadingPhase=Default`) and `NmgGameDevEditor` (`Type=Editor`, `LoadingPhase=Default`)
 - [ ] `PlatformAllowList` per module matches AC8 (Runtime: Mac/Win64/Linux/IOS/Android; Editor: Mac/Win64/Linux)
