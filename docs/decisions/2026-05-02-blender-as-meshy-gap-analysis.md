@@ -38,7 +38,7 @@ Existing repo state already gives this spike a narrow implementation landing zon
 - Hunyuan3D-2.1 self-hosted generation, with Hunyuan3D-Paint evaluated separately because its upstream PBR texture synthesis path is CUDA-first.
 - TRELLIS self-hosted 3D generation.
 - TripoSR and InstantMesh image-to-3D reconstruction behind a local text-to-image stage.
-- Direct Blender MCP procedural asset authoring for structured/stylized props.
+- Direct Blender MCP recipe-driven procedural asset authoring for structured/stylized props and constrained modular characters.
 - ComfyUI or Hugging Face Diffusers as a local texture and image-generation backend.
 - Material Maker or similar procedural/open PBR tooling for non-AI materials.
 - Blender-native remesh, decimate, baking, LOD, glTF export, and Rigify.
@@ -181,7 +181,14 @@ The first pass still showed why one-shot prompt-to-code is not enough: the chest
 
 Visual assessment: structured procedural parts improved hard-surface object accuracy materially. The plasma pistol is a plausible low-poly game prop and validates the approach for hard-surface props, pickups, weapons, interactables, platforms, doors, signs, and similar typed object families. The character result is not production-accurate: it reads as a humanoid archer mannequin, but anatomy, face quality, clothing shape, pose control, deformation, and character appeal are not sufficient. Blender MCP alone can assemble a character from parts, but accurate generalized character generation needs a separate character grammar with anatomy templates, rig-aware proportions, clothing/hair modules, facial feature templates, and multi-angle critique gates. It is not solved by generic primitives.
 
-Assessment: add a first-class implementation issue for direct Blender procedural asset generation. Treat it as the preferred v1 path for structured stylized hard-surface props and gameplay objects. Treat characters as a separate follow-up track unless v1 accepts deliberately simple modular/rigged archetypes. Direct Blender MCP alone remains plausible, but only with a typed procedural asset DSL, reusable part libraries, reference/spec validation, and multi-angle render critique. Freeform "model anything accurately from text" is not credible yet.
+The quality pass then moved beyond primitive stacking. Two higher-fidelity Blender-only assets were authored through the same MCP listener:
+
+- `/private/tmp/blender-mcp-meshy-quality-spike/arcane_sword/arcane_frost_sword.glb` with render proofs under `/private/tmp/blender-mcp-meshy-quality-spike/arcane_sword/arcane_frost_sword_review_*.png`. This pass used a custom faceted blade mesh, bevels, layered guard geometry, emissive runes, metal/leather/ice material presets, floating shards, GLB export, and five-angle review. The exported asset had 55 mesh objects, 2,797 vertices, 2,691 faces, six materials, and dimensions of roughly 3.0 x 0.4672 x 6.3772 Blender units.
+- `/private/tmp/blender-mcp-meshy-quality-spike/potion_bottle_v2/enchanted_mana_potion_v2.glb` with render proofs under `/private/tmp/blender-mcp-meshy-quality-spike/potion_bottle_v2/enchanted_mana_potion_v2_review_*.png`. This pass replaced stacked primitives with surface-of-revolution bottle and liquid meshes, curved label geometry, explicit cork/twine/hardware parts, transparent/emissive material presets, internal bubbles/crystals, GLB export, and five-angle review. The exported asset had 35 mesh objects, 7,984 vertices, 7,525 faces, nine materials, and dimensions of roughly 1.44 x 1.491 x 2.8962 Blender units.
+
+The potion v2 pass is the first Blender MCP-only result that is credible as a stylized game-prop baseline. It is still not broad Meshy.ai parity: label/ornament fidelity, glass shading, texture richness, and character/anatomy generation remain below what a good model-backed or artist-authored asset can produce. The important finding is how quality improved: typed asset-family recipes, real mesh constructors, reusable motif libraries, PBR material presets, and multi-angle render critique worked. Generic one-shot "make any object from text" did not.
+
+Assessment: make direct Blender MCP recipe generation the primary v1 solution for assets the framework can express procedurally. The implementation should not be a prompt-to-code free-for-all; it should be a recipe compiler with typed asset specs, per-family geometry builders, material/motif libraries, GLB export, quality budgets, and mandatory multi-angle review. Local specialized models move to benchmark/reference/fallback status unless a later issue proves they are needed for categories the procedural recipe engine cannot cover. Characters remain constrained to modular archetypes until a character grammar proves anatomy, clothing, face, rig, and pose quality.
 
 ### Rigging and Animation
 
@@ -224,9 +231,9 @@ Sources:
 - This spike proved TRELLIS.2 Mac can run without BRIA on RGBA inputs, but the measured output was not quality-viable and its DINOv3 dependency still needs license review.
 - This spike did not benchmark TripoSR, InstantMesh, SPAR3D/Stable Fast 3D, or other local image-to-3D candidates against the Hunyuan baseline.
 - This spike proved a local text-to-image-to-3D chain using FLUX.1-schnell, rembg/u2netp, and Hunyuan3D-2.1 at smoke and mid-quality settings, but did not prove production-quality prompt-only generation, AI-generated PBR texture output, or acceptable latency.
-- This spike proved direct Blender MCP procedural authoring can produce recognizable low-poly stylized hard-surface props, and that structured specs plus reusable part functions improve accuracy over one-shot prompt-to-code.
+- This spike proved direct Blender MCP procedural authoring can produce credible stylized prop baselines when it uses typed recipes, real mesh constructors, reusable part libraries, material presets, and multi-angle review. The potion v2 pass is the strongest Blender-only evidence so far.
 - This spike did not prove accurate generalized character generation through Blender MCP alone. The forest-ranger test read as a humanoid archer but exposed unresolved anatomy, face, clothing, pose, rigging, and appeal gaps.
-- This spike did not prove a broad prompt-to-procedural grammar for arbitrary asset classes; it identified the need for typed asset DSLs, recipe selection, part libraries, material presets, reference/spec validation, and multi-angle critique loops.
+- This spike did not prove broad Meshy.ai-quality arbitrary prompt generation through Blender MCP alone. It identified a workable solution only if nmg-game-dev builds typed asset DSLs, recipe selection, part libraries, material presets, reference/spec validation, and multi-angle critique loops.
 - This spike could not prove provider-backed Blender MCP generation quality because Hyper3D/Rodin's built-in free-trial key returned `INSUFFICIENT_BALANCE`, and Tencent Hunyuan official API credentials were not configured.
 - This spike did not identify a credible local solution for quadruped or non-biped auto-rigging.
 - This spike did not identify a credible local solution for text-driven custom motion.
@@ -236,18 +243,18 @@ Sources:
 
 ## Recommendation
 
-Proceed with ADR plus an implementation umbrella. The v1 direction should be local-first Blender parity, not Meshy replacement through another paid API.
+Proceed with ADR plus an implementation umbrella. The v1 direction should be Blender MCP-only recipe generation as the default happy path for supported asset families, not a local specialized-model stack and not Meshy replacement through another paid API.
 
 Recommended architecture:
 
 1. Add shared local job orchestration primitives first: job submit/poll/cancel, progress events, cache keys, artifact manifests, backend provenance, and review artifacts.
-2. Implement direct Blender MCP procedural asset generation for structured/stylized hard-surface props where deterministic typed recipes can beat model latency and provider risk; keep characters as modular archetypes or a follow-up track until a character grammar is proven.
-3. Implement Hunyuan3D-2.1 as the preferred local image-to-shape backend behind the existing `Stage` Protocol shape, with efficient-quality presets and Blender review artifacts.
-4. Select and implement a local text-to-image stage that can create clean, asset-style RGBA or maskable reference images for prompt-only generation.
-5. Implement a local texture backend as Blender-owned PBR packaging first: UV unwrap, material-slot assignment, procedural/stylized PBR presets, texture bake-down, GLB channel validation, and review renders. Exclude Hunyuan3D-Paint from v1 unless a Mac-compatible port is proven on this machine; keep ComfyUI/Diffusers as gated texture/retexture experiments until they prove channel-correct output locally on this Mac.
-6. Implement Blender-native cleanup, remesh, LOD, texture bake-down, and Desktop/Mobile variant operators.
-7. Implement constrained humanoid rigging and animation import through Blender/Rigify and local animation-library retargeting.
-8. Implement asset review outputs and quality gates so every asset-producing skill ends with inspectable proof, not trust.
+2. Implement a direct Blender MCP recipe engine for supported asset families. The engine accepts typed specs, selects an asset-family builder, emits Blender Python, exports GLB, and records recipe/material provenance.
+3. Build the first procedural recipe libraries for stylized props: potion/bottle, melee weapon, firearm/tool, chest/container, key/collectible, sign/UI pickup, platform/door, and environmental kit pieces. Each family needs real mesh constructors, not only scaled primitives.
+4. Implement a Blender-owned material and motif library: metal, wood, leather, glass, liquid, cloth, stone, emissive magic, trim, rivets, labels, straps, ropes, seals, glyphs, decals, and damage/wear motifs.
+5. Implement asset review outputs and quality gates so every asset-producing skill ends with five-angle renders, object/material/poly statistics, budget checks, and reject/fix prompts.
+6. Implement Blender-native cleanup, remesh, LOD, texture bake-down, and Desktop/Mobile variant operators after recipe generation.
+7. Keep characters constrained to modular archetypes until a dedicated character grammar proves anatomy, clothing, face, rig, and pose quality.
+8. Keep Hunyuan3D, FLUX, TripoSR/InstantMesh, Meshy, Hyper3D, Substance, and Mixamo as reference/fallback/research paths only. They must not be required for the supported v1 Blender MCP-only happy path.
 
 Meshy, Hyper3D, Substance, and Mixamo remain allowed only as:
 
@@ -256,20 +263,20 @@ Meshy, Hyper3D, Substance, and Mixamo remain allowed only as:
 - manual production escape hatches,
 - or temporary gaps recorded in issue bodies and review reports.
 
-They must not be required for the happy path of `$new-prop`, `$new-character`, `$generate-texture`, or consumer onboarding.
+They must not be required for the happy path of supported `$new-prop`, `$generate-texture`, or consumer onboarding flows. `$new-character` remains constrained until the modular character grammar is proven.
 
 ## Decomposition
 
 - component-count: 8
 - components:
-  - Local generation job orchestration: add job lifecycle, progress, cancellation, cache provenance, artifact manifest, and backend capability probing.
-  - Direct Blender procedural asset backend: build deterministic Blender MCP recipe generators for structured/stylized props, material presets, GLB export, and review renders.
-  - Hunyuan3D local generation backend: wire self-hosted Hunyuan3D-2.1 into the pipeline generate boundary with hardware detection, efficient-quality presets, and Meshy-reference comparison only.
-  - Local text-to-image backend: select and wire a commercial-safe local model path that turns asset prompts into clean RGBA or maskable reference images for Hunyuan-style image-to-3D.
-  - Local texture and retexture backend: implement the `texture` stage with Blender-owned PBR material packaging, UV unwrap, bake-down, GLB channel validation, deterministic procedural/stylized PBR presets, and Mac-local ComfyUI/Diffusers experiments only after channel-correct output is proven.
+  - Blender MCP job orchestration: add job lifecycle, progress, cancellation, cache provenance, artifact manifest, backend capability probing, and safe listener restart handling.
+  - Procedural recipe engine: compile typed asset specs into deterministic Blender MCP scripts with recipe/material provenance and replayable cache keys.
+  - Prop recipe library: implement high-quality builders for potion/bottle, weapon, tool, chest/container, key/collectible, sign/UI pickup, platform/door, and environmental kit pieces.
+  - Material and motif library: implement reusable procedural PBR presets and details for metal, wood, leather, glass, liquid, cloth, stone, emissive magic, trim, rivets, labels, straps, ropes, seals, glyphs, decals, and wear.
   - Blender cleanup, remesh, LOD, and variant operators: produce deterministic Desktop/Mobile assets with sidecars for quality gates.
-  - Humanoid rigging and animation import: support Rigify-based humanoid rigs and local animation-library retargeting while marking non-biped/custom motion as gaps.
-  - Asset inspection and review gates: produce turntables, material-ball renders, diff screenshots, budget reports, and an `inspect-artifact`/asset-reviewer surface.
+  - Modular character grammar: support constrained biped archetypes with anatomy templates, clothing/hair modules, face templates, Rigify-ready proportions, and pose validation.
+  - Asset inspection and review gates: produce five-angle renders, turntables, material-ball renders, diff screenshots, budget reports, and an `inspect-artifact`/asset-reviewer surface.
+  - Reference/fallback adapters: keep Hunyuan3D, FLUX, TripoSR/InstantMesh, Meshy, Hyper3D, Substance, and Mixamo as explicit fallback or benchmark-only paths.
 
 ## Consequences
 
@@ -282,24 +289,24 @@ They must not be required for the happy path of `$new-prop`, `$new-character`, `
 
 ### Negative
 
-- Local inference raises hardware, install, and model-management complexity.
-- Hunyuan3D-class generation may exceed some developer machines' practical limits.
+- Procedural recipe quality is category-by-category; broad coverage requires authoring and maintaining a real recipe, part, material, and motif library.
+- Freeform arbitrary prompt coverage will trail model-backed services until enough asset-family grammars exist.
 - v1 will still need explicit fallback language for non-biped rigging and text-driven custom motion.
-- Quality may initially trail Meshy on some categories until prompts, models, and review gates mature.
+- Quality may initially trail Meshy on categories outside the recipe library, especially organic characters, complex clothing, faces, creatures, and highly irregular natural assets.
 
 ## Scope Decision
 
 Choose **ADR + umbrella + child implementation issues** at the Phase 0 Human Review Gate.
 
-The ADR should ship in the issue #5 PR. The implementation tracker is umbrella issue #27 with child issues created from the decomposition above. Each child carries `Depends on: #27` so the SDLC pipeline treats the umbrella as coordination rather than a shipping change.
+The ADR should ship in the issue #5 PR. The implementation tracker is umbrella issue #27 with child issues created from the decomposition above. Each child carries `Depends on: #27` so the SDLC pipeline treats the umbrella as coordination rather than a shipping change. After the Blender MCP-only quality pass, #35 is the primary implementation track; #28 and #34 are retained as fallback/research tracks rather than required v1 dependencies.
 
 Created tracker:
 
-- #27: Umbrella: deliver local-first Blender-as-Meshy parity
+- #27: Umbrella: deliver Blender MCP-only recipe asset generation
 - #31: Add local generation job orchestration
 - #35: Add direct Blender procedural asset generation
-- #34: Add local text-to-image backend
-- #28: Wire Hunyuan3D local generation backend
+- #34: Add local text-to-image backend as fallback research
+- #28: Wire Hunyuan3D local generation backend as fallback research
 - #29: Implement local texture and retexture backend
 - #33: Build Blender cleanup remesh LOD and variant operators
 - #32: Support humanoid rigging and animation import
