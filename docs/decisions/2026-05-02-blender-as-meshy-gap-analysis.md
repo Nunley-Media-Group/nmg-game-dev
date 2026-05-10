@@ -38,6 +38,7 @@ Existing repo state already gives this spike a narrow implementation landing zon
 - Hunyuan3D-2.1 self-hosted generation, with Hunyuan3D-Paint evaluated separately because its upstream PBR texture synthesis path is CUDA-first.
 - TRELLIS self-hosted 3D generation.
 - TripoSR and InstantMesh image-to-3D reconstruction behind a local text-to-image stage.
+- Direct Blender MCP procedural asset authoring for structured/stylized props.
 - ComfyUI or Hugging Face Diffusers as a local texture and image-generation backend.
 - Material Maker or similar procedural/open PBR tooling for non-AI materials.
 - Blender-native remesh, decimate, baking, LOD, glTF export, and Rigify.
@@ -167,6 +168,16 @@ Sources:
 - https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html
 - https://docs.blender.org/manual/en/4.2/addons/import_export/scene_gltf2.html
 
+### Direct Blender MCP Procedural Asset Authoring
+
+Direct Blender MCP procedural authoring is viable for structured/stylized game props where the target can be decomposed into known primitives, material presets, and reusable motifs. This is not text-to-3D model inference; Codex drives Blender Python through `execute_code` and constructs the asset deterministically inside Blender.
+
+The spike exercised this path through the already-running Blender MCP listener on `127.0.0.1:9876`. The test created a stylized fantasy treasure chest using Blender primitives, bevels, simple material nodes, rivets, trim, lock geometry, feet, orthographic review lighting, GLB export, and a review render. It produced `/private/tmp/blender-mcp-direct-spike/procedural_chest/blender_mcp_procedural_treasure_chest.glb` and `/private/tmp/blender-mcp-direct-spike/procedural_chest/blender_mcp_procedural_treasure_chest_review.png`. The exported asset contained 46 mesh objects, 632 vertices, 408 faces, five materials, and dimensions of roughly 3.1 x 1.8425 x 2.08 Blender units.
+
+Visual assessment: the result is immediately recognizable as a stylized game-prop treasure chest, has a readable silhouette, controlled low-poly geometry, coherent material grouping, and no provider/runtime dependency. It is stronger than the failed provider-backed test as a reliable v1 path for authored props, but it is template/grammar constrained. It will not create arbitrary organic characters or one-off art direction without a growing library of procedural generators, part recipes, material presets, and review heuristics.
+
+Assessment: add a first-class implementation issue for direct Blender procedural asset generation. Treat it as the preferred v1 path for structured stylized props and UI/gameplay objects, complementary to Hunyuan/image-to-3D rather than a replacement for all asset classes.
+
 ### Rigging and Animation
 
 Humanoid rigging can start with Blender Rigify and optional Mixamo reference workflows. Mixamo is free for many Adobe ID users, but it is still an external web service, is not available in every account/country setup, stores only the last used character, and is limited to bipedal humanoids. Meshy's rigging API has similar humanoid-only caveats and is credit-based. Neither should be a primary automated dependency.
@@ -192,7 +203,9 @@ The pinned Blender MCP can execute Python in Blender, inspect scenes, manipulate
 
 The repo should use Blender MCP primarily as a control plane for local Blender operations and nmg-game-dev operators, not as a hidden dependency on paid provider APIs. Generation jobs should be represented in nmg-game-dev code with explicit backend names, cache keys, progress, cancellation, artifact paths, and source provenance.
 
-Assessment: ready for shared orchestration primitive issue.
+Direct provider-backed generation through Blender MCP was tested separately. The running add-on exposed Hyper3D/Rodin and Hunyuan3D generation tools. Both were initially disabled in the Blender MCP panel. Hyper3D could be enabled programmatically with the add-on's built-in free-trial key, but the corrected text-to-asset submission failed with provider response `INSUFFICIENT_BALANCE`. Hunyuan3D through Blender MCP was not tested as a non-local provider because it requires Tencent SecretId/SecretKey for `OFFICIAL_API`; the configured `LOCAL_API` mode points at `http://localhost:8081`, which is the local-model direction already evaluated elsewhere in this spike.
+
+Assessment: ready for shared orchestration primitive issue. Provider-backed Blender MCP generation is not a reliable v1 happy path without project-owned credentials and quota policy; direct procedural Blender MCP authoring is reliable for the asset categories it can express.
 
 Sources:
 
@@ -206,6 +219,8 @@ Sources:
 - This spike proved TRELLIS.2 Mac can run without BRIA on RGBA inputs, but the measured output was not quality-viable and its DINOv3 dependency still needs license review.
 - This spike did not benchmark TripoSR, InstantMesh, SPAR3D/Stable Fast 3D, or other local image-to-3D candidates against the Hunyuan baseline.
 - This spike proved a local text-to-image-to-3D chain using FLUX.1-schnell, rembg/u2netp, and Hunyuan3D-2.1 at smoke and mid-quality settings, but did not prove production-quality prompt-only generation, AI-generated PBR texture output, or acceptable latency.
+- This spike proved direct Blender MCP procedural authoring can produce a recognizable low-poly stylized prop, but did not prove a broad prompt-to-procedural grammar for arbitrary asset classes.
+- This spike could not prove provider-backed Blender MCP generation quality because Hyper3D/Rodin's built-in free-trial key returned `INSUFFICIENT_BALANCE`, and Tencent Hunyuan official API credentials were not configured.
 - This spike did not identify a credible local solution for quadruped or non-biped auto-rigging.
 - This spike did not identify a credible local solution for text-driven custom motion.
 - This spike did not define an artist-facing review UI beyond the need for turntable renders, material-ball renders, screenshots, and sidecar reports.
@@ -219,12 +234,13 @@ Proceed with ADR plus an implementation umbrella. The v1 direction should be loc
 Recommended architecture:
 
 1. Add shared local job orchestration primitives first: job submit/poll/cancel, progress events, cache keys, artifact manifests, backend provenance, and review artifacts.
-2. Implement Hunyuan3D-2.1 as the preferred local image-to-shape backend behind the existing `Stage` Protocol shape, with efficient-quality presets and Blender review artifacts.
-3. Select and implement a local text-to-image stage that can create clean, asset-style RGBA or maskable reference images for prompt-only generation.
-4. Implement a local texture backend as Blender-owned PBR packaging first: UV unwrap, material-slot assignment, procedural/stylized PBR presets, texture bake-down, GLB channel validation, and review renders. Exclude Hunyuan3D-Paint from v1 unless a Mac-compatible port is proven on this machine; keep ComfyUI/Diffusers as gated texture/retexture experiments until they prove channel-correct output locally on this Mac.
-5. Implement Blender-native cleanup, remesh, LOD, texture bake-down, and Desktop/Mobile variant operators.
-6. Implement constrained humanoid rigging and animation import through Blender/Rigify and local animation-library retargeting.
-7. Implement asset review outputs and quality gates so every asset-producing skill ends with inspectable proof, not trust.
+2. Implement direct Blender MCP procedural asset generation for structured/stylized props where deterministic recipes can beat model latency and provider risk.
+3. Implement Hunyuan3D-2.1 as the preferred local image-to-shape backend behind the existing `Stage` Protocol shape, with efficient-quality presets and Blender review artifacts.
+4. Select and implement a local text-to-image stage that can create clean, asset-style RGBA or maskable reference images for prompt-only generation.
+5. Implement a local texture backend as Blender-owned PBR packaging first: UV unwrap, material-slot assignment, procedural/stylized PBR presets, texture bake-down, GLB channel validation, and review renders. Exclude Hunyuan3D-Paint from v1 unless a Mac-compatible port is proven on this machine; keep ComfyUI/Diffusers as gated texture/retexture experiments until they prove channel-correct output locally on this Mac.
+6. Implement Blender-native cleanup, remesh, LOD, texture bake-down, and Desktop/Mobile variant operators.
+7. Implement constrained humanoid rigging and animation import through Blender/Rigify and local animation-library retargeting.
+8. Implement asset review outputs and quality gates so every asset-producing skill ends with inspectable proof, not trust.
 
 Meshy, Hyper3D, Substance, and Mixamo remain allowed only as:
 
@@ -237,9 +253,10 @@ They must not be required for the happy path of `$new-prop`, `$new-character`, `
 
 ## Decomposition
 
-- component-count: 7
+- component-count: 8
 - components:
   - Local generation job orchestration: add job lifecycle, progress, cancellation, cache provenance, artifact manifest, and backend capability probing.
+  - Direct Blender procedural asset backend: build deterministic Blender MCP recipe generators for structured/stylized props, material presets, GLB export, and review renders.
   - Hunyuan3D local generation backend: wire self-hosted Hunyuan3D-2.1 into the pipeline generate boundary with hardware detection, efficient-quality presets, and Meshy-reference comparison only.
   - Local text-to-image backend: select and wire a commercial-safe local model path that turns asset prompts into clean RGBA or maskable reference images for Hunyuan-style image-to-3D.
   - Local texture and retexture backend: implement the `texture` stage with Blender-owned PBR material packaging, UV unwrap, bake-down, GLB channel validation, deterministic procedural/stylized PBR presets, and Mac-local ComfyUI/Diffusers experiments only after channel-correct output is proven.
@@ -273,6 +290,7 @@ Created tracker:
 
 - #27: Umbrella: deliver local-first Blender-as-Meshy parity
 - #31: Add local generation job orchestration
+- #35: Add direct Blender procedural asset generation
 - #34: Add local text-to-image backend
 - #28: Wire Hunyuan3D local generation backend
 - #29: Implement local texture and retexture backend
