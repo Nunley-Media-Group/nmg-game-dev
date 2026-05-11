@@ -77,7 +77,25 @@ Developer in Codex
 | Apple Developer | iOS provisioning | `.mobileprovision` via env |
 | Google Play | Android AAB upload | Keystore + password via env |
 | GitHub | Source + issue + PR automation | `gh` CLI |
+| CodeRabbit | Automated PR review and merge gating | GitHub App `coderabbitai`; required status context `CodeRabbit` |
 | (TBD) Texture-gen hosted service | If the v1 spike picks a hosted tool | Credential model decided at spike |
+
+### Automated Review
+
+The `$nmg-sdlc:address-pr-comments` skill reads this section to decide which PR
+review threads it may address. Treat threads whose author satisfies either
+predicate below as in-scope; all other threads, including human reviewers, are
+out of scope and left unresolved for human follow-up.
+
+| Predicate | Default | Description |
+|-----------|---------|-------------|
+| `bots` | `false` | When `true`, any thread whose first comment has `author.__typename == "Bot"` is eligible |
+| `logins` | `["coderabbitai"]` | Explicit GitHub login allow-list for automated reviewers; CodeRabbit posts as `coderabbitai` |
+
+Modify the defaults above to change automated-review eligibility without a skill
+or script change. If this section is missing or malformed,
+`$nmg-sdlc:address-pr-comments` fails closed and treats every review thread as
+out of scope.
 
 ---
 
