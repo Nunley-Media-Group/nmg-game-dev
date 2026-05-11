@@ -9,11 +9,11 @@
 
 ## Context
 
-nmg-game-dev is Blender-first by product direction, with Meshy retained only as a supplement when it is the right production tool. Issue #5 asks whether Blender can become the primary Meshy-parity authoring surface for text-to-3D asset creation, PBR texture generation, retexturing, remesh/topology, LOD generation, rigging, and animation.
+nmg-game-dev is Blender-first by product direction, and this spike concludes that Blender MCP recipe generation is the v1 asset-creation path. Meshy and model-backed tools are retained only as historical benchmarks, not implementation dependencies. Issue #5 asks whether Blender can become the primary Meshy-parity authoring surface for text-to-3D asset creation, PBR texture generation, retexturing, remesh/topology, LOD generation, rigging, and animation.
 
-The additional operating constraint is that v1 must not rely on paid or heavily rate-limited third-party APIs as the primary path. Paid or rate-limited services may be used as reference outputs or manual escape hatches, but the framework's core happy path must run locally or against free/open tooling that can be cached and controlled.
+The final operating constraint is stricter than "local-first": v1 asset generation must use Blender MCP and deterministic procedural reasoning as the happy path. Paid APIs, hosted generation providers, and local specialized model servers are not implementation dependencies for asset creation. They remain historical benchmark evidence only.
 
-The target deployment machine is the current Apple Silicon Mac. For this spike's recommendation, "local" means runnable on this Mac through local Blender, PyTorch MPS/CPU fallback where needed, and the pinned Blender MCP listener. CUDA/NVIDIA-only paths are disqualified from the v1 recommendation even if they are locally self-hostable on different hardware.
+For this spike's recommendation, "local" means local Blender plus the pinned Blender MCP listener. PyTorch/MPS, CUDA/NVIDIA, and other model-runtime paths are not part of the v1 asset-generation recommendation even if they are technically runnable on some machines.
 
 Existing repo state already gives this spike a narrow implementation landing zone:
 
@@ -25,8 +25,8 @@ Existing repo state already gives this spike a narrow implementation landing zon
 
 ## Decision Drivers
 
-- Local-first and API-optional: no primary dependency on paid credits, SaaS uptime, daily quotas, or hardware that is not this Mac.
-- Blender remains the authoring surface. External models may generate source artifacts, but Blender owns cleanup, variants, inspection, and export.
+- Blender MCP-only happy path: no primary dependency on paid credits, SaaS uptime, daily quotas, local specialized model servers, or hardware outside local Blender.
+- Blender is the generation and authoring surface. Assets are created by typed procedural recipes, Blender geometry builders, material/motif libraries, cleanup, variants, inspection, and export.
 - Meshy parity means capability parity where honest, not cloning Meshy's implementation model.
 - Asset-producing work must remain idempotent, resumable, cacheable, and quality-gated.
 - Desktop and Mobile variants must be produced as separate physical assets from the first real implementation.
@@ -35,22 +35,17 @@ Existing repo state already gives this spike a narrow implementation landing zon
 ## Candidate Set
 
 - Status quo: keep Meshy as the practical generation supplement and do not claim Blender parity yet.
-- Hunyuan3D-2.1 self-hosted generation, with Hunyuan3D-Paint evaluated separately because its upstream PBR texture synthesis path is CUDA-first.
-- TRELLIS self-hosted 3D generation.
-- TripoSR and InstantMesh image-to-3D reconstruction behind a local text-to-image stage.
-- Direct Blender MCP recipe-driven procedural asset authoring for structured/stylized props and constrained modular characters.
-- ComfyUI or Hugging Face Diffusers as a local texture and image-generation backend.
-- Material Maker or similar procedural/open PBR tooling for non-AI materials.
-- Blender-native remesh, decimate, baking, LOD, glTF export, and Rigify.
-- Meshy, Hyper3D, Substance, and Mixamo as non-core references or fallbacks.
+- Direct Blender MCP recipe-driven procedural asset authoring for all supported asset families.
+- Blender-native procedural materials, geometry nodes/Python mesh construction, remesh, decimate, baking, LOD, glTF export, and Rigify.
+- Hunyuan3D, TRELLIS, TripoSR, InstantMesh, FLUX, ComfyUI, Diffusers, Meshy, Hyper3D, Substance, Material Maker, and Mixamo as evaluated-but-rejected implementation dependencies. Their outputs may inform benchmarks, but they are not active v1 backends.
 
 ## Findings
 
 ### Status Quo / No Change
 
-Keeping Meshy as the only practical supplement would be the lowest implementation risk, but it violates the added product constraint. Meshy's own API docs show credit-based pricing and failure modes for payment required and rate limiting. It is still useful as a benchmark and optional fallback, especially because it exposes text-to-3D, refine/PBR, remesh, rigging, and animation endpoints. It should not be the primary v1 dependency.
+Keeping Meshy as the practical generation supplement would be the lowest implementation risk, but it violates the final product constraint. Meshy's own API docs show credit-based pricing and failure modes for payment required and rate limiting. It is still useful as a benchmark because it exposes text-to-3D, refine/PBR, remesh, rigging, and animation endpoints. It should not be a v1 dependency or fallback backend.
 
-Assessment: fallback required, not primary.
+Assessment: benchmark/reference only, not an implementation dependency.
 
 Sources:
 
@@ -67,7 +62,7 @@ Local follow-up testing on the target M-series development machine proved the sh
 
 The remaining gap is productization and texture/PBR, not basic local feasibility. nmg-game-dev still needs a local job wrapper, hardware probing, output normalization, cache integration, Blender-side import/review, and efficient-setting benchmarks. The Hunyuan texture/PBR path is not a Mac-local default as-is. The upstream paint README recommends at least 21 GB VRAM for `max_num_view=6` and `resolution=512`, the repository installation path is tested against PyTorch `cu124`, the paint config hardcodes `self.device = "cuda"`, the multiview pipeline sends tensors to `"cuda"`, the attention processor contains hardcoded `"cuda:0"`/`"cuda:1"` device routing, and the custom rasterizer is built as a `CUDAExtension`. A local build probe for `hy3dpaint/custom_rasterizer` failed immediately on this Mac with `CUDA_HOME environment variable is not set`.
 
-Assessment: preferred local image-to-shape baseline for v1. Implement after adding local job orchestration, with hardware capability detection, efficient-quality presets, and explicit texture-stage fallback behavior. Treat Hunyuan3D-Paint as disqualified for v1 unless a Mac-compatible port is proven on this machine.
+Assessment: technically useful evidence, but rejected as a v1 implementation dependency. The path requires a local specialized model stack, heavy memory, model management, and a separate texture solution. No Hunyuan child implementation should remain active for the Blender MCP-only solution.
 
 Sources:
 
@@ -96,9 +91,9 @@ Sources:
 
 TripoSR and InstantMesh are useful local reconstruction backends when nmg-game-dev can first produce or receive a reference image. TripoSR is attractive for speed and low inference budget. InstantMesh is useful for feed-forward single-image mesh generation and has an Apache-2.0 implementation. Neither solves text-to-3D plus PBR texture output alone.
 
-These should become optional local backends behind the same generation job interface, especially for props where a local text-to-image preview can drive reconstruction. They should not block the first Hunyuan3D path.
+These remain historical comparison points only. They still require model-backed reconstruction and a reference image stage, so they do not fit the final Blender MCP-only path.
 
-Assessment: ready as optional backend issue after the shared generation job contract exists.
+Assessment: rejected as v1 implementation dependencies; benchmark/reference only.
 
 Sources:
 
@@ -108,19 +103,19 @@ Sources:
 
 ### ComfyUI / Diffusers / Material Maker
 
-The texture stage should be local-first. ComfyUI provides a local graph/node workflow and backend on Windows, Linux, and macOS. Diffusers provides local image-to-image and ControlNet-style controlled generation APIs, useful for generating or retexturing 2D texture maps from renders, UV previews, depth maps, and normal/canny controls. Material Maker is an open-source procedural PBR authoring tool that can export materials for game engines and is useful for deterministic, non-AI material generation.
+The texture stage should be Blender MCP-only. ComfyUI and Diffusers were evaluated as possible local model-backed texture paths, and Material Maker was evaluated as an external procedural material reference, but none of them should be required in v1. Blender's own material nodes, UV tools, procedural textures, baking, and glTF export are the implementation surface.
 
-The gap is PBR channel discipline. Generic image diffusion produces images, not guaranteed game-ready base color, normal, roughness, metallic, and AO maps. ComfyUI/Diffusers/Material Maker should cover Mac-local texture generation, retexture experiments, and procedural material fallback under a strict output contract.
+The gap is PBR channel discipline. Generic image diffusion produces images, not guaranteed game-ready base color, normal, roughness, metallic, and AO maps. The Blender recipe engine must cover material generation, retexture-like variation, and procedural material fallback under a strict output contract.
 
 The v1 texture strategy should separate "PBR-compliant asset packaging" from "AI-generated high-quality texture synthesis." Blender and glTF can give nmg-game-dev the first part locally: UVs, material slots, base color, metallic, roughness, normal, AO/emissive channels where available, texture bake-down, and GLB export. Blender's render baking supports baking base color/normal/AO/procedural results to image textures, and Blender's glTF exporter supports core metal/rough PBR materials and recognized image texture nodes. That is enough to make local assets engine-importable and materially disciplined even when texture art is procedural or simple.
 
-AI texture generation should be staged behind quality gates. For Mac-local v1, use deterministic Blender/Material Maker procedural PBR presets and reference-image projection/baking experiments for stylized props. Use ComfyUI/Diffusers only for explicit texture/retexture experiments that emit the required channel manifest and review renders. Do not claim Meshy-quality PBR from this path until a benchmark shows coherent base color, normal, metallic, roughness, and AO maps on the target asset categories.
+Texture generation should be staged behind quality gates. For v1, use deterministic Blender procedural PBR presets and recipe-specific material builders for stylized props and modular characters. Do not introduce ComfyUI, Diffusers, or another local model backend for texture synthesis.
 
 The Mac-local PBR packaging path was exercised through the already-running Blender MCP listener on `127.0.0.1:9876`, using `/Volumes/Fast Brick/Applications/Blender.app/Contents/MacOS/Blender` 5.1.1. The test imported the mid-quality Hunyuan chest GLB, created a UV layer with Blender smart projection, assigned three procedural/stylized PBR materials for wood, brass, and dark trim, packed generated texture images, exported a GLB, and rendered a review PNG. It completed in 8.578s inside Blender and produced `/private/tmp/hunyuan3d-smoke/output/pbr_package_flux_chest/flux_chest_pbr_packaged.glb` and `/private/tmp/hunyuan3d-smoke/output/pbr_package_flux_chest/flux_chest_pbr_packaged_review.png`. The exported GLB is 46 MB, contains 3 materials, 9 textures, 9 images, and 1 mesh; glTF inspection confirmed base-color, metallic-roughness, and normal texture bindings for each material.
 
 Hunyuan3D-Paint is out of scope for v1 unless a Mac-compatible port is separately proven on this exact machine. A CUDA-capable machine should not be part of the recommendation because nmg-game-dev will only use this Mac for this path.
 
-Assessment: ready for a local texture backend issue, but scope it as `Blender PBR packaging + procedural material fallback` first. The Mac-local happy path can be PBR-compliant in v1; full AI PBR texture quality remains unproven.
+Assessment: ready for a Blender MCP procedural material issue. Scope it as `Blender PBR packaging + procedural material library`; no AI texture backend belongs in v1.
 
 Sources:
 
@@ -133,7 +128,7 @@ Sources:
 
 ### Local Text-to-Image for Prompt-Only Generation
 
-Prompt-only generation still needs a local text-to-image stage before Hunyuan-style image-to-3D. FLUX.1-schnell is the strongest candidate tested so far because its model card lists Apache-2.0 licensing and explicitly allows personal, scientific, and commercial use. It also supports Diffusers and local ComfyUI workflows.
+Prompt-only model-backed generation was evaluated before the Blender MCP recipe path was proven. FLUX.1-schnell was the strongest local text-to-image candidate because its model card lists Apache-2.0 licensing and explicitly allows personal, scientific, and commercial use. It also supports Diffusers and local ComfyUI workflows.
 
 Local FLUX.1-schnell testing on the target Mac completed through Diffusers and MPS. The cold run used a game-prop prompt for a stylized treasure chest, 512x512 output, 4 inference steps, and `torch.bfloat16`. It downloaded the model, loaded in 252.5s, moved to MPS in 87.0s, generated in 367.3s, and took 712.26s wall time overall with about 37.3 GB peak memory footprint. The output `/private/tmp/text2image-smoke/output/flux_schnell_treasure_chest_512.png` was visually useful as an image-to-3D reference: centered, single object, clean white background, and game-prop styling. It still produced a small signature/text artifact, so the stage needs stricter prompting, postprocessing, or rejection gates.
 
@@ -145,7 +140,7 @@ The visual result is strong enough to validate the architecture direction: the g
 
 Stable Diffusion XL was also tried as an executable baseline. It downloaded and ran locally through Diffusers/MPS, but the local run emitted a 1.8 KB output with VAE/numeric warnings, so it is not currently a useful Mac baseline without further tuning. Its model card uses OpenRAIL++ rather than the cleaner Apache-2.0 posture of FLUX.1-schnell.
 
-Assessment: FLUX.1-schnell plus cutout/postprocess plus Hunyuan3D-2.1 is now the preferred local prompt-to-shape architecture. It is viable as an implementation direction, but not yet production quality or latency. The next issue should treat text-to-image cleanup and Blender post-generation cleanup as first-class stages, not optional polish. Keep SDXL as a fallback research path only if FLUX proves too slow or memory-heavy for production presets.
+Assessment: useful historical evidence, but rejected as a v1 implementation dependency. The Blender MCP recipe engine removes the need for local text-to-image and image-to-3D model chains for supported assets. Do not keep an active local text-to-image child issue for v1.
 
 Sources:
 
@@ -186,9 +181,9 @@ The quality pass then moved beyond primitive stacking. Two higher-fidelity Blend
 - `/private/tmp/blender-mcp-meshy-quality-spike/arcane_sword/arcane_frost_sword.glb` with render proofs under `/private/tmp/blender-mcp-meshy-quality-spike/arcane_sword/arcane_frost_sword_review_*.png`. This pass used a custom faceted blade mesh, bevels, layered guard geometry, emissive runes, metal/leather/ice material presets, floating shards, GLB export, and five-angle review. The exported asset had 55 mesh objects, 2,797 vertices, 2,691 faces, six materials, and dimensions of roughly 3.0 x 0.4672 x 6.3772 Blender units.
 - `/private/tmp/blender-mcp-meshy-quality-spike/potion_bottle_v2/enchanted_mana_potion_v2.glb` with render proofs under `/private/tmp/blender-mcp-meshy-quality-spike/potion_bottle_v2/enchanted_mana_potion_v2_review_*.png`. This pass replaced stacked primitives with surface-of-revolution bottle and liquid meshes, curved label geometry, explicit cork/twine/hardware parts, transparent/emissive material presets, internal bubbles/crystals, GLB export, and five-angle review. The exported asset had 35 mesh objects, 7,984 vertices, 7,525 faces, nine materials, and dimensions of roughly 1.44 x 1.491 x 2.8962 Blender units.
 
-The potion v2 pass is the first Blender MCP-only result that is credible as a stylized game-prop baseline. It is still not broad Meshy.ai parity: label/ornament fidelity, glass shading, texture richness, and character/anatomy generation remain below what a good model-backed or artist-authored asset can produce. The important finding is how quality improved: typed asset-family recipes, real mesh constructors, reusable motif libraries, PBR material presets, and multi-angle render critique worked. Generic one-shot "make any object from text" did not.
+The potion v2 pass is the first Blender MCP-only result that is credible as a stylized game-prop baseline, and it establishes the path for all generated assets. The important finding is how quality improved: typed asset-family recipes, real mesh constructors, reusable motif libraries, PBR material presets, and multi-angle render critique worked. Generic one-shot "make any object from text" did not.
 
-Assessment: make direct Blender MCP recipe generation the primary v1 solution for assets the framework can express procedurally. The implementation should not be a prompt-to-code free-for-all; it should be a recipe compiler with typed asset specs, per-family geometry builders, material/motif libraries, GLB export, quality budgets, and mandatory multi-angle review. Local specialized models move to benchmark/reference/fallback status unless a later issue proves they are needed for categories the procedural recipe engine cannot cover. Characters remain constrained to modular archetypes until a character grammar proves anatomy, clothing, face, rig, and pose quality.
+Assessment: make direct Blender MCP recipe generation the only v1 asset-generation solution. The implementation should not be a prompt-to-code free-for-all; it should be a recipe compiler with typed asset specs, per-family geometry builders, material/motif libraries, GLB export, quality budgets, and mandatory multi-angle review. Every asset request must either map to a supported Blender MCP recipe family, trigger recipe-authoring work for that family, or fail honestly as unsupported. Local specialized models are removed from the implementation plan. Characters are handled through Blender MCP modular archetype recipes until a stronger character grammar proves anatomy, clothing, face, rig, and pose quality.
 
 ### Rigging and Animation
 
@@ -197,7 +192,7 @@ Humanoid rigging can start with Blender Rigify and optional Mixamo reference wor
 The honest v1 path is:
 
 - Rigify-driven biped setup in Blender for humanoids.
-- Strict "fallback required" status for quadrupeds, non-biped characters, props with deformable parts, and text-driven custom motion.
+- Strict unsupported/backlog status for quadrupeds, non-biped characters, props with deformable parts, and text-driven custom motion.
 - Import/retarget prepared animation libraries locally rather than promising text-to-animation generation.
 
 Assessment: ready for a constrained humanoid rigging issue; follow-up spike required for quadruped/non-biped auto-rigging and text-driven custom motion.
@@ -226,20 +221,16 @@ Sources:
 
 ## Honest Gaps
 
-- This spike proved Hunyuan3D-2.1 shape generation locally, but did not benchmark efficient Hunyuan presets, Hunyuan3D-2mini, or turbo variants against the full-quality baseline.
-- This spike ruled out Hunyuan3D-Paint as the Mac-local v1 default without porting: the upstream paint path hardcodes CUDA in config/model code and requires a CUDAExtension rasterizer that does not build on this Mac.
-- This spike proved TRELLIS.2 Mac can run without BRIA on RGBA inputs, but the measured output was not quality-viable and its DINOv3 dependency still needs license review.
-- This spike did not benchmark TripoSR, InstantMesh, SPAR3D/Stable Fast 3D, or other local image-to-3D candidates against the Hunyuan baseline.
-- This spike proved a local text-to-image-to-3D chain using FLUX.1-schnell, rembg/u2netp, and Hunyuan3D-2.1 at smoke and mid-quality settings, but did not prove production-quality prompt-only generation, AI-generated PBR texture output, or acceptable latency.
-- This spike proved direct Blender MCP procedural authoring can produce credible stylized prop baselines when it uses typed recipes, real mesh constructors, reusable part libraries, material presets, and multi-angle review. The potion v2 pass is the strongest Blender-only evidence so far.
+- This spike proved several local/model-backed paths can run or partially run, but they are explicitly rejected as v1 implementation dependencies after the Blender MCP recipe path produced the best controllable result.
+- This spike proved direct Blender MCP procedural authoring can produce credible stylized prop baselines when it uses typed recipes, real mesh constructors, reusable part libraries, material presets, and multi-angle review. The potion v2 pass is the strongest evidence and becomes the implementation model for all supported asset families.
 - This spike did not prove accurate generalized character generation through Blender MCP alone. The forest-ranger test read as a humanoid archer but exposed unresolved anatomy, face, clothing, pose, rigging, and appeal gaps.
-- This spike did not prove broad Meshy.ai-quality arbitrary prompt generation through Blender MCP alone. It identified a workable solution only if nmg-game-dev builds typed asset DSLs, recipe selection, part libraries, material presets, reference/spec validation, and multi-angle critique loops.
-- This spike could not prove provider-backed Blender MCP generation quality because Hyper3D/Rodin's built-in free-trial key returned `INSUFFICIENT_BALANCE`, and Tencent Hunyuan official API credentials were not configured.
+- This spike did not prove broad arbitrary-prompt generation through Blender MCP alone. It identified the production path: nmg-game-dev must build typed asset DSLs, recipe selection, part libraries, material presets, reference/spec validation, and multi-angle critique loops for every supported asset family.
+- This spike could not prove provider-backed Blender MCP generation quality because Hyper3D/Rodin's built-in free-trial key returned `INSUFFICIENT_BALANCE`, and Tencent Hunyuan official API credentials were not configured. Provider-backed MCP generation is not part of v1.
 - This spike did not identify a credible local solution for quadruped or non-biped auto-rigging.
 - This spike did not identify a credible local solution for text-driven custom motion.
 - This spike did not define an artist-facing review UI beyond the need for turntable renders, material-ball renders, screenshots, and sidecar reports.
-- This spike proved Blender-side import/render review for generated GLBs, but did not validate whether the pinned `blender-mcp@1.5.6` Hunyuan helper path is adequate; nmg-game-dev likely should invoke Hunyuan directly through its own local backend wrapper and use Blender MCP for review/cleanup.
-- This spike did not resolve model license review for every candidate model weight and dependency; child issues must include license review before shipping generated-output defaults.
+- This spike proved Blender-side import/render review for generated GLBs, but did not turn the proof scripts into reusable repo code.
+- This spike did not define the complete asset-family taxonomy needed to cover every game asset category; that taxonomy becomes implementation work under the recipe engine and recipe library.
 
 ## Recommendation
 
@@ -247,36 +238,29 @@ Proceed with ADR plus an implementation umbrella. The v1 direction should be Ble
 
 Recommended architecture:
 
-1. Add shared local job orchestration primitives first: job submit/poll/cancel, progress events, cache keys, artifact manifests, backend provenance, and review artifacts.
-2. Implement a direct Blender MCP recipe engine for supported asset families. The engine accepts typed specs, selects an asset-family builder, emits Blender Python, exports GLB, and records recipe/material provenance.
-3. Build the first procedural recipe libraries for stylized props: potion/bottle, melee weapon, firearm/tool, chest/container, key/collectible, sign/UI pickup, platform/door, and environmental kit pieces. Each family needs real mesh constructors, not only scaled primitives.
+1. Add Blender MCP job orchestration primitives first: submit/poll/cancel, progress events, cache keys, artifact manifests, recipe provenance, safe listener restart handling, and review artifacts.
+2. Implement a direct Blender MCP recipe engine for all supported asset families. The engine accepts typed specs, selects an asset-family builder, emits Blender Python, exports GLB, and records recipe/material provenance.
+3. Build the procedural recipe libraries needed by game assets: potion/bottle, melee weapon, firearm/tool, chest/container, key/collectible, sign/UI pickup, platform/door, environmental kit pieces, modular props, and modular biped characters.
 4. Implement a Blender-owned material and motif library: metal, wood, leather, glass, liquid, cloth, stone, emissive magic, trim, rivets, labels, straps, ropes, seals, glyphs, decals, and damage/wear motifs.
 5. Implement asset review outputs and quality gates so every asset-producing skill ends with five-angle renders, object/material/poly statistics, budget checks, and reject/fix prompts.
 6. Implement Blender-native cleanup, remesh, LOD, texture bake-down, and Desktop/Mobile variant operators after recipe generation.
-7. Keep characters constrained to modular archetypes until a dedicated character grammar proves anatomy, clothing, face, rig, and pose quality.
-8. Keep Hunyuan3D, FLUX, TripoSR/InstantMesh, Meshy, Hyper3D, Substance, and Mixamo as reference/fallback/research paths only. They must not be required for the supported v1 Blender MCP-only happy path.
+7. Treat unsupported asset requests as recipe-authoring backlog or explicit unsupported failures. Do not route to local specialized models.
 
-Meshy, Hyper3D, Substance, and Mixamo remain allowed only as:
+Meshy, Hyper3D, Substance, Mixamo, Hunyuan3D, FLUX, TripoSR/InstantMesh, ComfyUI, and Diffusers remain historical benchmark references only. They are not active v1 generation, texture, character, or fallback backends.
 
-- reference outputs for comparison,
-- explicit user-selected fallback paths,
-- manual production escape hatches,
-- or temporary gaps recorded in issue bodies and review reports.
-
-They must not be required for the happy path of supported `$new-prop`, `$generate-texture`, or consumer onboarding flows. `$new-character` remains constrained until the modular character grammar is proven.
+Supported `$new-prop`, `$new-character`, `$generate-texture`, and consumer onboarding flows must use Blender MCP recipe generation. Unsupported requests should create recipe-authoring backlog or fail honestly.
 
 ## Decomposition
 
-- component-count: 8
+- component-count: 7
 - components:
-  - Blender MCP job orchestration: add job lifecycle, progress, cancellation, cache provenance, artifact manifest, backend capability probing, and safe listener restart handling.
+  - Blender MCP job orchestration: add job lifecycle, progress, cancellation, cache provenance, artifact manifest, recipe capability probing, and safe listener restart handling.
   - Procedural recipe engine: compile typed asset specs into deterministic Blender MCP scripts with recipe/material provenance and replayable cache keys.
-  - Prop recipe library: implement high-quality builders for potion/bottle, weapon, tool, chest/container, key/collectible, sign/UI pickup, platform/door, and environmental kit pieces.
+  - Asset-family recipe library: implement high-quality builders for potion/bottle, weapon, tool, chest/container, key/collectible, sign/UI pickup, platform/door, environmental kit pieces, modular props, and modular biped characters.
   - Material and motif library: implement reusable procedural PBR presets and details for metal, wood, leather, glass, liquid, cloth, stone, emissive magic, trim, rivets, labels, straps, ropes, seals, glyphs, decals, and wear.
   - Blender cleanup, remesh, LOD, and variant operators: produce deterministic Desktop/Mobile assets with sidecars for quality gates.
   - Modular character grammar: support constrained biped archetypes with anatomy templates, clothing/hair modules, face templates, Rigify-ready proportions, and pose validation.
   - Asset inspection and review gates: produce five-angle renders, turntables, material-ball renders, diff screenshots, budget reports, and an `inspect-artifact`/asset-reviewer surface.
-  - Reference/fallback adapters: keep Hunyuan3D, FLUX, TripoSR/InstantMesh, Meshy, Hyper3D, Substance, and Mixamo as explicit fallback or benchmark-only paths.
 
 ## Consequences
 
@@ -290,24 +274,24 @@ They must not be required for the happy path of supported `$new-prop`, `$generat
 ### Negative
 
 - Procedural recipe quality is category-by-category; broad coverage requires authoring and maintaining a real recipe, part, material, and motif library.
-- Freeform arbitrary prompt coverage will trail model-backed services until enough asset-family grammars exist.
-- v1 will still need explicit fallback language for non-biped rigging and text-driven custom motion.
+- Freeform arbitrary prompt coverage becomes recipe coverage work; unsupported assets must not silently degrade into low-quality primitives.
+- v1 will still need explicit unsupported/backlog language for non-biped rigging and text-driven custom motion.
 - Quality may initially trail Meshy on categories outside the recipe library, especially organic characters, complex clothing, faces, creatures, and highly irregular natural assets.
 
 ## Scope Decision
 
 Choose **ADR + umbrella + child implementation issues** at the Phase 0 Human Review Gate.
 
-The ADR should ship in the issue #5 PR. The implementation tracker is umbrella issue #27 with child issues created from the decomposition above. Each child carries `Depends on: #27` so the SDLC pipeline treats the umbrella as coordination rather than a shipping change. After the Blender MCP-only quality pass, #35 is the primary implementation track; #28 and #34 are retained as fallback/research tracks rather than required v1 dependencies.
+The ADR should ship in the issue #5 PR. The implementation tracker is umbrella issue #27 with child issues created from the decomposition above. Each child carries `Depends on: #27` so the SDLC pipeline treats the umbrella as coordination rather than a shipping change. After human review of the potion v2 proof, #35 is the primary implementation track and model-backed child issues #28 and #34 are closed as not planned for v1.
 
 Created tracker:
 
 - #27: Umbrella: deliver Blender MCP-only recipe asset generation
-- #31: Add local generation job orchestration
-- #35: Add direct Blender procedural asset generation
-- #34: Add local text-to-image backend as fallback research
-- #28: Wire Hunyuan3D local generation backend as fallback research
-- #29: Implement local texture and retexture backend
+- #31: Add Blender MCP recipe job orchestration
+- #35: Add Blender MCP recipe asset generation
+- #34: Add local text-to-image backend as fallback research — closed as not planned for v1
+- #28: Wire Hunyuan3D local generation backend as fallback research — closed as not planned for v1
+- #29: Implement Blender procedural material and texture packaging
 - #33: Build Blender cleanup remesh LOD and variant operators
 - #32: Support humanoid rigging and animation import
 - #30: Add asset inspection and review gates
