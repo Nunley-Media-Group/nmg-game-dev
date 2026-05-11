@@ -2,7 +2,7 @@
 
 **Issues**: #5
 **Date**: 2026-05-02
-**Status**: Draft
+**Status**: Accepted
 **Decision Type**: Spike gap analysis
 
 ---
@@ -58,7 +58,7 @@ Sources:
 
 Hunyuan3D-2.1 is the strongest local-first candidate for mesh plus PBR material generation. Tencent's repo describes it as an open-source 3D asset creation system with released model weights, training code, and PBR texture synthesis. Its model zoo calls out separate shape and paint models and gives concrete local resource expectations: roughly 10 GB VRAM for shape generation, 21 GB for texture generation, and 29 GB for combined shape plus texture generation.
 
-Local follow-up testing on the target M-series development machine proved the shape path works locally through PyTorch MPS without Ollama, Meshy, or a hosted generation API. The full-quality image-to-shape run used `tencent/Hunyuan3D-2.1` with 50 inference steps, octree resolution 384, and 8000 chunks. It completed in roughly 22m08s wall time, peaked at about 34.6 GB memory footprint, and produced `/private/tmp/hunyuan3d-smoke/output/hunyuan3d_shape_full_50s_384o_8000c.glb`. Trimesh validation reported one watertight component with 346,836 vertices and 693,672 faces. Blender import/render proof succeeded through the local Blender path and produced `/private/tmp/hunyuan3d-smoke/output/hunyuan3d_shape_full_review.png`.
+Local follow-up testing on the target M-series development machine proved the shape path works locally through PyTorch MPS without Ollama, Meshy, or a hosted generation API. The full-quality image-to-shape run used `tencent/Hunyuan3D-2.1` with 50 inference steps, octree resolution 384, and 8000 chunks. It completed in roughly 22m08s wall time, peaked at about 34.6 GB memory footprint, and produced spike evidence artifacts `hunyuan3d_shape_full_50s_384o_8000c.glb` and `hunyuan3d_shape_full_review.png`. Trimesh validation reported one watertight component with 346,836 vertices and 693,672 faces.
 
 The remaining gap is productization and texture/PBR, not basic local feasibility. nmg-game-dev still needs a local job wrapper, hardware probing, output normalization, cache integration, Blender-side import/review, and efficient-setting benchmarks. The Hunyuan texture/PBR path is not a Mac-local default as-is. The upstream paint README recommends at least 21 GB VRAM for `max_num_view=6` and `resolution=512`, the repository installation path is tested against PyTorch `cu124`, the paint config hardcodes `self.device = "cuda"`, the multiview pipeline sends tensors to `"cuda"`, the attention processor contains hardcoded `"cuda:0"`/`"cuda:1"` device routing, and the custom rasterizer is built as a `CUDAExtension`. A local build probe for `hy3dpaint/custom_rasterizer` failed immediately on this Mac with `CUDA_HOME environment variable is not set`.
 
@@ -74,7 +74,7 @@ TRELLIS is a strong research-grade candidate for high-quality 3D assets from tex
 
 Local follow-up testing used the Apple Silicon TRELLIS.2 port rather than the CUDA-first official repository. The unmodified port loads `briaai/RMBG-2.0` for background removal, which is non-commercial and therefore not acceptable as a default production dependency. A local-only patch added `TRELLIS_SKIP_REMBG=1` so TRELLIS.2 skips BRIA when the input is already an RGBA cutout. The Hunyuan demo fixture is such a cutout, so the no-BRIA path proved that BRIA is optional for pre-masked inputs.
 
-The no-BRIA TRELLIS.2 run completed end-to-end locally with `pipeline-type=512`, 1024 texture size, and the same Hunyuan demo input. It emitted `/private/tmp/trellis2-mac-smoke/output/trellis2_hunyuan_demo_512_no_bria_pbr.glb` and `.obj`. Total wall time was 471.37s, pipeline load was 152s, generation was 248.3s, bake time was 49s, and peak memory footprint was about 20.6 GB. The Metal PBR bake failed on this Mac target with an unsupported float atomic operation, then the KDTree texture baker fallback completed. The exported GLB had one geometry with 192,878 vertices and 199,999 faces, but it was not watertight. Blender render proof produced `/private/tmp/trellis2-mac-smoke/output/trellis2_hunyuan_demo_512_no_bria_review.png`; visual quality was materially worse than Hunyuan, with noisy geometry, visible holes, and speckled/fragmented texture.
+The no-BRIA TRELLIS.2 run completed end-to-end locally with `pipeline-type=512`, 1024 texture size, and the same Hunyuan demo input. It emitted spike evidence artifacts `trellis2_hunyuan_demo_512_no_bria_pbr.glb`, `trellis2_hunyuan_demo_512_no_bria_pbr.obj`, and `trellis2_hunyuan_demo_512_no_bria_review.png`. Total wall time was 471.37s, pipeline load was 152s, generation was 248.3s, bake time was 49s, and peak memory footprint was about 20.6 GB. The Metal PBR bake failed on this Mac target with an unsupported float atomic operation, then the KDTree texture baker fallback completed. The exported GLB had one geometry with 192,878 vertices and 199,999 faces, but it was not watertight. Visual quality was materially worse than Hunyuan, with noisy geometry, visible holes, and speckled/fragmented texture.
 
 TRELLIS.2 still depends on `facebook/dinov3-vitl16-pretrain-lvd1689m`, which is gated and custom-licensed, even when BRIA is skipped. That requires legal/license review before any generated-output default could ship.
 
@@ -111,7 +111,7 @@ The v1 texture strategy should separate "PBR-compliant asset packaging" from "AI
 
 Texture generation should be staged behind quality gates. For v1, use deterministic Blender procedural PBR presets and recipe-specific material builders for stylized props and modular characters. Do not introduce ComfyUI, Diffusers, or another local model backend for texture synthesis.
 
-The Mac-local PBR packaging path was exercised through the already-running Blender MCP listener on `127.0.0.1:9876`, using `/Volumes/Fast Brick/Applications/Blender.app/Contents/MacOS/Blender` 5.1.1. The test imported the mid-quality Hunyuan chest GLB, created a UV layer with Blender smart projection, assigned three procedural/stylized PBR materials for wood, brass, and dark trim, packed generated texture images, exported a GLB, and rendered a review PNG. It completed in 8.578s inside Blender and produced `/private/tmp/hunyuan3d-smoke/output/pbr_package_flux_chest/flux_chest_pbr_packaged.glb` and `/private/tmp/hunyuan3d-smoke/output/pbr_package_flux_chest/flux_chest_pbr_packaged_review.png`. The exported GLB is 46 MB, contains 3 materials, 9 textures, 9 images, and 1 mesh; glTF inspection confirmed base-color, metallic-roughness, and normal texture bindings for each material.
+The Mac-local PBR packaging path was exercised through the already-running Blender MCP listener on `127.0.0.1:9876`, using local Blender 5.1.1. The test imported the mid-quality Hunyuan chest GLB, created a UV layer with Blender smart projection, assigned three procedural/stylized PBR materials for wood, brass, and dark trim, packed generated texture images, exported a GLB, and rendered a review PNG. It completed in 8.578s inside Blender and produced spike evidence artifacts `flux_chest_pbr_packaged.glb` and `flux_chest_pbr_packaged_review.png`. The exported GLB is 46 MB, contains 3 materials, 9 textures, 9 images, and 1 mesh; glTF inspection confirmed base-color, metallic-roughness, and normal texture bindings for each material.
 
 Hunyuan3D-Paint is out of scope for v1 unless a Mac-compatible port is separately proven on this exact machine. A CUDA-capable machine should not be part of the recommendation because nmg-game-dev will only use this Mac for this path.
 
@@ -123,18 +123,18 @@ Sources:
 - https://huggingface.co/docs/diffusers/main/using-diffusers/img2img
 - https://github.com/huggingface/diffusers/blob/main/docs/source/en/using-diffusers/controlnet.md
 - https://www.materialmaker.org/
-- https://docs.blender.org/manual/en/dev/render/cycles/baking.html
-- https://docs.blender.org/manual/en/4.0/addons/import_export/scene_gltf2.html
+- https://docs.blender.org/manual/en/4.2/render/cycles/baking.html
+- https://docs.blender.org/manual/en/4.2/addons/import_export/scene_gltf2.html
 
 ### Local Text-to-Image for Prompt-Only Generation
 
 Prompt-only model-backed generation was evaluated before the Blender MCP recipe path was proven. FLUX.1-schnell was the strongest local text-to-image candidate because its model card lists Apache-2.0 licensing and explicitly allows personal, scientific, and commercial use. It also supports Diffusers and local ComfyUI workflows.
 
-Local FLUX.1-schnell testing on the target Mac completed through Diffusers and MPS. The cold run used a game-prop prompt for a stylized treasure chest, 512x512 output, 4 inference steps, and `torch.bfloat16`. It downloaded the model, loaded in 252.5s, moved to MPS in 87.0s, generated in 367.3s, and took 712.26s wall time overall with about 37.3 GB peak memory footprint. The output `/private/tmp/text2image-smoke/output/flux_schnell_treasure_chest_512.png` was visually useful as an image-to-3D reference: centered, single object, clean white background, and game-prop styling. It still produced a small signature/text artifact, so the stage needs stricter prompting, postprocessing, or rejection gates.
+Local FLUX.1-schnell testing on the target Mac completed through Diffusers and MPS. The cold run used a game-prop prompt for a stylized treasure chest, 512x512 output, 4 inference steps, and `torch.bfloat16`. It downloaded the model, loaded in 252.5s, moved to MPS in 87.0s, generated in 367.3s, and took 712.26s wall time overall with about 37.3 GB peak memory footprint. The output evidence artifact `flux_schnell_treasure_chest_512.png` was visually useful as an image-to-3D reference: centered, single object, clean white background, and game-prop styling. It still produced a small signature/text artifact, so the stage needs stricter prompting, postprocessing, or rejection gates.
 
-The same output was converted locally to an RGBA cutout with `rembg`/`u2netp` in 3.89s and about 434 MB peak memory footprint. The cutout was then fed into Hunyuan3D-2.1 at smoke settings: 5 inference steps, octree resolution 96, and 3000 chunks. That text-to-image-to-3D chain completed in 99.53s wall time for the Hunyuan step, generated in 67.2s after load, peaked at about 25.9 GB memory footprint, and produced `/private/tmp/hunyuan3d-smoke/output/hunyuan3d_shape_from_flux_chest_smoke.glb`. The smoke mesh was watertight with 26,978 vertices and 53,952 faces. This proves local wiring, not final quality.
+The same output was converted locally to an RGBA cutout with `rembg`/`u2netp` in 3.89s and about 434 MB peak memory footprint. The cutout was then fed into Hunyuan3D-2.1 at smoke settings: 5 inference steps, octree resolution 96, and 3000 chunks. That text-to-image-to-3D chain completed in 99.53s wall time for the Hunyuan step, generated in 67.2s after load, peaked at about 25.9 GB memory footprint, and produced spike evidence artifact `hunyuan3d_shape_from_flux_chest_smoke.glb`. The smoke mesh was watertight with 26,978 vertices and 53,952 faces. This proves local wiring, not final quality.
 
-The same cutout was then tested with a more useful mid-quality Hunyuan setting: 20 inference steps, octree resolution 256, and 8000 chunks. This completed locally in 462.49s wall time, with 21.9s model load, 433.1s generation time, and about 29.2 GB peak memory footprint. It produced `/private/tmp/hunyuan3d-smoke/output/hunyuan3d_shape_from_flux_chest_20s_256o_8000c.glb`, a 7.3 MB watertight mesh with 212,006 vertices and 424,008 faces. Blender render proof produced `/private/tmp/hunyuan3d-smoke/output/hunyuan3d_shape_from_flux_chest_20s_256o_8000c_review.png`.
+The same cutout was then tested with a more useful mid-quality Hunyuan setting: 20 inference steps, octree resolution 256, and 8000 chunks. This completed locally in 462.49s wall time, with 21.9s model load, 433.1s generation time, and about 29.2 GB peak memory footprint. It produced spike evidence artifacts `hunyuan3d_shape_from_flux_chest_20s_256o_8000c.glb` and `hunyuan3d_shape_from_flux_chest_20s_256o_8000c_review.png`; the GLB was a 7.3 MB watertight mesh with 212,006 vertices and 424,008 faces.
 
 The visual result is strong enough to validate the architecture direction: the generated mesh has a recognizable treasure-chest silhouette, readable straps, rivets, and lid curvature, and it is materially better than the TRELLIS.2 Mac output. It is not game-ready without cleanup. The front emblem is softened and partially collapsed, the FLUX signature/text artifact appears as a small underside geometry artifact, and the 2D shadow/base plane was reconstructed into unwanted mesh. The text-to-image stage therefore needs artifact rejection, signature/text removal, shadow/base-plane suppression, and likely crop/mask cleanup before Hunyuan. Blender cleanup must still remove stray geometry, decimate/retopologize, and produce texture/material outputs.
 
@@ -158,28 +158,28 @@ Assessment: ready for implementation issues.
 
 Sources:
 
-- https://docs.blender.org/manual/en/4.0/modeling/modifiers/generate/decimate.html
-- https://docs.blender.org/manual/en/3.6/modeling/modifiers/generate/remesh.html
-- https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html
+- https://docs.blender.org/manual/en/4.2/modeling/modifiers/generate/decimate.html
+- https://docs.blender.org/manual/en/4.2/modeling/modifiers/generate/remesh.html
+- https://docs.blender.org/manual/en/4.2/addons/rigging/rigify/index.html
 - https://docs.blender.org/manual/en/4.2/addons/import_export/scene_gltf2.html
 
 ### Direct Blender MCP Procedural Asset Authoring
 
 Direct Blender MCP procedural authoring is viable for structured/stylized game props where the target can be decomposed into known primitives, material presets, and reusable motifs. This is not text-to-3D model inference; Codex drives Blender Python through `execute_code` and constructs the asset deterministically inside Blender.
 
-The spike exercised this path through the already-running Blender MCP listener on `127.0.0.1:9876`. The test created a stylized fantasy treasure chest using Blender primitives, bevels, simple material nodes, rivets, trim, lock geometry, feet, orthographic review lighting, GLB export, and a review render. It produced `/private/tmp/blender-mcp-direct-spike/procedural_chest/blender_mcp_procedural_treasure_chest.glb` and `/private/tmp/blender-mcp-direct-spike/procedural_chest/blender_mcp_procedural_treasure_chest_review.png`. The exported asset contained 46 mesh objects, 632 vertices, 408 faces, five materials, and dimensions of roughly 3.1 x 1.8425 x 2.08 Blender units.
+The spike exercised this path through the already-running Blender MCP listener on `127.0.0.1:9876`. The test created a stylized fantasy treasure chest using Blender primitives, bevels, simple material nodes, rivets, trim, lock geometry, feet, orthographic review lighting, GLB export, and a review render. It produced spike evidence artifacts `blender_mcp_procedural_treasure_chest.glb` and `blender_mcp_procedural_treasure_chest_review.png`. The exported asset contained 46 mesh objects, 632 vertices, 408 faces, five materials, and dimensions of roughly 3.1 x 1.8425 x 2.08 Blender units.
 
 The first pass still showed why one-shot prompt-to-code is not enough: the chest was recognizable but crude. The next experiment moved to a more general structured-spec approach: prompt intent was translated into typed asset specs, reusable part functions, material presets, per-asset collections, GLB export, and five-angle render proof (`front`, `right`, `back`, `three_quarter`, `top`). This produced two additional assets:
 
-- `/private/tmp/blender-mcp-direct-spike/generalized/generalized_plasma_pistol.glb` with render proofs under `/private/tmp/blender-mcp-direct-spike/generalized/generalized_plasma_pistol_review_*.png`. The asset has 27 mesh objects, 436 vertices, 272 faces, four materials, and a readable sci-fi sidearm silhouette with barrel, grip, trigger guard, energy tube, side windows, and screw/rib detail.
-- `/private/tmp/blender-mcp-direct-spike/generalized/generalized_forest_ranger_character.glb` with render proofs under `/private/tmp/blender-mcp-direct-spike/generalized/generalized_forest_ranger_character_review_*.png`. The asset has 46 mesh objects, 1,965 vertices, 1,971 faces, seven materials, and a readable humanoid archer/ranger silhouette with hood, cloak, limbs, quiver, arrows, and bow.
+- `generalized_plasma_pistol.glb` with render proofs `generalized_plasma_pistol_review_*.png`. The asset has 27 mesh objects, 436 vertices, 272 faces, four materials, and a readable sci-fi sidearm silhouette with barrel, grip, trigger guard, energy tube, side windows, and screw/rib detail.
+- `generalized_forest_ranger_character.glb` with render proofs `generalized_forest_ranger_character_review_*.png`. The asset has 46 mesh objects, 1,965 vertices, 1,971 faces, seven materials, and a readable humanoid archer/ranger silhouette with hood, cloak, limbs, quiver, arrows, and bow.
 
 Visual assessment: structured procedural parts improved hard-surface object accuracy materially. The plasma pistol is a plausible low-poly game prop and validates the approach for hard-surface props, pickups, weapons, interactables, platforms, doors, signs, and similar typed object families. The character result is not production-accurate: it reads as a humanoid archer mannequin, but anatomy, face quality, clothing shape, pose control, deformation, and character appeal are not sufficient. Blender MCP alone can assemble a character from parts, but accurate generalized character generation needs a separate character grammar with anatomy templates, rig-aware proportions, clothing/hair modules, facial feature templates, and multi-angle critique gates. It is not solved by generic primitives.
 
 The quality pass then moved beyond primitive stacking. Two higher-fidelity Blender-only assets were authored through the same MCP listener:
 
-- `/private/tmp/blender-mcp-meshy-quality-spike/arcane_sword/arcane_frost_sword.glb` with render proofs under `/private/tmp/blender-mcp-meshy-quality-spike/arcane_sword/arcane_frost_sword_review_*.png`. This pass used a custom faceted blade mesh, bevels, layered guard geometry, emissive runes, metal/leather/ice material presets, floating shards, GLB export, and five-angle review. The exported asset had 55 mesh objects, 2,797 vertices, 2,691 faces, six materials, and dimensions of roughly 3.0 x 0.4672 x 6.3772 Blender units.
-- `/private/tmp/blender-mcp-meshy-quality-spike/potion_bottle_v2/enchanted_mana_potion_v2.glb` with render proofs under `/private/tmp/blender-mcp-meshy-quality-spike/potion_bottle_v2/enchanted_mana_potion_v2_review_*.png`. This pass replaced stacked primitives with surface-of-revolution bottle and liquid meshes, curved label geometry, explicit cork/twine/hardware parts, transparent/emissive material presets, internal bubbles/crystals, GLB export, and five-angle review. The exported asset had 35 mesh objects, 7,984 vertices, 7,525 faces, nine materials, and dimensions of roughly 1.44 x 1.491 x 2.8962 Blender units.
+- `arcane_frost_sword.glb` with render proofs `arcane_frost_sword_review_*.png`. This pass used a custom faceted blade mesh, bevels, layered guard geometry, emissive runes, metal/leather/ice material presets, floating shards, GLB export, and five-angle review. The exported asset had 55 mesh objects, 2,797 vertices, 2,691 faces, six materials, and dimensions of roughly 3.0 x 0.4672 x 6.3772 Blender units.
+- `enchanted_mana_potion_v2.glb` with render proofs `enchanted_mana_potion_v2_review_*.png`. This pass replaced stacked primitives with surface-of-revolution bottle and liquid meshes, curved label geometry, explicit cork/twine/hardware parts, transparent/emissive material presets, internal bubbles/crystals, GLB export, and five-angle review. The exported asset had 35 mesh objects, 7,984 vertices, 7,525 faces, nine materials, and dimensions of roughly 1.44 x 1.491 x 2.8962 Blender units.
 
 The potion v2 pass is the first Blender MCP-only result that is credible as a stylized game-prop baseline, and it establishes the path for all generated assets. The important finding is how quality improved: typed asset-family recipes, real mesh constructors, reusable motif libraries, PBR material presets, and multi-angle render critique worked. Generic one-shot "make any object from text" did not.
 
@@ -199,7 +199,7 @@ Assessment: ready for a constrained humanoid rigging issue; follow-up spike requ
 
 Sources:
 
-- https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html
+- https://docs.blender.org/manual/en/4.2/addons/rigging/rigify/index.html
 - https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html
 - https://helpx.adobe.com/creative-cloud/help/mixamo-rigging-animation.html
 - https://docs.meshy.ai/en/api/rigging
@@ -316,10 +316,10 @@ Created tracker:
 - Stable Diffusion XL: https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0
 - rembg: https://pypi.org/project/rembg/
 - Material Maker: https://www.materialmaker.org/
-- Blender render baking: https://docs.blender.org/manual/en/dev/render/cycles/baking.html
-- Blender Decimate: https://docs.blender.org/manual/en/4.0/modeling/modifiers/generate/decimate.html
-- Blender Remesh: https://docs.blender.org/manual/en/3.6/modeling/modifiers/generate/remesh.html
-- Blender Rigify: https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html
+- Blender render baking: https://docs.blender.org/manual/en/4.2/render/cycles/baking.html
+- Blender Decimate: https://docs.blender.org/manual/en/4.2/modeling/modifiers/generate/decimate.html
+- Blender Remesh: https://docs.blender.org/manual/en/4.2/modeling/modifiers/generate/remesh.html
+- Blender Rigify: https://docs.blender.org/manual/en/4.2/addons/rigging/rigify/index.html
 - Blender glTF exporter: https://docs.blender.org/manual/en/4.2/addons/import_export/scene_gltf2.html
 - Blender MCP: https://github.com/ahujasid/blender-mcp
 - Meshy API docs: https://docs.meshy.ai/en/api/text-to-3d
