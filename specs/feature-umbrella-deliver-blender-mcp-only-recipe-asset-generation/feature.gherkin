@@ -1,0 +1,70 @@
+# Generated from: specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/requirements.md
+# Issue: #27
+
+Feature: Blender MCP-only recipe asset generation umbrella
+  As an internal NMG game developer
+  I want Blender MCP-only recipe asset generation coordinated as a multi-PR v1 feature
+  So that supported asset families are generated locally with deterministic recipes, review gates, provenance, and Desktop/Mobile variants
+
+  Background:
+    Given the accepted ADR from issue #5 selects Blender MCP recipe generation for v1
+    And the pinned Blender MCP host is the only active generation backend for supported v1 families
+
+  Scenario: Blender MCP-only happy path
+    Given a supported v1 asset request for a recipe family
+    When nmg-game-dev runs the asset-generation happy path
+    Then generation is performed through local Blender MCP recipe execution
+    And no model server, hosted generation API, paid provider, quota-limited backend, Meshy, Hyper3D, Hunyuan3D, FLUX, ComfyUI, Diffusers, Substance, Material Maker, Mixamo, or CUDA-only path is invoked
+    And the artifact provenance records a Blender recipe source
+
+  Scenario: Multi-PR child delivery remains traceable
+    Given umbrella issue #27 and the accepted ADR from issue #5
+    When child issues #31, #35, #29, #33, #32, and #30 are implemented across separate PRs
+    Then each child links back to the umbrella spec and ADR
+    And each child remains independently reviewable
+    And no child claims unrelated recipe, material, rigging, cleanup, or review-gate work is complete
+
+  Scenario: Recipe jobs are orchestrated with provenance
+    Given a pipeline stage requests a recipe-backed asset generation job
+    When the job is submitted, polled, cancelled, completed, cached, or retried after a listener restart
+    Then structured job status, progress, cancellation state, cache keys, artifact manifests, local output paths, recipe provenance, material provenance, Blender version, MCP version, and review artifact references are recorded in serializable sidecars
+    And the job can be safely resumed or diagnosed from those sidecars
+
+  Scenario: Supported recipe families produce reviewable GLBs
+    Given a supported recipe family request with recipe id, seed, dimensions, style preset, and material preset
+    When the recipe engine runs with deterministic inputs
+    Then it emits Blender output, GLB export, object statistics, material statistics, polygon statistics, dimensions, and five-angle review renders
+    And unsupported families fail with structured remediation instead of falling back to a provider backend
+
+  Scenario: Materials and PBR packaging are Blender-owned
+    Given a generated mesh from the recipe engine
+    When the material and texture stage runs
+    Then Blender procedural material assignment, UV unwrap, bake-down, GLB export, and PBR channel validation replace the current texture placeholder
+    And no external texture generation backend is required
+    And the sidecar records material preset provenance and PBR channel evidence
+
+  Scenario: Cleanup, LOD, and variants are physical outputs
+    Given a generated and textured asset
+    When Blender cleanup, remesh, LOD, texture bake-down, and variant operators run
+    Then Desktop and Mobile outputs are separate physical assets with identical logical names under their variant directories
+    And sidecars record poly counts, texture byte totals, LOD levels, bake settings, and applied mobile budget values
+
+  Scenario: Review gates block bad assets
+    Given generated output with missing PBR channels, empty geometry, invalid scale, incoherent recipe geometry, over-budget Mobile variants, or an unsupported recipe-family request
+    When inspection and review gates run
+    Then review artifacts and budget reports are written
+    And the workflow stops before UE import
+    And the failure includes structured remediation suitable for rerun or backlog creation
+
+  Scenario: Broad recipe catalog covers normal game asset, character, vehicle, and street-infrastructure needs
+    Given the v1 recipe catalog is considered ready for normal NMG game production
+    When catalog coverage tests run
+    Then representative asset, character, creature, vehicle, road, streetlight, sign, and street-fixture recipes produce reviewable GLBs
+    And each recipe family has a fixture spec, review bundle, sidecar provenance, and deterministic rerun coverage
+
+  Scenario: Prompt-driven refinement improves models and textures inside the recipe workflow
+    Given a generated recipe asset and a developer prompt requesting supported model or material changes
+    When the refinement workflow runs
+    Then supported prompt details map to deterministic recipe and material parameters
+    And the rerun records refinement prompt, changed parameters, generated output, review bundle, and accepted or rejected state
+    And unsupported prompt details fail without leaving the Blender MCP recipe workflow
