@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": "1",
+  "managedFiles": [
+    {
+      "path": "steering/modules/product.mjs",
+      "template": "workflows/steering/templates/modules/product.mjs",
+      "sha256": "sha256:3b84e7abea0076c668f36424d950b07391a60fff0e073119e38140843cb0f09f"
+    },
+    {
+      "path": "steering/modules/tech.mjs",
+      "template": "workflows/steering/templates/modules/tech.mjs",
+      "sha256": "sha256:13e1586cb2dd6fb19022848990c3e59ebe4559675c3edac62f753c13cb2a3795"
+    },
+    {
+      "path": "steering/modules/structure.mjs",
+      "template": "workflows/steering/templates/modules/structure.mjs",
+      "sha256": "sha256:22cfaeed82dbd96fd0d5d9a2879f24f6220f095c94a02e8640b4d53ebf5adc5d"
+    },
+    {
+      "path": "steering/modules/verification.mjs",
+      "template": "workflows/steering/templates/modules/verification.mjs",
+      "sha256": "sha256:5e6b4e00cc75ce4bc6072835a7591b5a1f3583ace0ddccc235fa740758e2464d"
+    }
+  ],
+  "modules": [
+    {
+      "id": "product",
+      "role": "product",
+      "path": "steering/modules/product.mjs"
+    },
+    {
+      "id": "tech",
+      "role": "tech",
+      "path": "steering/modules/tech.mjs"
+    },
+    {
+      "id": "structure",
+      "role": "structure",
+      "path": "steering/modules/structure.mjs"
+    },
+    {
+      "id": "verification",
+      "role": "verification",
+      "path": "steering/modules/verification.mjs"
+    }
+  ],
+  "snippets": [
+    {
+      "id": "project.product",
+      "path": "steering/snippets/project-product.md",
+      "consumers": [
+        "sdlc-draft-issue",
+        "sdlc-write-spec"
+      ],
+      "slot": "body",
+      "order": 500
+    },
+    {
+      "id": "project.tech",
+      "path": "steering/snippets/project-tech.md",
+      "consumers": [
+        "sdlc-write-spec",
+        "worker:implement",
+        "worker:verify",
+        "worker:deliver"
+      ],
+      "slot": "body",
+      "order": 500
+    },
+    {
+      "id": "project.structure",
+      "path": "steering/snippets/project-structure.md",
+      "consumers": [
+        "sdlc-write-spec",
+        "worker:implement",
+        "worker:verify"
+      ],
+      "slot": "body",
+      "order": 500
+    }
+  ],
+  "extensions": [],
+  "validations": []
+}

@@ -1,3 +1,4 @@
+**SDLC-Migrated**: specs/5-blender-as-meshy-gap-analysis
 # ADR: Blender-as-Meshy Gap Analysis
 
 **Issues**: #5

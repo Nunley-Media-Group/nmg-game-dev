@@ -1,7 +1,10 @@
 # File: tests/bdd/features/ue_plugin_skeleton.feature
 #
 # Generated from: specs/feature-ue-plugin-skeleton-runtime-editor-mcp-modules/requirements.md
-# Issue: #2
+**Issue**: #2
+**Date**: 2026-09-05
+**Status**: Draft
+**Author**: Unknown
 
 Feature: UE plugin skeleton — Runtime + Editor modules
   As an internal NMG game developer

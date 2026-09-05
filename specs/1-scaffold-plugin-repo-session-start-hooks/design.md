@@ -1,8 +1,8 @@
 # Design: Scaffold plugin + repo + session-start hooks
 
-**Issues**: #1, #2
+**Issue**: #1
 **Date**: 2026-04-22
-**Status**: Amended
+**Status**: Draft
 **Author**: Rich Nunley
 
 ---
@@ -497,7 +497,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 ```markdown
 # nmg-game-dev
 
-Blender-first, Unreal-shipped content pipeline for NMG games. Distributed as a Codex plugin, a Blender add-on, and a UE plugin. Installed at user or project scope — outcome identical per `specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md` AC11.
+Blender-first, Unreal-shipped content pipeline for NMG games. Distributed as a Codex plugin, a Blender add-on, and a UE plugin. Installed at user or project scope — outcome identical per `specs/1-scaffold-plugin-repo-session-start-hooks/requirements.md` AC11.
 
 ## Where to start
 
@@ -582,7 +582,7 @@ Accompanied by `fixtures/README.md` noting the `NOT SHIPPED TO CONSUMERS` constr
 | Leak-prevention (AC10) | `grep`-based pytest scanning consumer-facing artifacts for banned substrings: absolute user paths, dogfood fixture refs outside `fixtures/`, this-repo-only module imports | AC10 |
 | Install-scope invariance (AC11) | Documented manual-test procedure in `docs/onboarding/` (full automation blocked on `onboard-consumer` — a later v1 issue) + a pytest guard that grep-scans the consumer-facing artifacts for hard-coded install-scope paths | AC11 |
 
-Feature file: `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature` (delivered in Phase 3 tasks, referenced from `specs/feature-scaffold-plugin-repo-session-start-hooks/feature.gherkin`).
+Feature file: `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature` (delivered in Phase 3 tasks, referenced from `specs/1-scaffold-plugin-repo-session-start-hooks/feature.gherkin`).
 
 ---
 

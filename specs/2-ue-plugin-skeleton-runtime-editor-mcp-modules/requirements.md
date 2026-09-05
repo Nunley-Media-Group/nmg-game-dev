@@ -1,6 +1,6 @@
 # Requirements: UE plugin skeleton — Runtime + Editor modules
 
-**Issues**: #2
+**Issue**: #2
 **Date**: 2026-04-22
 **Status**: Draft
 **Author**: Rich Nunley
@@ -234,7 +234,7 @@ No persistent data model. Runtime artifacts only:
 - None at the time of writing. `#1` already merged (commit `f295656`).
 
 ### Spec amendments triggered (and applied)
-- `#1`'s spec previously contained references to `NmgGameDevMCP`, `UE_MCP_PORT` (as an nmg-game-dev responsibility), and the MCP HTTP bridge — all responsibilities VibeUE owns end-to-end. **Cleaned up in this branch alongside the #2 work**: `specs/feature-scaffold-plugin-repo-session-start-hooks/{requirements,design,tasks}.md` were amended (Status `Amended`, `**Issues**: #1, #2`, Change History row added), and `steering/{tech,structure}.md` were corrected. See the commit history on this branch.
+- `#1`'s spec previously contained references to `NmgGameDevMCP`, `UE_MCP_PORT` (as an nmg-game-dev responsibility), and the MCP HTTP bridge — all responsibilities VibeUE owns end-to-end. **Cleaned up in this branch alongside the #2 work**: `specs/1-scaffold-plugin-repo-session-start-hooks/{requirements,design,tasks}.md` were amended (Status `Amended`, `**Issues**: #1, #2`, Change History row added), and `steering/{tech,structure}.md` were corrected. See the commit history on this branch.
 
 ---
 

@@ -1,6 +1,6 @@
 # Requirements: Umbrella - deliver Blender MCP-only recipe asset generation
 
-**Issues**: #27
+**Issue**: #27
 **Date**: 2026-05-11
 **Status**: Draft
 **Author**: Rich Nunley
@@ -316,9 +316,9 @@ This umbrella does not require a broad in-app UI. Child issues may add narrow su
 ### Internal Dependencies
 
 - [x] `docs/decisions/2026-05-02-blender-as-meshy-gap-analysis.md` - Accepted ADR from issue #5.
-- [x] `specs/feature-scaffold-plugin-repo-session-start-hooks/` - Plugin shell, `.mcp.json`, and launch-script contract.
-- [x] `specs/feature-blender-add-on-skeleton-blender-mcp-wiring/` - Blender add-on and `ahujasid/blender-mcp` invocation seam.
-- [x] `specs/feature-pipeline-composition-core-variant-aware-stage-runner/` - Pipeline stage runner, `StageArtifact`, cache, variants, and quality scaffolding.
+- [x] `specs/1-scaffold-plugin-repo-session-start-hooks/` - Plugin shell, `.mcp.json`, and launch-script contract.
+- [x] `specs/3-blender-add-on-skeleton-blender-mcp-wiring/` - Blender add-on and `ahujasid/blender-mcp` invocation seam.
+- [x] `specs/4-pipeline-composition-core-variant-aware-stage-runner/` - Pipeline stage runner, `StageArtifact`, cache, variants, and quality scaffolding.
 - [ ] #31 - Add Blender MCP recipe job orchestration.
 - [ ] #35 - Add Blender MCP recipe asset generation.
 - [ ] #29 - Implement Blender procedural material and texture packaging.

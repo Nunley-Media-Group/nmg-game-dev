@@ -1,8 +1,8 @@
 # Tasks: Blender add-on skeleton + Blender MCP wiring
 
-**Issues**: #3
+**Issue**: #3
 **Date**: 2026-04-22
-**Status**: Planning
+**Status**: Draft
 **Author**: Rich Nunley
 
 ---

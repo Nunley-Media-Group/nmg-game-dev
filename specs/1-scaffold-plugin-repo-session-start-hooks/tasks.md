@@ -1,8 +1,8 @@
 # Tasks: Scaffold plugin + repo + session-start hooks
 
-**Issues**: #1, #2
+**Issue**: #1
 **Date**: 2026-04-22
-**Status**: Amended
+**Status**: Draft
 **Author**: Rich Nunley
 
 ---
@@ -222,9 +222,9 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 
 ## Phase 3: Testing — BDD feature + steps + unit / leak-prevention checks
 
-### T012: Author `specs/feature-scaffold-plugin-repo-session-start-hooks/feature.gherkin`
+### T012: Author `specs/1-scaffold-plugin-repo-session-start-hooks/feature.gherkin`
 
-**File(s)**: `specs/feature-scaffold-plugin-repo-session-start-hooks/feature.gherkin`
+**File(s)**: `specs/1-scaffold-plugin-repo-session-start-hooks/feature.gherkin`
 **Type**: Create
 **Depends**: (None — written during Phase 3 of `/write-spec`; task declared here for `$nmg-sdlc:write-code` / `$nmg-sdlc:verify-code` traceability)
 **Acceptance**:

@@ -1,7 +1,10 @@
 # File: specs/feature-blender-add-on-skeleton-blender-mcp-wiring/feature.gherkin
 #
 # Generated from: specs/feature-blender-add-on-skeleton-blender-mcp-wiring/requirements.md
-# Issue: #3
+**Issue**: #3
+**Date**: 2026-09-05
+**Status**: Draft
+**Author**: Unknown
 
 Feature: Blender add-on skeleton and MCP wiring
   As an internal NMG game developer

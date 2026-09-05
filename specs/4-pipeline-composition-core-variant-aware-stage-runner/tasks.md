@@ -1,8 +1,8 @@
 # Tasks: Pipeline composition core — variant-aware stage runner
 
-**Issues**: #4
+**Issue**: #4
 **Date**: 2026-04-23
-**Status**: Planning
+**Status**: Draft
 **Author**: Rich Nunley
 
 ---
@@ -279,7 +279,7 @@ File paths map to the canonical layout in `steering/structure.md` § Project Lay
 - `tests/bdd/features/pipeline_meshy_supplement.feature`
 - `tests/bdd/features/pipeline_idempotency.feature`
 - `tests/bdd/features/pipeline_quality_halt.feature`
-- `specs/feature-pipeline-composition-core-variant-aware-stage-runner/feature.gherkin` (aggregated view of all scenarios)
+- `specs/4-pipeline-composition-core-variant-aware-stage-runner/feature.gherkin` (aggregated view of all scenarios)
 
 **Type**: Create
 **Depends**: T013

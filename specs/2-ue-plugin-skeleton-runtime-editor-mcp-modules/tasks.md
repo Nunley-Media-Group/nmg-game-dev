@@ -1,8 +1,8 @@
 # Tasks: UE plugin skeleton — Runtime + Editor modules
 
-**Issues**: #2
+**Issue**: #2
 **Date**: 2026-04-22
-**Status**: Planning
+**Status**: Draft
 **Author**: Rich Nunley
 
 ---
@@ -241,7 +241,7 @@
 
 ### T013: Author `feature.gherkin`
 
-**File(s)**: `specs/feature-ue-plugin-skeleton-runtime-editor-mcp-modules/feature.gherkin`
+**File(s)**: `specs/2-ue-plugin-skeleton-runtime-editor-mcp-modules/feature.gherkin`
 **Type**: Create
 **Depends**: T001, T005, T007, T010, T011, T012
 **Acceptance**:

@@ -1,6 +1,6 @@
 # Design: UE plugin skeleton — Runtime + Editor modules
 
-**Issues**: #2
+**Issue**: #2
 **Date**: 2026-04-22
 **Status**: Draft
 **Author**: Rich Nunley
@@ -270,7 +270,7 @@ None. This issue ships no Slate UI, no Blueprint asset, no editor menu entry. Th
 | Dogfood fixture | Diff verification (Gherkin) | AC7 — `git diff` shows `fixtures/dogfood.uproject` Plugins array updated; `find fixtures/ -name '*.uproject'` returns exactly one file |
 | Platform whitelist | Manifest read (Gherkin) | AC8 — `jq` over the `.uplugin` JSON; assert each module's `PlatformAllowList` matches the spec |
 
-The Gherkin scenarios live in `specs/feature-ue-plugin-skeleton-runtime-editor-mcp-modules/feature.gherkin` and (per `steering/tech.md` § BDD Testing) are pytest-bdd executable in `tests/bdd/features/ue_plugin_skeleton.feature` once step definitions land.
+The Gherkin scenarios live in `specs/2-ue-plugin-skeleton-runtime-editor-mcp-modules/feature.gherkin` and (per `steering/tech.md` § BDD Testing) are pytest-bdd executable in `tests/bdd/features/ue_plugin_skeleton.feature` once step definitions land.
 
 ### `scripts/run-ue-tests.sh` shape
 
