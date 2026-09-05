@@ -1,8 +1,8 @@
 # Tasks: Umbrella - deliver Blender MCP-only recipe asset generation
 
-**Issues**: #27
+**Issue**: #27
 **Date**: 2026-05-11
-**Status**: Planning
+**Status**: Draft
 **Author**: Rich Nunley
 
 ---
@@ -46,10 +46,10 @@ File paths map to the canonical layout in `steering/structure.md`.
 ### T001: Seal the umbrella spec and do not ship implementation on #27
 
 **File(s)**:
-- `specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/requirements.md`
-- `specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/design.md`
-- `specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/tasks.md`
-- `specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/feature.gherkin`
+- `specs/27-umbrella-deliver-blender-mcp-only-recipe-asset-generation/requirements.md`
+- `specs/27-umbrella-deliver-blender-mcp-only-recipe-asset-generation/design.md`
+- `specs/27-umbrella-deliver-blender-mcp-only-recipe-asset-generation/tasks.md`
+- `specs/27-umbrella-deliver-blender-mcp-only-recipe-asset-generation/feature.gherkin`
 **Type**: Coordinate
 **Depends**: None
 **Owner Issue(s)**: #27
@@ -366,7 +366,7 @@ File paths map to the canonical layout in `steering/structure.md`.
 
 ### T019: Create umbrella BDD feature file
 
-**File(s)**: `specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/feature.gherkin`
+**File(s)**: `specs/27-umbrella-deliver-blender-mcp-only-recipe-asset-generation/feature.gherkin`
 **Type**: Create
 **Depends**: T001
 **Owner Issue(s)**: #27
@@ -406,8 +406,8 @@ File paths map to the canonical layout in `steering/structure.md`.
 ### T022: Verify umbrella closeout across children
 
 **File(s)**:
-- `specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/tasks.md`
-- `specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/feature.gherkin`
+- `specs/27-umbrella-deliver-blender-mcp-only-recipe-asset-generation/tasks.md`
+- `specs/27-umbrella-deliver-blender-mcp-only-recipe-asset-generation/feature.gherkin`
 - `verification-report.md` (created during `$nmg-sdlc:verify-code` on the final child/umbrella closeout)
 **Type**: Coordinate
 **Depends**: T020, T021

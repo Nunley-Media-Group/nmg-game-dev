@@ -1,7 +1,10 @@
 # File: tests/bdd/features/pipeline_*.feature (split by scenario group at test time)
 #
 # Generated from: specs/feature-pipeline-composition-core-variant-aware-stage-runner/requirements.md
-# Issue: #4
+**Issue**: #4
+**Date**: 2026-09-05
+**Status**: Draft
+**Author**: Unknown
 
 Feature: Pipeline composition core — variant-aware stage runner
   As an internal NMG game developer

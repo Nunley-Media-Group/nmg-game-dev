@@ -1,6 +1,6 @@
 # Design: Umbrella - deliver Blender MCP-only recipe asset generation
 
-**Issues**: #27
+**Issue**: #27
 **Date**: 2026-05-11
 **Status**: Draft
 **Author**: Rich Nunley

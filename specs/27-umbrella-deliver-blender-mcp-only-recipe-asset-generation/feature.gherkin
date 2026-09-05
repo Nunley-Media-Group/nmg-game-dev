@@ -1,5 +1,8 @@
 # Generated from: specs/feature-umbrella-deliver-blender-mcp-only-recipe-asset-generation/requirements.md
-# Issue: #27
+**Issue**: #27
+**Date**: 2026-09-05
+**Status**: Draft
+**Author**: Unknown
 
 Feature: Blender MCP-only recipe asset generation umbrella
   As an internal NMG game developer

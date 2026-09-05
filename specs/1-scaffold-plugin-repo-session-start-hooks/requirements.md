@@ -1,8 +1,8 @@
 # Requirements: Scaffold plugin + repo + session-start hooks
 
-**Issues**: #1, #2
+**Issue**: #1
 **Date**: 2026-04-22
-**Status**: Amended
+**Status**: Draft
 **Author**: Rich Nunley
 
 ---

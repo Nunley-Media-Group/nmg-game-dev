@@ -1,6 +1,6 @@
 # Requirements: Pipeline composition core — variant-aware stage runner
 
-**Issues**: #4
+**Issue**: #4
 **Date**: 2026-04-23
 **Status**: Draft
 **Author**: Rich Nunley

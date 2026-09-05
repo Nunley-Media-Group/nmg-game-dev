@@ -8,11 +8,11 @@ with consumer-side onboarding handled by framework skills and templates.
 
 Before changing behavior, read:
 
-- `steering/product.md` for the product mission, target users, value
+- `steering/snippets/project-product.md` for the product mission, target users, value
   proposition, and success metrics.
-- `steering/tech.md` for architecture, supported tool versions, versioning,
+- `steering/snippets/project-tech.md` for architecture, supported tool versions, versioning,
   coding standards, and verification gates.
-- `steering/structure.md` for repository layout, layer boundaries, naming
+- `steering/snippets/project-structure.md` for repository layout, layer boundaries, naming
   conventions, and file ownership.
 
 Existing code and reconciled specs are contribution context. Treat `specs/` as
@@ -50,7 +50,7 @@ doc in the same branch and call out the decision in the spec or PR.
 Keep edits scoped to the issue and spec. Update code, specs, tests,
 version-managed metadata, and docs together when the contract requires it.
 
-Use the project gates described in `steering/tech.md`, including Python checks,
+Use the project gates described in `steering/snippets/project-tech.md`, including Python checks,
 BDD scenarios, Blender or Unreal automation where relevant, and version
 consistency across `VERSION`, `.codex-plugin/plugin.json`, Blender metadata,
 Unreal metadata, and `pyproject.toml`.
@@ -74,7 +74,7 @@ editing behavior. Each spec package should include `requirements.md`,
 reconciled specs as brownfield context when planning a change.
 
 Before requesting review, confirm the change remains aligned with
-`steering/product.md`, `steering/tech.md`, and `steering/structure.md`. Keep
+`steering/snippets/project-product.md`, `steering/snippets/project-tech.md`, and `steering/snippets/project-structure.md`. Keep
 implementation scope within the approved spec, avoid unrelated refactors, and
 update framework-owned artifacts plus consumer templates together when the
 contract spans both sides.
@@ -94,3 +94,28 @@ verification, and guide evidence. Fix missing evidence at the source instead of
 bypassing the gate: add the issue link, update the spec package, explain
 steering alignment, attach verification results, or refresh this guide with
 `$nmg-sdlc:upgrade-project`.
+
+### Current contract (v3 invocations)
+
+Interactive commands:
+
+- `/sdlc-draft-issue [need]`
+- `/sdlc-write-spec #N`
+- `/sdlc-onboard-project`
+- `/sdlc-upgrade-project`
+- `/sdlc-execute [#N …]`
+- `/sdlc-status`
+
+Automated file commands: `/sdlc-verify-code`, `/sdlc-open-pr`. `/sdlc-execute` drives Herdr `omp` workers through implementation, verification, exact-head merge, and issue closure. `/sdlc-upgrade-project` detects and proposes repairs; it never applies silently.
+
+One issue owns exactly one `specs/{N}-{slug}/` package with singular `**Issue**: #N`. GitHub official blocked-by is the sole sequencing authority. `Depends on:` / `Blocks:` body text is historical evidence only.
+
+PR readiness: link `Closes #N` or `**Issue**: #N`; name the matching `specs/{N}-{slug}/` artifacts; explain alignment with the manifest-registered product, technical, and structure snippets; record verification as a command plus outcome (for example `` `python -m pytest tests/unit` — passed ``) or a committed `verification-report.md`. Exact path evidence names a file; directory evidence ends in `/`.
+
+| Mode | Declaration and validation | Reduced checks | Still required | Invalidating conditions |
+|------|----------------------------|----------------|----------------|-------------------------|
+| Documentation-only | `SDLC-Exception: docs-only — <non-empty reason>` and every change is project documentation | Spec correlation, relevant-path mapping, and specific verification | Current issue linkage, steering artifacts and alignment, guide discoverability, and all other checks | Source, workflow, script, skill, template, shared reference, spec, ADR, or any other non-documentation path |
+| Repository rewrite | `SDLC-Exception: repository-rewrite — <non-empty reason>`; PR title starts `feat!:`; `package.json`, `VERSION`, `README.md`, `CONTRIBUTING.md`, all steering files, the managed contribution gate, `references/rewrite-contract.{json,md}`, and `references/rewrite-verification.md` change | Current PR issue/spec identity only | Genuinely owned current spec archive, explicit rewrite contract, durable verification, steering alignment, exact changed-path mapping, specific verification, and guide discoverability | Missing contract path, non-breaking title, unmatched relevant path, missing steering, or missing verification |
+| Spec-only write-spec | Title matches `^docs: approve spec for #(\d+)$`; that issue number appears in current PR text; every changed path is class `spec` under exactly one `specs/{N}-{slug}/` whose leading number is that issue | Steering alignment text and specific verification | Current issue linkage, spec correlation, steering artifacts, guide discoverability, and all other checks | Any non-spec path, title mismatch, multiple spec directories, or issue number mismatch |
+
+If the contribution gate fails, fix the named evidence category. Do not bypass the workflow.

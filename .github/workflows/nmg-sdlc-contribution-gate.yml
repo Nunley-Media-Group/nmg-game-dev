@@ -1,5 +1,5 @@
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 1
+# nmg-sdlc-managed-version: 7
 name: nmg-sdlc contribution gate
 
 on:
@@ -15,7 +15,7 @@ jobs:
     name: Validate nmg-sdlc contribution evidence
     runs-on: ubuntu-latest
     steps:
-      - name: Check issue, spec, steering, and verification evidence
+      - name: Check issue, spec, path, steering, and verification evidence
         uses: actions/github-script@v7
         with:
           script: |
@@ -24,14 +24,158 @@ jobs:
             const pr = context.payload.pull_request;
             const ref = pr.head.sha;
             const prText = `${pr.title || ''}\n${pr.body || ''}`;
+            const MAX_SPEC_DIRECTORIES = 5;
+            const SPEC_ARTIFACTS = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+            const MAX_VERIFICATION_REPORTS = 10;
+            const MAX_DIAGNOSTIC_PATHS = 20;
+            const failures = [];
+
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner,
               repo,
               pull_number: pr.number,
               per_page: 100,
             });
-            const changedPaths = files.map((file) => file.filename);
-            const failures = [];
+            const changedPaths = files.map((file) => normalizePath(file.filename)).filter(Boolean);
+
+            function normalizePath(value) {
+              return String(value || '').trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+            }
+
+            function escapeRegex(value) {
+              return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            function stripQuotedHistory(value) {
+              const kept = [];
+              let inFence = false;
+              let inHistoricalSection = false;
+              const withoutComments = String(value || '').replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+              for (const line of withoutComments.split(/\r?\n/)) {
+                if (/^\s*```/.test(line)) {
+                  inFence = !inFence;
+                  continue;
+                }
+                if (inFence || /^\s*>/.test(line)) continue;
+                const heading = line.match(/^\s*#{1,6}\s+(.+?)\s*$/);
+                if (heading) {
+                  inHistoricalSection = /^(?:change\s+)?history|historical|prior\s+(?:work|context|failures?)$/i.test(heading[1].trim());
+                  if (inHistoricalSection) continue;
+                }
+                if (!inHistoricalSection) kept.push(line);
+              }
+              return kept.join('\n');
+            }
+
+            function extractIssueNumbers(value) {
+              const current = stripQuotedHistory(value);
+              const numbers = new Set();
+              const patterns = [
+                /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi,
+                /^\s*\*\*Issue\*\*\s*:\s*#(\d+)\s*$/gim,
+                /(^|[\s(])#(\d+)\b/g,
+              ];
+              for (const pattern of patterns) {
+                for (const match of current.matchAll(pattern)) {
+                  const source = match[1] && /^\d+$/.test(match[1]) ? match[1] : match[2] || match[1];
+                  for (const number of String(source || '').matchAll(/#?(\d+)\b/g)) numbers.add(Number(number[1]));
+                }
+              }
+              return numbers;
+            }
+
+            function extractSingularIssue(value) {
+              const match = stripQuotedHistory(value).match(/^\s*\*\*Issue\*\*\s*:\s*#(\d+)\s*$/m);
+              return match ? Number(match[1]) : null;
+            }
+
+            function directoryIssueNumber(directory) {
+              const match = String(directory || '').match(/^specs\/(\d+)-/);
+              return match ? Number(match[1]) : null;
+            }
+
+            function resolveSpecDirectories(value, paths) {
+              const directories = new Set();
+              for (const path of paths) {
+                const match = path.match(/^specs\/(\d+)-[^/]+\/(?:requirements|design|tasks)\.md$/)
+                  || path.match(/^specs\/(\d+)-[^/]+\/(?:feature\.gherkin|verification-report\.md)$/);
+                if (match) directories.add(path.slice(0, path.lastIndexOf('/')));
+              }
+              for (const match of stripQuotedHistory(value).matchAll(/\bspecs\/\d+-[a-z0-9-]+\b/gi)) {
+                directories.add(normalizePath(match[0]));
+              }
+              return [...directories].sort().slice(0, MAX_SPEC_DIRECTORIES);
+            }
+
+            function classifyChangedPath(path) {
+              if (/^(?:workflows|scripts|references|agents)\//.test(path)
+                || /(^|\/)templates\//.test(path)
+                || /^\.github\/workflows\//.test(path)) return 'relevant';
+              if (/^specs\/\d+-[^/]+\//.test(path)) return 'spec';
+              if (/^docs\/decisions\/.+\.md$/i.test(path)) return 'adr';
+              if (/(^|\/)(?:verification-report|verification)\.md$/i.test(path)) return 'evidence';
+              if (/^(?:README|CONTRIBUTING|CHANGELOG)\.md$/i.test(path)
+                || /^docs\/.+\.md$/i.test(path)
+                || /^steering\/.+\.md$/i.test(path)) return 'documentation';
+              return 'relevant';
+            }
+
+            function extractVerificationSection(value) {
+              const lines = stripQuotedHistory(value).split(/\r?\n/);
+              const sections = [];
+              let capturing = false;
+              for (const line of lines) {
+                const heading = line.match(/^\s*#{1,6}\s+(.+?)\s*$/);
+                if (heading) {
+                  capturing = /^(?:verification|test plan|validation)(?:\s+results?)?$/i.test(heading[1].trim());
+                  continue;
+                }
+                if (capturing) sections.push(line);
+                if (/^\s*(?:Verification|Test Plan|Validation)\s*:\s*\S/i.test(line)) sections.push(line);
+              }
+              return sections.join('\n').trim();
+            }
+
+            function pathMentioned(path, evidence) {
+              const exact = new RegExp(`(^|[\\s\u0060'\"(])${escapeRegex(path)}(?=$|[\\s\u0060'\"),:;])`, 'm');
+              if (exact.test(evidence)) return true;
+              const parts = path.split('/');
+              for (let index = parts.length - 1; index > 0; index -= 1) {
+                const prefix = `${parts.slice(0, index).join('/')}/`;
+                const directory = new RegExp(`(^|[\\s\u0060'\"(])${escapeRegex(prefix)}(?=$|[\\s\u0060'\"),:;])`, 'm');
+                if (directory.test(evidence)) return true;
+              }
+              const behavior = new RegExp(`\\bBehavior\\s*(?:for|:|\\[|\\()\\s*${escapeRegex(path)}(?:\\]|\\))?\\s*[:—-]\\s*\\S`, 'i');
+              return behavior.test(evidence);
+            }
+
+            function hasSpecificVerification(evidence, reportTexts, relevantPaths) {
+              const normalizedEvidence = normalizePath(evidence);
+              const commandOutcome = /(?:`[^`\n]+`|\b(?:command|run)\s*:\s*\S[^\n]*)[\s\S]{0,160}\b(?:pass(?:ed)?|fail(?:ed)?|succeed(?:ed)?|exit\s+(?:code\s+)?0|\d+\s+tests?\s+passed)\b/i.test(evidence);
+              const acceptanceResult = /\bAC\d+\s*[:=-]\s*(?:pass(?:ed)?|fail(?:ed)?)\b/i.test(evidence);
+              const pathResult = relevantPaths.some((path) => {
+                const pathPattern = new RegExp(`${escapeRegex(path)}[\\s\\S]{0,160}\\b(?:pass(?:ed)?|fail(?:ed)?|verified|covered)\\b`, 'i');
+                return pathPattern.test(normalizedEvidence);
+              });
+              const nonEmptyReport = reportTexts.some((text) => text.trim().length > 0);
+              return commandOutcome || acceptanceResult || pathResult || nonEmptyReport;
+            }
+
+            function summarizePaths(paths) {
+              const shown = paths.slice(0, MAX_DIAGNOSTIC_PATHS);
+              const remaining = paths.length - shown.length;
+              return `${shown.join(', ')}${remaining > 0 ? ` (+${remaining} more)` : ''}`;
+            }
+
+            function docsOnlyDeclaration(value) {
+              const match = stripQuotedHistory(value).match(/\bSDLC-Exception\s*:\s*docs-only\s*(?:—|--?\s*|:)\s*(\S[^\n]*)/i);
+              return match ? match[1].trim() : null;
+            }
+
+            function repositoryRewriteDeclaration(value) {
+              const match = stripQuotedHistory(value).match(/\bSDLC-Exception\s*:\s*repository-rewrite\s*(?:—|--?\s*|:)\s*(\S[^\n]*)/i);
+              return match ? match[1].trim() : null;
+            }
 
             async function pathExists(path) {
               try {
@@ -54,52 +198,140 @@ jobs:
               }
             }
 
-            const specArtifactPattern = /^specs\/(?:feature|bug)-[^/]+\/(?:requirements|design|tasks)\.md$|^specs\/(?:feature|bug)-[^/]+\/feature\.gherkin$/;
-            const verificationArtifactPattern = /(^|\/)verification-report\.md$|^docs\/decisions\/.+\.md$/;
-            const specPaths = changedPaths.filter((path) => specArtifactPattern.test(path));
-            const specText = (await Promise.all(specPaths.slice(0, 20).map(readText))).join('\n');
-            const combinedText = `${prText}\n${specText}`;
+            const prIssueNumbers = extractIssueNumbers(prText);
+            const specDirectories = resolveSpecDirectories(prText, changedPaths);
+            const specRecords = await Promise.all(specDirectories.map(async (directory) => {
+              const artifacts = await Promise.all(SPEC_ARTIFACTS.map((artifact) => readText(`${directory}/${artifact}`)));
+              const text = artifacts.join('\n');
+              return { directory, text, tasksText: artifacts[2], issueNumbers: extractIssueNumbers(text) };
+            }));
+            const specText = specRecords.map((record) => record.text).join('\n');
+            const mismatchedSpecs = specRecords.filter((record) => {
+              const dirN = directoryIssueNumber(record.directory);
+              if (dirN === null) return true;
+              if (prIssueNumbers.has(dirN)) return false;
+              return extractSingularIssue(record.text) !== dirN;
+            });
+            const correlatedIssueNumbers = new Set(specRecords.flatMap((record) => {
+              const dirN = directoryIssueNumber(record.directory);
+              return dirN !== null && (prIssueNumbers.has(dirN) || extractSingularIssue(record.text) === dirN) ? [dirN] : [];
+            }));
 
-            const issueLinked = /(^|[\s(])#\d+\b/.test(combinedText)
-              || /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#\d+\b/i.test(combinedText)
-              || /\*\*Issues?\*\*:\s*#?\d+/i.test(combinedText);
-            if (!issueLinked) {
-              failures.push('Missing issue evidence: reference the GitHub issue in the PR body or spec frontmatter, for example `Closes #123` or `**Issues**: #123`.');
+            const pathClasses = new Map(changedPaths.map((path) => [path, classifyChangedPath(path)]));
+            const relevantPaths = changedPaths.filter((path) => pathClasses.get(path) === 'relevant');
+            const verificationPaths = changedPaths
+              .filter((path) => /(^|\/)(?:verification-report|verification)\.md$/i.test(path))
+              .slice(0, MAX_VERIFICATION_REPORTS);
+            const verificationReports = (await Promise.all(verificationPaths.map(readText))).map(stripQuotedHistory);
+            const verificationEvidence = [extractVerificationSection(prText), ...verificationReports].filter(Boolean).join('\n');
+            const taskEvidence = specRecords.map((record) => stripQuotedHistory(record.tasksText)).join('\n');
+            const mappingEvidence = normalizePath(`${taskEvidence}\n${verificationEvidence}`);
+            const unmatchedPaths = relevantPaths.filter((path) => !pathMentioned(path, mappingEvidence));
+
+            const prTextWithoutHistory = stripQuotedHistory(prText);
+            const docsMarkerPresent = /\bSDLC-Exception\s*:\s*docs-only\b/i.test(prTextWithoutHistory);
+            const rewriteMarkerPresent = /\bSDLC-Exception\s*:\s*repository-rewrite\b/i.test(prTextWithoutHistory);
+            const docsReason = docsOnlyDeclaration(prText);
+            const rewriteReason = repositoryRewriteDeclaration(prText);
+            const docsOnlyEligible = Boolean(docsReason)
+              && changedPaths.length > 0
+              && changedPaths.every((path) => pathClasses.get(path) === 'documentation');
+            function writeSpecOnlyEligible() {
+              const titleMatch = String(pr.title || '').trim().match(/^docs: approve spec for #(\d+)$/);
+              if (!titleMatch) return false;
+              const issueN = Number(titleMatch[1]);
+              if (!prIssueNumbers.has(issueN)) return false;
+              if (changedPaths.length === 0) return false;
+              if (!changedPaths.every((path) => pathClasses.get(path) === 'spec')) return false;
+              const directories = new Set();
+              for (const changedPath of changedPaths) {
+                const match = changedPath.match(/^(specs\/(\d+)-[^/]+)\//);
+                if (!match || Number(match[2]) !== issueN) return false;
+                directories.add(match[1]);
+              }
+              return directories.size === 1;
             }
 
-            const specLinked = specPaths.length > 0
-              || /specs\/(?:feature|bug)-[a-z0-9-]+/i.test(combinedText)
-              || /\b(requirements\.md|design\.md|tasks\.md|feature\.gherkin)\b/i.test(combinedText);
-            if (!specLinked) {
-              failures.push('Missing spec evidence: update or link the relevant `specs/feature-*` or `specs/bug-*` artifacts.');
+            const specOnlyEligible = writeSpecOnlyEligible();
+            const rewriteRequiredPaths = [
+              'package.json',
+              'VERSION',
+              'README.md',
+              'CONTRIBUTING.md',
+              'steering/manifest.json',
+              'steering/modules/product.mjs',
+              'steering/modules/tech.mjs',
+              'steering/modules/structure.mjs',
+              '.github/workflows/nmg-sdlc-contribution-gate.yml',
+              'steering/modules/verification.mjs',
+              'references/rewrite-contract.json',
+              'references/rewrite-contract.md',
+              'references/rewrite-verification.md',
+            ];
+            const rewriteEligible = Boolean(rewriteReason)
+              && /^feat!:/i.test(String(pr.title || '').trim())
+              && rewriteRequiredPaths.every((path) => changedPaths.includes(path));
+            if (docsMarkerPresent && rewriteMarkerPresent) {
+              failures.push('Invalid SDLC exception: declare exactly one reduced-evidence mode.');
+            } else if (docsMarkerPresent && !docsReason) {
+              failures.push('Invalid docs-only exception: provide a non-empty rationale after `SDLC-Exception: docs-only —`.');
+            } else if (docsReason && !docsOnlyEligible) {
+              const invalidating = changedPaths.filter((path) => pathClasses.get(path) !== 'documentation');
+              failures.push(`Invalid docs-only exception: only documentation paths are allowed; invalidating paths: ${summarizePaths(invalidating) || 'none'}.`);
+            } else if (rewriteMarkerPresent && !rewriteReason) {
+              failures.push('Invalid repository-rewrite exception: provide a non-empty rationale after `SDLC-Exception: repository-rewrite —`.');
+            } else if (rewriteReason && !rewriteEligible) {
+              const missing = rewriteRequiredPaths.filter((path) => !changedPaths.includes(path));
+              failures.push(`Invalid repository-rewrite exception: require a feat!: PR and all rewrite contract paths; missing paths: ${summarizePaths(missing) || 'none'}.`);
             }
 
-            const steeringFiles = ['steering/product.md', 'steering/tech.md', 'steering/structure.md'];
+            const reducedMode = docsOnlyEligible ? 'docs-only' : rewriteEligible ? 'repository-rewrite' : specOnlyEligible ? 'spec-only' : null;
+
+            if (prIssueNumbers.size === 0 && !rewriteEligible) {
+              failures.push('Missing issue evidence: add a current issue reference such as `Closes #123` or `**Issue**: #123`.');
+            }
+
+            if (!docsOnlyEligible && !rewriteEligible) {
+              if (specDirectories.length === 0) {
+                failures.push('Missing spec evidence: name or change the relevant `specs/{N}-{slug}` directory.');
+              } else if (mismatchedSpecs.length > 0) {
+                failures.push(`Issue/spec mismatch: PR issues ${[...prIssueNumbers].map((number) => `#${number}`).join(', ') || 'none'} do not match ${mismatchedSpecs.map((record) => record.directory).join(', ')}.`);
+              }
+            }
+
+            const steeringFiles = [
+              'steering/manifest.json',
+              'steering/modules/product.mjs',
+              'steering/modules/tech.mjs',
+              'steering/modules/structure.mjs',
+              'steering/modules/verification.mjs',
+            ];
             const steeringPresence = await Promise.all(steeringFiles.map(pathExists));
             const missingSteering = steeringFiles.filter((_, index) => !steeringPresence[index]);
-            const steeringReferenced = /\bsteering\b|steering\/(?:product|tech|structure)\.md|product\.md|tech\.md|structure\.md/i.test(combinedText)
-              || changedPaths.some((path) => /^steering\/(?:product|tech|structure)\.md$/.test(path));
+            const currentEvidence = stripQuotedHistory(`${prText}\n${specText}`);
+            const steeringReferenced = /\bsteering\b|steering\/manifest\.json|steering\/(?:modules|snippets)\//i.test(currentEvidence)
+              || changedPaths.some((path) => /^steering\/(?:manifest\.json|modules\/|snippets\/)/.test(path));
             if (missingSteering.length > 0) {
-              failures.push(`Missing steering artifacts: expected ${missingSteering.join(', ')} before nmg-sdlc contribution gating can pass.`);
-            } else if (!steeringReferenced) {
-              failures.push('Missing steering evidence: explain how the change aligns with `steering/product.md`, `steering/tech.md`, and `steering/structure.md`.');
+              failures.push(`Missing steering artifacts: expected ${missingSteering.join(', ')}.`);
+            } else if (!steeringReferenced && reducedMode !== 'spec-only') {
+              failures.push('Missing steering evidence: explain alignment with the registered managed steering runtime.');
             }
 
-            const verificationLinked = /\b(test plan|verification|verified|verify-code|tests? run|validation)\b/i.test(combinedText)
-              || changedPaths.some((path) => verificationArtifactPattern.test(path));
-            if (!verificationLinked) {
-              failures.push('Missing verification evidence: include test or verification results in the PR body or commit a `verification-report.md` artifact.');
+            if (reducedMode !== 'docs-only' && unmatchedPaths.length > 0) {
+              failures.push(`Unmatched changed paths: ${summarizePaths(unmatchedPaths)}. Name each path, an explicit containing directory, or a path-specific behavior in tasks or verification evidence.`);
+            }
+
+            if (reducedMode !== 'docs-only' && reducedMode !== 'spec-only' && !hasSpecificVerification(verificationEvidence, verificationReports, relevantPaths)) {
+              failures.push('Missing specific verification: provide a command with its outcome, a non-empty report, an AC result, or a changed-path-specific result.');
             }
 
             if (!(await pathExists('CONTRIBUTING.md'))) {
-              failures.push('Missing `CONTRIBUTING.md`: run `$nmg-sdlc:onboard-project` or `$nmg-sdlc:upgrade-project` so contributors can remediate this gate.');
+              failures.push('Missing `CONTRIBUTING.md`: run /sdlc-onboard-project or /sdlc-upgrade-project so contributors can remediate this gate.');
             }
 
             if (failures.length > 0) {
-              for (const failure of failures) {
-                core.error(`${failure} See CONTRIBUTING.md for the nmg-sdlc contribution checklist.`);
-              }
-              core.setFailed(`nmg-sdlc contribution gate failed with ${failures.length} missing expectation(s).`);
+              for (const failure of failures) core.error(`${failure} See CONTRIBUTING.md for the nmg-sdlc contribution checklist.`);
+              core.setFailed(`nmg-sdlc contribution gate failed with ${failures.length} broken evidence edge(s).`);
             } else {
-              core.info('nmg-sdlc contribution evidence found: issue, spec, steering, verification, and guide checks passed.');
+              core.info(`nmg-sdlc contribution evidence is consistent${reducedMode ? ` under the validated ${reducedMode} reduced-evidence contract` : ''}.`);
             }

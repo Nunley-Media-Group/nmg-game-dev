@@ -1,5 +1,5 @@
 name: SDLC-ready issue
-description: Create a structured issue that is ready for nmg-sdlc specification work.
+description: Create an executable feature or bug with SDLC-ready acceptance criteria.
 body:
   - type: dropdown
     id: issue-type
@@ -9,22 +9,19 @@ body:
       options:
         - Feature / Enhancement
         - Bug
-        - Epic
-        - Spike
     validations:
       required: true
   - type: textarea
     id: context
     attributes:
-      label: User Story or Bug/Spike Context
-      description: Provide the user story for a feature, reproduction context for a bug, or research context for a spike.
+      label: User Story or Bug Context
+      description: Provide the user story for a feature or reproduction context for a bug.
       placeholder: |
         As a ...
         I want ...
         So that ...
 
         For bugs: describe observed behavior, expected behavior, and reproduction notes.
-        For spikes: describe the decision or gap to research.
     validations:
       required: true
   - type: textarea
@@ -42,7 +39,7 @@ body:
     id: acceptance-criteria
     attributes:
       label: Acceptance Criteria
-      description: List each criterion in Given/When/Then form so each one can become a Gherkin scenario.
+      description: Use Given/When/Then criteria only. Each criterion becomes a Gherkin scenario during /sdlc-write-spec #N.
       placeholder: |
         AC1: Short name
         Given ...
@@ -59,7 +56,7 @@ body:
     id: functional-requirements
     attributes:
       label: Functional Requirements
-      description: Capture requirement ids, priority, and any notes needed for specification work.
+      description: Capture executable requirements for this issue only.
       placeholder: |
         | ID | Requirement | Priority | Notes |
         |----|-------------|----------|-------|
@@ -89,16 +86,6 @@ body:
         - Should
         - Could
         - "Won't"
-    validations:
-      required: true
-  - type: dropdown
-    id: automation-suitability
-    attributes:
-      label: Automation Suitability
-      description: Should downstream SDLC stages be allowed to run hands-off after specifications exist?
-      options:
-        - "Yes"
-        - "No"
     validations:
       required: true
   - type: textarea

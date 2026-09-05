@@ -1,7 +1,10 @@
 # File: tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature
 #
 # Generated from: specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md
-# Issue: #1
+**Issue**: #1
+**Date**: 2026-09-05
+**Status**: Draft
+**Author**: Unknown
 
 Feature: Scaffold plugin + repo + session-start hooks
   As an internal NMG game developer

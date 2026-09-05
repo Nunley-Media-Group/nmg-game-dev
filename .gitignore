@@ -36,3 +36,4 @@ fixtures/Source/
 *.sln
 *.xcworkspace/
 *.xcodeproj/
+.omp/sdlc/

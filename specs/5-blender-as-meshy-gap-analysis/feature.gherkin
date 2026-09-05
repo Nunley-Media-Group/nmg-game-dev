@@ -1,0 +1,11 @@
+**Issue**: #5
+**Date**: 2026-09-05
+**Status**: Draft
+**Author**: Unknown
+**Related Spec**: docs/decisions/2026-05-02-blender-as-meshy-gap-analysis.md
+Feature: Converted leftover spike #5
+  @SCN001
+  Scenario: Ordinary spec directory exists
+    Given leftover spike research for #5
+    When upgrade-project is approved for that spike
+    Then specs/5-blender-as-meshy-gap-analysis/ exists
