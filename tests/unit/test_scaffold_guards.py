@@ -29,38 +29,32 @@ from _scaffold_contract import (
 )
 
 
-def test_plugin_json_schema(plugin_data: dict[str, Any]) -> None:
-    for field in ("name", "version", "description", "author", "skills"):
+def test_plugin_json_schema(repo_root: pathlib.Path, plugin_data: dict[str, Any]) -> None:
+    for field in ("name", "version", "description", "author"):
         assert field in plugin_data, f"plugin.json missing required field: {field!r}"
 
     assert plugin_data["name"] == "nmg-game-dev"
     assert plugin_data["version"] == EXPECTED_VERSION
     assert plugin_data["author"]["name"] == "Nunley Media Group"
-    assert plugin_data["skills"] == "./skills/"
+    # Claude Code discovers skills from the default skills/ folder; no manifest field.
+    assert (repo_root / "skills").is_dir()
     assert "capabilities" not in plugin_data
     assert "requires" not in plugin_data
 
 
-def test_marketplace_points_to_local_plugin(marketplace_data: dict[str, Any]) -> None:
-    assert marketplace_data["name"] == "nmg-game-dev"
-    entry = marketplace_data["plugins"][0]
-    assert entry["name"] == "nmg-game-dev"
-    assert entry["source"] == {"source": "local", "path": "."}
-    assert entry["policy"]["installation"] == "AVAILABLE"
-    assert entry["policy"]["authentication"] == "ON_INSTALL"
+def test_no_marketplace_in_repo(repo_root: pathlib.Path) -> None:
+    # nmg-game-dev is listed in the nmg-plugins marketplace; this repo carries no marketplace.
+    assert not (repo_root / ".claude-plugin" / "marketplace.json").exists()
 
 
-def test_consumer_codex_hooks_template(repo_root: pathlib.Path) -> None:
-    assert (repo_root / "templates" / "consumer" / ".codex" / "hooks.json").is_file()
-    assert (repo_root / "templates" / "consumer" / ".codex" / "config.toml").is_file()
-
-
-def test_consumer_codex_config_enables_hooks(
-    consumer_config_data: dict[str, Any],
-) -> None:
-    assert consumer_config_data["features"]["codex_hooks"] is True
-    for server in REQUIRED_SERVERS:
-        assert server in consumer_config_data["mcp_servers"]
+def test_consumer_claude_settings_template(consumer_hooks_data: dict[str, Any]) -> None:
+    commands = [
+        h["command"]
+        for entry in consumer_hooks_data["hooks"]["SessionStart"]
+        for h in entry["hooks"]
+    ]
+    assert any("start-blender-mcp.sh" in c for c in commands)
+    assert any("start-unreal-mcp.sh" in c for c in commands)
 
 
 @pytest.mark.parametrize("rel_dir", REQUIRED_DIRS)
@@ -110,9 +104,9 @@ def test_no_dogfood_reference_in_non_launcher_artifacts(artifact_text: Any, arti
 
 
 def test_no_repo_root_settings_json(repo_root: pathlib.Path) -> None:
-    assert not (repo_root / ".codex" / "hooks.json").exists(), (
-        ".codex/hooks.json found at repo root — must not exist. "
-        "SessionStart hooks belong in templates/consumer/.codex/hooks.json only."
+    assert not (repo_root / ".claude" / "settings.json").exists(), (
+        ".claude/settings.json found at repo root — must not exist. "
+        "SessionStart hooks belong in templates/consumer/.claude/settings.json only."
     )
 
 
@@ -124,13 +118,6 @@ def test_version_file(version_text: str) -> None:
 
 def test_plugin_json_version(plugin_data: dict[str, Any]) -> None:
     assert plugin_data["version"] == EXPECTED_VERSION
-
-
-def test_claude_plugin_json_matches_codex(
-    claude_plugin_data: dict[str, Any], plugin_data: dict[str, Any]
-) -> None:
-    for field in ("name", "version", "description", "author"):
-        assert claude_plugin_data[field] == plugin_data[field], field
 
 
 def test_pyproject_version(pyproject_data: dict[str, Any]) -> None:
@@ -197,7 +184,7 @@ def test_claude_md_exists(repo_root: pathlib.Path) -> None:
         "steering/snippets/project-product.md",
         "steering/snippets/project-tech.md",
         "steering/snippets/project-structure.md",
-        "$nmg-sdlc:draft-issue",
+        "/sdlc-draft-issue",
     ],
 )
 def test_claude_md_references(claude_md_text: str, ref: str) -> None:

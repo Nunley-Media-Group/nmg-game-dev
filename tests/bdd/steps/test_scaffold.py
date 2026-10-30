@@ -158,12 +158,12 @@ def repo_root_is_cwd() -> None:
     assert REPO_ROOT.is_dir(), f"Repo root not found: {REPO_ROOT}"
 
 
-@given("`.codex-plugin/plugin.json` exists at the repo root")
+@given("`.claude-plugin/plugin.json` exists at the repo root")
 def plugin_json_exists(repo_root: pathlib.Path) -> None:
-    assert (repo_root / ".codex-plugin" / "plugin.json").is_file()
+    assert (repo_root / ".claude-plugin" / "plugin.json").is_file()
 
 
-@when("the plugin manifest is validated against Codex's plugin schema")
+@when("the plugin manifest is validated against Claude Code's plugin schema")
 def validate_plugin_manifest(plugin_data: dict[str, Any]) -> None:
     assert plugin_data  # JSON parsed successfully in the fixture
 
@@ -173,20 +173,25 @@ def manifest_validation_passes() -> None:
     pass
 
 
-@then('the manifest declares "name", "version", "description", "author", and skills fields')
+@then('the manifest declares "name", "version", "description", and "author" fields')
 def manifest_has_required_fields(plugin_data: dict[str, Any]) -> None:
-    for field in ("name", "version", "description", "author", "skills"):
+    for field in ("name", "version", "description", "author"):
         assert field in plugin_data, f"plugin.json missing field: {field}"
-    assert plugin_data["skills"] == "./skills/"
     assert "capabilities" not in plugin_data
     assert "requires" not in plugin_data
 
 
-@then("`.agents/plugins/marketplace.json` points to the local plugin")
-def marketplace_points_local(marketplace_data: dict[str, Any]) -> None:
-    entry = marketplace_data["plugins"][0]
-    assert entry["name"] == "nmg-game-dev"
-    assert entry["source"] == {"source": "local", "path": "."}
+@then("skills are discovered from the default `skills/` folder")
+def skills_default_folder(repo_root: pathlib.Path, plugin_data: dict[str, Any]) -> None:
+    assert (repo_root / "skills").is_dir()
+    assert "skills" not in plugin_data
+
+
+@then(
+    "this repo carries no marketplace file, because the `nmg-plugins` marketplace lists it"
+)
+def no_repo_marketplace(repo_root: pathlib.Path) -> None:
+    assert not (repo_root / ".claude-plugin" / "marketplace.json").exists()
 
 
 @given("the layout declared in `steering/snippets/project-structure.md` § Project Layout")
@@ -376,9 +381,9 @@ def stderr_has_remediation(remediation_result: subprocess.CompletedProcess[str])
     assert len(hint_lines) >= 1, f"No remediation hint line found in stderr: {stderr!r}"
 
 
-@given("`templates/consumer/.codex/hooks.json` exists in this repo")
+@given("`templates/consumer/.claude/settings.json` exists in this repo")
 def consumer_template_exists(repo_root: pathlib.Path) -> None:
-    assert (repo_root / "templates" / "consumer" / ".codex" / "hooks.json").is_file()
+    assert (repo_root / "templates" / "consumer" / ".claude" / "settings.json").is_file()
 
 
 @when("a reader inspects it")
@@ -387,8 +392,8 @@ def reader_inspects_template() -> None:
 
 
 @then(
-    "it declares two `SessionStart` hook entries invoking"
-    " `bash scripts/start-blender-mcp.sh` and `bash scripts/start-unreal-mcp.sh`"
+    "it declares `SessionStart` hook commands invoking"
+    " `scripts/start-blender-mcp.sh` and `scripts/start-unreal-mcp.sh`"
 )
 def consumer_template_has_hooks(consumer_hooks_data: dict[str, Any]) -> None:
     hooks = consumer_hooks_data["hooks"]["SessionStart"][0]["hooks"]
@@ -397,16 +402,10 @@ def consumer_template_has_hooks(consumer_hooks_data: dict[str, Any]) -> None:
     assert any("start-unreal-mcp.sh" in c for c in commands)
 
 
-@then("`templates/consumer/.codex/config.toml` enables Codex hooks")
-def consumer_config_enables_hooks(consumer_config_text: str) -> None:
-    assert "[features]" in consumer_config_text
-    assert "codex_hooks = true" in consumer_config_text
-
-
-@then("no `.codex/hooks.json` exists at this repo's root")
+@then("no `.claude/settings.json` exists at this repo's root")
 def no_repo_root_settings_json(repo_root: pathlib.Path) -> None:
-    assert not (repo_root / ".codex" / "hooks.json").exists(), (
-        ".codex/hooks.json found at repo root — must not exist (consumer-only)"
+    assert not (repo_root / ".claude" / "settings.json").exists(), (
+        ".claude/settings.json found at repo root — must not exist (consumer-only)"
     )
 
 
@@ -475,7 +474,7 @@ def changelog_unreleased(changelog_text: str) -> None:
     assert "## [Unreleased]" in changelog_text
 
 
-@then("`.codex-plugin/plugin.json`'s `version` field equals `0.5.0`")
+@then("`.claude-plugin/plugin.json`'s `version` field equals `0.5.0`")
 def plugin_json_version(plugin_data: dict[str, Any]) -> None:
     assert plugin_data["version"] == EXPECTED_VERSION
 
@@ -546,9 +545,9 @@ def claude_md_references_steering(claude_md_text: str) -> None:
         assert ref in claude_md_text, f"CLAUDE.md missing reference to {ref}"
 
 
-@then("it mentions `$nmg-sdlc:draft-issue` as the SDLC entry point")
+@then("it mentions `/sdlc-draft-issue` as the SDLC entry point")
 def claude_md_draft_issue(claude_md_text: str) -> None:
-    assert "$nmg-sdlc:draft-issue" in claude_md_text
+    assert "/sdlc-draft-issue" in claude_md_text
 
 
 @then("it does not duplicate content from any steering document")
@@ -560,9 +559,8 @@ def claude_md_pointer_only(claude_md_text: str) -> None:
 
 
 @given(
-    "the consumer-facing artifacts: `.codex-plugin/plugin.json`,"
-    " `.agents/plugins/marketplace.json`, `scripts/start-*-mcp.sh`,"
-    " `templates/consumer/.codex/hooks.json`, `templates/consumer/.codex/config.toml`,"
+    "the consumer-facing artifacts: `.claude-plugin/plugin.json`,"
+    " `scripts/start-*-mcp.sh`, `templates/consumer/.claude/settings.json`,"
     " `.mcp.json`, `pyproject.toml`"
 )
 def consumer_artifacts_present(repo_root: pathlib.Path) -> None:
@@ -602,7 +600,7 @@ def launchers_use_env_vars(artifact_text: Any) -> None:
 
 
 @given(
-    "the plugin is installed through Codex at either user scope"
+    "the plugin is installed through Claude Code at either user scope"
     " or project scope inside a consumer game repo"
 )
 def install_scope_context() -> None:
@@ -614,7 +612,7 @@ def onboard_consumer_ran() -> None:
     pass
 
 
-@when("a developer opens the consumer project in Codex")
+@when("a developer opens the consumer project in Claude Code")
 def opens_consumer_project() -> None:
     pass
 
@@ -622,12 +620,14 @@ def opens_consumer_project() -> None:
 @then(
     "the consumer-side outcome is identical regardless of the plugin's install scope"
     " — same skills, same `scripts/` contents, same MCP config,"
-    " same `.codex/hooks.json` `SessionStart` entries"
+    " same `.claude/settings.json` `SessionStart` entries"
 )
-def outcome_identical(plugin_data: dict[str, Any]) -> None:
-    skills_path = plugin_data["skills"]
-    assert not skills_path.startswith("/"), "skills path is absolute"
-    assert "~" not in skills_path, "skills path contains ~"
+def outcome_identical(plugin_data: dict[str, Any], consumer_hooks_data: dict[str, Any]) -> None:
+    # Skills come from the plugin's default skills/ folder, never a scope-specific path.
+    assert "skills" not in plugin_data
+    for entry in consumer_hooks_data["hooks"]["SessionStart"]:
+        for hook in entry["hooks"]:
+            assert "$CLAUDE_PROJECT_DIR" in hook["command"], "hook path is not project-relative"
 
 
 @then("no artifact shipped in this issue encodes or depends on a specific install scope")
