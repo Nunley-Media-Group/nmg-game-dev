@@ -1,0 +1,58 @@
+**Issue**: #68
+**Date**: 2026-10-30
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/7-consumer-onboarding-onboard-consumer-skill-asset-contract-install-and-onboarding-docs/
+
+# File: tests/unit/test_toolchain_guards.py, tests/unit/test_scaffold_guards.py, tests/unit/test_smoke_*.py, tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature
+# Generated from: specs/68-upgrade-toolchain-to-ue-5-8-with-native-mcp-plus-vibeue-and-blender-5-2-mcp/requirements.md
+Feature: Toolchain on UE 5.8 native MCP plus VibeUE and the latest Blender MCP
+
+  @SCN001
+  Scenario: Unreal 5.8 everywhere
+    Given the repository outside specs/ and CHANGELOG.md
+    When engine version references are collected
+    Then dogfood.uproject associates with "5.8", the uplugin declares EngineVersion "5.8.0", and both UE scripts default UE_ROOT to "/Users/Shared/Epic Games/UE_5.8"
+    And no "UE_5.7", "5.7.0", or "Unreal Engine 5.7" reference remains
+
+  @SCN002
+  Scenario: The launcher starts Epic's MCP server for a project with VibeUE
+    Given a UE 5.8 fake install and the dogfood fixture enabling ModelContextProtocol, EditorToolset, VibeUE, and nmg-game-dev
+    When scripts/start-unreal-mcp.sh runs with UE_MCP_PORT 18088
+    Then the editor is launched with -ModelContextProtocolStartServer and -ModelContextProtocolPort=18088 and the script exits 0
+    And DefaultEditorPerProjectUserSettings.ini sets bAutoStartServer=True and ServerPortNumber=8000
+
+  @SCN003
+  Scenario: The agent host config targets the native endpoint
+    Given the plugin's .mcp.json
+    When the unreal entry is read
+    Then it is type "http" with url "http://127.0.0.1:${UE_MCP_PORT:-8000}/mcp"
+    And the file contains no "mcp-remote", "8088", or bridge wording
+
+  @SCN004
+  Scenario: The Unreal smoke test exercises VibeUE through the native endpoint
+    Given an MCP endpoint that exposes a VibeUE toolset with execute_python_code
+    When scripts/smoke-unreal-mcp.py runs
+    Then it reports the engine version, imports SM_SmokeCube into /Game/__NmgSmoke, removes it, and exits 0
+    And against an unreachable endpoint it exits 2 naming scripts/start-unreal-mcp.sh
+
+  @SCN005
+  Scenario: Blender MCP runs the latest release without workarounds
+    Given .mcp.json runs "uvx mcp-for-blender@latest" with BLENDER_MCP_DISABLE_TELEMETRY=1
+    When scripts/smoke-blender-mcp.py starts that server and calls execute_blender_code
+    Then it receives bpy.app.version_string and exits 0
+    And the blender entry has no "--with" or "mcp<2" argument
+
+  @SCN006
+  Scenario: Third-party toolchain components track latest
+    Given .mcp.json, scripts/install-vibeue.sh, and scripts/install-blender-mcp-addon.sh
+    When they are scanned for version pins
+    Then the blender and unreal entries carry no version constraint other than "@latest"
+    And neither install script names a tag, commit, or version
+
+  @SCN007
+  Scenario: Docs and steering describe the two-layer setup
+    Given docs/mcp/unreal.md, docs/mcp/blender.md, and steering/snippets/project-tech.md
+    When they are read
+    Then they name Unreal MCP + Editor Tools then VibeUE, ports 8000 and 9876, UE 5.8, latest Blender, the install and smoke scripts, and the path overrides
+    And steering contains no "8088" and its third-party trust rule tracks latest releases
