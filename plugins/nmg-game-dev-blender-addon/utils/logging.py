@@ -19,5 +19,5 @@ def _get_logger() -> logging.Logger:
     return logger
 
 
-def log_stub_invocation(op_name: str) -> None:
-    _get_logger().info("%s: stub invoked", op_name)
+def log_operator_result(op_name: str, summary: str) -> None:
+    _get_logger().info("%s: %s", op_name, summary)

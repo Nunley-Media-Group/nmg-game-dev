@@ -116,7 +116,8 @@ def test_disabling_host_leaves_nmg_functional(enabled_addon: str) -> None:  # no
     addon_utils.enable(_HOST_ADDON_ID, default_set=False, persistent=False)
     addon_utils.disable(_HOST_ADDON_ID, default_set=False)
     try:
-        result = bpy.ops.nmggamedev.cleanup_desktop()
-        assert result == {"FINISHED"}, f"cleanup_desktop returned {result!r} after disabling host"
+        # The operator runs and reports its own validation error for a missing asset.
+        with pytest.raises(RuntimeError, match="variants.asset_not_found"):
+            bpy.ops.nmggamedev.cleanup_desktop(collection_name="NoSuchAsset")
     finally:
         addon_utils.enable(_HOST_ADDON_ID, default_set=False, persistent=False)

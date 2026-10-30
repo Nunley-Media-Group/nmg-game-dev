@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Blender add-on variant operators replace the stubs: `nmggamedev.cleanup_desktop` removes duplicate, loose, and zero-area geometry with no decimation, `nmggamedev.optimize_mobile` decimates to the contract budget with LOD1 and LOD2 under an FBX LodGroup, and `nmggamedev.generate_variants` exports identically named Desktop and Mobile FBX with PNG textures and sidecar metrics. Mobile budgets honor `nmg-budgets.json` overrides. (#33)
+
 ## [0.7.0] - 2026-10-30
 
 ### Changed
