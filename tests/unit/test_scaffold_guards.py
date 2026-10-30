@@ -3,7 +3,8 @@
 Each test function's name encodes the T015* sub-task and covering AC:
   plugin_json_schema           — T015a / AC1
   directory_exists             — T015b / AC2
-  mcp_json_*                   — T015c / AC8
+  mcp_json_*                   — T015c / AC8; #64 AC4 (no Meshy server)
+  steering_snippets_*          — #64 AC5 (no Meshy source in steering)
   no_leak_* / no_dogfood_*     — T015d / AC10, AC11
   no_repo_root_settings_json   — T015e / AC5b
   version_* / nmg_*_version    — T015f / AC7
@@ -24,6 +25,7 @@ from _scaffold_contract import (
     CONSUMER_FACING,
     EXPECTED_VERSION,
     FLOATING_VERSION_REFS,
+    REPO_ROOT,
     REQUIRED_DIRS,
     REQUIRED_SERVERS,
 )
@@ -76,10 +78,33 @@ def test_mcp_json_no_floating_versions(mcp_text: str, banned: str) -> None:
     assert banned not in mcp_text, f".mcp.json contains floating version ref: {banned!r}"
 
 
-def test_mcp_json_meshy_has_env(mcp_data: dict[str, Any]) -> None:
-    meshy = mcp_data["mcpServers"]["meshy"]
-    assert "env" in meshy, "meshy server entry missing env block"
-    assert "MESHY_API_KEY" in meshy["env"], "meshy env missing MESHY_API_KEY"
+def test_mcp_json_has_no_meshy(mcp_data: dict[str, Any], mcp_text: str) -> None:
+    assert "meshy" not in mcp_data["mcpServers"], ".mcp.json still declares a meshy server"
+    assert "MESHY_API_KEY" not in mcp_text, ".mcp.json still references MESHY_API_KEY"
+    assert "meshy-mcp-server" not in mcp_text, ".mcp.json still pins meshy-mcp-server"
+
+
+MESHY_SOURCE_STRINGS = (
+    "--source meshy",
+    'source="meshy"',
+    "meshy-mcp-server",
+    "MESHY_API_KEY",
+)
+
+STEERING_SNIPPETS = sorted((REPO_ROOT / "steering" / "snippets").glob("*.md"))
+
+
+def test_steering_snippets_found() -> None:
+    # Guards the parametrized scan below against silently running over zero files.
+    assert STEERING_SNIPPETS, "no steering/snippets/*.md files found to scan"
+
+
+@pytest.mark.parametrize("snippet", STEERING_SNIPPETS, ids=lambda p: p.name)
+@pytest.mark.parametrize("banned", MESHY_SOURCE_STRINGS)
+def test_steering_snippets_do_not_offer_meshy(snippet: pathlib.Path, banned: str) -> None:
+    assert banned not in snippet.read_text(), (
+        f"{snippet.name} offers Meshy as a source (found {banned!r})"
+    )
 
 
 @pytest.mark.parametrize("artifact", CONSUMER_FACING)

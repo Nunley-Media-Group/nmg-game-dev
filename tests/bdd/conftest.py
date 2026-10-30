@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from nmg_game_dev.pipeline.stages._base import StageArtifact, StageContext
-from tests.conftest import FakeBlenderMcp, FakeMeshyMcp, FakeUnrealMcp
+from tests.conftest import FakeBlenderMcp, FakeUnrealMcp
 
 
 class BddFakeBlenderOverBudget(FakeBlenderMcp):
@@ -44,11 +44,6 @@ def bdd_fake_blender_over_budget(bdd_tmp_path: Path) -> BddFakeBlenderOverBudget
 @pytest.fixture()
 def bdd_fake_unreal(bdd_tmp_path: Path) -> FakeUnrealMcp:
     return FakeUnrealMcp(bdd_tmp_path)
-
-
-@pytest.fixture()
-def bdd_fake_meshy(bdd_tmp_path: Path) -> FakeMeshyMcp:
-    return FakeMeshyMcp(bdd_tmp_path)
 
 
 @pytest.fixture()

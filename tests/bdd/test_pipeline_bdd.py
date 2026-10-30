@@ -58,15 +58,12 @@ def test_blender_first_e2e() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Scenario declarations (AC2 — Meshy-supplement)
+# Scenario declarations (AC2 — unsupported sources)
 # ---------------------------------------------------------------------------
 
 
-@scenario(
-    "pipeline_meshy_supplement.feature",
-    "Run a Meshy-supplement pipeline end-to-end on a fixture",
-)
-def test_meshy_supplement_e2e() -> None:
+@scenario("pipeline_unsupported_source.feature", "Non-Blender sources are rejected")
+def test_unsupported_source_rejected() -> None:
     pass
 
 
@@ -111,7 +108,7 @@ def bdd_cache_dir(tmp_path: Path) -> Path:
     return d
 
 
-@given("the MCP clients are scripted fakes with no real Blender, UE, or Meshy processes")
+@given("the MCP clients are scripted fakes with no real Blender or UE processes")
 def _no_real_mcp() -> None:
     pass
 
@@ -182,23 +179,6 @@ class _FakeUnreal:
         return self._call_count
 
 
-class _FakeMeshy:
-    def __init__(self, tmp_path: Path) -> None:
-        self._tmp = tmp_path
-        self._tmp.mkdir(parents=True, exist_ok=True)
-        self._call_count: int = 0
-
-    def generate(self, prompt: str, **_kw: object) -> dict[str, object]:
-        self._call_count += 1
-        out = self._tmp / f"meshy_out_{self._call_count}.fbx"
-        out.write_bytes(b"FAKE_MESHY")
-        return {"output_path": str(out)}
-
-    @property
-    def call_count(self) -> int:
-        return self._call_count
-
-
 # ---------------------------------------------------------------------------
 # Given steps
 # ---------------------------------------------------------------------------
@@ -207,11 +187,6 @@ class _FakeMeshy:
 @given("the Blender MCP fake is reachable", target_fixture="fake_blender")
 def the_blender_mcp_fake_is_reachable(tmp_path: Path) -> _FakeBlender:
     return _FakeBlender(tmp_path)
-
-
-@given("the Meshy MCP fake is reachable", target_fixture="fake_meshy")
-def the_meshy_mcp_fake_is_reachable(tmp_path: Path) -> _FakeMeshy:
-    return _FakeMeshy(tmp_path)
 
 
 @given("the UE MCP fake is reachable", target_fixture="fake_unreal")
@@ -282,38 +257,39 @@ def call_pipeline_blender(
 
 
 # ---------------------------------------------------------------------------
-# When steps — Meshy-supplement (AC2)
+# When steps — unsupported sources (AC2)
 # ---------------------------------------------------------------------------
 
 
 @when(
-    'I call pipeline.run with source "meshy"',
+    parsers.re(r'I call pipeline\.run with source "(?P<source>(?!blender")[^"]+)"'),
     target_fixture="pipeline_outcome",
 )
-def call_pipeline_meshy(
+def call_pipeline_unsupported_source(
     fixture_prompt: Prompt,
     fake_blender: _FakeBlender,
-    fake_meshy: _FakeMeshy,
+    fake_unreal: _FakeUnreal,
     bdd_cache_dir: Path,
+    source: str,
 ) -> dict[str, Any]:
-    fake_unreal = _FakeUnreal(bdd_cache_dir)
+    outcome: dict[str, Any] = {
+        "result": None,
+        "error": None,
+        "blender": fake_blender,
+        "unreal": fake_unreal,
+        "cache_dir": bdd_cache_dir,
+    }
     try:
-        result = run(
+        run(
             fixture_prompt,
-            "meshy",
+            cast(Any, source),
             cache_dir=bdd_cache_dir,
-            mcp_clients=McpClients(blender=fake_blender, unreal=fake_unreal, meshy=fake_meshy),
+            mcp_clients=McpClients(blender=fake_blender, unreal=fake_unreal),
             stage_overrides={"texture": _fixture_texture},
         )
-        return {
-            "result": result,
-            "error": None,
-            "blender": fake_blender,
-            "meshy": fake_meshy,
-            "unreal": fake_unreal,
-        }
     except PipelineError as exc:
-        return {"result": None, "error": exc, "blender": fake_blender, "meshy": fake_meshy}
+        outcome["error"] = exc
+    return outcome
 
 
 # ---------------------------------------------------------------------------
@@ -423,30 +399,22 @@ def _(pipeline_outcome: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Then steps — AC2 (Meshy-specific)
+# Then steps — AC2 (unsupported sources)
 # ---------------------------------------------------------------------------
 
 
-@then("the generate stage called the Meshy MCP fake exactly once")
+@then('the error\'s remediation string names "blender"')
 def _(pipeline_outcome: dict[str, Any]) -> None:
-    meshy = pipeline_outcome.get("meshy")
-    assert meshy is not None
-    assert meshy.call_count == 1
+    err = pipeline_outcome["error"]
+    assert err is not None
+    assert "blender" in err.remediation
 
 
-@then("the cleanup, variants, and quality stages called the Blender MCP fake")
+@then("no MCP fake was called and no cache entry was written")
 def _(pipeline_outcome: dict[str, Any]) -> None:
-    blender = pipeline_outcome["blender"]
-    # cleanup + variants = 2 Blender calls (generate was Meshy, quality has no MCP).
-    assert blender.call_count >= 2
-
-
-@then("the import_ue stage called the UE MCP fake exactly once")
-def _(pipeline_outcome: dict[str, Any]) -> None:
-    unreal = pipeline_outcome.get("unreal")
-    # For Meshy scenario we stored unreal; for blender-first it's implicit in result.
-    if unreal is not None:
-        assert unreal.call_count >= 1
+    assert pipeline_outcome["blender"].call_count == 0
+    assert pipeline_outcome["unreal"].call_count == 0
+    assert not any(pipeline_outcome["cache_dir"].iterdir())
 
 
 # ---------------------------------------------------------------------------

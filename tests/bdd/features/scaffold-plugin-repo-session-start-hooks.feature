@@ -100,7 +100,7 @@ Feature: Scaffold plugin + repo + session-start hooks
   Scenario: MCP server config is pinned and dual-purpose (AC8)
     Given `.mcp.json` at the repo root
     When the file is parsed
-    Then it declares three pinned MCP server entries: `blender` (ahujasid/blender-mcp), `unreal` (VibeUE), and `meshy`
+    Then it declares two pinned MCP server entries: `blender` (ahujasid/blender-mcp) and `unreal` (VibeUE)
     And every server entry carries a pinned version — no `latest`, `main`, or `HEAD` substring appears
     And the file contains no this-repo-specific absolute paths (usable verbatim by `onboard-consumer` in a consumer project)
 

@@ -187,9 +187,7 @@ def skills_default_folder(repo_root: pathlib.Path, plugin_data: dict[str, Any]) 
     assert "skills" not in plugin_data
 
 
-@then(
-    "this repo carries no marketplace file, because the `nmg-plugins` marketplace lists it"
-)
+@then("this repo carries no marketplace file, because the `nmg-plugins` marketplace lists it")
 def no_repo_marketplace(repo_root: pathlib.Path) -> None:
     assert not (repo_root / ".claude-plugin" / "marketplace.json").exists()
 
@@ -495,10 +493,10 @@ def parse_mcp_json(mcp_data: dict[str, Any]) -> None:
 
 
 @then(
-    "it declares three pinned MCP server entries:"
-    " `blender` (ahujasid/blender-mcp), `unreal` (VibeUE), and `meshy`"
+    "it declares two pinned MCP server entries:"
+    " `blender` (ahujasid/blender-mcp) and `unreal` (VibeUE)"
 )
-def mcp_three_servers(mcp_data: dict[str, Any]) -> None:
+def mcp_two_servers(mcp_data: dict[str, Any]) -> None:
     for name in REQUIRED_SERVERS:
         assert name in mcp_data["mcpServers"], f".mcp.json missing server: {name}"
 
@@ -634,7 +632,7 @@ def outcome_identical(plugin_data: dict[str, Any], consumer_hooks_data: dict[str
 def no_install_scope_encoding(artifact_text: Any) -> None:
     for rel in CONSUMER_FACING:
         content = artifact_text(rel)
-        old_user_plugin_path = "~/.cla" "ude/plugins/"
+        old_user_plugin_path = "~/.cla" + "ude/plugins/"
         assert old_user_plugin_path not in content, f"{rel} hard-codes {old_user_plugin_path}"
         # /Users/Shared/Epic Games/ is the documented UE default — permitted.
         forbidden = re.findall(r"/Users/(?!Shared/)[^\s\"'/]+", content)

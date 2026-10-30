@@ -5,7 +5,7 @@ Feature: Run a Blender-first pipeline end-to-end (AC1)
 
   Background:
     Given the artifact cache is rooted at a clean temporary directory
-    And the MCP clients are scripted fakes with no real Blender, UE, or Meshy processes
+    And the MCP clients are scripted fakes with no real Blender or UE processes
 
   Scenario: Run a Blender-first pipeline end-to-end on a fixture
     Given the Blender MCP fake is reachable

@@ -13,12 +13,10 @@ and unit tests so the order is never duplicated in the test suite::
 
 Source routing
 --------------
-Only the ``generate`` stage branches on ``source``:
-
-- ``"blender"`` → ``stages.generate.generate_blender``
-- ``"meshy"``   → ``stages.generate.generate_meshy``
-
-All downstream stages are source-agnostic.
+``"blender"`` is the only supported source and selects
+``stages.generate.generate_blender`` for the ``generate`` stage.  Any other
+value raises ``PipelineError("pipeline.unsupported_source")`` before any MCP
+call or cache write.  All downstream stages are source-agnostic.
 """
 
 from __future__ import annotations
@@ -32,13 +30,15 @@ from .prompt import Prompt
 from .result import PipelineResult
 from .stages._base import McpClients, Stage, StageArtifact, StageContext, StageName
 from .stages.cleanup import cleanup
-from .stages.generate import generate_blender, generate_meshy
+from .stages.generate import generate_blender
 from .stages.import_ue import import_ue
 from .stages.quality import quality
 from .stages.texture import texture
 from .stages.variants import variants
 
-Source = Literal["blender", "meshy"]
+Source = Literal["blender"]
+
+_SUPPORTED_SOURCES: tuple[str, ...] = ("blender",)
 
 #: Authoritative stage execution order.  Import this in tests and BDD steps
 #: rather than hard-coding the sequence a second time.
@@ -67,9 +67,9 @@ def run(
     prompt:
         Validated asset-generation prompt.
     source:
-        ``"blender"`` for Blender-first (default MCP: Blender).
-        ``"meshy"`` for Meshy-supplement (generate via Meshy; all other
-        stages via Blender + UE).
+        ``"blender"``, the only supported source (generate via Blender; all
+        other stages via Blender + UE).  Any other value raises
+        ``PipelineError("pipeline.unsupported_source")``.
     cache_dir:
         Override the content-addressed cache root.  Defaults to
         ``${NMG_GAME_DEV_CACHE_DIR:-~/.cache/nmg-game-dev}``.
@@ -97,6 +97,14 @@ def run(
         the failure detail.  No UE import is attempted after any failure.
         The error is re-raised unchanged — the orchestrator does NOT wrap it.
     """
+    if source not in _SUPPORTED_SOURCES:
+        raise PipelineError(
+            code="pipeline.unsupported_source",
+            message=f"Unsupported pipeline source {source!r}",
+            remediation='Use source="blender"; Blender is the only supported generation source.',
+            stage="pipeline",
+        )
+
     if mcp_clients is None:
         raise PipelineError(
             code="pipeline.no_mcp_clients",
@@ -112,12 +120,8 @@ def run(
     resolved_cache_dir = cache.root
     overrides = stage_overrides or {}
 
-    generate_fn: Stage = overrides.get(
-        "generate",
-        generate_blender if source == "blender" else generate_meshy,
-    )
     stage_chain: list[tuple[StageName, Stage]] = [
-        ("generate", generate_fn),
+        ("generate", overrides.get("generate", generate_blender)),
         ("texture", overrides.get("texture", texture)),
         ("cleanup", overrides.get("cleanup", cleanup)),
         ("variants", overrides.get("variants", variants)),

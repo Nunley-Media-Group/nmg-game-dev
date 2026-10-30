@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -76,24 +76,6 @@ class TestRunHappyPath:
         assert "TestCrate" in str(result.desktop_path)
         assert result.stages_executed == list(_STAGE_ORDER)
         assert result.cache_hits == []
-
-    def test_meshy_source_routing(
-        self,
-        prompt: Prompt,
-        fake_mcp_clients: Any,
-        fake_meshy: Any,
-        tmp_path: Path,
-    ) -> None:
-        result = run(
-            prompt,
-            "meshy",
-            cache_dir=tmp_path / "cache",
-            mcp_clients=fake_mcp_clients,
-            stage_overrides={"texture": _fake_texture},
-        )
-        # Meshy generate should have been called once.
-        assert fake_meshy.call_count == 1
-        assert "Props" in str(result.desktop_path)
 
     def test_result_contains_all_six_stages_executed(
         self,
@@ -200,3 +182,31 @@ class TestRunErrorReRaise:
             )
         # Unreal should never be called because the pipeline stopped at generate.
         assert fake_unreal.call_count == 0
+
+
+class TestRunUnsupportedSource:
+    @pytest.mark.parametrize("source", ["meshy", "other"])
+    def test_unsupported_source_rejected(
+        self,
+        prompt: Prompt,
+        fake_mcp_clients: Any,
+        fake_blender: Any,
+        fake_unreal: Any,
+        tmp_path: Path,
+        source: str,
+    ) -> None:
+        cache_dir = tmp_path / "cache"
+        with pytest.raises(PipelineError) as exc_info:
+            run(
+                prompt,
+                cast(Any, source),
+                cache_dir=cache_dir,
+                mcp_clients=fake_mcp_clients,
+                stage_overrides={"texture": _fake_texture},
+            )
+        assert exc_info.value.code == "pipeline.unsupported_source"
+        assert exc_info.value.stage == "pipeline"
+        assert "blender" in exc_info.value.remediation
+        assert fake_blender.call_count == 0
+        assert fake_unreal.call_count == 0
+        assert not cache_dir.exists() or not any(cache_dir.iterdir())

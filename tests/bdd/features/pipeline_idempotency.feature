@@ -5,7 +5,7 @@ Feature: Idempotent re-entry at a partial failure point (AC3)
 
   Background:
     Given the artifact cache is rooted at a clean temporary directory
-    And the MCP clients are scripted fakes with no real Blender, UE, or Meshy processes
+    And the MCP clients are scripted fakes with no real Blender or UE processes
 
   Scenario: Idempotent re-entry at a partial failure point
     Given a prior pipeline.run attempt succeeded through generate, texture, and cleanup

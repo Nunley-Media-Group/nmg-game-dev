@@ -5,7 +5,7 @@ Feature: Quality gate failure halts the run with remediation (AC4)
 
   Background:
     Given the artifact cache is rooted at a clean temporary directory
-    And the MCP clients are scripted fakes with no real Blender, UE, or Meshy processes
+    And the MCP clients are scripted fakes with no real Blender or UE processes
 
   Scenario: Quality gate failure halts the run with remediation
     Given the Blender MCP fake is reachable

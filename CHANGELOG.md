@@ -13,6 +13,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Asset generation is freeform Blender authoring checked against an asset contract; the recipe-library plan and the `docs/decisions/` ADRs are removed, and the scaffold contract no longer requires `docs/decisions/`.
 - Project instructions moved from `AGENTS.md` to `CLAUDE.md`; scaffold tests now check the `steering/snippets/` paths.
 - `.gitignore` ignores `.nmg-sdlc/` runtime state in place of the legacy `.omp/sdlc/` rule.
+- The Meshy pipeline source, MCP client types, and `meshy` MCP server are removed; `pipeline.run` accepts only `source="blender"` and rejects any other source with `pipeline.unsupported_source`. (#64)
 
 ### Added
 
