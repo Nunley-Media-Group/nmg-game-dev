@@ -30,6 +30,8 @@ class NMGGAMEDEV_PT_main_panel(bpy.types.Panel):
         layout.operator("nmggamedev.validate_contract")
         layout.operator("nmggamedev.reimport_check")
         layout.operator("nmggamedev.render_review")
+        layout.separator()
+        layout.operator("nmggamedev.bake_materials")
 
         if props is not None and props.last_result:
             layout.separator()
@@ -42,6 +44,8 @@ def _summary_lines(raw: str) -> list[str]:
         data: Any = json.loads(raw)
     except ValueError:
         return ["Last result: unreadable"]
+    if data.get("kind") == "bake":
+        return [data["summary"], f"Bake manifest: {data['manifest_path']}"]
     if "poly_count_desktop" in data:
         return [
             f"Desktop: {data['poly_count_desktop']} triangles",

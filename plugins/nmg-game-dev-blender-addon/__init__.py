@@ -3,6 +3,7 @@ from __future__ import annotations
 import bpy
 
 from .operators import (
+    NMGGAMEDEV_OT_bake_materials,
     NMGGAMEDEV_OT_cleanup_desktop,
     NMGGAMEDEV_OT_generate_variants,
     NMGGAMEDEV_OT_optimize_mobile,
@@ -39,6 +40,7 @@ REGISTER_CLASSES: tuple[type, ...] = (
     NMGGAMEDEV_OT_validate_contract,
     NMGGAMEDEV_OT_reimport_check,
     NMGGAMEDEV_OT_render_review,
+    NMGGAMEDEV_OT_bake_materials,
     NMGGAMEDEV_PT_main_panel,
 )
 

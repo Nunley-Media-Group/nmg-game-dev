@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `nmggamedev.bake_materials` bakes whatever materials the agent authored on an asset into contract-compliant UV texture sets: BC (sRGB), N, and ORM at Desktop and Mobile size, with materials merged into one `M_<Name>_Body` set above the Mobile limit, a seamless tiling mode for environment pieces, and a pre-bake and baked three-quarter proof gated by a tolerance. The same `bake_core.bake_asset` backs the Blender MCP call and the pipeline `texture` stage, which replaces its placeholder. Repeat runs are cache hits. (#67)
+
 ## [0.9.0] - 2026-10-30
 
 ### Added

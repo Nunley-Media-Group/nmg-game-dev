@@ -171,3 +171,35 @@ def test_budget_module_imports_no_bpy() -> None:
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             imported.add(node.module)
     assert not {name for name in imported if name.split(".")[0] == "bpy"}
+
+
+def test_desktop_override_applies_to_desktop_only(tmp_path: Path) -> None:
+    """Top-level overrides go to Mobile; the nested desktop object goes to Desktop (#67)."""
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(
+        json.dumps({"standard_prop": {"tris": 5000, "desktop": {"max_texture_px": 256}}}),
+        encoding="utf-8",
+    )
+
+    desktop = budgets.resolve_budget("standard_prop", path, "desktop")
+    mobile = budgets.resolve_budget("standard_prop", path)
+
+    assert desktop["max_texture_px"] == 256
+    assert desktop["tris"] == 10000
+    assert mobile["tris"] == 5000
+    assert mobile["max_texture_px"] == 1024
+
+
+def test_unknown_variant_is_rejected() -> None:
+    budgets = _load_budgets()
+    with pytest.raises(ValueError):
+        budgets.resolve_budget("standard_prop", None, "lod2")
+
+
+def test_desktop_override_must_be_an_object(tmp_path: Path) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps({"standard_prop": {"desktop": 256}}), encoding="utf-8")
+    with pytest.raises(budgets.BudgetOverrideError):
+        budgets.resolve_budget("standard_prop", path, "desktop")

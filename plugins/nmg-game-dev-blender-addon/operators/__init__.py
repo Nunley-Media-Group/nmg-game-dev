@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .bake_materials import NMGGAMEDEV_OT_bake_materials
 from .cleanup_desktop import NMGGAMEDEV_OT_cleanup_desktop
 from .generate_variants import NMGGAMEDEV_OT_generate_variants
 from .optimize_mobile import NMGGAMEDEV_OT_optimize_mobile
@@ -14,4 +15,5 @@ __all__ = [
     "NMGGAMEDEV_OT_validate_contract",
     "NMGGAMEDEV_OT_reimport_check",
     "NMGGAMEDEV_OT_render_review",
+    "NMGGAMEDEV_OT_bake_materials",
 ]

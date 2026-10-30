@@ -51,7 +51,8 @@ viewport or renderer is not done.
   BSDF fed only by Image Texture nodes sampling `UVMap`, a Normal Map node, and a
   Separate Color node to split ORM. No procedural texture nodes, no
   Generated/Object/Position/triplanar coordinates. Author procedurally if you want,
-  then **bake** to images and rewire the material to the baked images.
+  then **bake** to images and rewire the material to the baked images. The bake step is
+  `nmggamedev.bake_materials` (see `docs/skills/bake-materials.md`).
 - FBX carries base color and normal; it does not carry the ORM wiring. Ship the ORM
   texture anyway: the Unreal import step wires it.
 - Texture set per material, power-of-two square, PNG:
@@ -137,6 +138,9 @@ Environment pieces use the tiling mode and target a texel density of at least
    folder> --pre-bake <png>`. It writes
    `<dir>/<variant>/<Name>_proof.png`, with the pre-bake, baked, and re-imported renders
    side by side and labeled.
+   The bake step writes the pre-bake and baked renders as `<Name>_prebake.png` and
+   `<Name>_baked.png`, and fails when they differ beyond tolerance (see
+   `docs/skills/bake-materials.md`).
 4. **Re-import check**: import the exported FBX into an empty scene and confirm it
    still has its base color and normal textures, UVs, scale, orientation, part pivots,
    and names. Render it with the ORM texture wired in the same way the Unreal import

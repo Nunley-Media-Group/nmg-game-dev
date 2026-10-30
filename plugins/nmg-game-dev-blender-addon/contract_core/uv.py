@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from array import array
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 
 import bpy
 
@@ -51,13 +51,30 @@ def uv_findings(name: str, mesh: bpy.types.Mesh, check_overlap: bool) -> list[di
 
 def overlap_fraction(mesh: bpy.types.Mesh, uv_data: bpy.types.bpy_prop_collection) -> float:
     """Return the share of covered texels that two or more faces both cover."""
+    return polygon_overlap_fraction(
+        (
+            poly.index,
+            [
+                (uv_data[index].uv.x, uv_data[index].uv.y)
+                for index in range(poly.loop_start, poly.loop_start + poly.loop_total)
+            ],
+        )
+        for poly in mesh.polygons
+    )
+
+
+def polygon_overlap_fraction(faces: Iterable[tuple[int, Sequence[Point]]]) -> float:
+    """Return the shared share of covered texels for faces given as (face id, UV corners).
+
+    Face ids must be unique across everything passed in. The bake core uses this to check
+    several meshes together, which the single-mesh overlap_fraction cannot express.
+    """
     owner = array("i", [_NO_FACE]) * (GRID * GRID)
     shared = bytearray(GRID * GRID)
-    for poly in mesh.polygons:
-        indices = range(poly.loop_start, poly.loop_start + poly.loop_total)
-        points = [(uv_data[index].uv.x * GRID, uv_data[index].uv.y * GRID) for index in indices]
+    for face, uv_points in faces:
+        points = [(x * GRID, y * GRID) for x, y in uv_points]
         for corners in _fan(points):
-            _rasterize(corners, poly.index, owner, shared)
+            _rasterize(corners, face, owner, shared)
     covered = sum(1 for value in owner if value != _NO_FACE)
     if covered == 0:
         return 0.0
