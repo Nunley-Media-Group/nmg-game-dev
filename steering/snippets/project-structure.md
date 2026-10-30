@@ -89,7 +89,7 @@ nmg-game-dev/
 │   ├── skills/                    # Per-skill reference docs
 │   ├── mcp/                       # MCP server / tool reference
 │   ├── contributing/              # For nmg-game-dev maintainers
-│   └── decisions/                 # ADRs for non-obvious architectural choices
+│   └── asset-contract.md          # What "done" means for any generated asset
 ├── specs/                         # nmg-sdlc per-issue specs (one dir per issue)
 ├── steering/                      # This directory — canonical conventions
 │   ├── product.md

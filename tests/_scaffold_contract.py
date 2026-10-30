@@ -34,7 +34,6 @@ REQUIRED_DIRS = (
     "docs/skills",
     "docs/mcp",
     "docs/contributing",
-    "docs/decisions",
     "specs",
     "steering",
     "fixtures",
@@ -56,7 +55,6 @@ GITKEEP_DIRS = (
     "docs/skills",
     "docs/mcp",
     "docs/contributing",
-    "docs/decisions",
 )
 
 CONSUMER_FACING = (
