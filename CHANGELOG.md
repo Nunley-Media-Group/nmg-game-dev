@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-30
+
 ### Added
 
 - Ship skill: `/ship` runs `python -m nmg_game_dev.ship <target>` to build, gate, sign, notarize, and package the UE project per platform into `release/<platform>/`, with `release/RELEASE-NOTES.md` listing each artifact and its SHA-256. The mobile budget gate reads each `Mobile/nmg-asset.json` and the optional `nmg-budgets.json` overrides, and the cook-manifest gate blocks cross-variant `Content/` paths. Reference: `docs/skills/ship.md`. (#6)
