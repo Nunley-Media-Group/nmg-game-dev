@@ -12,9 +12,7 @@ REQUIRED_SERVERS = ("blender", "unreal", "meshy")
 FLOATING_VERSION_REFS = ("latest", "main", "HEAD")
 
 REQUIRED_DIRS = (
-    ".agents/plugins",
     ".claude-plugin",
-    ".codex-plugin",
     "plugins/nmg-game-dev-blender-addon",
     "plugins/nmg-game-dev-ue-plugin",
     "skills",
@@ -38,7 +36,7 @@ REQUIRED_DIRS = (
     "steering",
     "fixtures",
     "templates/consumer",
-    "templates/consumer/.codex",
+    "templates/consumer/.claude",
 )
 
 # Directories expected to carry a .gitkeep when otherwise empty in this issue.
@@ -59,20 +57,18 @@ GITKEEP_DIRS = (
 
 CONSUMER_FACING = (
     ".claude-plugin/plugin.json",
-    ".codex-plugin/plugin.json",
-    ".agents/plugins/marketplace.json",
     "scripts/start-blender-mcp.sh",
     "scripts/start-unreal-mcp.sh",
-    "templates/consumer/.codex/hooks.json",
-    "templates/consumer/.codex/config.toml",
+    "templates/consumer/.claude/settings.json",
     ".mcp.json",
     "pyproject.toml",
 )
 
+# Legacy Codex host artifacts must not reappear in consumer-facing deliverables.
 BANNED_SUBSTRINGS = (
-    "~/.cla" "ude/plugins/",
-    ".cla" "ude/plugins/",
-    "Cla" "ude Code",
+    ".cod" "ex/",
+    "cod" "ex_hooks",
+    "Cod" "ex",
 )
 
 # start-unreal-mcp.sh legitimately references $PWD/fixtures/dogfood.uproject as a

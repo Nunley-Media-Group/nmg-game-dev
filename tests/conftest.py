@@ -29,13 +29,6 @@ def _ensure_src_on_path() -> None:
 
 @pytest.fixture(scope="session")
 def plugin_data() -> dict[str, Any]:
-    with (REPO_ROOT / ".codex-plugin" / "plugin.json").open() as fh:
-        data: dict[str, Any] = json.load(fh)
-    return data
-
-
-@pytest.fixture(scope="session")
-def claude_plugin_data() -> dict[str, Any]:
     with (REPO_ROOT / ".claude-plugin" / "plugin.json").open() as fh:
         data: dict[str, Any] = json.load(fh)
     return data
@@ -43,14 +36,7 @@ def claude_plugin_data() -> dict[str, Any]:
 
 @pytest.fixture(scope="session")
 def plugin_text() -> str:
-    return (REPO_ROOT / ".codex-plugin" / "plugin.json").read_text()
-
-
-@pytest.fixture(scope="session")
-def marketplace_data() -> dict[str, Any]:
-    with (REPO_ROOT / ".agents" / "plugins" / "marketplace.json").open() as fh:
-        data: dict[str, Any] = json.load(fh)
-    return data
+    return (REPO_ROOT / ".claude-plugin" / "plugin.json").read_text()
 
 
 @pytest.fixture(scope="session")
@@ -89,20 +75,8 @@ def version_text() -> str:
 
 @pytest.fixture(scope="session")
 def consumer_hooks_data() -> dict[str, Any]:
-    with (REPO_ROOT / "templates" / "consumer" / ".codex" / "hooks.json").open() as fh:
+    with (REPO_ROOT / "templates" / "consumer" / ".claude" / "settings.json").open() as fh:
         data: dict[str, Any] = json.load(fh)
-    return data
-
-
-@pytest.fixture(scope="session")
-def consumer_config_text() -> str:
-    return (REPO_ROOT / "templates" / "consumer" / ".codex" / "config.toml").read_text()
-
-
-@pytest.fixture(scope="session")
-def consumer_config_data() -> dict[str, Any]:
-    with (REPO_ROOT / "templates" / "consumer" / ".codex" / "config.toml").open("rb") as fh:
-        data: dict[str, Any] = tomllib.load(fh)
     return data
 
 

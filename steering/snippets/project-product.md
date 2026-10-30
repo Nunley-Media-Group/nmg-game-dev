@@ -7,7 +7,7 @@ All feature development should align with these guidelines.
 
 ## Mission
 
-**nmg-game-dev is an opinionated, Blender-first content-generation framework for Unreal Engine games used by the Nunley Media Group game team to turn creative intent into production-ready UE assets through Codex-orchestrated, free-flow ad-hoc workflows that enforce quality without sacrificing iteration speed — and it is also the delivery vehicle used to ship full games to players.**
+**nmg-game-dev is an opinionated, Blender-first content-generation framework for Unreal Engine games used by the Nunley Media Group game team to turn creative intent into production-ready UE assets through Claude Code-orchestrated, free-flow ad-hoc workflows that enforce quality without sacrificing iteration speed — and it is also the delivery vehicle used to ship full games to players.**
 
 The framework wears two hats:
 
@@ -16,11 +16,11 @@ The framework wears two hats:
 
 It is consumed as:
 
-1. A **Codex plugin** — skills that wrap the full game-dev loop: asset generation, level dressing, build, sign, ship.
-2. A **Blender add-on** — authoring-side tooling for generation, cleanup, and optimization.
+1. A **Claude Code plugin** — skills, MCP servers, and tools that wrap the full game-dev loop: asset authoring, finalizing, import, build, sign, ship.
+2. A **Blender add-on** — authoring-side tooling for cleanup, baking, and Desktop/Mobile variants.
 3. An **Unreal Engine plugin** — editor-side tooling for import, retarget, platform-variant handling, and runtime helpers that ship inside the consumer's game.
 
-The headline capability: **Blender, driven by MCP and a texture-design tool (TBD in v1), produces assets at or above the quality of Meshy.io's text-to-3D output** — with Meshy kept as a supplementary fallback when its strengths are the right tool for the job. That capability is embedded in a framework that takes those assets all the way to a shipping game.
+The headline capability: **the developer describes an asset and Claude builds it freeform in Blender through the Blender MCP, iterating with the developer; local AI texture models supply realistic materials; and deterministic tooling makes the result shippable** — validated against the asset contract (`docs/asset-contract.md`), baked, split into Desktop and Mobile variants, exported, and imported into Unreal through VibeUE. There is no recipe library: any asset type can be attempted on day one. That capability is embedded in a framework that takes those assets all the way to a shipping game.
 
 ---
 
@@ -30,9 +30,9 @@ The headline capability: **Blender, driven by MCP and a texture-design tool (TBD
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Works inside Codex day-to-day; prefers adhoc skills over multi-step SDLC ceremony for creative work | Expose capability as short, focused skills; keep heavyweight spec cycles optional, not required |
+| Works inside Claude Code day-to-day; prefers adhoc skills over multi-step SDLC ceremony for creative work | Expose capability as short, focused skills; keep heavyweight spec cycles optional, not required |
 | Fluent in Unreal Engine + Blender, comfortable with Python; mixed comfort with MCP server authoring | Skill UX must abstract MCP plumbing; skill authors use nmg-sdlc internally when building new skills |
-| Iterates on asset quality visually — reruns generation, tweaks prompts, reimports | Idempotent pipeline stages; fast cache of intermediate artifacts; re-entry at any stage |
+| Iterates on asset quality visually — directs changes in conversation, reviews renders, reimports | Agent-callable tools for each step; idempotent finalize steps cached on asset content; re-entry at any step |
 | Ships to multiple platforms (desktop + mobile) per consumer project | Variant-aware from the authoring step; never require a retrofit pass to add a mobile variant |
 
 ### Secondary: Consumer project maintainer (e.g., ghost1)
@@ -54,10 +54,10 @@ The headline capability: **Blender, driven by MCP and a texture-design tool (TBD
 
 ## Core Value Proposition
 
-1. **Blender-first, Meshy-capable** — the framework gets Blender to Meshy-parity (or better) for text-to-3D + texture, and still lets Meshy step in when its strengths apply (fast ideation, niche categories). No lock-in to either source.
+1. **Freeform authoring, contract-checked output** — Claude models whatever is asked for in Blender, with no per-asset-type recipes; the asset contract and its tooling make every result game-ready. No paid generation service in the loop.
 2. **Creative freedom with quality gates** — adhoc iteration is the default path; quality (polycount, texture budgets, manifest correctness, player-facing perf) is enforced automatically, not by human review.
-3. **Drop-in plugin shape** — a consumer project installs `nmg-game-dev` from a Codex plugin marketplace or this repo, installs the Blender add-on and UE plugin, and immediately has the full skill suite available. Onboarding is a first-class deliverable, not an afterthought.
-4. **Codex-native orchestration** — every pipeline stage and every ship step is addressable by a skill or MCP tool. The developer's interface is chat + natural language, not a bespoke CLI.
+3. **Drop-in plugin shape** — a consumer project installs `nmg-game-dev` from the `nmg-plugins` marketplace, installs the Blender add-on and UE plugin, and immediately has the full skill suite available. Onboarding is a first-class deliverable, not an afterthought.
+4. **Claude Code-native orchestration** — every pipeline stage and every ship step is addressable by a skill or MCP tool. The developer's interface is chat + natural language, not a bespoke CLI.
 5. **Repo to store-ready in one framework** — generate content, build per platform, sign, notarize, package. The same framework that creates the assets also delivers the game.
 
 ---
@@ -66,11 +66,12 @@ The headline capability: **Blender, driven by MCP and a texture-design tool (TBD
 
 | Principle | Description |
 |-----------|-------------|
-| Blender is the primary authoring surface | New capability lands in Blender first; Meshy is a supplement. When forced to choose, invest in Blender tooling. |
+| Blender is the authoring surface; Unreal is the composition surface | Assets are built and proofed in Blender, one at a time. Levels and multi-asset scenes are composed in Unreal, never in Blender. |
+| Define the target, not the method | The asset contract says what "done" means; how an asset is modeled is the agent's call. Rules must apply to every asset type, never one. |
 | Adhoc by default, ceremony when you need it | Short skills for 90% of creative work. Formal spec cycles for architectural changes or consumer-facing API. |
 | Quality is automatic or it doesn't exist | Every asset-producing skill ends with a verification gate. No "we'll check it later." |
-| Variants are first-class, not an afterthought | Desktop and Mobile are modeled from the first generation step. No retrofit pass. |
-| Idempotent, resumable, cacheable | Any stage can be rerun without redoing upstream work. Generation is expensive; cache aggressively. |
+| Variants are first-class, not an afterthought | Desktop and Mobile are produced in the same session that authors the asset. No retrofit pass. |
+| Idempotent, resumable, cacheable | Any finalize step can be rerun without redoing upstream work; caches key on asset content. Long steps run in background Blender so MCP calls never time out. |
 | Onboarding parity with core capability | Every new consumer-facing feature ships with updated onboarding docs in the same PR. |
 
 ---
@@ -79,8 +80,8 @@ The headline capability: **Blender, driven by MCP and a texture-design tool (TBD
 
 | Metric | Target | Why It Matters |
 |--------|--------|----------------|
-| Asset quality — Blender-first vs. Meshy (subjective A/B by internal dev team) | ≥ parity on 80% of paired generations; strictly better on 20% | Validates the "Blender should learn how to be Meshy.io" thesis |
-| Time from prompt → UE-imported asset (desktop variant) | ≤ 5 min on M-series Mac for a hero character; ≤ 90 s for a standard prop | Adhoc workflow is only useful if the iteration loop is fast |
+| Contract compliance on first finalize | ≥ 90% of authored assets pass validation and re-import without manual fixes | The contract and tooling, not the developer, make assets shippable |
+| Time from "asset approved in Blender" → UE-imported Desktop + Mobile variants | ≤ 5 min for a hero asset; ≤ 90 s for a standard prop on an M-series Mac | Adhoc workflow is only useful if the iteration loop is fast |
 | Consumer onboarding time (new NMG project to first generated asset) | ≤ 1 hour from clone to imported asset | Lock-in risk is real; make the framework easy to adopt, easy to leave |
 | Skill suite coverage | 100% of ghost1's current bespoke asset workflow replaced by nmg-game-dev skills | ghost1 is the reference consumer; if nmg-game-dev can't host its pipeline, it doesn't work |
 | Quality gate coverage | Every asset-producing skill has an automated verification gate | No manual QA in the happy path |
@@ -93,10 +94,9 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 ### v1 — Everything
 
-- **MCP + skill scaffolding** — the plugin shell, MCP server wiring for Blender, Unreal, Meshy, and the texture-gen tool.
-- **Blender → UE pipeline** — authoring in Blender, import into UE via the UE plugin, with desktop/mobile variant support.
-- **Meshy → Blender → UE pipeline** — supplementary ingestion path for when Meshy is the right starting point.
-- **Texture generation (Blender-first)** — research spike to pick the texture-design tool; integration; quality gate to match Meshy output.
+- **MCP + skill scaffolding** — the plugin shell and MCP server wiring for Blender (Blender MCP) and Unreal (Epic's native MCP on UE 5.8, expanded by VibeUE).
+- **Asset contract + finalize pipeline** — freeform authoring in Blender, then validate → bake → Desktop/Mobile variants → export → re-import check → UE import, each step also callable by the agent.
+- **Texture generation** — local AI texture models (Z-Image Turbo, FLUX.2 klein 4B via mflux) the agent calls while authoring; procedural Blender materials as the fallback; everything baked to contract texture sets and proofed in Blender.
 - **Unreal Engine plugin** — editor-side capability (import, retarget, level dressing, variant routing) AND runtime capability that ships inside the consumer's game binary.
 - **Blender add-on** — authoring-side capability (generation, cleanup, mobile optimization).
 - **Quality gates** — polycount, texture budget, cook-manifest equivalents, runtime perf bars for shipped content.
@@ -107,43 +107,44 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 - Console-specific tooling paths (PlayStation / Xbox / Switch) — not a v1 target.
 - Runtime (play-time) asset generation — generation is authoring-time; what ships is pre-baked.
-- Any cloud-hosted generation service of our own — we orchestrate existing tools, we don't host new ones.
+- Any cloud-hosted or paid generation service (ours or third-party, including Meshy) — generation is local: Blender plus local models.
+- A per-asset-type recipe library — the agent authors freeform; the contract defines the target.
+- Composing levels or multi-asset scenes in Blender — that happens in Unreal.
 - A bespoke launcher / storefront — we ship to Apple / Google / (direct download for desktop), not our own distribution.
 
 ---
 
 ## Key User Journeys
 
-### Journey 1: Internal dev generates a prop, Blender-first
+### Journey 1: Internal dev authors an asset
 
 ```
-1. Developer invokes `$new-prop Weapons/Katana standard "Tachi-style katana, weathered"`
-2. nmg-game-dev orchestrates: texture-gen tool → Blender MCP (mesh + materials) → quality gate → Blender MCP (desktop + mobile variants) → UE MCP (import)
-3. Developer sees both variants under Content/Weapons/Katana/{Desktop,Mobile}/ in the consumer project
-4. If quality gate fails, skill surfaces the failure and the iteration prompt
+1. Developer asks Claude, in a session in the consumer project, for an asset ("a weathered tachi-style katana")
+2. Claude models it in Blender through the Blender MCP, generating textures with the local models as needed; the developer directs changes from renders
+3. Claude finalizes it: validate against the asset contract → bake → Desktop/Mobile variants → export → re-import check → import through the Unreal MCP
+4. Developer sees both variants under Content/Weapons/Katana/{Desktop,Mobile}/; any failed check stops the run with a remediation
 ```
 
-### Journey 2: Internal dev uses Meshy because the category benefits from it
+### Journey 2: Internal dev composes a level
 
 ```
-1. Developer invokes `$new-character Guards/Patrol "Futuristic patrol guard, light armor" --source meshy`
-2. nmg-game-dev routes: Meshy MCP (generation) → Blender MCP (cleanup + mobile optimize) → UE MCP (import)
-3. Same variant output, same quality gates
+1. Developer asks for several assets (a race car, a track, grandstands); each is authored and finalized as its own deliverable
+2. Claude places and arranges them in an Unreal level through the Unreal MCP (VibeUE)
 ```
 
 ### Journey 3: Consumer adopts nmg-game-dev in a new project
 
 ```
-1. Clone the consumer project; run the nmg-game-dev onboarding skill
-2. Skill installs the Codex plugin, Blender add-on, UE plugin; prompts for API keys
-3. First `$new-prop` or `$new-character` invocation works end-to-end
+1. Install the plugin from the nmg-plugins marketplace; run `/onboard-consumer` in the consumer project
+2. Onboarding installs the Blender add-on, UE plugin, VibeUE, session-start hooks, and the asset contract; offers the optional local texture models; asks for no API keys
+3. The first requested asset reaches Unreal as Desktop + Mobile variants
 4. Consumer's first commit includes only their new content — no framework bootstrap noise
 ```
 
 ### Journey 4: Ship a build to players
 
 ```
-1. Developer invokes `$build-platform mobile` (or desktop, or all)
+1. Developer invokes `/build-platform mobile` (or desktop, or all)
 2. nmg-game-dev drives UE packaging → code signing → notarization (macOS) → cook-manifest verification per platform
 3. Output is a store-ready artifact: .ipa / .aab / .app / .exe
 4. Quality gates block the ship if any fail; failures surface the remediation prompt, not a raw log
@@ -155,8 +156,8 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 | Attribute | Do | Don't |
 |-----------|-----|-------|
-| Opinionated | "Blender is the primary authoring surface." | "Some people prefer Meshy." |
-| Honest about quality | "Texture gen quality is currently below Meshy on metallic materials — tracked in #N." | "The framework produces production-ready assets across all categories." |
+| Opinionated | "Assets are authored in Blender and composed in Unreal." | "Use whichever tool you like." |
+| Honest about quality | "Character anatomy is still weak — tracked in #N." | "The framework produces production-ready assets across all categories." |
 | Workflow-first | Lead docs with a flow, not an API reference. | Lead docs with a module graph. |
 
 ---
@@ -165,7 +166,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 | Data | Usage | Shared |
 |------|-------|--------|
-| Developer prompts (asset descriptions) | Passed to Meshy / texture-gen tool when those tools are invoked | With the respective third-party provider per their ToS |
+| Developer prompts (asset descriptions) | Used by Claude in the session and by local texture models | Only with Anthropic as part of the Claude Code session; texture models run locally |
 | Generated assets | Written locally to the consumer project | Not shared by the framework |
 | API keys + signing credentials | Read from env; never logged; never committed; never shipped inside a game binary | Never |
 | Telemetry / player data (if a shipped game collects any) | Out of scope for the framework; consumer projects own their own privacy policy | N/A at framework level |

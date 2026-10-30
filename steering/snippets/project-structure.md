@@ -10,13 +10,11 @@ All code should follow these guidelines for consistency.
 ```
 nmg-game-dev/
 ├── .claude-plugin/
-│   └── plugin.json                # Claude Code plugin manifest (mirrors .codex-plugin)
-├── .codex-plugin/
-│   └── plugin.json                # Codex plugin manifest (what consumers install)
+│   └── plugin.json                # Claude Code plugin manifest (what consumers install; version source for nmg-plugins)
 ├── plugins/
 │   ├── nmg-game-dev-blender-addon/
 │   │   ├── __init__.py            # bl_info + register/unregister
-│   │   ├── operators/             # bpy operators (generate, cleanup, optimize)
+│   │   ├── operators/             # bpy operators (cleanup, bake, variants)
 │   │   ├── panels/                # UI panels
 │   │   ├── mcp_server/            # The Blender-side MCP server module
 │   │   └── utils/
@@ -31,29 +29,24 @@ nmg-game-dev/
 │       │       ├── Public/
 │       │       ├── Private/
 │       │       └── Tests/
-│       │       # Note: the Codex → editor MCP wire is owned by VibeUE
-│       │       # (third-party UE plugin pinned in `.mcp.json`); nmg-game-dev does
+│       │       # Note: the Claude Code → editor MCP wire is owned by VibeUE
+│       │       # (third-party UE plugin on Epic's native MCP); nmg-game-dev does
 │       │       # NOT ship its own MCP module.
 │       ├── Content/               # Plugin-owned UE content (templates, defaults)
 │       └── Resources/             # Plugin icon, thumbnails
-├── skills/                        # Codex skills shipped to consumers
-│   ├── new-character/
+├── skills/                        # Claude Code skills shipped to consumers
+│   ├── finalize-asset/            # Validate → bake → variants → export → re-import → UE import
 │   │   ├── SKILL.md               # Skill definition + frontmatter
 │   │   └── references/            # Large context files loaded on demand
-│   ├── new-prop/
-│   ├── cleanup-asset-desktop/
-│   ├── optimize-asset-for-mobile/
+│   ├── generate-texture/          # Local AI texture models (mflux), agent-callable
 │   ├── retarget-animation/
-│   ├── dress-level/
-│   ├── generate-texture/          # Driven by the TBD texture-gen tool
-│   ├── build-platform/            # $build-platform per-platform orchestrator
-│   ├── sign-and-notarize/         # macOS + iOS signing
+│   ├── build-platform/            # /build-platform per-platform orchestrator
+│   ├── ship/                      # Build, sign, notarize, package
 │   ├── verify-cook-manifest/      # Runtime of gate-cook-manifest-*
 │   ├── audit-mobile-budgets/      # Runtime of gate-mobile-budgets
-│   ├── onboard-consumer/          # Installs hooks + configs into consumer project
-│   └── spec-to-assets/            # Bridge from $nmg-sdlc:write-code (nmg-sdlc) into asset skills
+│   └── onboard-consumer/          # Installs hooks, add-on, UE plugin, asset contract into a consumer
 ├── mcp-servers/                   # NMG-authored MCP servers (beyond Blender/UE plugin hosts)
-│   └── texture-gen/               # Wraps whichever tool the v1 spike picks
+│   └── texture-gen/               # Local texture backends exposed as MCP tools
 │       ├── pyproject.toml
 │       └── src/
 ├── scripts/                       # Bash + Python tooling (session-start, CI, automation)
@@ -65,14 +58,14 @@ nmg-game-dev/
 │   ├── verify-cook-manifest.sh
 │   ├── run-blender-tests.sh
 │   ├── run-ue-tests.sh
-│   ├── ship-smoke.sh              # $nmg-sdlc:verify-code's gate-ship-smoke backer
+│   ├── ship-smoke.sh              # /sdlc-verify-code's gate-ship-smoke backer
 │   ├── bump-uproject-version.py
 │   └── tests/                     # pytest for the scripts themselves
 ├── src/
 │   └── nmg_game_dev/              # Importable Python package (CLI glue, shared utils)
 │       ├── __init__.py
 │       ├── cli.py
-│       ├── pipeline/              # Pipeline stage composition (Blender → UE, Meshy → Blender → UE)
+│       ├── pipeline/              # Finalize steps for an authored asset (Blender → UE)
 │       ├── variants/              # Desktop/Mobile variant helpers
 │       ├── quality/               # Quality gate implementations
 │       └── ship/                  # Build + sign + notarize + package
@@ -95,10 +88,10 @@ nmg-game-dev/
 │   ├── product.md
 │   ├── tech.md
 │   └── structure.md
-├── .mcp.json                      # Pinned MCP server config (Blender, Unreal, Meshy, texture-gen)
+├── .mcp.json                      # Pinned MCP servers (Blender, Unreal); bundled with the plugin
 ├── pyproject.toml                 # Python package + dev dependencies
-├── VERSION                        # Plain-text semver, managed by $nmg-sdlc:open-pr
-├── CHANGELOG.md                   # Managed by $nmg-sdlc:open-pr
+├── VERSION                        # Plain-text semver, managed by /sdlc-open-pr
+├── CHANGELOG.md                   # Managed by /sdlc-open-pr
 └── CLAUDE.md                      # Entry-point pointer document
 ```
 
@@ -106,45 +99,44 @@ nmg-game-dev/
 
 ## Layer Architecture
 
-### Pipeline Flow (authoring — invoked by a skill)
+### Authoring and finalize flow
 
 ```
-Developer prompt (e.g., $new-prop Weapons/Katana standard "...")
+Developer asks for an asset in conversation
         │
         ▼
 ┌───────────────────────┐
-│ Skill entry           │ ← resolves args, validates env, picks source (Blender-first or Meshy)
+│ Freeform authoring    │ ← agent drives Blender MCP; local texture models on request;
+│ (interactive)         │   developer directs changes from renders
+└───────┬───────────────┘
+        ▼  finalize (agent tool or one command; long steps run in background Blender)
+┌───────────────────────┐
+│ Validate              │ ← asset contract checks (docs/asset-contract.md)
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ Generation stage      │ ← Blender MCP (primary) or Meshy MCP (supplement) → 3D mesh
+│ Bake + proof          │ ← any authored material → BC / N / ORM texture sets, proofed in Blender
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ Texture stage         │ ← texture-gen tool (TBD) → PBR channel maps
+│ Variants              │ ← Desktop (quality-preserved) + Mobile (within budget)
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ Cleanup stage         │ ← Blender MCP → structural cleanup, LOD chain seeding
+│ Export + re-import    │ ← FBX per variant; headless re-import check against the contract
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ Variant stage         │ ← Blender MCP → desktop (quality-preserved) + mobile (optimized) outputs
-└───────┬───────────────┘
-        ▼
-┌───────────────────────┐
-│ Quality gate          │ ← budgets check, texture resolution check, manifest prep
-└───────┬───────────────┘
-        ▼
-┌───────────────────────┐
-│ Import stage          │ ← Unreal MCP → UE asset imports into Content/Category/Name/{Desktop,Mobile}/
+│ UE import             │ ← Unreal MCP → Content/<Category>/<Name>/{Desktop,Mobile}/, ORM wired
 └───────────────────────┘
+
+Level composition (placing several assets together) happens afterwards, in Unreal.
 ```
 
 ### Ship Flow (build + release)
 
 ```
-$build-platform <platform>
+/build-platform <platform>
         │
         ▼
 ┌───────────────────────┐
@@ -172,10 +164,10 @@ $build-platform <platform>
 
 | Layer | Does | Doesn't Do |
 |-------|------|------------|
-| Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call into `src/nmg_game_dev/pipeline/` | Directly touch MCP sockets, know UE or Blender internals |
-| Pipeline (`src/nmg_game_dev/pipeline/`) | Compose stages; cache intermediate artifacts; enforce ordering | Handle Codex I/O, write skill UX |
+| Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call into `src/nmg_game_dev/pipeline/` | Directly touch MCP sockets, know UE or Blender internals, encode per-asset-type modeling recipes |
+| Pipeline (`src/nmg_game_dev/pipeline/`) | Compose finalize steps; cache on asset content; run long steps in background Blender; enforce ordering | Generate assets from prompts, handle Claude Code I/O, write skill UX |
 | Stage implementations | Talk to exactly one MCP or one tool | Compose multi-stage flows |
-| MCP servers (Blender add-on, VibeUE editor plugin, texture-gen) | Expose tool endpoints; own tool implementation. VibeUE is third-party; nmg-game-dev does NOT author the UE-side bridge. | Know about skills or pipelines upstream |
+| MCP servers (Blender add-on, VibeUE on Epic's native Unreal MCP, texture-gen) | Expose tool endpoints; own tool implementation. VibeUE is third-party; nmg-game-dev does NOT author the UE-side bridge. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
 | Ship (`src/nmg_game_dev/ship/`) | Build, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
 | UE Runtime module | Ship inside consumer games; variant-aware asset resolvers; perf-critical helpers | Anything editor-only; anything authoring |
@@ -218,9 +210,9 @@ $build-platform <platform>
 
 | Element | Convention | Example |
 |---------|------------|---------|
-| Skill directory | `kebab-case` | `skills/new-character/` |
-| Skill file | `SKILL.md` (uppercase) | `skills/new-character/SKILL.md` |
-| Frontmatter `name` | matches directory | `name: new-character` |
+| Skill directory | `kebab-case` | `skills/finalize-asset/` |
+| Skill file | `SKILL.md` (uppercase) | `skills/finalize-asset/SKILL.md` |
+| Frontmatter `name` | matches directory | `name: finalize-asset` |
 
 ### UE Asset naming (for plugin-owned content)
 
@@ -229,7 +221,7 @@ $build-platform <platform>
 | Blueprint | `BP_` | `BP_NmgAssetResolver` |
 | Master material | `M_` | `M_NmgDefault` |
 | Material instance | `MI_` | `MI_NmgDefault_Dark` |
-| Texture | `T_<Name>_<Type>` | `T_NmgLogo_BaseColor` |
+| Texture | `T_<Name>_<Part>_<BC\|N\|ORM>` (per `docs/asset-contract.md`) | `T_NmgLogo_Body_BC` |
 
 Plugin-owned assets live under `plugins/nmg-game-dev-ue-plugin/Content/`. Consumer projects own their own `Content/` and follow the same variant convention described below.
 
@@ -242,7 +234,7 @@ Plugin-owned assets live under `plugins/nmg-game-dev-ue-plugin/Content/`. Consum
 Desktop and mobile use **separate physical asset variants**, not scaled versions of one asset. This is the single most important structural rule the framework enforces in consumer projects.
 
 - `Content/<Category>/<Name>/Desktop/` — full-quality variant (macOS, Windows). Blender structural cleanup only; no decimation, no texture reduction, no bone reduction.
-- `Content/<Category>/<Name>/Mobile/` — fully optimized variant (iOS, Android). Decimation, LOD chain, texture bake-down, bone reduction. Satisfies the budget JSON.
+- `Content/<Category>/<Name>/Mobile/` — fully optimized variant (iOS, Android). Decimated or rebuilt at lower detail, LOD chain, texture bake-down, bone reduction. Satisfies the budget in `docs/asset-contract.md`.
 - Both variants have **identical logical names** (e.g., `SK_Guard`, `M_Guard`). Only the subfolder differs.
 - Asset Manager cook rules (per-platform INIs) include/exclude per target. Desktop packages never contain `Mobile/`; mobile packages never contain `Desktop/`. `gate-cook-manifest-*` is the hard gate.
 - `Content/Shared/` is platform-agnostic — ships on every platform.
@@ -266,9 +258,9 @@ A single asset with aggressive LODs would still ship the full source mesh in eve
 ```markdown
 ---
 name: <kebab-case-name>
-description: <one-line description used by Codex's skill picker>
-required_mcp: [blender, unreal, meshy?, texture-gen?]
-required_env: [UE_ROOT?, MESHY_API_KEY?]
+description: <one-line description used by Claude Code's skill picker>
+required_mcp: [blender, unreal, texture-gen?]
+required_env: [UE_ROOT?, BLENDER_APP?]
 unattended_safe: true | false
 ---
 
@@ -361,8 +353,11 @@ public:
 | A skill that directly opens MCP sockets | Duplicates logic the pipeline owns; breaks cancellation | Call into `src/nmg_game_dev/pipeline/` — never speak MCP from a SKILL.md flow |
 | Desktop asset referenced from the Mobile variant (or vice versa) | Cross-variant leak into cooked packages | Use `UNmgAssetResolver` parent Blueprint; never hard-link across the boundary |
 | Hard-coded Blender / UE paths in any shipped script | Breaks on every consumer that didn't clone the reference project | Env vars with documented defaults; fail with an actionable message when unset |
-| Texture-gen tool accessed outside the TBD contract interface | Locks the framework to one tool, prevents the spike outcome from landing cleanly | Always go through `src/nmg_game_dev/pipeline/texture.py`'s abstract interface |
-| Session-start hook that blocks the shell | Codex session never reaches prompt | Scripts must detach with `nohup … & disown` and return in well under the hook timeout |
+| Texture backend called directly instead of through the backend registry | Locks the framework to one model; skips allowlist, hardware, and seamless checks | Go through the texture backend interface (see tech steering) |
+| A per-asset-type modeling recipe or skill | Coverage becomes recipe-authoring work; the agent already models freeform | Put rules that apply to every asset in `docs/asset-contract.md`; leave modeling to the agent |
+| Composing multi-asset scenes in Blender for export | Assets overlap at the origin and layout gets baked into exports | Export each asset on its own; compose levels in Unreal |
+| Long Blender work (bakes, variants) run directly through an MCP call | MCP call times out; the session hangs | Run it as a background Blender job and load results back |
+| Session-start hook that blocks the shell | Claude Code session never reaches prompt | Scripts must detach with `nohup … & disown` and return in well under the hook timeout |
 | Importing Blender add-on modules from pytest without headless mode | Crashes on CI / non-GUI hosts | Always invoke via `blender --background --python` or use the test harness in `tests/blender/` |
 | New consumer-facing capability without matching docs update | Drift between what the framework does and what users believe it does | Onboarding + skill-reference doc updates are part of the same PR as the capability |
 
