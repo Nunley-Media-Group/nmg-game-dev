@@ -26,6 +26,10 @@ class NMGGAMEDEV_PT_main_panel(bpy.types.Panel):
         layout.operator("nmggamedev.cleanup_desktop")
         layout.operator("nmggamedev.optimize_mobile")
         layout.operator("nmggamedev.generate_variants")
+        layout.separator()
+        layout.operator("nmggamedev.validate_contract")
+        layout.operator("nmggamedev.reimport_check")
+        layout.operator("nmggamedev.render_review")
 
         if props is not None and props.last_result:
             layout.separator()
@@ -48,4 +52,12 @@ def _summary_lines(raw: str) -> list[str]:
         return [f"Cleanup: {data['tris_before']} -> {data['tris_after']} triangles"]
     if "lod_tris" in data:
         return [f"Mobile LOD0: {data['tris']} triangles, {data['lod_levels']} LOD(s)"]
+    if data.get("kind") in {"contract", "reimport"}:
+        verdict = "PASS" if data["passed"] else "FAIL"
+        return [
+            f"{data['kind'].title()} {data['asset']}: {verdict}",
+            f"{len(data['findings'])} finding(s)",
+        ]
+    if "files" in data:
+        return [f"Review renders: {len(data['files'])} file(s)"]
     return ["Last result: unknown format"]

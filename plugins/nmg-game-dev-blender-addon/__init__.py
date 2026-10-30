@@ -6,6 +6,9 @@ from .operators import (
     NMGGAMEDEV_OT_cleanup_desktop,
     NMGGAMEDEV_OT_generate_variants,
     NMGGAMEDEV_OT_optimize_mobile,
+    NMGGAMEDEV_OT_reimport_check,
+    NMGGAMEDEV_OT_render_review,
+    NMGGAMEDEV_OT_validate_contract,
 )
 from .panels import NMGGAMEDEV_PT_main_panel
 from .property_groups import NmgGameDevPipelineProps
@@ -33,6 +36,9 @@ REGISTER_CLASSES: tuple[type, ...] = (
     NMGGAMEDEV_OT_cleanup_desktop,
     NMGGAMEDEV_OT_optimize_mobile,
     NMGGAMEDEV_OT_generate_variants,
+    NMGGAMEDEV_OT_validate_contract,
+    NMGGAMEDEV_OT_reimport_check,
+    NMGGAMEDEV_OT_render_review,
     NMGGAMEDEV_PT_main_panel,
 )
 

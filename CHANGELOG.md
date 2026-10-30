@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-30
+
+### Added
+
+- Asset contract tooling shared by three entry points: `nmggamedev.validate_contract` checks asset-contract sections 1-6 and reports each violated rule, `nmggamedev.reimport_check` compares an exported FBX with the pre-export report in a fresh headless Blender, and `nmggamedev.render_review` writes front, back, side, and three-quarter renders plus the labeled texture proof sheet. `python -m nmg_game_dev.contract validate|reimport|render` runs the same code headless, and `nmg_game_dev.quality.contract.gate` stops the finalize pipeline on a failing report. (#30)
+
 ## [0.8.0] - 2026-10-30
 
 ### Added
