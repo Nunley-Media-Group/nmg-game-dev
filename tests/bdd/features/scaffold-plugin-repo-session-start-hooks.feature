@@ -25,8 +25,8 @@ Feature: Scaffold plugin + repo + session-start hooks
 
   # --- Directory layout ---
 
-  Scenario: Directory layout matches steering/structure.md (AC2)
-    Given the layout declared in `steering/structure.md` § Project Layout
+  Scenario: Directory layout matches steering/snippets/project-structure.md (AC2)
+    Given the layout declared in `steering/snippets/project-structure.md` § Project Layout
     When `ls` probes every top-level directory listed there
     Then every declared directory exists
     And empty directories carry a `.gitkeep`
@@ -106,10 +106,10 @@ Feature: Scaffold plugin + repo + session-start hooks
 
   # --- Entry-point pointer ---
 
-  Scenario: AGENTS.md points at steering + SDLC entry (AC9)
-    Given `AGENTS.md` at the repo root
+  Scenario: CLAUDE.md points at steering + SDLC entry (AC9)
+    Given `CLAUDE.md` at the repo root
     When a new contributor opens the repo
-    Then `AGENTS.md` references `steering/product.md`, `steering/tech.md`, and `steering/structure.md`
+    Then `CLAUDE.md` references `steering/snippets/project-product.md`, `steering/snippets/project-tech.md`, and `steering/snippets/project-structure.md`
     And it mentions `$nmg-sdlc:draft-issue` as the SDLC entry point
     And it does not duplicate content from any steering document
 

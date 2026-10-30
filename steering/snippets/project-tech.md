@@ -107,6 +107,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 |------|------|-------|
 | `VERSION` | (entire file) | Plain semver, one line |
 | `.codex-plugin/plugin.json` | `version` | Codex plugin manifest |
+| `.claude-plugin/plugin.json` | `version` | Claude Code plugin manifest |
 | `plugins/nmg-game-dev-blender-addon/__init__.py` | `bl_info.version` | Blender add-on tuple (major, minor, patch) |
 | `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` | `VersionName` | UE plugin manifest |
 | `pyproject.toml` | `project.version` | Python tooling package |
@@ -396,6 +397,6 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 
 ## References
 
-- `AGENTS.md` for project overview (added when scaffolding lands).
+- `CLAUDE.md` for project overview (added when scaffolding lands).
 - `steering/product.md` for product direction.
 - `steering/structure.md` for code organization.

@@ -9,6 +9,8 @@ All code should follow these guidelines for consistency.
 
 ```
 nmg-game-dev/
+├── .claude-plugin/
+│   └── plugin.json                # Claude Code plugin manifest (mirrors .codex-plugin)
 ├── .codex-plugin/
 │   └── plugin.json                # Codex plugin manifest (what consumers install)
 ├── plugins/
@@ -97,7 +99,7 @@ nmg-game-dev/
 ├── pyproject.toml                 # Python package + dev dependencies
 ├── VERSION                        # Plain-text semver, managed by $nmg-sdlc:open-pr
 ├── CHANGELOG.md                   # Managed by $nmg-sdlc:open-pr
-└── AGENTS.md                      # Entry-point pointer document
+└── CLAUDE.md                      # Entry-point pointer document
 ```
 
 ---
@@ -368,6 +370,6 @@ public:
 
 ## References
 
-- `AGENTS.md` — project overview (added when scaffolding lands).
+- `CLAUDE.md` — project overview (added when scaffolding lands).
 - `steering/product.md` — product direction.
 - `steering/tech.md` — technical standards, verification gates, session-start contract.

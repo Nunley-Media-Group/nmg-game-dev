@@ -8,7 +8,7 @@ Each test function's name encodes the T015* sub-task and covering AC:
   no_repo_root_settings_json   — T015e / AC5b
   version_* / nmg_*_version    — T015f / AC7
   changelog_*                  — T015g / AC7
-  agents_md_*                  — T015h / AC9
+  claude_md_*                  — T015h / AC9
 """
 
 from __future__ import annotations
@@ -95,8 +95,6 @@ def test_mcp_json_meshy_has_env(mcp_data: dict[str, Any]) -> None:
     ids=[
         "legacy-user-plugin-path",
         "legacy-project-plugin-path",
-        "legacy-plugin-manifest-dir",
-        "legacy-pointer-doc",
         "legacy-host-name",
     ],
 )
@@ -126,6 +124,13 @@ def test_version_file(version_text: str) -> None:
 
 def test_plugin_json_version(plugin_data: dict[str, Any]) -> None:
     assert plugin_data["version"] == EXPECTED_VERSION
+
+
+def test_claude_plugin_json_matches_codex(
+    claude_plugin_data: dict[str, Any], plugin_data: dict[str, Any]
+) -> None:
+    for field in ("name", "version", "description", "author"):
+        assert claude_plugin_data[field] == plugin_data[field], field
 
 
 def test_pyproject_version(pyproject_data: dict[str, Any]) -> None:
@@ -182,20 +187,25 @@ def test_changelog_references_issue_1(changelog_text: str) -> None:
     assert "#1" in changelog_text
 
 
-def test_agents_md_exists(repo_root: pathlib.Path) -> None:
-    assert (repo_root / "AGENTS.md").is_file()
+def test_claude_md_exists(repo_root: pathlib.Path) -> None:
+    assert (repo_root / "CLAUDE.md").is_file()
 
 
 @pytest.mark.parametrize(
     "ref",
-    ["steering/product.md", "steering/tech.md", "steering/structure.md", "$nmg-sdlc:draft-issue"],
+    [
+        "steering/snippets/project-product.md",
+        "steering/snippets/project-tech.md",
+        "steering/snippets/project-structure.md",
+        "$nmg-sdlc:draft-issue",
+    ],
 )
-def test_agents_md_references(agents_md_text: str, ref: str) -> None:
-    assert ref in agents_md_text, f"AGENTS.md missing required reference: {ref!r}"
+def test_claude_md_references(claude_md_text: str, ref: str) -> None:
+    assert ref in claude_md_text, f"CLAUDE.md missing required reference: {ref!r}"
 
 
-def test_agents_md_is_pointer_only(agents_md_text: str) -> None:
-    lines = agents_md_text.splitlines()
+def test_claude_md_is_pointer_only(claude_md_text: str) -> None:
+    lines = claude_md_text.splitlines()
     assert len(lines) < 60, (
-        f"AGENTS.md has {len(lines)} lines — likely duplicating steering content"
+        f"CLAUDE.md has {len(lines)} lines — likely duplicating steering content"
     )
