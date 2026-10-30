@@ -1,0 +1,54 @@
+**Issue**: #32
+**Date**: 2026-10-29
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_rig_*.py (scenarios map 1:1 to tests)
+# Generated from: specs/32-support-humanoid-rigging-and-animation-import/requirements.md
+Feature: Humanoid rigging and animation import
+
+  @SCN001
+  Scenario: Humanoid rigging uses local Blender tooling
+    Given a T-pose "Hero" humanoid mesh and landmarks for it
+    And outbound network connections are blocked
+    When rig_humanoid runs with body type "humanoid"
+    Then it returns status "ok"
+    And SK_Hero has exactly the 26 UE5 Mannequin deform bones in the Mannequin hierarchy
+    And SM_Hero is parented to SK_Hero with every vertex weighted
+    And no network connection was attempted and Rigify was not enabled
+
+  @SCN002
+  Scenario: Rigging again replaces the rig
+    Given a rigged "Hero"
+    When rig_humanoid runs again
+    Then exactly one SK_Hero exists with the same bones
+
+  @SCN003
+  Scenario: Library clips are retargeted and exported with provenance
+    Given a rigged "Hero" and a library with an FBX "Idle" and a BVH "Walk" on a Mixamo skeleton
+    When import_animations runs and export_rigged writes to an output folder
+    Then SM_Hero.fbx re-imported in a fresh Blender has the 26 Mannequin bones and "Idle" and "Walk" actions with their frame ranges
+    And thigh_l follows LeftUpLeg within 1 degree at a sampled frame
+    And nmg-animations.json records each clip's frame range, fps, library, source file, SHA-256, and source skeleton
+
+  @SCN004
+  Scenario Outline: Unsupported requests fail honestly
+    Given <request>
+    When the matching rig_core function runs
+    Then it returns status "<status>" with code "<code>", a message, and a remediation
+    And no network connection was attempted
+
+    Examples:
+      | request                                   | status                   | code                         |
+      | a "quadruped" body type                   | follow-up spike required | rig.unsupported_body         |
+      | asymmetric humanoid landmarks             | fallback required        | rig.unclear_humanoid         |
+      | a humanoid with arms raised overhead      | fallback required        | rig.pose_not_neutral         |
+      | a text-driven motion prompt               | follow-up spike required | anim.text_motion_unsupported |
+      | a clip name missing from the library      | fallback required        | anim.clip_not_found          |
+
+  @SCN005
+  Scenario: Operators share the implementation
+    Given the add-on is enabled
+    When each rigging operator runs with the same inputs as a direct rig_core call
+    Then scene.nmg_game_dev.last_result equals the direct call's result
+    And the operator returns FINISHED for "ok" and CANCELLED otherwise
