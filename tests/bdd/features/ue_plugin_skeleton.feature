@@ -10,17 +10,17 @@ Feature: UE plugin skeleton — Runtime + Editor modules
 
   Background:
     Given the repo-root VERSION file reads "0.2.0"
-    And UE 5.7 is installed at the path resolved by UE_ROOT (default /Users/Shared/Epic Games/UE_5.7)
+    And UE 5.8 is installed at the path resolved by UE_ROOT (default /Users/Shared/Epic Games/UE_5.8)
     And fixtures/dogfood.uproject exists from issue #1
 
   # --- Manifest validity (AC1) ---
 
-  Scenario: Plugin manifest parses cleanly under UE 5.7
+  Scenario: Plugin manifest parses cleanly under UE 5.8
     Given the file plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin exists
     When UnrealBuildTool regenerates project files for fixtures/dogfood.uproject
     Then UBT exits 0 with no manifest-parse errors
     And the manifest declares VersionName "0.2.0"
-    And the manifest declares EngineVersion "5.7.0"
+    And the manifest declares EngineVersion "5.8.0"
     And the manifest declares two Modules entries: NmgGameDevRuntime and NmgGameDevEditor
     And NmgGameDevRuntime has Type "Runtime" and LoadingPhase "Default"
     And NmgGameDevEditor has Type "Editor" and LoadingPhase "Default"
@@ -88,7 +88,7 @@ Feature: UE plugin skeleton — Runtime + Editor modules
 
   Scenario: scripts/run-ue-tests.sh runs the Spec tests headlessly
     Given scripts/run-ue-tests.sh is on disk and executable
-    And UE_ROOT resolves to a UE 5.7 install
+    And UE_ROOT resolves to a UE 5.8 install
     When scripts/run-ue-tests.sh is invoked from the repo root
     Then the script runs UnrealEditor-Cmd headlessly with -nullrhi -unattended
     And the automation runner executes every test under the prefix "NmgGameDev."

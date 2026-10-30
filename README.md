@@ -20,15 +20,16 @@ marketplace. In a Claude Code session:
 /plugin install nmg-game-dev@nmg-plugins
 ```
 
-Enabling the plugin also brings its MCP servers (Blender MCP and the Unreal MCP bridge),
-declared in [`.mcp.json`](.mcp.json).
+Enabling the plugin also brings its MCP servers (Blender MCP and the Unreal MCP endpoint),
+declared in [`.mcp.json`](.mcp.json). Third-party toolchain pieces track their latest releases;
+see [`docs/mcp/`](docs/mcp/) for the setup and the smoke tests.
 
 ## Requirements
 
 - Claude Code
-- Blender with the Blender MCP add-on
-- Unreal Engine with the VibeUE plugin
-- `uv` (for the Blender MCP server) and Node.js (for the Unreal MCP bridge)
+- Blender 5.2 with the Blender MCP add-on (`scripts/install-blender-mcp-addon.sh`)
+- Unreal Engine 5.8 with Epic's Unreal MCP server and the VibeUE plugin (`scripts/install-vibeue.sh`)
+- `uv` (for the Blender MCP server, `uvx mcp-for-blender@latest`)
 
 Set `BLENDER_APP` or `BLENDER_BIN`, and `UE_ROOT`, when Blender or Unreal aren't at their
 default install paths.

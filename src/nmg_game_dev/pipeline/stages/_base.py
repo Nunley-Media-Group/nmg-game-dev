@@ -39,7 +39,7 @@ class BlenderMcp(Protocol):
 
 
 class UnrealMcp(Protocol):
-    """Minimum surface of the VibeUE Unreal MCP client that stages call."""
+    """Minimum surface of the Unreal MCP client (Epic's native server plus VibeUE)."""
 
     def import_asset(
         self,
@@ -51,7 +51,7 @@ class UnrealMcp(Protocol):
         ...
 
     def ping(self) -> bool:
-        """Return True when the UE MCP bridge is reachable."""
+        """Return True when the Unreal MCP endpoint is reachable."""
         ...
 
 

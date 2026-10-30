@@ -2,19 +2,16 @@
   "mcpServers": {
     "blender": {
       "command": "uvx",
-      "args": ["--with", "mcp<2", "blender-mcp@1.5.6"],
-      "description": "Blender MCP — ahujasid/blender-mcp, PyPI blender-mcp 1.5.6"
+      "args": ["mcp-for-blender@latest"],
+      "env": {
+        "BLENDER_MCP_DISABLE_TELEMETRY": "1"
+      },
+      "description": "Blender MCP — ahujasid/blender-mcp, published as mcp-for-blender; always the latest release"
     },
     "unreal": {
-      "command": "npx",
-      "args": [
-        "mcp-remote@0.1.38",
-        "http://127.0.0.1:8088/mcp",
-        "--transport",
-        "http-only",
-        "--allow-http"
-      ],
-      "description": "VibeUE UE MCP HTTP bridge — kevinpbuckley/VibeUE v0.1.0 in-editor plugin; mcp-remote 0.1.38 bridges Claude Code to the editor's HTTP endpoint on port 8088"
+      "type": "http",
+      "url": "http://127.0.0.1:${UE_MCP_PORT:-8000}/mcp",
+      "description": "Unreal MCP — Epic's native UE 5.8 Unreal MCP server with VibeUE's toolsets registered on it"
     }
   }
 }

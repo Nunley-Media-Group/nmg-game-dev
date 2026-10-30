@@ -3,12 +3,12 @@
 #
 # Usage (from repo root):  scripts/run-ue-tests.sh
 #
-# Env:  UE_ROOT  Override the UE 5.7 install path. Default: /Users/Shared/Epic Games/UE_5.7
+# Env:  UE_ROOT  Override the UE 5.8 install path. Default: /Users/Shared/Epic Games/UE_5.8
 #
 # Exit: 0 pass; 1 failure (failing test lines on stderr); 2 prerequisite missing.
 # Output: tests/ue-automation/results.xml (JUnit XML, consumed by gate-ue-automation).
 #
-# UE 5.7 writes its native report (index.json + index.html) into the -ReportExportPath
+# UE 5.8 writes its native report (index.json + index.html) into the -ReportExportPath
 # directory rather than a JUnit file. This script converts that JSON into JUnit XML so
 # gate-ue-automation has a stable artifact shape.
 set -euo pipefail
@@ -16,11 +16,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.7}"
+UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.8}"
 
 if [[ ! -d "${UE_ROOT}" ]]; then
-    echo "ERROR: Unreal Engine 5.7 not found at '${UE_ROOT}'." >&2
-    echo "Remediation: Install UE 5.7 or set UE_ROOT to the correct path." >&2
+    echo "ERROR: Unreal Engine 5.8 not found at '${UE_ROOT}'." >&2
+    echo "Remediation: Install UE 5.8 or set UE_ROOT to the correct path." >&2
     exit 2
 fi
 
@@ -41,7 +41,7 @@ fi
 
 if [[ ! -x "${UE_CMD}" ]]; then
     echo "ERROR: UnrealEditor-Cmd not found at '${UE_CMD}'." >&2
-    echo "Remediation: Verify your UE 5.7 install is complete, or set UE_ROOT correctly." >&2
+    echo "Remediation: Verify your UE 5.8 install is complete, or set UE_ROOT correctly." >&2
     exit 2
 fi
 
@@ -90,7 +90,7 @@ if [[ ! -f "${INDEX_JSON}" ]]; then
     exit 2
 fi
 
-# Convert UE's native JSON index into JUnit XML. UE 5.7 writes UTF-8-BOM.
+# Convert UE's native JSON index into JUnit XML. UE 5.8 writes UTF-8-BOM.
 python3 - "${INDEX_JSON}" "${REPORT_XML}" <<'PY'
 import json
 import sys

@@ -15,6 +15,7 @@ Each test function's name encodes the T015* sub-task and covering AC:
 from __future__ import annotations
 
 import pathlib
+import re
 import tomllib
 from typing import Any
 
@@ -22,12 +23,13 @@ import pytest
 from _scaffold_contract import (
     BANNED_DOGFOOD_ARTIFACTS,
     BANNED_SUBSTRINGS,
+    BLENDER_MCP_PACKAGE,
     CONSUMER_FACING,
     EXPECTED_VERSION,
-    FLOATING_VERSION_REFS,
     REPO_ROOT,
     REQUIRED_DIRS,
     REQUIRED_SERVERS,
+    UNREAL_MCP_URL,
 )
 
 
@@ -73,9 +75,30 @@ def test_mcp_json_all_servers_declared(mcp_data: dict[str, Any]) -> None:
         assert server in mcp_data["mcpServers"], f".mcp.json missing server: {server!r}"
 
 
-@pytest.mark.parametrize("banned", FLOATING_VERSION_REFS)
-def test_mcp_json_no_floating_versions(mcp_text: str, banned: str) -> None:
-    assert banned not in mcp_text, f".mcp.json contains floating version ref: {banned!r}"
+def test_mcp_json_unreal_is_native_http(mcp_data: dict[str, Any]) -> None:
+    unreal = mcp_data["mcpServers"]["unreal"]
+    assert unreal.get("type") == "http", "unreal entry must use the native HTTP transport"
+    assert unreal.get("url") == UNREAL_MCP_URL, f"unreal url is {unreal.get('url')!r}"
+
+
+@pytest.mark.parametrize("banned", ("mcp-remote", "8088", "bridge"))
+def test_mcp_json_has_no_bridge_wording(mcp_text: str, banned: str) -> None:
+    assert banned not in mcp_text.lower(), f".mcp.json still mentions {banned!r}"
+
+
+def test_mcp_json_blender_tracks_latest(mcp_data: dict[str, Any]) -> None:
+    blender = mcp_data["mcpServers"]["blender"]
+    assert blender["command"] == "uvx"
+    assert blender["args"] == [BLENDER_MCP_PACKAGE]
+    assert blender["env"]["BLENDER_MCP_DISABLE_TELEMETRY"] == "1"
+
+
+@pytest.mark.parametrize("server", ("blender", "unreal"))
+def test_mcp_json_carries_no_version_constraint(mcp_data: dict[str, Any], server: str) -> None:
+    entry = mcp_data["mcpServers"][server]
+    refs = [entry.get("command", ""), *entry.get("args", []), entry.get("url", "")]
+    for ref in refs:
+        assert not re.search(r"==|[<>]|@\d", ref), f"{server} pins a version in {ref!r}"
 
 
 def test_mcp_json_has_no_meshy(mcp_data: dict[str, Any], mcp_text: str) -> None:
