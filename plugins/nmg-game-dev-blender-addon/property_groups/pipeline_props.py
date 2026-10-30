@@ -19,3 +19,9 @@ class NmgGameDevPipelineProps(bpy.types.PropertyGroup):
         ),
         default="STANDARD",
     )
+
+    last_result: bpy.props.StringProperty(  # type: ignore[valid-type]
+        name="Last result",
+        description="JSON result of the most recent variant operator run",
+        default="",
+    )

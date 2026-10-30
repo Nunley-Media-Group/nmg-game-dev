@@ -19,7 +19,8 @@ bl_info = {
     "category": "Pipeline",
     "description": (
         "Blender-first content pipeline operators for NMG games. "
-        "Exposes stub operators invokable via the ahujasid/blender-mcp host."
+        "Desktop cleanup, Mobile LOD variants, and FBX export, invokable via the "
+        "ahujasid/blender-mcp host."
     ),
     "doc_url": "https://github.com/nunleymediagroup/nmg-game-dev",
     "support": "COMMUNITY",

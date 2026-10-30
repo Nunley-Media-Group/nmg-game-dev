@@ -71,6 +71,10 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
 - **Mobile**: within the mobile budget, by decimating the Desktop mesh or by rebuilding at
   lower detail. Textures re-baked or reduced to mobile resolution, materials merged to the
   mobile material limit. Silhouette must still read.
+- Mobile export is an LOD group: an Empty `SM_<Name>` with `fbx_type = "LodGroup"` whose
+  children are `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and `SM_<Name>_LOD2`. LOD1 and LOD2 are
+  50% and 25% of LOD0's triangles. Assets with child parts keep the root mesh `SM_<Name>`
+  and their parts, with LOD0 only.
 - Inside the .blend, Mobile objects, materials, and images may carry a suffix to avoid
   name clashes. Exported files never do: object, material, and texture names in the
   Mobile export are identical to the Desktop export.
