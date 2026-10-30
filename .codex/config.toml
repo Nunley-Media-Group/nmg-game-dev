@@ -1,0 +1,18 @@
+[mcp_servers.blender]
+args = ["--with", "mcp<2", "blender-mcp@1.5.6"]
+command = "uvx"
+
+[mcp_servers.meshy]
+args = ["meshy-mcp-server@1.2.3"]
+command = "npx"
+env_vars = ["MESHY_API_KEY"]
+
+[mcp_servers.unreal]
+args = [
+    "mcp-remote@0.1.38",
+    "http://127.0.0.1:8088/mcp",
+    "--transport",
+    "http-only",
+    "--allow-http",
+]
+command = "npx"
