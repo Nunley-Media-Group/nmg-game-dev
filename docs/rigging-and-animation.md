@@ -166,8 +166,11 @@ Every `fallback required` remediation ends with an optional note: Mixamo can be
 used by hand as a manual fallback. Nothing in nmg-game-dev contacts Mixamo or
 any other service.
 
-A rerun of `rig_humanoid` replaces the rig. If skinning fails on the rerun, the
-earlier rig has already been removed, so fix the mesh and rerun.
+A rerun of `rig_humanoid` replaces the rig only when the new skinning passes the
+weight check. The earlier rig, its Armature modifier, the parenting, and the
+vertex weights are set aside while the new attempt is built and checked. A
+failed attempt removes the new rig and restores the earlier one exactly. The
+scene is left as it was before the call.
 
 ## Operators
 

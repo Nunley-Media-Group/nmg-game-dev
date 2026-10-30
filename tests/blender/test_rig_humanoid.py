@@ -118,7 +118,93 @@ def test_ac1_rerun_replaces_rig(
     assert armatures == ["SK_Hero"]
     assert len(bpy.data.armatures) == 1
     assert {bone.name for bone in bpy.data.objects["SK_Hero"].data.bones} == set(EXPECTED_PARENTS)
-    assert bpy.data.objects["SM_Hero"].parent is bpy.data.objects["SK_Hero"]
+    mesh = bpy.data.objects["SM_Hero"]
+    assert mesh.parent is bpy.data.objects["SK_Hero"]
+    assert [mod.name for mod in mesh.modifiers if mod.type == "ARMATURE"] == ["Armature"]
+    assert not [group.name for group in mesh.vertex_groups if group.name.startswith("__nmg")]
+    assert not [obj.name for obj in bpy.data.objects if obj.name.startswith("__nmg")]
+    assert network_attempts == []
+
+
+def _rounded(matrix: Any) -> list[tuple[float, ...]]:
+    return [tuple(round(value, 6) for value in row) for row in matrix]
+
+
+def _rig_state() -> dict[str, Any]:
+    """Snapshot everything a failed rebuild must leave alone: objects, armature, mesh, weights."""
+    armature = bpy.data.objects.get("SK_Hero")
+    mesh = bpy.data.objects["SM_Hero"]
+    rig: dict[str, Any] | None = None
+    if armature is not None:
+        rig = {
+            "pointer": armature.as_pointer(),
+            "data": armature.data.name,
+            "bones": sorted(bone.name for bone in armature.data.bones),
+            "world": _rounded(armature.matrix_world),
+            "props": {key: armature[key] for key in armature.keys()},
+        }
+    return {
+        "objects": sorted((obj.name, obj.as_pointer(), obj.type) for obj in bpy.data.objects),
+        "armature_data": sorted(data.name for data in bpy.data.armatures),
+        "rig": rig,
+        "mesh": {
+            "parent": mesh.parent.as_pointer() if mesh.parent is not None else None,
+            "parent_type": mesh.parent_type,
+            "parent_bone": mesh.parent_bone,
+            "basis": _rounded(mesh.matrix_basis),
+            "parent_inverse": _rounded(mesh.matrix_parent_inverse),
+            "world": _rounded(mesh.matrix_world),
+            "modifiers": [
+                (mod.name, mod.type, mod.object.as_pointer() if mod.object is not None else None)
+                for mod in mesh.modifiers
+            ],
+            "groups": [group.name for group in mesh.vertex_groups],
+            "active_group": mesh.vertex_groups.active_index,
+            "weights": [
+                sorted(
+                    (mesh.vertex_groups[entry.group].name, round(entry.weight, 6))
+                    for entry in vertex.groups
+                )
+                for vertex in mesh.data.vertices
+            ],
+        },
+    }
+
+
+def test_ac1_failed_rerun_keeps_the_original_rig_and_weights(
+    rig_core: Any,
+    hero: dict[str, list[float]],
+    network_attempts: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert rig_core.rig_humanoid("Hero", "humanoid", hero)["status"] == "ok"
+    before = _rig_state()
+    rig_module = importlib.import_module(f"{rig_core.__name__}.rig")
+    monkeypatch.setattr(rig_module, "_unweighted_vertices", lambda armature, roots: 7)
+
+    result = rig_core.rig_humanoid("Hero", "humanoid", hero)
+
+    assert result["status"] == "fallback required", result
+    assert result["code"] == "rig.weights_failed"
+    assert _rig_state() == before
+    assert network_attempts == []
+
+
+def test_ac3_failed_first_rig_leaves_the_scene_unchanged(
+    rig_core: Any,
+    hero: dict[str, list[float]],
+    network_attempts: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = _rig_state()
+    rig_module = importlib.import_module(f"{rig_core.__name__}.rig")
+    monkeypatch.setattr(rig_module, "_unweighted_vertices", lambda armature, roots: 7)
+
+    result = rig_core.rig_humanoid("Hero", "humanoid", hero)
+
+    assert result["status"] == "fallback required", result
+    assert result["code"] == "rig.weights_failed"
+    assert _rig_state() == before
     assert network_attempts == []
 
 
