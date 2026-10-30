@@ -79,6 +79,9 @@ def mobile_image_copy(source: bpy.types.Image, max_px: int) -> bpy.types.Image:
     target = (min(width, max_px), min(height, max_px))
     if target != (width, height):
         dst.scale(*target)
+    # A generated image regenerates at its original size when the .blend is reloaded, and its
+    # pixels are lost. Packing keeps the scaled size and pixels through save and reload (#69).
+    dst.pack()
     return dst
 
 

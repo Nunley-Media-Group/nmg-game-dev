@@ -1,21 +1,17 @@
 """Quality gate implementations — budget checks and manifest validation.
 
 Pure-logic module: no MCP calls, no filesystem writes.  Every function is
-deterministic — given the same artifact and budget, it always returns the
-same report.  The ``quality`` pipeline stage composes these checks and raises
-``PipelineError`` when any check fails.
-
-See: requirements.md FR6, design.md § Quality module.
+deterministic — given the same sidecar and budget, it always returns the same
+report.  The finalize pipeline (#69) gates its reports with ``quality.contract``;
+these budget and manifest checks take a plain variant sidecar mapping.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Mapping
+from typing import Literal
 
 from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    from nmg_game_dev.pipeline.stages._base import StageArtifact
 
 
 class MobileBudget(BaseModel):
@@ -86,17 +82,16 @@ def _as_int(value: object, default: int = 0) -> int:
 
 
 def check_mobile_budget(
-    artifact: StageArtifact,
+    sidecar: Mapping[str, object] | None,
     budget: MobileBudget,
 ) -> BudgetReport:
-    """Check the mobile variant artifact against poly and texture budgets.
+    """Check the mobile variant sidecar against poly and texture budgets.
 
-    Reads ``poly_count_mobile`` and ``texture_bytes_mobile`` from
-    ``artifact.sidecar``.  Missing or non-integer fields are treated as
-    zero — a missing value typically surfaces as a manifest check failure
-    downstream.
+    Reads ``poly_count_mobile`` and ``texture_bytes_mobile`` from ``sidecar``.  Missing or
+    non-integer fields are treated as zero — a missing value typically surfaces as a manifest
+    check failure downstream.
     """
-    sidecar = artifact.sidecar or {}
+    sidecar = sidecar or {}
     poly_count = _as_int(sidecar.get("poly_count_mobile"))
     texture_bytes = _as_int(sidecar.get("texture_bytes_mobile"))
 
@@ -128,14 +123,13 @@ def check_mobile_budget(
     )
 
 
-def check_manifest(artifact: StageArtifact) -> ManifestReport:
-    """Validate that the artifact sidecar contains all required manifest fields.
+def check_manifest(sidecar: Mapping[str, object] | None) -> ManifestReport:
+    """Validate that the variant sidecar contains all required manifest fields.
 
-    Checks each field in ``_REQUIRED_MANIFEST_FIELDS`` for presence and correct
-    type. Type coercion is not attempted — the value must already be an
-    instance of the expected type.
+    Checks each field in ``_REQUIRED_MANIFEST_FIELDS`` for presence and correct type. Type
+    coercion is not attempted — the value must already be an instance of the expected type.
     """
-    sidecar = artifact.sidecar or {}
+    sidecar = sidecar or {}
     reasons: list[str] = []
 
     for field_name, expected_type in _REQUIRED_MANIFEST_FIELDS.items():

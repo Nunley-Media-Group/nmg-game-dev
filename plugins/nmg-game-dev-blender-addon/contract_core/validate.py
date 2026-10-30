@@ -41,10 +41,30 @@ _LOD_EXTRA = re.compile(r"_LOD[1-9]$")
 _LOD_ANY = re.compile(r"_LOD\d+$")
 
 
+# Rules that only a baked asset can satisfy (section 4 materials and their texture sets).
+# An authored asset is validated without them, and the export gate enforces them after the bake.
+_EXPORT_ONLY_RULES: tuple[str, ...] = (
+    "material.",
+    "naming.material",
+    "naming.texture",
+    "texture.",
+    "budget.texture_size",
+    "budget.materials",
+)
+
+
 def validate_asset(
-    collection: str, asset_class: str, budgets_path: str | None = None
+    collection: str,
+    asset_class: str,
+    budgets_path: str | None = None,
+    *,
+    authored: bool = False,
 ) -> dict[str, Any]:
-    """Validate <collection> (Desktop) and <collection>_Mobile when it exists."""
+    """Validate <collection> (Desktop) and <collection>_Mobile when it exists.
+
+    With ``authored=True`` (the finalize validate step, #69), material and texture rules are
+    skipped, because the bake step produces them. The export gate runs the full contract.
+    """
     budgets = _budgets(asset_class, budgets_path)
     bpy.context.view_layer.update()
     asset = bpy.data.collections.get(collection)
@@ -77,6 +97,8 @@ def validate_asset(
         findings += _variant_name_findings(
             objects_by_variant["desktop"], objects_by_variant["mobile"]
         )
+    if authored:
+        findings = [item for item in findings if not item["rule"].startswith(_EXPORT_ONLY_RULES)]
     return build_report("contract", collection, asset_class, findings, snapshot)
 
 
@@ -109,6 +131,7 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
         "rotation": _rounded(obj.rotation_euler),
         "scale": _rounded(obj.scale),
         "origin": _rounded(obj.matrix_world.translation),
+        "local_bounds": _local_bounds(obj) if is_mesh else None,
         "uv_maps": [layer.name for layer in obj.data.uv_layers] if is_mesh else [],
         "materials": sorted({material.name for material in _materials_of(obj)}),
         "images": sorted(
@@ -320,7 +343,7 @@ def _material_findings(collection: str, material: bpy.types.Material) -> list[di
                     material.name,
                     f"{material.name} uses the {node.bl_idname} node '{node.name}'; export "
                     "materials allow only Image Texture, Normal Map, Separate Color, Principled "
-                    "BSDF, and Material Output.",
+                    "BSDF, Material Output, and the UV Map node that feeds image vectors.",
                 )
             )
         if node.type == "TEX_IMAGE":
@@ -551,6 +574,18 @@ def _areas(mesh: bpy.types.Mesh) -> tuple[float, float]:
 
 def _close(values: Any, expected: tuple[float, ...], tolerance: float) -> bool:
     return all(abs(a - b) <= tolerance for a, b in zip(values, expected, strict=True))
+
+
+def _local_bounds(obj: bpy.types.Object) -> dict[str, list[float]]:
+    """The object-local bounding box in meters, which the UE static mesh's local bounds must match.
+
+    The finalize pivot check (#69, AC5) compares the imported part's bounds with this box.
+    """
+    corners = [Vector(corner) for corner in obj.bound_box]
+    return {
+        "min": _rounded([min(corner[axis] for corner in corners) for axis in range(3)]),
+        "max": _rounded([max(corner[axis] for corner in corners) for axis in range(3)]),
+    }
 
 
 def _rounded(values: Any) -> list[float]:

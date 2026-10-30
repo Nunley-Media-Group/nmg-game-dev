@@ -7,7 +7,7 @@ All feature development should align with these guidelines.
 
 ## Mission
 
-**nmg-game-dev is an opinionated, Blender-first content-generation framework for Unreal Engine games used by the Nunley Media Group game team to turn creative intent into production-ready UE assets through Claude Code-orchestrated, free-flow ad-hoc workflows that enforce quality without sacrificing iteration speed — and it is also the delivery vehicle used to ship full games to players.**
+**nmg-game-dev is an opinionated, Blender-first content pipeline for Unreal Engine games used by the Nunley Media Group game team to turn assets authored in Blender into production-ready UE assets through Claude Code-orchestrated, free-flow ad-hoc workflows that enforce quality without sacrificing iteration speed — and it is also the delivery vehicle used to ship full games to players.**
 
 The framework wears two hats:
 
@@ -20,7 +20,7 @@ It is consumed as:
 2. A **Blender add-on** — authoring-side tooling for cleanup, baking, and Desktop/Mobile variants.
 3. An **Unreal Engine plugin** — editor-side tooling for import, retarget, platform-variant handling, and runtime helpers that ship inside the consumer's game.
 
-The headline capability: **the developer describes an asset and Claude builds it freeform in Blender through the Blender MCP, iterating with the developer; local AI texture models supply realistic materials; and deterministic tooling makes the result shippable** — validated against the asset contract (`docs/asset-contract.md`), baked, split into Desktop and Mobile variants, exported, and imported into Unreal through VibeUE. There is no recipe library: any asset type can be attempted on day one. That capability is embedded in a framework that takes those assets all the way to a shipping game.
+The headline capability: **the developer and Claude author an asset freeform in Blender through the Blender MCP, iterating from renders; local AI texture models supply realistic materials; and deterministic tooling makes the finished asset shippable** — validated against the asset contract (`docs/asset-contract.md`), baked, split into Desktop and Mobile variants, exported, and imported into Unreal through VibeUE. There is no recipe library: any asset type can be attempted on day one. That capability is embedded in a framework that takes those assets all the way to a shipping game.
 
 ---
 
@@ -54,7 +54,7 @@ The headline capability: **the developer describes an asset and Claude builds it
 
 ## Core Value Proposition
 
-1. **Freeform authoring, contract-checked output** — Claude models whatever is asked for in Blender, with no per-asset-type recipes; the asset contract and its tooling make every result game-ready. No paid generation service in the loop.
+1. **Freeform authoring, contract-checked output** — Claude models any asset freeform in Blender, with no per-asset-type recipes; the asset contract and its tooling make every result game-ready. No paid generation service in the loop.
 2. **Creative freedom with quality gates** — adhoc iteration is the default path; quality (polycount, texture budgets, manifest correctness, player-facing perf) is enforced automatically, not by human review.
 3. **Drop-in plugin shape** — a consumer project installs `nmg-game-dev` from the `nmg-plugins` marketplace, installs the Blender add-on and UE plugin, and immediately has the full skill suite available. Onboarding is a first-class deliverable, not an afterthought.
 4. **Claude Code-native orchestration** — every pipeline stage and every ship step is addressable by a skill or MCP tool. The developer's interface is chat + natural language, not a bespoke CLI.
@@ -119,16 +119,16 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 ### Journey 1: Internal dev authors an asset
 
 ```
-1. Developer asks Claude, in a session in the consumer project, for an asset ("a weathered tachi-style katana")
-2. Claude models it in Blender through the Blender MCP, generating textures with the local models as needed; the developer directs changes from renders
-3. Claude finalizes it: validate against the asset contract → bake → Desktop/Mobile variants → export → re-import check → import through the Unreal MCP
-4. Developer sees both variants under Content/Weapons/Katana/{Desktop,Mobile}/; any failed check stops the run with a remediation
+1. Developer and Claude author an asset freeform in Blender, in a session in the consumer project, through the Blender MCP; local texture models supply materials when the developer asks for them
+2. The developer directs changes from renders until the asset is finished
+3. Claude finalizes the collection: validate against the asset contract → bake → Desktop/Mobile variants → export → re-import check → load back into the session → import through the Unreal MCP
+4. Developer sees both variants under Content/Props/Crate/{Desktop,Mobile}/; any failed check stops the run with a remediation
 ```
 
 ### Journey 2: Internal dev composes a level
 
 ```
-1. Developer asks for several assets (a race car, a track, grandstands); each is authored and finalized as its own deliverable
+1. Developer authors several assets (a race car, a track, grandstands); each is finalized as its own deliverable
 2. Claude places and arranges them in an Unreal level through the Unreal MCP (VibeUE)
 ```
 
@@ -137,7 +137,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 ```
 1. Install the plugin from the nmg-plugins marketplace; run `/onboard-consumer` in the consumer project
 2. Onboarding installs the Blender add-on, UE plugin, VibeUE, session-start hooks, and the asset contract; offers the optional local texture models; asks for no API keys
-3. The first requested asset reaches Unreal as Desktop + Mobile variants
+3. The first finalized asset reaches Unreal as Desktop + Mobile variants
 4. Consumer's first commit includes only their new content — no framework bootstrap noise
 ```
 
@@ -166,7 +166,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 | Data | Usage | Shared |
 |------|-------|--------|
-| Developer prompts (asset descriptions) | Used by Claude in the session and by local texture models | Only with Anthropic as part of the Claude Code session; texture models run locally |
+| Developer conversation (asset notes and direction) | Used by Claude in the session and by local texture models | Only with Anthropic as part of the Claude Code session; texture models run locally |
 | Generated assets | Written locally to the consumer project | Not shared by the framework |
 | API keys + signing credentials | Read from env; never logged; never committed; never shipped inside a game binary | Never |
 | Telemetry / player data (if a shipped game collects any) | Out of scope for the framework; consumer projects own their own privacy policy | N/A at framework level |

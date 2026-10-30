@@ -1,138 +1,115 @@
-"""pytest-bdd bindings for texture_bake.feature: the texture stage at AC5 and AC6 (#67)."""
+"""pytest-bdd bindings for texture_bake.feature: the finalize bake step at #67 AC5 and AC6 (#69)."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from pytest_bdd import given, parsers, scenario, then, when
 
-from nmg_game_dev.pipeline.errors import PipelineError
-from nmg_game_dev.pipeline.prompt import Prompt, Tier
-from nmg_game_dev.pipeline.stages._base import McpClients, StageArtifact, StageContext
-from nmg_game_dev.pipeline.stages.texture import texture
+from nmg_game_dev.pipeline import FinalizeRequest, PipelineError, StepResult, run_step
+from tests.finalize_fakes import FakeStepRunner
 
-
-class _BakeBlender:
-    def __init__(self, result: dict[str, object]) -> None:
-        self.result = result
-
-    def run_script(self, script: str, **_kwargs: object) -> dict[str, object]:
-        self.script = script
-        return self.result
-
-    def ping(self) -> bool:
-        return True
+_TRANSPARENCY_REMEDIATION = "Set Alpha to 1 and Transmission Weight to 0, then rerun the bake."
 
 
 @scenario(
     "texture_bake.feature",
-    "The texture stage sidecar carries the texture paths, byte totals, proof, and summary",
+    "The bake step outputs carry the texture paths, byte totals, proof, and summary",
 )
-def test_sidecar_carries_bake_fields() -> None:
-    """AC5: the stage reports the same texture paths, byte totals, proof, and summary."""
+def test_bake_outputs_carry_bake_fields() -> None:
+    """AC5: the bake step reports the same texture paths, byte totals, proof, and summary."""
 
 
 @scenario(
     "texture_bake.feature",
-    "A material the bake cannot represent raises PipelineError for the texture stage",
+    "A material the bake cannot represent raises PipelineError for the bake step",
 )
 def test_unrepresentable_material_raises() -> None:
-    """AC6: a bake error becomes a PipelineError with stage texture and a remediation."""
+    """AC6: a bake error becomes a PipelineError with stage bake and a remediation."""
 
 
 @given(
     parsers.parse(
-        'a fixture prompt with category "{category}", name "{name}", '
-        'tier "{tier}", description "{description}"'
+        'an authored collection "{collection}" of class "{asset_class}" in category "{category}"'
     ),
-    target_fixture="prompt",
+    target_fixture="request_obj",
 )
-def _prompt(category: str, name: str, tier: str, description: str) -> Prompt:
-    return Prompt(category=category, name=name, tier=cast(Tier, tier), description=description)
+def _request(collection: str, asset_class: str, category: str, tmp_path: Path) -> FinalizeRequest:
+    blend = tmp_path / f"{collection.lower()}.blend"
+    blend.write_bytes(b"authored")
+    return FinalizeRequest(
+        collection=collection,
+        category=category,
+        asset_class=asset_class,  # type: ignore[arg-type]
+        export_root=tmp_path / "export",
+        blend=blend,
+    )
 
 
 @given(
-    parsers.parse('the Blender MCP fake returns a successful bake for "{name}"'),
-    target_fixture="blender",
+    parsers.parse('the Blender runner returns a successful bake for "{collection}"'),
+    target_fixture="runner",
 )
-def _successful_bake(name: str, tmp_path: Path) -> _BakeBlender:
-    out = tmp_path / "work"
-    return _BakeBlender(
-        {
-            "kind": "bake",
-            "asset": name,
-            "class": "standard_prop",
-            "mode": "unique",
-            "merged": False,
-            "cache_hit": False,
-            "manifest_path": str(out / "bake.json"),
-            "desktop_dir": str(out / "Desktop"),
-            "mobile_dir": str(out / "Mobile"),
-            "desktop_textures": [str(out / "Desktop" / f"T_{name}_Body_BC.png")],
-            "mobile_textures": [str(out / "Mobile" / f"T_{name}_Body_BC.png")],
-            "texture_bytes_desktop": 4096,
-            "texture_bytes_mobile": 1024,
-            "materials": [{"name": f"M_{name}_Body", "source": ["Wood"]}],
-            "proof": {"pre_bake": "p", "baked": "b", "mean_abs_diff": 0.012, "outlier_ratio": 0.0},
-            "summary": f"Baked 1 material for {name} (standard_prop): Desktop 2048 px",
-        }
-    )
+def _successful_bake(request_obj: FinalizeRequest) -> FakeStepRunner:
+    return FakeStepRunner(request_obj)
 
 
 @given(
     parsers.parse(
-        "the Blender MCP fake reports a texture.bake_failed error for a material with alpha 0.5"
+        "the Blender runner reports a texture.bake_failed error for a material with alpha 0.5"
     ),
-    target_fixture="blender",
+    target_fixture="runner",
 )
-def _failed_bake() -> _BakeBlender:
-    return _BakeBlender(
-        {
-            "error": {
-                "code": "texture.bake_failed",
-                "message": "Material 'Crate_Glass' has Alpha below 1 on 'Principled BSDF'.",
-                "remediation": "Set Alpha to 1 and Transmission Weight to 0, then rerun the bake.",
-                "target": "Crate_Glass",
-                "reason": "transparency",
-            }
-        }
+def _failed_bake(request_obj: FinalizeRequest) -> FakeStepRunner:
+    return FakeStepRunner(
+        request_obj,
+        failures={
+            "bake": (
+                "texture.bake_failed",
+                "Material 'Crate_Glass' has Alpha below 1 or linked on 'Principled BSDF'.",
+                _TRANSPARENCY_REMEDIATION,
+            )
+        },
     )
 
 
-@when("the texture stage runs", target_fixture="stage_state")
-def _run_texture(prompt: Prompt, blender: _BakeBlender, tmp_path: Path) -> dict[str, Any]:
-    clients = McpClients(blender=cast(Any, blender), unreal=cast(Any, None))
-    ctx = StageContext(
-        prompt=prompt,
-        upstream_artifact=None,
-        cache_dir=tmp_path / "cache",
-        mcp_clients=clients,
-    )
+@when("the bake step runs", target_fixture="stage_state")
+def _run_bake(
+    request_obj: FinalizeRequest, runner: FakeStepRunner, tmp_path: Path
+) -> dict[str, Any]:
     state: dict[str, Any] = {}
     try:
-        state["artifact"] = texture(ctx)
+        state["result"] = run_step(
+            "bake",
+            request_obj,
+            runner=runner,
+            cache_dir=tmp_path / "cache",
+            job_dir=tmp_path / "job",
+        )
     except PipelineError as error:
         state["error"] = error
     return state
 
 
-@then("the texture sidecar carries the Desktop and Mobile texture paths")
+@then("the bake outputs carry the Desktop and Mobile texture paths")
 def _paths(stage_state: dict[str, Any]) -> None:
-    artifact = stage_state["artifact"]
-    assert isinstance(artifact, StageArtifact)
-    sidecar = artifact.sidecar or {}
-    assert sidecar["desktop_textures"]
-    assert sidecar["mobile_textures"]
+    result = stage_state["result"]
+    assert isinstance(result, StepResult)
+    bake = result.outputs["bake"]
+    assert bake["desktop_textures"]
+    assert bake["mobile_textures"]
 
 
-@then("the texture sidecar carries the texture byte totals, proof metrics, and summary")
+@then("the bake outputs carry the texture byte totals, proof metrics, and summary")
 def _totals(stage_state: dict[str, Any]) -> None:
-    sidecar = stage_state["artifact"].sidecar or {}
-    assert sidecar["texture_bytes_desktop"] == 4096
-    assert sidecar["texture_bytes_mobile"] == 1024
-    assert sidecar["proof"]["mean_abs_diff"] == 0.012
-    assert str(sidecar["summary"]).startswith("Baked 1 material")
+    result = stage_state["result"]
+    assert isinstance(result, StepResult)
+    bake = result.outputs["bake"]
+    assert bake["texture_bytes_desktop"] == 4096
+    assert bake["texture_bytes_mobile"] == 1024
+    assert bake["proof"]["mean_abs_diff"] == 0.012
+    assert str(bake["summary"]).startswith("Baked 1 material")
 
 
 @then(parsers.parse('a PipelineError is raised with code "{code}" and stage "{stage}"'))

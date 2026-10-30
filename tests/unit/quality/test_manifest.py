@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from nmg_game_dev.pipeline.stages._base import StageArtifact
 from nmg_game_dev.quality import ManifestReport, check_manifest
 
 
@@ -19,8 +16,8 @@ def _full_sidecar() -> dict[str, object]:
     }
 
 
-def _artifact(sidecar: dict[str, object] | None) -> StageArtifact:
-    return StageArtifact(stage="variants", blob_path=Path("/fake/mesh.fbx"), sidecar=sidecar)
+def _artifact(sidecar: dict[str, object] | None) -> dict[str, object] | None:
+    return sidecar
 
 
 class TestCheckManifest:

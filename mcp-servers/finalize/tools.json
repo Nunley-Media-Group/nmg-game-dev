@@ -1,0 +1,53 @@
+{
+  "server": "finalize",
+  "tools": [
+    {
+      "name": "finalize_asset",
+      "description": "Finalize an authored collection through every step and import it into Unreal. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]},
+          "export_root": {"type": "string"},
+          "blend": {"type": ["string", "null"]},
+          "budgets_path": {"type": ["string", "null"]},
+          "force": {"type": "boolean", "default": false},
+          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
+        },
+        "required": ["collection", "category", "asset_class", "export_root"]
+      }
+    },
+    {
+      "name": "run_finalize_step",
+      "description": "Run one finalize step (validate, bake, variants, export, reimport, or import_ue) through the same implementation finalize_asset uses. Returns {job_id, status} at once, or the finished result within wait_seconds (0-150).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "step": {"type": "string", "enum": ["validate", "bake", "variants", "export", "reimport", "import_ue"]},
+          "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]},
+          "export_root": {"type": "string"},
+          "blend": {"type": ["string", "null"]},
+          "budgets_path": {"type": ["string", "null"]},
+          "force": {"type": "boolean", "default": false},
+          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
+        },
+        "required": ["step", "collection", "category", "asset_class", "export_root"]
+      }
+    },
+    {
+      "name": "get_finalize_job",
+      "description": "Return a finalize job's state, step, progress, message, and result or error. An unknown id returns finalize.job_not_found.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": {"type": "string"}
+        },
+        "required": ["job_id"]
+      }
+    }
+  ]
+}

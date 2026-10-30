@@ -6,6 +6,26 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING CHANGE:** The pipeline finalizes a collection the agent authored in Blender instead of generating one from a prompt. `pipeline.run(prompt, source)` is replaced by `pipeline.finalize(request)` and `pipeline.run_step(step, request)` over a `FinalizeRequest`. A run is `validate → bake → variants → export → reimport → import_ue`, and the Blender steps run headless against a checkpoint of the open session and load back into it. (#69)
+
+### Added
+
+- `finalize` MCP server (`finalize_asset`, `run_finalize_step`, `get_finalize_job`), the `python -m nmg_game_dev.finalize` CLI, and the `finalize-asset` skill share one implementation. Each step has a content-addressed cache with an alias index, and `M_NmgORM` is the plugin-owned master material for imported textures. Reference: `docs/mcp/finalize.md`. (#69)
+
+### Removed
+
+- `pipeline.prompt` (`Prompt`), the `generate`, `texture`, `cleanup`, `variants`, `quality`, and `import_ue` stage modules, the `source` argument with its Meshy and unsupported-source routing, and `PipelineResult`. (#69)
+
+### Migration Notes
+
+- Replace `pipeline.run(prompt, source="blender")` with `pipeline.finalize(request)`. Author the asset in Blender first, then build `FinalizeRequest(collection="Crate", category="Props", asset_class="standard_prop", export_root=...)` from the collection's name. Drop the `Prompt` and `source` arguments.
+- `PipelineResult.desktop_path` and `mobile_path` become `FinalizeResult.desktop_content_path` and `mobile_content_path`.
+- The test seams change: `mcp_clients=` becomes `clients=`, and `stage_overrides=` is replaced by `runner=`.
+- Single-stage calls become `pipeline.run_step(step, request)`, where `step` is one of `validate`, `bake`, `variants`, `export`, `reimport`, or `import_ue`.
+- Cache entries written by the old stage runner are not reused, because the keys now cover the step and the asset content. Delete `by-key/` under the cache root to reclaim the space.
+
 ## [0.10.0] - 2026-10-30
 
 ### Added

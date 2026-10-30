@@ -268,7 +268,9 @@ Whatever the agent authors, the bake step (#67) turns it into the contract's tex
 
 ### Long-running Blender work
 
-MCP calls time out (180 s for the Blender MCP). Bakes, variant generation, and full finalize runs execute in a background headless Blender against a checkpoint of the session's scene, report progress the agent can poll, and load results back into the open session (#69).
+MCP calls time out (180 s for the Blender MCP), so bakes, variant generation, and full finalize runs never run inside one. The job runner starts detached as `python -m nmg_game_dev.finalize run-job <job_dir>`. It checkpoints the open session's scene with `save_as_mainfile(copy=True)`, runs each Blender step in its own `blender --background` process against that checkpoint, and writes progress the agent can poll. The `finalize` MCP tools (`finalize_asset`, `run_finalize_step`, and `get_finalize_job`) and the CLI (`python -m nmg_game_dev.finalize`) share that one implementation. Each MCP tool returns a job id at once, or the finished result when the job completes within `wait_seconds` (at most 150).
+
+Load-back rule: after the Blender steps pass, the baked `<Name>` and `<Name>_Mobile` collections replace the session's copies only when the session's `<Name>` is unchanged since the checkpoint. Otherwise nothing is replaced, the run reports `finalize.session_changed` with the result `.blend` path, and `loaded_back` is false. A crashed background step fails with `finalize.job_crashed` and leaves the session unchanged.
 
 ---
 
@@ -396,7 +398,7 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 
 | Variable | Purpose |
 |----------|---------|
-| `NMG_GAME_DEV_CACHE_DIR` | Override the generation cache location |
+| `NMG_GAME_DEV_CACHE_DIR` | Override the finalize cache root (`by-key/`, `runs/`, and `jobs/` live under it) |
 | `NMG_GAME_DEV_TEXTURE_DIR` | Override the generated-texture root (default `SourceArt/Textures/Generated`) |
 | `TEXTURE_GEN_BLENDER_RESERVE_GB` | RAM kept free for Blender when checking whether a texture model fits (default 8) |
 | `NMG_GAME_DEV_LOG_LEVEL` | `debug` / `info` / `warn` / `error` |

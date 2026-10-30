@@ -2,7 +2,9 @@
 
 A rewired material is a Principled BSDF fed only by Image Texture nodes (BC sRGB into Base Color;
 ORM Non-Color into Separate Color, G to Roughness and B to Metallic; N Non-Color through a Normal
-Map on UVMap). Image vectors are left unlinked, so they sample the only UV map.
+Map on UVMap). Every Image Texture's Vector input is linked to one UV Map node on UVMap, which the
+contract (section 4, material.uv_coordinates) requires. Leaving it unlinked makes Blender sample
+Generated coordinates, so the export gate would reject the bake output.
 """
 
 from __future__ import annotations
@@ -56,7 +58,11 @@ def build_material(name: str, asset: str, part: str, paths: dict[str, Path]) -> 
     split = nodes.new("ShaderNodeSeparateColor")
     normal_map = nodes.new("ShaderNodeNormalMap")
     normal_map.uv_map = "UVMap"
+    uv = nodes.new("ShaderNodeUVMap")
+    uv.uv_map = "UVMap"
 
+    for image in (base, orm, normal):
+        links.new(uv.outputs["UV"], image.inputs["Vector"])
     links.new(base.outputs["Color"], bsdf.inputs["Base Color"])
     links.new(orm.outputs["Color"], split.inputs["Color"])
     links.new(split.outputs["Green"], bsdf.inputs["Roughness"])
