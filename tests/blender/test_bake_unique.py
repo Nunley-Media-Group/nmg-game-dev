@@ -28,7 +28,17 @@ from .bake_fixtures import (  # noqa: E402
     triplanar_material,
 )
 
-_ALLOWED_NODES = {"BSDF_PRINCIPLED", "TEX_IMAGE", "NORMAL_MAP", "SEPARATE_COLOR", "OUTPUT_MATERIAL"}
+# Matches contract_core.validate.ALLOWED_NODE_TYPES: the UV Map node feeds each image vector,
+# and reroutes are plumbing (#69 aligned this set with the contract).
+_ALLOWED_NODES = {
+    "BSDF_PRINCIPLED",
+    "TEX_IMAGE",
+    "NORMAL_MAP",
+    "SEPARATE_COLOR",
+    "OUTPUT_MATERIAL",
+    "UVMAP",
+    "REROUTE",
+}
 _KINDS = ("procedural", "triplanar", "image-texture")
 
 

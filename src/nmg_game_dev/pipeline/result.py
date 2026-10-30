@@ -1,29 +1,51 @@
-"""PipelineResult — the value returned by ``pipeline.run()``.
+"""Result models returned by ``pipeline.finalize`` and ``pipeline.run_step``.
 
-Carries the final Desktop + Mobile variant paths and per-stage execution
-bookkeeping so callers can distinguish cache hits from real MCP invocations.
+``StepResult`` records one step's outcome and whether it was served from the cache.
+``FinalizeResult`` lists every step and the UE content paths the run produced.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class PipelineResult(BaseModel):
-    """Outcome of a successful ``pipeline.run()`` call.
+class StepResult(BaseModel):
+    """Outcome of one finalize step.
 
     Attributes:
-        desktop_path: Absolute path to the imported desktop variant in the
-            consumer project's ``Content/<Category>/<Name>/Desktop/`` folder.
-        mobile_path: Absolute path to the imported mobile variant in the
-            consumer project's ``Content/<Category>/<Name>/Mobile/`` folder.
-        stages_executed: Names of stages that actually ran (i.e. cache miss).
-        cache_hits: Names of stages whose artifact was served from cache.
+        step: Step name: ``validate``, ``bake``, ``variants``, ``export``, ``reimport``, or
+            ``import_ue``.
+        cache_hit: ``True`` when the step was served from the content-addressed cache.
+        outputs: Step-specific outputs.  Paths are strings.
+        summary: One human-readable line.
     """
 
-    desktop_path: Path
-    mobile_path: Path
-    stages_executed: list[str]
-    cache_hits: list[str]
+    model_config = ConfigDict(frozen=True)
+
+    step: str
+    cache_hit: bool
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+
+
+class FinalizeResult(BaseModel):
+    """Outcome of a finalize run.
+
+    Attributes:
+        steps: One ``StepResult`` per requested step, in execution order.
+        desktop_content_path: ``/Game/<Category>/<Name>/Desktop`` once ``import_ue`` ran or was
+            served from cache, otherwise ``None``.
+        mobile_content_path: ``/Game/<Category>/<Name>/Mobile`` under the same condition.
+        loaded_back: ``True`` when the baked collections replaced the session's copies.
+        result_blend: The last mutating step's ``.blend``, used for load-back.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    steps: list[StepResult]
+    desktop_content_path: str | None = None
+    mobile_content_path: str | None = None
+    loaded_back: bool = False
+    result_blend: str | None = None

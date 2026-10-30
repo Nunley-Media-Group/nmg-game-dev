@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import bmesh
 import bpy
 
 from .errors import VariantError
@@ -42,11 +43,41 @@ def decimated_copy(source: bpy.types.Mesh, ratio: float) -> bpy.types.Mesh:
         modifier.decimate_type = "COLLAPSE"
         modifier.ratio = ratio
         modifier.use_collapse_triangulate = True
-        return evaluated_mesh(scratch)
+        result = evaluated_mesh(scratch)
+        _drop_duplicate_faces(result)
+        return result
     finally:
         scene_collection.objects.unlink(scratch)
         bpy.data.objects.remove(scratch)
         bpy.data.meshes.remove(scratch_mesh)
+
+
+def _drop_duplicate_faces(mesh: bpy.types.Mesh) -> None:
+    """Delete faces that repeat another face's vertex set, in place.
+
+    Collapse decimation can leave two coincident faces with opposite winding (a zero-volume sliver,
+    seen on a 12-triangle cube's LOD2). An FBX export and re-import keeps only one of them, so the
+    re-import count would differ from the budget count. Removing the duplicate here keeps the two
+    counts equal (#69: finalize re-imports every variant).
+    """
+    seen: set[frozenset[int]] = set()
+    duplicates: list[int] = []
+    for polygon in mesh.polygons:
+        key = frozenset(polygon.vertices)
+        if key in seen:
+            duplicates.append(polygon.index)
+        seen.add(key)
+    if not duplicates:
+        return
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        bmesh.ops.delete(bm, geom=[bm.faces[index] for index in duplicates], context="FACES_ONLY")
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    mesh.update()
 
 
 def fit_meshes(sources: Sequence[bpy.types.Mesh], target: int, label: str) -> list[bpy.types.Mesh]:

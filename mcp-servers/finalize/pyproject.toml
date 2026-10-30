@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "finalize-mcp"
+version = "0.1.0"
+description = "finalize MCP server: finalize an authored Blender asset into Desktop and Mobile Unreal content (#69)"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Nunley Media Group" }]
+dependencies = ["mcp>=1.2,<2", "nmg-game-dev"]
+
+[project.scripts]
+finalize-mcp = "finalize_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/finalize_mcp"]
+
+[tool.uv.sources]
+# The finalize pipeline ships in the repository root package (src/nmg_game_dev).
+nmg-game-dev = { path = "../..", editable = true }

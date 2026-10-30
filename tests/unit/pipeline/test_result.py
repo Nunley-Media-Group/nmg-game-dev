@@ -1,45 +1,37 @@
-"""Unit tests for the PipelineResult model (T016)."""
+"""Unit tests for the finalize result models (AC1, #69)."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import pytest
+from pydantic import ValidationError
 
-from nmg_game_dev.pipeline.result import PipelineResult
+from nmg_game_dev.pipeline import FinalizeResult, StepResult
 
 
-class TestPipelineResult:
-    def test_constructs_with_required_fields(self) -> None:
-        r = PipelineResult(
-            desktop_path=Path("/content/Props/TestCrate/Desktop"),
-            mobile_path=Path("/content/Props/TestCrate/Mobile"),
-            stages_executed=["generate", "texture"],
-            cache_hits=["cleanup"],
-        )
-        assert r.desktop_path == Path("/content/Props/TestCrate/Desktop")
-        assert r.mobile_path == Path("/content/Props/TestCrate/Mobile")
-        assert r.stages_executed == ["generate", "texture"]
-        assert r.cache_hits == ["cleanup"]
+def test_step_result_is_frozen() -> None:
+    result = StepResult(step="bake", cache_hit=False, outputs={"blend": "/x"}, summary="ok")
+    with pytest.raises(ValidationError):
+        result.cache_hit = True
 
-    def test_round_trip_json(self) -> None:
-        r = PipelineResult(
-            desktop_path=Path("/content/Props/TestCrate/Desktop"),
-            mobile_path=Path("/content/Props/TestCrate/Mobile"),
-            stages_executed=["generate"],
-            cache_hits=[],
-        )
-        json_str = r.model_dump_json()
-        r2 = PipelineResult.model_validate_json(json_str)
-        assert r2.desktop_path == r.desktop_path
-        assert r2.mobile_path == r.mobile_path
-        assert r2.stages_executed == r.stages_executed
-        assert r2.cache_hits == r.cache_hits
 
-    def test_empty_lists(self) -> None:
-        r = PipelineResult(
-            desktop_path=Path("/d"),
-            mobile_path=Path("/m"),
-            stages_executed=[],
-            cache_hits=[],
-        )
-        assert r.stages_executed == []
-        assert r.cache_hits == []
+def test_finalize_result_lists_steps_and_content_paths() -> None:
+    step = StepResult(step="import_ue", cache_hit=True)
+    result = FinalizeResult(
+        steps=[step],
+        desktop_content_path="/Game/Props/Crate/Desktop",
+        mobile_content_path="/Game/Props/Crate/Mobile",
+    )
+    assert result.steps == [step]
+    assert result.desktop_content_path == "/Game/Props/Crate/Desktop"
+    assert result.loaded_back is False
+    assert result.result_blend is None
+
+
+def test_finalize_result_round_trips_through_json() -> None:
+    result = FinalizeResult(
+        steps=[StepResult(step="validate", cache_hit=False, outputs={"report": "/r.json"})],
+        loaded_back=True,
+        result_blend="/job/variants.blend",
+    )
+    restored = FinalizeResult.model_validate_json(result.model_dump_json())
+    assert restored == result

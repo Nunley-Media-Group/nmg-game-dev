@@ -2,27 +2,20 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from nmg_game_dev.pipeline.stages._base import StageArtifact
 from nmg_game_dev.quality import MobileBudget, check_mobile_budget
 
 _BUDGET = MobileBudget(poly_budget=10_000, texture_byte_budget=2 * 1024 * 1024)
 
 
-def _artifact(poly_mobile: int, tex_mobile: int) -> StageArtifact:
-    return StageArtifact(
-        stage="variants",
-        blob_path=Path("/fake/mesh.fbx"),
-        sidecar={
-            "poly_count_mobile": poly_mobile,
-            "texture_bytes_mobile": tex_mobile,
-            "poly_count_desktop": 20_000,
-            "texture_bytes_desktop": 5_000_000,
-            "desktop_path": "/fake/Desktop/mesh.fbx",
-            "mobile_path": "/fake/Mobile/mesh.fbx",
-        },
-    )
+def _artifact(poly_mobile: int, tex_mobile: int) -> dict[str, object]:
+    return {
+        "poly_count_mobile": poly_mobile,
+        "texture_bytes_mobile": tex_mobile,
+        "poly_count_desktop": 20_000,
+        "texture_bytes_desktop": 5_000_000,
+        "desktop_path": "/fake/Desktop/mesh.fbx",
+        "mobile_path": "/fake/Mobile/mesh.fbx",
+    }
 
 
 class TestCheckMobileBudget:
@@ -54,18 +47,12 @@ class TestCheckMobileBudget:
         assert report.passed is True
 
     def test_missing_poly_field_defaults_zero(self) -> None:
-        artifact = StageArtifact(
-            stage="variants",
-            blob_path=Path("/fake/mesh.fbx"),
-            sidecar={"texture_bytes_mobile": 100},
-        )
-        report = check_mobile_budget(artifact, _BUDGET)
+        report = check_mobile_budget({"texture_bytes_mobile": 100}, _BUDGET)
         assert report.poly_count == 0
         assert report.passed is True
 
     def test_none_sidecar_defaults_zero(self) -> None:
-        artifact = StageArtifact(stage="variants", blob_path=Path("/fake/mesh.fbx"), sidecar=None)
-        report = check_mobile_budget(artifact, _BUDGET)
+        report = check_mobile_budget(None, _BUDGET)
         assert report.poly_count == 0
         assert report.texture_bytes == 0
 

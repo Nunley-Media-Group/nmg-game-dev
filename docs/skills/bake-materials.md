@@ -13,7 +13,7 @@ All three call one implementation, `bake_core.bake_asset`:
 |-------------|-------------|
 | Panel operator `nmggamedev.bake_materials` | You are working in the Blender UI and want a dialog. |
 | `bake_core.bake_asset(...)` from `execute_blender_code` | The agent is authoring and reports the result itself. |
-| Pipeline `texture` stage (`nmg_game_dev.pipeline.stages.texture`) | The finalize pipeline runs the bake through the Blender MCP. |
+| Finalize `bake` step (`nmg_game_dev.pipeline.run_step("bake", request)`) | The finalize pipeline bakes the collection headless, as part of `finalize`. |
 
 ```python
 from nmg_game_dev_blender_addon.bake_core import bake_asset
@@ -22,8 +22,9 @@ result = bake_asset("Crate", "standard_prop", "/path/to/out", device="GPU", samp
 print(result["summary"])
 ```
 
-`run_for_mcp(**same)` returns the result, or `{"error": {...}}` instead of raising. The pipeline
-stage uses it.
+`run_for_mcp(**same)` returns the result, or `{"error": {...}}` instead of raising. The Blender
+entry script (`scripts/blender/finalize_entry.py`) calls `bake_asset` and writes the result into the
+finalize envelope. A refusal surfaces as `bake.texture.bake_failed` with stage `bake`.
 
 ## Inputs
 

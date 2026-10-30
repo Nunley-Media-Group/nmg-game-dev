@@ -6,109 +6,93 @@ Implements the split-variant asset convention from ``steering/structure.md``
     Content/<Category>/<Name>/Desktop/   — full-quality variant
     Content/<Category>/<Name>/Mobile/    — optimised variant
 
-The ``assert_no_cross_reference`` guard checks that an artifact's sidecar
-contains no paths that leak across the variant boundary (e.g. a mobile
-sidecar referencing a Desktop/ path).
+The ``assert_no_cross_reference`` guard checks that a variant's sidecar contains no paths that
+leak across the variant boundary (e.g. a mobile sidecar referencing a Desktop/ path).
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from nmg_game_dev.pipeline.stages._base import StageArtifact
 
 from nmg_game_dev.pipeline.errors import PipelineError
-from nmg_game_dev.pipeline.prompt import Prompt
 
 
-def desktop_path(consumer_content_root: Path, prompt: Prompt) -> Path:
-    """Return the Desktop variant directory for the given prompt.
+def desktop_path(consumer_content_root: Path, category: str, name: str) -> Path:
+    """Return the Desktop variant directory for ``category`` and ``name``.
 
-    Per the split-variant asset convention, the path is::
-
-        <consumer_content_root>/Content/<Category>/<Name>/Desktop/
+    The path is ``<consumer_content_root>/Content/<Category>/<Name>/Desktop/``.
 
     Args:
-        consumer_content_root: Root of the consumer project's ``Content/``
-            parent directory (i.e. the project root, not ``Content/`` itself).
-        prompt: The validated asset-generation prompt.
+        consumer_content_root: The consumer project root (the directory that contains
+            ``Content/``).
+        category: Content category, e.g. ``Props``.
+        name: Asset name, e.g. ``Crate``.
 
     Returns:
         A ``pathlib.Path`` to the Desktop variant directory.
     """
-    return consumer_content_root / "Content" / prompt.category / prompt.name / "Desktop"
+    return consumer_content_root / "Content" / category / name / "Desktop"
 
 
-def mobile_path(consumer_content_root: Path, prompt: Prompt) -> Path:
-    """Return the Mobile variant directory for the given prompt.
+def mobile_path(consumer_content_root: Path, category: str, name: str) -> Path:
+    """Return the Mobile variant directory for ``category`` and ``name``.
 
-    Per the split-variant asset convention, the path is::
-
-        <consumer_content_root>/Content/<Category>/<Name>/Mobile/
+    The path is ``<consumer_content_root>/Content/<Category>/<Name>/Mobile/``.
 
     Args:
-        consumer_content_root: Root of the consumer project's ``Content/``
-            parent directory (i.e. the project root, not ``Content/`` itself).
-        prompt: The validated asset-generation prompt.
+        consumer_content_root: The consumer project root (the directory that contains
+            ``Content/``).
+        category: Content category, e.g. ``Props``.
+        name: Asset name, e.g. ``Crate``.
 
     Returns:
         A ``pathlib.Path`` to the Mobile variant directory.
     """
-    return consumer_content_root / "Content" / prompt.category / prompt.name / "Mobile"
+    return consumer_content_root / "Content" / category / name / "Mobile"
 
 
-def assert_no_cross_reference(artifact: StageArtifact) -> None:
-    """Raise ``PipelineError`` if the artifact contains cross-variant path references.
+def assert_no_cross_reference(sidecar: Mapping[str, object] | None) -> None:
+    """Raise ``PipelineError`` if a variant sidecar contains cross-variant path references.
 
-    Inspects string values in ``artifact.sidecar`` for paths that cross the
-    Desktop/Mobile boundary:
+    Inspects the string values of ``sidecar`` for paths that cross the Desktop/Mobile boundary:
 
-    - A sidecar value containing ``"/Desktop/"`` when the variant is ``"mobile"``
-      indicates a mobile artifact referencing a desktop path.
-    - A sidecar value containing ``"/Mobile/"`` when the variant is ``"desktop"``
-      indicates a desktop artifact referencing a mobile path.
+    - A value containing ``"/Desktop/"`` in a mobile sidecar (``"variant": "mobile"``) references
+      a Desktop path from the mobile side.
+    - A value containing ``"/Mobile/"`` in a desktop sidecar (``"variant": "desktop"``) references
+      a Mobile path from the desktop side.
 
     Args:
-        artifact: The ``StageArtifact`` produced by the variants stage.
+        sidecar: The variant sidecar mapping.  ``None`` and a non-string ``variant`` are not
+            checked.
 
     Raises:
-        PipelineError: With code ``"variants.cross_reference"`` when a
-            cross-variant path is detected.
+        PipelineError: With code ``variants.cross_reference`` when a cross-variant path is found.
     """
-    if artifact.sidecar is None:
+    if sidecar is None:
         return
 
-    variant = artifact.sidecar.get("variant", "")
+    variant = sidecar.get("variant", "")
     if not isinstance(variant, str):
         return
 
-    def _check_value(val: object) -> str | None:
-        """Return a violation description if val is a cross-variant string path."""
-        if not isinstance(val, str):
-            return None
-        if variant == "mobile" and "/Desktop/" in val:
-            return f"Mobile artifact references Desktop path: {val!r}"
-        if variant == "desktop" and "/Mobile/" in val:
-            return f"Desktop artifact references Mobile path: {val!r}"
-        return None
-
     violations: list[str] = []
-    for _key, value in artifact.sidecar.items():
-        msg = _check_value(value)
-        if msg:
-            violations.append(msg)
+    for value in sidecar.values():
+        if not isinstance(value, str):
+            continue
+        if variant == "mobile" and "/Desktop/" in value:
+            violations.append(f"Mobile artifact references Desktop path: {value!r}")
+        elif variant == "desktop" and "/Mobile/" in value:
+            violations.append(f"Desktop artifact references Mobile path: {value!r}")
 
     if violations:
-        violation_detail = "; ".join(violations)
         raise PipelineError(
             code="variants.cross_reference",
             message=(
-                f"Variant artifact contains cross-variant path references: {violation_detail}"
+                f"Variant artifact contains cross-variant path references: {'; '.join(violations)}"
             ),
             remediation=(
-                "Ensure the variants stage writes Desktop assets only under "
+                "Ensure the variants step writes Desktop assets only under "
                 "Content/<Category>/<Name>/Desktop/ and Mobile assets only under "
                 "Content/<Category>/<Name>/Mobile/.  Never reference paths from the "
                 "opposite variant directory."

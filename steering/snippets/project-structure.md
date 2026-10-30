@@ -16,6 +16,10 @@ nmg-game-dev/
 │   │   ├── __init__.py            # bl_info + register/unregister
 │   │   ├── operators/             # bpy operators (cleanup, bake, variants)
 │   │   ├── panels/                # UI panels
+│   │   ├── contract_core/         # Contract validation and re-import check (headless-safe cores)
+│   │   ├── bake_core/             # Authored materials → contract texture sets
+│   │   ├── variants_core/         # Cleanup, Mobile LODs, Desktop/Mobile export
+│   │   ├── finalize_core/         # Finalize steps run in background Blender; content hash and load-back
 │   │   ├── mcp_server/            # The Blender-side MCP server module
 │   │   └── utils/
 │   └── nmg-game-dev-ue-plugin/
@@ -35,7 +39,7 @@ nmg-game-dev/
 │       ├── Content/               # Plugin-owned UE content (templates, defaults)
 │       └── Resources/             # Plugin icon, thumbnails
 ├── skills/                        # Claude Code skills shipped to consumers
-│   ├── finalize-asset/            # Validate → bake → variants → export → re-import → UE import
+│   ├── finalize-asset/            # Validate → bake → variants → export → re-import → load back → UE import
 │   │   ├── SKILL.md               # Skill definition + frontmatter
 │   │   └── references/            # Large context files loaded on demand
 │   ├── generate-texture/          # Local AI texture models (mflux), agent-callable
@@ -46,12 +50,18 @@ nmg-game-dev/
 │   ├── audit-mobile-budgets/      # Runtime of gate-mobile-budgets
 │   └── onboard-consumer/          # Installs hooks, add-on, UE plugin, asset contract into a consumer
 ├── mcp-servers/                   # NMG-authored MCP servers (beyond Blender/UE plugin hosts)
+│   ├── finalize/                  # finalize MCP: finalize_asset, run_finalize_step, get_finalize_job
+│   │   ├── pyproject.toml
+│   │   ├── tools.json
+│   │   └── src/finalize_mcp/
 │   └── texture-gen/               # Local texture backends exposed as MCP tools
 │       ├── pyproject.toml
 │       └── src/
 ├── scripts/                       # Bash + Python tooling (session-start, CI, automation)
 │   ├── start-blender-mcp.sh       # SessionStart hook — idempotent Blender launcher
 │   ├── start-unreal-mcp.sh        # SessionStart hook — idempotent UE Editor launcher
+│   ├── blender/                   # Headless Blender entries: contract_entry.py, finalize_entry.py, finalize_session.py
+│   ├── unreal/                    # UE Python run through the Unreal MCP: build_master_material.py
 │   ├── validate-skills.py         # Runtime of gate-skill-schema
 │   ├── validate-mcp-tools.py      # Runtime of gate-mcp-schema
 │   ├── audit-mobile-budgets.py
@@ -64,10 +74,12 @@ nmg-game-dev/
 ├── src/
 │   └── nmg_game_dev/              # Importable Python package (CLI glue, shared utils)
 │       ├── __init__.py
-│       ├── cli.py
-│       ├── pipeline/              # Finalize steps for an authored asset (Blender → UE)
-│       ├── variants/              # Desktop/Mobile variant helpers
-│       ├── quality/               # Quality gate implementations
+│       ├── contract/              # Contract validate / re-import / render CLI, run headless in Blender
+│       ├── finalize/              # `python -m nmg_game_dev.finalize` CLI over the finalize pipeline
+│       ├── pipeline/              # Finalize orchestrator: steps, cache, job runner, Blender and Unreal clients
+│       ├── unreal/                # UE import code and pivot check, run through the Unreal MCP
+│       ├── variants/              # Desktop/Mobile variant path helpers
+│       ├── quality/               # Quality gates (contract and re-import reports)
 │       └── ship/                  # Build + sign + notarize + package
 ├── tests/
 │   ├── unit/                      # Pure-Python unit tests
@@ -94,6 +106,19 @@ nmg-game-dev/
 ├── CHANGELOG.md                   # Managed by /sdlc-open-pr
 └── CLAUDE.md                      # Entry-point pointer document
 ```
+
+### Finalize locations
+
+| Path | Contents |
+|------|----------|
+| `plugins/nmg-game-dev-blender-addon/finalize_core/` | Finalize steps run in background Blender: content hash, step runner, and load-back |
+| `scripts/blender/finalize_entry.py` | Headless entry for one finalize step, run as `blender --background --python` |
+| `scripts/blender/finalize_session.py` | Live-session operations (content hash and load-back) sent through the Blender MCP |
+| `scripts/unreal/build_master_material.py` | Builds `M_NmgORM` in a running UE 5.8 and saves it into the plugin's Content |
+| `mcp-servers/finalize/` | The `finalize` MCP server: `finalize_asset`, `run_finalize_step`, `get_finalize_job` |
+| `src/nmg_game_dev/finalize/` | `python -m nmg_game_dev.finalize` CLI over the same implementation |
+| `src/nmg_game_dev/pipeline/` | Finalize orchestrator: steps, cache, job runner, Blender and Unreal clients |
+| `src/nmg_game_dev/unreal/` | UE import code and pivot check, run through the Unreal MCP |
 
 ---
 
@@ -124,6 +149,10 @@ Developer asks for an asset in conversation
         ▼
 ┌───────────────────────┐
 │ Export + re-import    │ ← FBX per variant; headless re-import check against the contract
+└───────┬───────────────┘
+        ▼
+┌───────────────────────┐
+│ Load back (session)   │ ← baked result replaces the session's <Name> only if it is unchanged since the checkpoint
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
@@ -164,10 +193,10 @@ Level composition (placing several assets together) happens afterwards, in Unrea
 
 | Layer | Does | Doesn't Do |
 |-------|------|------------|
-| Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call into `src/nmg_game_dev/pipeline/` | Directly touch MCP sockets, know UE or Blender internals, encode per-asset-type modeling recipes |
+| Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call the finalize MCP tools or `python -m nmg_game_dev.finalize` | Directly touch MCP sockets, know UE or Blender internals, encode per-asset-type modeling recipes |
 | Pipeline (`src/nmg_game_dev/pipeline/`) | Compose finalize steps; cache on asset content; run long steps in background Blender; enforce ordering | Generate assets from prompts, handle Claude Code I/O, write skill UX |
-| Stage implementations | Talk to exactly one MCP or one tool | Compose multi-stage flows |
-| MCP servers (Blender add-on, VibeUE on Epic's native Unreal MCP, texture-gen) | Expose tool endpoints; own tool implementation. VibeUE is third-party; nmg-game-dev does NOT author the UE-side bridge. | Know about skills or pipelines upstream |
+| Step implementations (`finalize_core/`, `src/nmg_game_dev/unreal/`) | Run one finalize step against one tool or core | Compose multi-step flows, cache, or ordering |
+| MCP servers (Blender add-on, VibeUE on Epic's native Unreal MCP, texture-gen, finalize) | Expose tool endpoints; own tool implementation. VibeUE is third-party; nmg-game-dev does NOT author the UE-side bridge. The finalize server wraps `src/nmg_game_dev/pipeline/` without adding logic. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
 | Ship (`src/nmg_game_dev/ship/`) | Build, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
 | UE Runtime module | Ship inside consumer games; variant-aware asset resolvers; perf-critical helpers | Anything editor-only; anything authoring |
@@ -350,7 +379,7 @@ public:
 
 | Anti-Pattern | Problem | Solution |
 |--------------|---------|----------|
-| A skill that directly opens MCP sockets | Duplicates logic the pipeline owns; breaks cancellation | Call into `src/nmg_game_dev/pipeline/` — never speak MCP from a SKILL.md flow |
+| A skill that directly opens MCP sockets | Duplicates logic the pipeline owns; breaks cancellation | Call the finalize MCP tools or `python -m nmg_game_dev.finalize` — never open Blender or Unreal sockets from a SKILL.md flow |
 | Desktop asset referenced from the Mobile variant (or vice versa) | Cross-variant leak into cooked packages | Use `UNmgAssetResolver` parent Blueprint; never hard-link across the boundary |
 | Hard-coded Blender / UE paths in any shipped script | Breaks on every consumer that didn't clone the reference project | Env vars with documented defaults; fail with an actionable message when unset |
 | Texture backend called directly instead of through the backend registry | Locks the framework to one model; skips allowlist, hardware, and seamless checks | Go through the texture backend interface (see tech steering) |
