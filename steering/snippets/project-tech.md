@@ -106,7 +106,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 |------|------|-------|
 | `VERSION` | (entire file) | Plain semver, one line |
 | `.claude-plugin/plugin.json` | `version` | Claude Code plugin manifest |
-| `plugins/nmg-game-dev-blender-addon/__init__.py` | `bl_info.version` | Blender add-on tuple (major, minor, patch) |
+| `plugins/nmg-game-dev-blender-addon/blender_manifest.toml` | `version` | Blender extension manifest |
 | `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` | `VersionName` | UE plugin manifest |
 | `pyproject.toml` | `project.version` | Python tooling package |
 
@@ -115,7 +115,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 - **JSON files**: dot-notation (e.g., `version`, `packages.mylib.version`).
 - **TOML files**: dot-notation matching TOML keys (e.g., `project.version`).
 - **Plain text**: `line:N` or omit Path if the whole file is the version.
-- **Python `bl_info` tuple**: special-cased — `/sdlc-open-pr` rewrites the tuple literal.
+- **Blender add-on `bl_info.version`**: not listed — `__init__.py` derives it from `VERSION` at import time via `utils.version.version_tuple()`, so it never needs rewriting.
 
 ### Version Bump Classification
 
