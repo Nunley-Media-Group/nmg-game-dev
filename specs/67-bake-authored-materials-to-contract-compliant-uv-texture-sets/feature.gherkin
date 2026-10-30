@@ -1,0 +1,68 @@
+**Issue**: #67
+**Date**: 2026-10-30
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/30-add-contract-validation-re-import-check-and-review-renders/
+
+# File: tests/blender/test_bake_*.py and tests/bdd/features/texture_bake.feature (scenarios map 1:1 to tests)
+# Generated from: specs/67-bake-authored-materials-to-contract-compliant-uv-texture-sets/requirements.md
+Feature: Bake authored materials to contract-compliant UV texture sets
+
+  @SCN001
+  Scenario Outline: Any authored material bakes to the contract texture set
+    Given a "Crate" collection of class "standard_prop" with a <kind> material
+    When the bake runs
+    Then every mesh has exactly one UV map "UVMap"
+    And T_Crate_Body_BC, T_Crate_Body_N, and T_Crate_Body_ORM PNGs exist with sRGB, Non-Color, and Non-Color color spaces
+    And material "M_Crate_Body" uses only Principled BSDF, Image Texture, Normal Map, Separate Color, and Material Output nodes
+    And the pre-bake and baked renders match within the documented tolerance
+
+    Examples:
+      | kind          |
+      | procedural    |
+      | triplanar     |
+      | image-texture |
+
+  @SCN002
+  Scenario: Tiling environment pieces bake seamless sets and keep their UVs
+    Given an "environment_piece" plane whose UVs span 0 to 10 with a UV-periodic material
+    When the bake runs
+    Then its UV coordinates are unchanged and the map is named "UVMap"
+    And each baked texture's opposite edges match within 0.04
+    And the texel density check passes
+
+  @SCN003
+  Scenario: Desktop and Mobile sets are written at the class resolutions
+    Given a "Crate" asset and a budgets override of 256 px Desktop and 128 px Mobile
+    When the bake completes
+    Then Desktop PNGs are 256 px and Mobile PNGs are 128 px with identical file names
+    And the result records texture_bytes_desktop, texture_bytes_mobile, and per-variant texture paths
+
+  @SCN004
+  Scenario: Materials over the Mobile limit are merged into one atlas
+    Given a "standard_prop" asset with three materials
+    When the bake runs
+    Then every face uses the single material "M_Crate_Body"
+    And one T_Crate_Body BC, N, and ORM set is written
+
+  @SCN005
+  Scenario: The operator, a direct call, and the pipeline stage share one implementation
+    Given a bakeable "Crate" asset
+    When the bake runs through nmggamedev.bake_materials and through bake_asset
+    Then both return the same texture paths and summary
+    And the pipeline texture stage's sidecar carries the texture paths, byte totals, proof, and summary
+
+  @SCN006
+  Scenario: An unrepresentable material fails loudly and restores the asset
+    Given a "Crate" material with alpha 0.5
+    When the bake runs
+    Then it fails with code "texture.bake_failed" naming the material, reason "transparency", and a remediation
+    And the original materials and UV maps are restored
+    And the pipeline texture stage raises PipelineError "texture.bake_failed" with stage "texture"
+
+  @SCN007
+  Scenario: An unchanged baked asset is a cache hit
+    Given a "Crate" asset that was already baked
+    When the bake runs again unchanged
+    Then the result reports cache_hit true
+    And no PNG file is rewritten
