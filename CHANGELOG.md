@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-30
+
 ### Changed
 
 - **BREAKING CHANGE:** The pipeline finalizes a collection the agent authored in Blender instead of generating one from a prompt. `pipeline.run(prompt, source)` is replaced by `pipeline.finalize(request)` and `pipeline.run_step(step, request)` over a `FinalizeRequest`. A run is `validate → bake → variants → export → reimport → import_ue`, and the Blender steps run headless against a checkpoint of the open session and load back into it. (#69)
