@@ -1,6 +1,7 @@
 """Import UE stage — imports Desktop + Mobile assets into the UE content tree.
 
-Calls the VibeUE MCP bridge (``ctx.mcp_clients.unreal``) to import each
+Calls the Unreal MCP endpoint (Epic's native server with VibeUE toolsets,
+``ctx.mcp_clients.unreal``) to import each
 variant into ``Content/<Category>/<Name>/{Desktop,Mobile}/``.  The desktop
 and mobile paths are read from the variants artifact sidecar (written by the
 variants stage and preserved through the quality artifact).
@@ -21,7 +22,7 @@ _STAGE = "import_ue"
 
 
 def import_ue(ctx: StageContext) -> StageArtifact:
-    """Import Desktop + Mobile assets into the UE content tree via VibeUE MCP.
+    """Import Desktop + Mobile assets into the UE content tree via the Unreal MCP endpoint.
 
     Args:
         ctx: Stage execution context.  ``ctx.upstream_artifact`` is the
@@ -34,7 +35,7 @@ def import_ue(ctx: StageContext) -> StageArtifact:
         skill caller via ``PipelineResult``.
 
     Raises:
-        PipelineError: On VibeUE MCP connectivity or import failure.
+        PipelineError: On Unreal MCP connectivity or import failure.
     """
     upstream = ctx.upstream_artifact
     if upstream is None:

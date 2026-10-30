@@ -24,8 +24,8 @@ _REMEDIATION: dict[Server, str] = {
         "Run scripts/start-blender-mcp.sh to launch it."
     ),
     "unreal": (
-        "Ensure UE Editor is running with the VibeUE plugin enabled. "
-        "Run scripts/start-unreal-mcp.sh to launch it."
+        "Ensure UE Editor is running with Epic's Unreal MCP server and VibeUE enabled "
+        "(UE_MCP_PORT, default 8000). Run scripts/start-unreal-mcp.sh to launch it."
     ),
 }
 

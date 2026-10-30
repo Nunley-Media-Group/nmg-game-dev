@@ -9,9 +9,9 @@
 # Invariants: steering/tech.md § Session-start contract invariants 1-6
 set -euo pipefail
 
-readonly PORT="${UE_MCP_PORT:-8088}"
+readonly PORT="${UE_MCP_PORT:-8000}"
 readonly LOG="/tmp/unreal-mcp.log"
-readonly UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.7}"
+readonly UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.8}"
 readonly UE_EDITOR="${UE_ROOT}/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor"
 
 if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -47,8 +47,15 @@ resolve_uproject() {
 PROJECT="$(resolve_uproject)"
 readonly PROJECT
 
-# Port binding is the UE plugin's responsibility (issue #3) — this script only launches UE.
-nohup "${UE_EDITOR}" "${PROJECT}" -log >"${LOG}" 2>&1 &
+# Epic's Unreal MCP server (ModelContextProtocol plugin) binds the port from these flags;
+# VibeUE registers its toolsets on that endpoint. This script only launches the editor.
+# -unattended suppresses modal dialogs (such as the module rebuild prompt), which would
+# otherwise leave the editor hung and the endpoint never listening.
+nohup "${UE_EDITOR}" "${PROJECT}" \
+  -ModelContextProtocolStartServer \
+  -ModelContextProtocolPort="${PORT}" \
+  -unattended \
+  -log >"${LOG}" 2>&1 &
 disown
 echo "start-unreal-mcp: launched UE Editor (project ${PROJECT}, port ${PORT}, log ${LOG}, pid $!)"
 exit 0

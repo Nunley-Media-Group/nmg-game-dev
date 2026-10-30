@@ -6,10 +6,16 @@ import pathlib
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
-EXPECTED_VERSION = "0.6.0"
+# Derived from VERSION (the versioning source of truth) so release bumps never strand a pin.
+EXPECTED_VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 REQUIRED_SERVERS = ("blender", "unreal")
-FLOATING_VERSION_REFS = ("latest", "main", "HEAD")
+
+# Toolchain contract for issue #68: Epic's native Unreal MCP endpoint (VibeUE rides on it),
+# the latest mcp-for-blender release, and the Unreal Engine version the fixture targets.
+UNREAL_MCP_URL = "http://127.0.0.1:${UE_MCP_PORT:-8000}/mcp"
+BLENDER_MCP_PACKAGE = "mcp-for-blender@latest"
+UE_VERSION = "5.8"
 
 REQUIRED_DIRS = (
     ".claude-plugin",

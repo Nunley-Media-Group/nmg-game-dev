@@ -62,11 +62,11 @@ Developer in Claude Code
 | Distribution | Claude Code plugin from the `nmg-plugins` marketplace (what nmg-game-dev SHIPS) | targets current Claude Code |
 | Host tooling | Python | 3.11+ (matches Blender bundled python) |
 | Authoring surface | Blender | 5.2 LTS (latest LTS) |
-| Game engine | Unreal Engine | 5.8 (Apple Silicon native; move from 5.7 tracked in #68) |
+| Game engine | Unreal Engine | 5.8 (Apple Silicon native) |
 | UE plugin source | C++ (+ Blueprints for composition) | Epic coding standard |
 | Shell scripts | bash | `set -euo pipefail`; shellcheck-clean |
-| Asset authoring | Blender MCP (`ahujasid/blender-mcp`), driven freeform by the agent | pinned per `.mcp.json` |
-| UE control | Epic's native Unreal MCP server (`127.0.0.1:8000/mcp`), expanded by the VibeUE plugin (primary option) | VibeUE pinned per project; NMG does NOT author its own UE-side bridge (migration from VibeUE's 8088 bridge tracked in #68) |
+| Asset authoring | Blender 5.2 through the Blender MCP (`mcp-for-blender`, published from `ahujasid/blender-mcp`), driven freeform by the agent | latest release (`uvx mcp-for-blender@latest`); never pinned |
+| UE control | Epic's native Unreal MCP server on UE 5.8 (`127.0.0.1:8000/mcp`, `ModelContextProtocol` + `EditorToolset`), expanded by the VibeUE plugin | VibeUE latest (`scripts/install-vibeue.sh`); never pinned; NMG does NOT author its own UE-side bridge |
 | Texture generation | Local models via mflux (Z-Image Turbo, FLUX.2 klein 4B, 4-bit) | optional install; procedural Blender materials as fallback |
 
 ### External Services
@@ -164,7 +164,7 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 | Authentication (to external services) | API keys via env vars; never in git |
 | Credential storage | `.claude/settings.local.json` `env` (gitignored) for session-local overrides; production uses keychain / CI secrets |
 | Signing identities | Read from OS keychain (macOS) or env (`ANDROID_KEYSTORE_PASSWORD`); never echoed to logs |
-| Third-party MCP trust | Pin MCP server versions in `.mcp.json`; review each upgrade |
+| Third-party MCP trust | Third-party tools (Blender MCP, its add-on, VibeUE) track their latest releases and are never pinned; `scripts/smoke-blender-mcp.py` and `scripts/smoke-unreal-mcp.py` verify that the latest versions work together |
 | Supply chain | `pyproject.toml` pins exact versions for build-critical deps; `uv.lock` / `requirements.lock` committed |
 
 ---
@@ -239,7 +239,7 @@ The framework ships two idempotent launch scripts, wired as `SessionStart` hooks
 | Script | Responsibility | Port |
 |--------|----------------|------|
 | `start-blender-mcp.sh` | Launches Blender (via `BLENDER_BIN` or `BLENDER_APP` env) with the Blender MCP add-on enabled; registers a deferred timer to start the socket server after the UI is ready. | `BLENDER_MCP_PORT` (default 9876) |
-| `start-unreal-mcp.sh` | Launches UE Editor with the consumer's `.uproject`; Epic's native Unreal MCP server auto-starts and **VibeUE** (installed by `onboard-consumer`) registers its tools on it. nmg-game-dev's UE plugin contributes Runtime helpers + Editor authoring hooks but does NOT bind any port. | `UE_MCP_PORT` (default 8000 once #68 lands; 8088 with the legacy VibeUE bridge) |
+| `start-unreal-mcp.sh` | Launches UE Editor with the consumer's `.uproject`; Epic's native Unreal MCP server auto-starts and **VibeUE** (installed by `onboard-consumer`) registers its tools on it. nmg-game-dev's UE plugin contributes Runtime helpers + Editor authoring hooks but does NOT bind any port. | `UE_MCP_PORT` (default 8000) |
 
 **Contract invariants** (every launch script MUST honor):
 
@@ -383,6 +383,8 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 | Variable | When needed |
 |----------|-------------|
 | `UE_ROOT` | Override if UE 5.8 isn't at the default install path |
+| `UE_PROJECT` | Override the `.uproject` that `start-unreal-mcp.sh` opens |
+| `UE_MCP_PORT` / `BLENDER_MCP_PORT` | Override the MCP endpoint ports (defaults 8000 and 9876) |
 | `BLENDER_BIN` / `BLENDER_APP` | Override if Blender isn't at the default install path |
 | `TEXTURE_GEN_MODELS_DIR` / `HF_HOME` | Local texture model weights location (optional texture models) |
 | `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS notarization (`/build-platform macos` / `/build-platform ios`) |

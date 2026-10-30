@@ -2,10 +2,10 @@
 	"devices": [
 		{
 			"deviceName": "Richards-Mac-Studio.local",
-			"instance": "C569E4B35247FECDF25B57AA769AB120",
-			"instanceName": "Richards-Mac-Studio.local-74392",
+			"instance": "9D723AF62B48AAC5CF7408AFF350F6C8",
+			"instanceName": "Richards-Mac-Studio.local-88134",
 			"platform": "MacEditor",
-			"oSVersion": "macOS 26.3.1 25D2128",
+			"oSVersion": "macOS 26.6.2 25G83",
 			"model": "Default",
 			"gPU": "Apple M1 Max",
 			"cPUModel": "Apple M1 Max",
@@ -15,13 +15,13 @@
 			"appInstanceLog": ""
 		}
 	],
-	"reportCreatedOn": "2026.04.23-00.12.47",
+	"reportCreatedOn": "2026.10.30-18.07.20",
 	"succeeded": 6,
 	"succeededWithWarnings": 0,
 	"failed": 0,
 	"notRun": 0,
 	"inProcess": 0,
-	"totalDuration": 0.10089103877544403,
+	"totalDuration": 0.10042320936918259,
 	"comparisonExported": false,
 	"comparisonExportDirectory": "",
 	"tests": [
@@ -31,10 +31,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"C569E4B35247FECDF25B57AA769AB120"
+				"9D723AF62B48AAC5CF7408AFF350F6C8"
 			],
-			"duration": 0.016547832638025284,
-			"dateTime": "2026.04.23-00.12.47",
+			"duration": 0.016181915998458862,
+			"dateTime": "2026.10.30-18.07.19",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -46,10 +46,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"C569E4B35247FECDF25B57AA769AB120"
+				"9D723AF62B48AAC5CF7408AFF350F6C8"
 			],
-			"duration": 0.016668293625116348,
-			"dateTime": "2026.04.23-00.12.47",
+			"duration": 0.016537874937057495,
+			"dateTime": "2026.10.30-18.07.20",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -61,10 +61,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"C569E4B35247FECDF25B57AA769AB120"
+				"9D723AF62B48AAC5CF7408AFF350F6C8"
 			],
-			"duration": 0.016535207629203796,
-			"dateTime": "2026.04.23-00.12.47",
+			"duration": 0.017498377710580826,
+			"dateTime": "2026.10.30-18.07.20",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -76,10 +76,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"C569E4B35247FECDF25B57AA769AB120"
+				"9D723AF62B48AAC5CF7408AFF350F6C8"
 			],
-			"duration": 0.018875084817409515,
-			"dateTime": "2026.04.23-00.12.47",
+			"duration": 0.016755502671003342,
+			"dateTime": "2026.10.30-18.07.20",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -91,10 +91,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"C569E4B35247FECDF25B57AA769AB120"
+				"9D723AF62B48AAC5CF7408AFF350F6C8"
 			],
-			"duration": 0.016427624970674515,
-			"dateTime": "2026.04.23-00.12.47",
+			"duration": 0.017150375992059708,
+			"dateTime": "2026.10.30-18.07.20",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -106,10 +106,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"C569E4B35247FECDF25B57AA769AB120"
+				"9D723AF62B48AAC5CF7408AFF350F6C8"
 			],
-			"duration": 0.015837002545595169,
-			"dateTime": "2026.04.23-00.12.47",
+			"duration": 0.016299165785312653,
+			"dateTime": "2026.10.30-18.07.20",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,

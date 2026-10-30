@@ -13,7 +13,22 @@ See `specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md` § 
 
 | File | Purpose |
 |------|---------|
-| `dogfood.uproject` | Minimal UE 5.7 project stub — gives `scripts/start-unreal-mcp.sh` a valid target when invoked from this repo without a consumer project present. The `NmgGameDevMCP` port-bind (issue #3) is not yet enabled in this fixture. |
+| `dogfood.uproject` | Minimal UE 5.8 project — gives `scripts/start-unreal-mcp.sh` a valid target when invoked from this repo without a consumer project present. Enables `ModelContextProtocol`, `EditorToolset` (Epic's native Unreal MCP), `VibeUE` (installed into `Plugins/`), and `nmg-game-dev`. |
+| `Config/DefaultEditorPerProjectUserSettings.ini` | Turns on Epic's Unreal MCP server on `ServerPortNumber=8000` (`bAutoStartServer=True`) for editors opened by hand. `start-unreal-mcp.sh` also passes the launch flags, so either path serves `127.0.0.1:8000/mcp`. |
+| `Config/DefaultEngine.ini`, `Config/DefaultInput.ini` | Tracked project settings so a fresh clone can build the `DogfoodEditor` target. |
+| `Source/` | `Dogfood` game module plus `Dogfood.Target.cs` and `DogfoodEditor.Target.cs`. Tracked for the same reason as `Config/`. |
+| `smoke/SM_SmokeCube.fbx` | 1 m cube exported from headless Blender per `docs/asset-contract.md` §7. `scripts/smoke-unreal-mcp.py` imports it into `/Game/__NmgSmoke` and removes it again. Rebuild it with `"$BLENDER_APP/Contents/MacOS/Blender" --background --factory-startup --python fixtures/smoke/make_smoke_fbx.py`. |
+| `Plugins/VibeUE/` | Not tracked (see `.gitignore`). Fetched by `scripts/install-vibeue.sh`, which clones VibeUE's default branch at depth 1, or fast-forwards an existing clone, and prints the commit it checked out. |
+
+Build output (`Binaries/`, `Intermediate/`, `Saved/`) stays untracked.
+
+Set up the VibeUE plugin before opening the fixture:
+
+```
+scripts/install-vibeue.sh
+scripts/start-unreal-mcp.sh
+scripts/smoke-unreal-mcp.py
+```
 
 ## Adding new fixtures
 

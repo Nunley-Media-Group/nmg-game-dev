@@ -46,10 +46,10 @@ import sys
 override = os.environ.get("BLENDER_MCP_ADDON_OVERRIDE", "")
 candidates = [c for c in override.split(",") if c]
 candidates += [
-    "blender-mcp-addon",
-    "bl_ext.user_default.blender_mcp",
-    "bl_ext.user_default.blender-mcp",
     "blender_mcp",
+    "bl_ext.user_default.blender_mcp",
+    "blender-mcp-addon",
+    "bl_ext.user_default.blender-mcp",
     "blender-mcp",
 ]
 

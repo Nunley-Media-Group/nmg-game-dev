@@ -1,6 +1,6 @@
 {
   "FileVersion": 3,
-  "EngineAssociation": "5.7",
+  "EngineAssociation": "5.8",
   "Category": "",
   "Description": "nmg-game-dev dogfood fixture — contributor smoke-test target for start-unreal-mcp.sh. NOT SHIPPED TO CONSUMERS.",
   "Modules": [
@@ -11,6 +11,18 @@
     }
   ],
   "Plugins": [
+    {
+      "Name": "ModelContextProtocol",
+      "Enabled": true
+    },
+    {
+      "Name": "EditorToolset",
+      "Enabled": true
+    },
+    {
+      "Name": "VibeUE",
+      "Enabled": true
+    },
     {
       "Name": "nmg-game-dev",
       "Enabled": true

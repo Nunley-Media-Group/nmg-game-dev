@@ -44,7 +44,7 @@ Feature: Scaffold plugin + repo + session-start hooks
     And the script does not block waiting for Blender to finish booting
 
   Scenario: start-unreal-mcp.sh detaches the UE Editor on the expected port (AC3)
-    Given `UE_ROOT` resolves to an installed Unreal Engine 5.7 install
+    Given `UE_ROOT` resolves to an installed Unreal Engine 5.8 install
     And a valid `.uproject` resolves via the env-var or auto-detect chain
     When `scripts/start-unreal-mcp.sh` runs
     Then UE Editor is detached opened against the target `.uproject`
@@ -90,18 +90,18 @@ Feature: Scaffold plugin + repo + session-start hooks
 
   Scenario: VERSION and CHANGELOG are seeded (AC7)
     When a developer reads `VERSION` and `CHANGELOG.md`
-    Then `VERSION` contains exactly `0.6.0` followed by a newline
+    Then `VERSION` contains exactly one `X.Y.Z` semver followed by a newline
     And `CHANGELOG.md` has an `## [Unreleased]` section
-    And `.claude-plugin/plugin.json`'s `version` field equals `0.6.0`
-    And `pyproject.toml`'s `project.version` equals `0.6.0`
+    And `.claude-plugin/plugin.json`'s `version` field equals `VERSION`
+    And `pyproject.toml`'s `project.version` equals `VERSION`
 
   # --- MCP config ---
 
-  Scenario: MCP server config is pinned and dual-purpose (AC8)
+  Scenario: MCP server config tracks latest and is dual-purpose (AC8)
     Given `.mcp.json` at the repo root
     When the file is parsed
-    Then it declares two pinned MCP server entries: `blender` (ahujasid/blender-mcp) and `unreal` (VibeUE)
-    And every server entry carries a pinned version — no `latest`, `main`, or `HEAD` substring appears
+    Then it declares two MCP server entries: `blender` (mcp-for-blender) and `unreal` (Epic's native Unreal MCP with VibeUE)
+    And every server entry tracks the latest release with no version constraint other than `@latest`
     And the file contains no this-repo-specific absolute paths (usable verbatim by `onboard-consumer` in a consumer project)
 
   # --- Entry-point pointer ---

@@ -20,9 +20,9 @@ import pytest
 from _scaffold_contract import (
     BANNED_DOGFOOD_ARTIFACTS,
     BANNED_SUBSTRINGS,
+    BLENDER_MCP_PACKAGE,
     CONSUMER_FACING,
     EXPECTED_VERSION,
-    FLOATING_VERSION_REFS,
     GITKEEP_DIRS,
     REPO_ROOT,
     REQUIRED_DIRS,
@@ -104,7 +104,7 @@ def test_versioning_seeded() -> None:
     pass
 
 
-@scenario(FEATURE, "MCP server config is pinned and dual-purpose (AC8)")
+@scenario(FEATURE, "MCP server config tracks latest and is dual-purpose (AC8)")
 def test_mcp_config_pinned() -> None:
     pass
 
@@ -137,7 +137,8 @@ def fake_ue_root(tmp_path: pathlib.Path) -> pathlib.Path:
     ue_dir = tmp_path / "Engine" / "Binaries" / "Mac" / "UnrealEditor.app" / "Contents" / "MacOS"
     ue_dir.mkdir(parents=True)
     fake = ue_dir / "UnrealEditor"
-    fake.write_text("#!/usr/bin/env bash\nexit 0\n")
+    # Record the editor's argv so the scenario can check the native MCP server flags.
+    fake.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$FAKE_UE_ARGV_FILE"\nexit 0\n')
     fake.chmod(0o755)
     return tmp_path
 
@@ -271,7 +272,7 @@ def script_does_not_block(launcher_run: LauncherRun) -> None:
     assert launcher_run.result.returncode == 0
 
 
-@given("`UE_ROOT` resolves to an installed Unreal Engine 5.7 install")
+@given("`UE_ROOT` resolves to an installed Unreal Engine 5.8 install")
 def ue_root_resolves(fake_ue_root: pathlib.Path) -> None:
     editor = (
         fake_ue_root
@@ -299,13 +300,27 @@ def run_unreal_script(fake_ue_root: pathlib.Path, repo_root: pathlib.Path) -> La
             "UE_ROOT": str(fake_ue_root),
             "UE_MCP_PORT": UE_TEST_PORT,
             "UE_PROJECT": str(repo_root / "fixtures" / "dogfood.uproject"),
+            "FAKE_UE_ARGV_FILE": str(fake_ue_root / "ue-argv.txt"),
         },
     )
 
 
+def _wait_for_lines(path: pathlib.Path, timeout: float = 5.0) -> list[str]:
+    """Wait for the detached fake editor to record its argv, then return the lines."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.is_file() and path.stat().st_size > 0:
+            return path.read_text(encoding="utf-8").splitlines()
+        time.sleep(0.05)
+    raise AssertionError(f"UE editor never recorded its argv at {path}")
+
+
 @then("UE Editor is detached opened against the target `.uproject`")
-def ue_editor_detached(launcher_run: LauncherRun) -> None:
+def ue_editor_detached(launcher_run: LauncherRun, fake_ue_root: pathlib.Path) -> None:
     assert launcher_run.result.returncode == 0, f"Script failed: {launcher_run.result.stderr}"
+    argv = _wait_for_lines(fake_ue_root / "ue-argv.txt")
+    assert "-ModelContextProtocolStartServer" in argv, f"editor argv: {argv}"
+    assert f"-ModelContextProtocolPort={UE_TEST_PORT}" in argv, f"editor argv: {argv}"
 
 
 @given(
@@ -462,9 +477,9 @@ def reads_version_files() -> None:
     pass
 
 
-@then("`VERSION` contains exactly `0.6.0` followed by a newline")
+@then("`VERSION` contains exactly one `X.Y.Z` semver followed by a newline")
 def version_content(version_text: str) -> None:
-    assert version_text == f"{EXPECTED_VERSION}\n"
+    assert re.fullmatch(r"\d+\.\d+\.\d+\n", version_text), f"VERSION is not X.Y.Z: {version_text!r}"
 
 
 @then("`CHANGELOG.md` has an `## [Unreleased]` section")
@@ -472,12 +487,12 @@ def changelog_unreleased(changelog_text: str) -> None:
     assert "## [Unreleased]" in changelog_text
 
 
-@then("`.claude-plugin/plugin.json`'s `version` field equals `0.6.0`")
+@then("`.claude-plugin/plugin.json`'s `version` field equals `VERSION`")
 def plugin_json_version(plugin_data: dict[str, Any]) -> None:
     assert plugin_data["version"] == EXPECTED_VERSION
 
 
-@then("`pyproject.toml`'s `project.version` equals `0.6.0`")
+@then("`pyproject.toml`'s `project.version` equals `VERSION`")
 def pyproject_version(pyproject_data: dict[str, Any]) -> None:
     assert pyproject_data["project"]["version"] == EXPECTED_VERSION
 
@@ -493,20 +508,23 @@ def parse_mcp_json(mcp_data: dict[str, Any]) -> None:
 
 
 @then(
-    "it declares two pinned MCP server entries:"
-    " `blender` (ahujasid/blender-mcp) and `unreal` (VibeUE)"
+    "it declares two MCP server entries:"
+    " `blender` (mcp-for-blender) and `unreal` (Epic's native Unreal MCP with VibeUE)"
 )
 def mcp_two_servers(mcp_data: dict[str, Any]) -> None:
     for name in REQUIRED_SERVERS:
         assert name in mcp_data["mcpServers"], f".mcp.json missing server: {name}"
+    assert mcp_data["mcpServers"]["unreal"]["type"] == "http"
 
 
 @then(
-    "every server entry carries a pinned version — no `latest`, `main`, or `HEAD` substring appears"
+    "every server entry tracks the latest release with no version constraint other than `@latest`"
 )
-def mcp_no_floating_versions(mcp_text: str) -> None:
-    for banned in FLOATING_VERSION_REFS:
-        assert banned not in mcp_text, f".mcp.json contains floating ref: {banned!r}"
+def mcp_tracks_latest(mcp_data: dict[str, Any]) -> None:
+    assert mcp_data["mcpServers"]["blender"]["args"] == [BLENDER_MCP_PACKAGE]
+    for server, entry in mcp_data["mcpServers"].items():
+        for ref in [entry.get("command", ""), *entry.get("args", []), entry.get("url", "")]:
+            assert not re.search(r"==|[<>]|@\d", ref), f"{server} pins a version in {ref!r}"
 
 
 @then(

@@ -6,6 +6,16 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-30
+
+### Changed
+
+- The toolchain targets Unreal Engine 5.8 with Epic's native Unreal MCP server on `127.0.0.1:8000/mcp`, with VibeUE's toolsets registered on it. The Node.js `mcp-remote` bridge and port 8088 are removed, and the Blender MCP server runs `uvx mcp-for-blender@latest` with telemetry disabled. Third-party tools (Blender MCP, its add-on, VibeUE) track latest releases instead of pins. (#68)
+
+### Added
+
+- `scripts/install-vibeue.sh` and `scripts/install-blender-mcp-addon.sh` fetch the latest VibeUE and Blender add-on. `scripts/smoke-unreal-mcp.py` and `scripts/smoke-blender-mcp.py` verify the MCP endpoints end to end. (#68)
+
 ## [0.6.0] - 2026-10-30
 
 ### Changed

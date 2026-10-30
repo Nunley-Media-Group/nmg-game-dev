@@ -3,8 +3,8 @@
 These tests are gated behind ``pytest --runslow`` and require:
 
 - Blender running with the MCP add-on (``scripts/start-blender-mcp.sh``).
-- UE Editor running with the VibeUE plugin (``scripts/start-unreal-mcp.sh``).
-- A fixture UE project reachable at the path expected by the UE MCP bridge.
+- UE 5.8 Editor running Epic's Unreal MCP server with VibeUE (``scripts/start-unreal-mcp.sh``).
+- A fixture UE project reachable at the path expected by the Unreal MCP endpoint.
 
 The fixture prompt is loaded from ``tests/e2e/fixtures/fixture_prompt.json``.
 Wiring a real fixture UE project is out of scope for issue #4 — this module
@@ -56,7 +56,7 @@ def test_blender_first_e2e(fixture_prompt: Prompt, tmp_path: Path) -> None:
 
     Requires:
     - ``BLENDER_MCP_PORT`` (default 9876) — Blender MCP listening.
-    - ``UE_MCP_PORT`` (default 8088) — VibeUE MCP bridge listening.
+    - ``UE_MCP_PORT`` (default 8000) — Unreal MCP endpoint listening (VibeUE toolsets).
     - The fixture prompt category/name directories must not clash with
       pre-existing UE content.
     """
