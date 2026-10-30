@@ -11,31 +11,33 @@ load-bearing — nmg-sdlc matches on them literally.
 ```
 Developer in Claude Code
         │
-        │  skills / natural language
+        │  natural language; the agent authors freeform
         ▼
 ┌────────────────────────────────────────────────────────────┐
-│ nmg-game-dev Claude Code plugin                      │
-│   skills/ (asset gen, optimization, build, ship, verify)   │
-└───────┬─────────────────────────┬────────────────┬─────────┘
-        │                         │                │
-        ▼                         ▼                ▼
-┌──────────────┐          ┌──────────────┐   ┌──────────────┐
-│ Blender MCP  │          │ Unreal MCP   │   │ Meshy MCP    │
-│ (+ add-on)   │          │ (+ plugin)   │   │ (supplement) │
-└──────┬───────┘          └──────┬───────┘   └──────┬───────┘
-       │                         │                  │
-       ▼                         ▼                  ▼
-┌──────────────┐          ┌──────────────┐   ┌──────────────┐
-│ Blender 4.x  │          │ UE 5.x       │   │ Meshy.io API │
-│ (headless    │          │ (editor +    │   │              │
-│  + GUI)      │          │  runtime)    │   │              │
-└──────┬───────┘          └──────────────┘   └──────────────┘
+│ nmg-game-dev Claude Code plugin                            │
+│   skills/ + agent tools: texture gen, validate, bake,      │
+│   variants, export, re-import check, UE import, ship       │
+└───────┬───────────────────────────────────┬────────────────┘
+        │                                   │
+        ▼                                   ▼
+┌──────────────────────┐          ┌──────────────────────────┐
+│ Blender MCP          │          │ Unreal MCP               │
+│ (+ nmg add-on)       │          │ Epic native MCP (5.8)    │
+│                      │          │ + VibeUE expansion       │
+└──────┬───────────────┘          └──────┬───────────────────┘
+       │                                 │
+       ▼                                 ▼
+┌──────────────────────┐          ┌──────────────────────────┐
+│ Blender 5.2 LTS      │          │ UE 5.8                   │
+│ (GUI session +       │          │ (editor + runtime;       │
+│  background jobs)    │          │  level composition)      │
+└──────┬───────────────┘          └──────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────────┐
-│ Texture Design Tool (TBD — v1 spike)     │
-│ Candidates: ComfyUI + SD/SDXL + ControlNet, │
-│ Substance, Dream Textures, custom diffusion │
+│ Local texture models (mflux, 4-bit)      │
+│ Z-Image Turbo, FLUX.2 klein 4B;          │
+│ procedural Blender materials as fallback │
 └──────────────────────────────────────────┘
 
         Consumer project (e.g., ghost1)
@@ -59,26 +61,23 @@ Developer in Claude Code
 | Orchestration | nmg-sdlc (Claude Code plugin, used to BUILD nmg-game-dev) | latest |
 | Distribution | Claude Code plugin from the `nmg-plugins` marketplace (what nmg-game-dev SHIPS) | targets current Claude Code |
 | Host tooling | Python | 3.11+ (matches Blender bundled python) |
-| Authoring surface | Blender | 4.x LTS (oldest supported 4.2 LTS) |
-| Game engine | Unreal Engine | 5.7 (Apple Silicon native) |
+| Authoring surface | Blender | 5.2 LTS (latest LTS) |
+| Game engine | Unreal Engine | 5.8 (Apple Silicon native; move from 5.7 tracked in #68) |
 | UE plugin source | C++ (+ Blueprints for composition) | Epic coding standard |
 | Shell scripts | bash | `set -euo pipefail`; shellcheck-clean |
-| 3D generation (supplement) | Meshy.io | via MCP |
-| 3D + asset control (primary) | Blender MCP (`ahujasid/blender-mcp`) | pinned per `.mcp.json` |
-| UE control | VibeUE in-editor plugin (binds 127.0.0.1:8088/mcp inside UE) | pinned per `.mcp.json`; NMG does NOT author its own UE-side bridge |
-| Texture generation | **TBD — v1 spike** | picked during v1; pluggable interface |
+| Asset authoring | Blender MCP (`ahujasid/blender-mcp`), driven freeform by the agent | pinned per `.mcp.json` |
+| UE control | Epic's native Unreal MCP server (`127.0.0.1:8000/mcp`), expanded by the VibeUE plugin (primary option) | VibeUE pinned per project; NMG does NOT author its own UE-side bridge (migration from VibeUE's 8088 bridge tracked in #68) |
+| Texture generation | Local models via mflux (Z-Image Turbo, FLUX.2 klein 4B, 4-bit) | optional install; procedural Blender materials as fallback |
 
 ### External Services
 
 | Service | Purpose | Notes |
 |---------|---------|-------|
-| Meshy.io | 3D asset generation (supplement) | Rate-limited; cache aggressively; `MESHY_API_KEY` |
 | Apple Notary Service | macOS notarization of shipped builds | Team ID + app-specific password |
 | Apple Developer | iOS provisioning | `.mobileprovision` via env |
 | Google Play | Android AAB upload | Keystore + password via env |
 | GitHub | Source + issue + PR automation | `gh` CLI |
 | CodeRabbit | Automated PR review and merge gating | GitHub App `coderabbitai`; required status context `CodeRabbit` |
-| (TBD) Texture-gen hosted service | If the v1 spike picks a hosted tool | Credential model decided at spike |
 
 ### Automated Review
 
@@ -145,8 +144,9 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 
 | Metric | Target | Rationale |
 |--------|--------|-----------|
-| `/new-prop` end-to-end (standard tier) | ≤ 90 s on M-series Mac | Adhoc iteration requires tight loops |
-| `/new-character` end-to-end (hero) | ≤ 5 min on M-series Mac | Characters are the slowest asset; budget is generous but bounded |
+| Finalize a standard prop (validate → UE import, both variants) | ≤ 90 s on M-series Mac | Adhoc iteration requires tight loops |
+| Finalize a hero asset or character | ≤ 5 min on M-series Mac | Bakes dominate; budget is generous but bounded |
+| One local AI texture (1024 px) | ≤ 30 s (klein 4B) / ≤ 100 s (Z-Image Turbo) | Measured with 4-bit weights on an M1 Max |
 | `/build-platform desktop` cold build | ≤ 20 min | Includes UE cook + sign + notarize |
 | Skill cold-start (first invocation per session) | ≤ 2 s | MCP handshake + env validation only |
 
@@ -239,7 +239,7 @@ The framework ships two idempotent launch scripts, wired as `SessionStart` hooks
 | Script | Responsibility | Port |
 |--------|----------------|------|
 | `start-blender-mcp.sh` | Launches Blender (via `BLENDER_BIN` or `BLENDER_APP` env) with the Blender MCP add-on enabled; registers a deferred timer to start the socket server after the UI is ready. | `BLENDER_MCP_PORT` (default 9876) |
-| `start-unreal-mcp.sh` | Launches UE Editor with the consumer's `.uproject`; **VibeUE** (the in-editor plugin pinned in `.mcp.json`, installed by `onboard-consumer`) binds the MCP HTTP bridge on startup. nmg-game-dev's UE plugin contributes Runtime helpers + Editor authoring hooks but does NOT bind any port. | `UE_MCP_PORT` (default 8088) — read by VibeUE's Project Settings |
+| `start-unreal-mcp.sh` | Launches UE Editor with the consumer's `.uproject`; Epic's native Unreal MCP server auto-starts and **VibeUE** (installed by `onboard-consumer`) registers its tools on it. nmg-game-dev's UE plugin contributes Runtime helpers + Editor authoring hooks but does NOT bind any port. | `UE_MCP_PORT` (default 8000 once #68 lands; 8088 with the legacy VibeUE bridge) |
 
 **Contract invariants** (every launch script MUST honor):
 
@@ -252,17 +252,21 @@ The framework ships two idempotent launch scripts, wired as `SessionStart` hooks
 
 The onboarding skill (one of the v1 deliverables) installs these scripts into each consumer's `scripts/` directory, and merges the `SessionStart` hook entries into `.claude/settings.json`. Without this auto-launch path, the adhoc workflow is broken on every cold session.
 
-### Texture-gen tool interface (TBD contract)
+### Texture generation interface
 
-Until the v1 spike picks a tool, any integration MUST conform to:
+Local texture backends (#65) share one interface, used by the agent while authoring and by tests:
 
 ```
-Inputs:  prompt: str, resolution: int, style_refs: list[Path], seed: int | None
-Outputs: base_color: Path, normal: Path, roughness: Path, metallic: Path, ao: Path | None
-Errors:  TextureGenError with .remediation field
+Inputs:  prompt: str, backend: "z-image-turbo" | "flux2-klein-4b" | "both", resolution: int, seed: int | None
+Outputs: seamless albedo PNG paths (+ comparison sheet for "both"); derived normal / roughness / metallic / AO on request
+Errors:  TextureGenError with .code and .remediation
 ```
 
-This contract lets the spike swap implementations without cascading changes.
+Whatever the agent authors, the bake step (#67) turns it into the contract's texture sets, proofed in Blender before export.
+
+### Long-running Blender work
+
+MCP calls time out (180 s for the Blender MCP). Bakes, variant generation, and full finalize runs execute in a background headless Blender against a checkpoint of the session's scene, report progress the agent can poll, and load results back into the open session (#69).
 
 ---
 
@@ -283,17 +287,17 @@ This contract lets the spike swap implementations without cascading changes.
 ### Gherkin Feature Files
 
 ```gherkin
-# tests/bdd/features/new_prop.feature
-Feature: Generate a new prop Blender-first
+# tests/bdd/features/finalize.feature
+Feature: Finalize an authored asset
   As an NMG game developer
-  I want to run /new-prop and get both desktop and mobile variants
+  I want a finished Blender asset turned into Desktop and Mobile variants in Unreal
   So that I can iterate on content without leaving Claude Code
 
-  Scenario: Standard-tier prop, Blender-first
+  Scenario: Standard prop authored in Blender
     Given the Blender MCP is running
-    And the texture-gen tool is configured
-    When I run /new-prop Weapons/Crate standard "wooden supply crate"
-    Then both Desktop and Mobile variants exist under Content/Weapons/Crate/
+    And a collection "Crate" that satisfies the asset contract
+    When I finalize "Crate" in category "Props"
+    Then both Desktop and Mobile variants exist under Content/Props/Crate/
     And the mobile variant passes gate-mobile-budgets
     And the desktop variant is unbudgeted
 ```
@@ -376,10 +380,9 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 
 | Variable | When needed |
 |----------|-------------|
-| `MESHY_API_KEY` | Any Meshy-sourced generation |
-| `UE_ROOT` | Override if UE 5.7 isn't at the default Epic Games path |
-| `BLENDER_BIN` | Override if Blender isn't on `$PATH` |
-| `TEXTURE_GEN_*` | TBD — defined when the v1 spike picks the tool |
+| `UE_ROOT` | Override if UE 5.8 isn't at the default install path |
+| `BLENDER_BIN` / `BLENDER_APP` | Override if Blender isn't at the default install path |
+| `TEXTURE_GEN_MODELS_DIR` / `HF_HOME` | Local texture model weights location (optional texture models) |
 | `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS notarization (`/build-platform macos` / `/build-platform ios`) |
 | `IOS_PROVISIONING_PROFILE` | iOS builds |
 | `ANDROID_HOME` / `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` | Android builds |

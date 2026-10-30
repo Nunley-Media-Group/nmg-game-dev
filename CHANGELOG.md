@@ -8,6 +8,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Changed
 
+- Steering describes freeform Blender authoring checked by the asset contract, a finalize pipeline (validate → bake → variants → export → re-import → UE import), local AI texture models, scene composition in Unreal, Blender 5.2 and UE 5.8 with Epic's native MCP plus VibeUE, and no Meshy or recipe library.
 - nmg-game-dev is now a Claude Code plugin only, installed from the `nmg-plugins` marketplace: the Codex manifest (`.codex-plugin/`), Codex marketplace (`.agents/`), project Codex config (`.codex/`), and Codex consumer templates are removed; consumers get Claude Code `SessionStart` hooks from `templates/consumer/.claude/settings.json`, and MCP servers from the plugin's bundled `.mcp.json`. Docs, steering, and scaffold tests use Claude Code and `/sdlc-*` command names.
 - Asset generation is freeform Blender authoring checked against an asset contract; the recipe-library plan and the `docs/decisions/` ADRs are removed, and the scaffold contract no longer requires `docs/decisions/`.
 - Project instructions moved from `AGENTS.md` to `CLAUDE.md`; scaffold tests now check the `steering/snippets/` paths.
