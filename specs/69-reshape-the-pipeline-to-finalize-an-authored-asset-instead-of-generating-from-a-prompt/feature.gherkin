@@ -1,0 +1,59 @@
+**Issue**: #69
+**Date**: 2026-10-30
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/30-add-contract-validation-re-import-check-and-review-renders/
+
+# File: tests/bdd/features/finalize.feature, tests/unit/pipeline/**, tests/blender/test_finalize_core.py, tests/e2e/test_finalize_e2e.py
+# Generated from: specs/69-reshape-the-pipeline-to-finalize-an-authored-asset-instead-of-generating-from-a-prompt/requirements.md
+Feature: Finalize an authored asset
+
+  @SCN001
+  Scenario: Finalize runs the six steps from an authored collection
+    Given a collection "Crate" of class "standard_prop" in category "Props"
+    When finalize runs
+    Then the steps validate, bake, variants, export, reimport, and import_ue run in that order
+    And the result lists each step and the UE content paths under /Game/Props/Crate/
+
+  @SCN002
+  Scenario: Long steps run in background Blender and load back
+    Given an open Blender session holding "Crate"
+    When finalize runs from an agent session
+    Then each Blender step runs headless against the checkpoint and reports pollable progress
+    And the baked Crate and Crate_Mobile collections replace the session's copies
+    And a crashed background step fails with "finalize.job_crashed" and leaves the session unchanged
+
+  @SCN003
+  Scenario: A single step runs through the same implementation
+    Given an authoring session holding "Crate"
+    When the agent calls run_finalize_step with step "validate" and wait_seconds 60
+    Then it receives a result with step "validate", cache_hit, outputs, and summary
+
+  @SCN004
+  Scenario: An unchanged finalized asset is served from cache
+    Given "Crate" was finalized and loaded back
+    When finalize runs again without changes
+    Then every step reports cache_hit true and nothing is reimported into UE
+    And after a material change the bake step and every later step run again
+
+  @SCN005
+  Scenario: The UE import completes the materials
+    Given exported Desktop and Mobile folders for "Crate"
+    When the import_ue step runs against UE 5.8
+    Then /Game/Props/Crate/Desktop and /Game/Props/Crate/Mobile hold assets with identical names
+    And T_Crate_Body_N has Flip Green Channel set and MI_Crate_Body sets BaseColor, Normal, and ORM on M_NmgORM
+    And each child part keeps its pivot within 0.01 cm
+
+  @SCN006
+  Scenario: A failing step stops the run before UE import
+    Given "Crate" fails contract validation
+    When finalize runs
+    Then it raises PipelineError "quality.contract_failed" with a remediation
+    And no later step runs and nothing is imported into UE
+
+  @SCN007
+  Scenario: Steering describes freeform authoring plus finalize
+    Given the steering product, tech, and structure snippets
+    When they are scanned
+    Then none contains "new-prop", "new-character", "generate_mesh", or a prompt-to-asset journey
+    And the tech snippet names the finalize job runner, MCP tools, and CLI
