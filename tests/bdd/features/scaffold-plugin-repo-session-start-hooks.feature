@@ -90,10 +90,10 @@ Feature: Scaffold plugin + repo + session-start hooks
 
   Scenario: VERSION and CHANGELOG are seeded (AC7)
     When a developer reads `VERSION` and `CHANGELOG.md`
-    Then `VERSION` contains exactly `0.7.0` followed by a newline
+    Then `VERSION` contains exactly one `X.Y.Z` semver followed by a newline
     And `CHANGELOG.md` has an `## [Unreleased]` section
-    And `.claude-plugin/plugin.json`'s `version` field equals `0.7.0`
-    And `pyproject.toml`'s `project.version` equals `0.7.0`
+    And `.claude-plugin/plugin.json`'s `version` field equals `VERSION`
+    And `pyproject.toml`'s `project.version` equals `VERSION`
 
   # --- MCP config ---
 

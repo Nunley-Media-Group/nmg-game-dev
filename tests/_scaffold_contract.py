@@ -6,7 +6,8 @@ import pathlib
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
-EXPECTED_VERSION = "0.7.0"
+# Derived from VERSION (the versioning source of truth) so release bumps never strand a pin.
+EXPECTED_VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 REQUIRED_SERVERS = ("blender", "unreal")
 
