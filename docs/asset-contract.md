@@ -112,6 +112,13 @@ Environment pieces use the tiling mode and target a texel density of at least
    boxy or primitive-looking shapes where organic ones are expected, attached parts
    that don't sit or connect believably, proportions and real-world scale, texture
    stretching or obvious tiling seams. Fix what you find, then re-render.
-3. **Re-import check**: import the exported FBX into an empty scene and confirm it
+3. **Proof the textures in Blender**: the step 2 renders must use the baked,
+   export-ready materials, not the procedural or authoring materials they replaced.
+   Compare against a render from before baking and check for: baked seams,
+   stretching, or blur; missing or black regions; wrong color space; normal maps
+   that look inverted; roughness or metallic that reads wrong. Fix and re-bake
+   before export.
+4. **Re-import check**: import the exported FBX into an empty scene and confirm it
    still has its base color and normal textures, UVs, scale, orientation, part pivots,
-   and names.
+   and names. Render it with the ORM texture wired in the same way the Unreal import
+   will wire it, and confirm it matches the proofed look.
