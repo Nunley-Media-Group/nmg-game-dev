@@ -254,11 +254,13 @@ The onboarding skill (one of the v1 deliverables) installs these scripts into ea
 
 ### Texture generation interface
 
-Local texture backends (#65) share one interface, used by the agent while authoring and by tests:
+Local texture backends (#7) share one interface, used by the agent while authoring and by tests. Z-Image Turbo and FLUX.2 klein 4B are the only texture models; the registry is closed to others.
 
 ```
-Inputs:  prompt: str, backend: "z-image-turbo" | "flux2-klein-4b" | "both", resolution: int, seed: int | None
-Outputs: seamless albedo PNG paths (+ comparison sheet for "both"); derived normal / roughness / metallic / AO on request
+Inputs:  prompt: str, backend: "z-image-turbo" | "flux2-klein-4b" | "both", resolution: int, seeds: list[int] | None
+Outputs: seamless albedo PNG paths (+ comparison sheet for "both"); derived normal / roughness / metallic / AO on request;
+         written to SourceArt/Textures/Generated/<name>/ (override NMG_GAME_DEV_TEXTURE_DIR)
+Entry:   python -m nmg_game_dev.texture generate (blocking) or the texture-gen MCP tools generate_textures + get_texture_job (start + poll)
 Errors:  TextureGenError with .code and .remediation
 ```
 
@@ -393,6 +395,8 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 | Variable | Purpose |
 |----------|---------|
 | `NMG_GAME_DEV_CACHE_DIR` | Override the generation cache location |
+| `NMG_GAME_DEV_TEXTURE_DIR` | Override the generated-texture root (default `SourceArt/Textures/Generated`) |
+| `TEXTURE_GEN_BLENDER_RESERVE_GB` | RAM kept free for Blender when checking whether a texture model fits (default 8) |
 | `NMG_GAME_DEV_LOG_LEVEL` | `debug` / `info` / `warn` / `error` |
 
 ---
