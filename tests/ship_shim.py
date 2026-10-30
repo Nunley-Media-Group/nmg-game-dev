@@ -4,12 +4,16 @@
 runs ``python ship_shim.py <tool> <args...>``. The shim appends ``{"tool", "argv"}`` to
 ``$NMG_SHIP_FAKE_LOG`` and then behaves like the tool the ship scripts expect:
 
-- ``RunUAT.sh BuildCookRun`` writes the archive and the cooked content the cook-manifest gate reads.
+- ``RunUAT.sh BuildCookRun`` logs ``Parsing command line: <argv>`` as UE 5.8's AutomationTool does,
+  then writes the archive and the cooked content the cook-manifest gate reads. An Android build
+  fails, as ``UEDeployAndroid`` does, when no ``KeyStorePassword`` comes from the command line or
+  the project's ``Config/UserEngine.ini``.
 - ``codesign``, ``security``, ``xcrun``, ``ditto``, ``ssh``, and ``scp`` return canned output.
 
 Failure switches, set in the environment: ``NMG_SHIP_FAKE_UAT_FAIL``,
 ``NMG_SHIP_FAKE_CODESIGN_FAIL``, ``NMG_SHIP_FAKE_NOTARY_FAIL``. ``NMG_SHIP_FAKE_COOK_LEAK`` is a
-relative path written into the cooked output. ``NMG_SHIP_FAKE_IDENTITIES`` replaces the
+relative path written into the cooked output. ``NMG_SHIP_FAKE_UAT_ECHO`` is a line UAT writes to
+stderr. ``NMG_SHIP_FAKE_IDENTITIES`` replaces the
 ``security find-identity`` listing.
 """
 
@@ -68,9 +72,16 @@ def _uat(args: list[str]) -> int:
     if os.environ.get("NMG_SHIP_FAKE_UAT_FAIL"):
         sys.stderr.write("UAT: fake failure\n")
         return 1
+    sys.stdout.write(f"Parsing command line: {' '.join(args)}\n")
+    echo = os.environ.get("NMG_SHIP_FAKE_UAT_ECHO")
+    if echo:
+        sys.stderr.write(f"echo: {echo}\n")
     project = Path(_value(args, "-project="))
     archive = Path(_value(args, "-archivedirectory="))
     platform = _value(args, "-platform=")
+    if platform == "Android" and not _keystore_password(args, project):
+        sys.stderr.write("UEDeployAndroid: KeyStorePassword is not set\n")
+        return 1
     stem = project.stem
     if platform == "Mac":
         cooked, artifact = "Mac", archive / "Mac" / f"{stem}.app" / "Contents" / "MacOS" / stem
@@ -88,6 +99,21 @@ def _uat(args: list[str]) -> int:
     if leak:
         _write(cooked_root / leak, b"leak")
     return 0
+
+
+def _keystore_password(args: list[str], project: Path) -> str:
+    """Return the KeyStorePassword UAT would read from its -ini: overrides or UserEngine.ini."""
+    for arg in args:
+        _, sep, value = arg.partition("KeyStorePassword=")
+        if arg.startswith("-ini:") and sep:
+            return value.split(",")[0]
+    user_ini = project.parent / "Config" / "UserEngine.ini"
+    if user_ini.is_file():
+        for line in user_ini.read_text(encoding="utf-8").splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key.strip() == "KeyStorePassword":
+                return value.strip()
+    return ""
 
 
 def _codesign(args: list[str]) -> int:

@@ -106,10 +106,59 @@ def test_build_android_masks_the_keystore_password_in_output(sandbox: ShipSandbo
     )
     assert result.returncode == 0, result.stderr
     assert "KeyStorePassword=***" in result.stdout
+    assert "Parsing command line:" in result.stdout
     assert _PASSWORD not in result.stdout + result.stderr
     (argv,) = sandbox.calls("RunUAT.sh")
-    assert any(_PASSWORD in arg for arg in argv)
+    assert not any(_PASSWORD in arg for arg in argv)
     assert (archive / "Android" / "Dogfood.aab").is_file()
+    assert not (sandbox.project.parent / "Config" / "UserEngine.ini").exists()
+
+
+def test_build_android_restores_an_existing_user_engine_ini(sandbox: ShipSandbox) -> None:
+    user_ini = sandbox.project.parent / "Config" / "UserEngine.ini"
+    user_ini.parent.mkdir()
+    user_ini.write_text("[/Script/Engine.Engine]\nbUseFixedFrameRate=True\n", encoding="utf-8")
+    original = user_ini.read_text(encoding="utf-8")
+    result = run_script(
+        sandbox,
+        "build-android.sh",
+        "--project",
+        str(sandbox.project),
+        "--archive",
+        str(sandbox.project.parent / "archive"),
+    )
+    assert result.returncode == 0, result.stderr
+    assert user_ini.read_text(encoding="utf-8") == original
+
+
+def test_build_android_restores_user_engine_ini_when_uat_fails(sandbox: ShipSandbox) -> None:
+    result = run_script(
+        sandbox,
+        "build-android.sh",
+        "--project",
+        str(sandbox.project),
+        "--archive",
+        str(sandbox.project.parent / "archive"),
+        extra_env={"NMG_SHIP_FAKE_UAT_FAIL": "1"},
+    )
+    assert result.returncode == 1
+    assert _PASSWORD not in result.stdout + result.stderr
+    assert not (sandbox.project.parent / "Config" / "UserEngine.ini").exists()
+
+
+def test_build_android_redacts_the_password_from_uat_output(sandbox: ShipSandbox) -> None:
+    result = run_script(
+        sandbox,
+        "build-android.sh",
+        "--project",
+        str(sandbox.project),
+        "--archive",
+        str(sandbox.project.parent / "archive"),
+        extra_env={"NMG_SHIP_FAKE_UAT_ECHO": _PASSWORD},
+    )
+    assert result.returncode == 0, result.stderr
+    assert _PASSWORD not in result.stdout + result.stderr
+    assert "echo: ***" in result.stdout
 
 
 def test_build_android_dry_run_shows_the_mask_and_runs_nothing(sandbox: ShipSandbox) -> None:
