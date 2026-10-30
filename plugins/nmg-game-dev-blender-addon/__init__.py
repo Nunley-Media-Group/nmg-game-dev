@@ -5,10 +5,13 @@ import bpy
 from .operators import (
     NMGGAMEDEV_OT_bake_materials,
     NMGGAMEDEV_OT_cleanup_desktop,
+    NMGGAMEDEV_OT_export_rigged,
     NMGGAMEDEV_OT_generate_variants,
+    NMGGAMEDEV_OT_import_animations,
     NMGGAMEDEV_OT_optimize_mobile,
     NMGGAMEDEV_OT_reimport_check,
     NMGGAMEDEV_OT_render_review,
+    NMGGAMEDEV_OT_rig_humanoid,
     NMGGAMEDEV_OT_validate_contract,
 )
 from .panels import NMGGAMEDEV_PT_main_panel
@@ -41,6 +44,9 @@ REGISTER_CLASSES: tuple[type, ...] = (
     NMGGAMEDEV_OT_reimport_check,
     NMGGAMEDEV_OT_render_review,
     NMGGAMEDEV_OT_bake_materials,
+    NMGGAMEDEV_OT_rig_humanoid,
+    NMGGAMEDEV_OT_import_animations,
+    NMGGAMEDEV_OT_export_rigged,
     NMGGAMEDEV_PT_main_panel,
 )
 

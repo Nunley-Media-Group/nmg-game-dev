@@ -18,3 +18,8 @@ ASSET_CLASS_ITEMS: tuple[tuple[str, str, str], ...] = (
 
 def store_last_result(context: bpy.types.Context, result: dict[str, Any]) -> None:
     context.scene.nmg_game_dev.last_result = json.dumps(result, indent=2, sort_keys=True)
+
+
+def store_rig_result(context: bpy.types.Context, result: dict[str, Any]) -> None:
+    """Store a rig_core result exactly as the direct call returned it (sorted keys)."""
+    context.scene.nmg_game_dev.last_result = json.dumps(result, sort_keys=True)

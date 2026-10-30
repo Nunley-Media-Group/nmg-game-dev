@@ -32,6 +32,10 @@ class NMGGAMEDEV_PT_main_panel(bpy.types.Panel):
         layout.operator("nmggamedev.render_review")
         layout.separator()
         layout.operator("nmggamedev.bake_materials")
+        layout.separator()
+        layout.operator("nmggamedev.rig_humanoid")
+        layout.operator("nmggamedev.import_animations")
+        layout.operator("nmggamedev.export_rigged")
 
         if props is not None and props.last_result:
             layout.separator()
@@ -64,4 +68,9 @@ def _summary_lines(raw: str) -> list[str]:
         ]
     if "files" in data:
         return [f"Review renders: {len(data['files'])} file(s)"]
+    if "status" in data:
+        lines = [f"Rig result: {data['status']}"]
+        if "code" in data:
+            lines.append(data["code"])
+        return lines
     return ["Last result: unknown format"]

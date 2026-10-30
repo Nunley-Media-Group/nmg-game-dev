@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Humanoid rigging and animation import in the Blender add-on. `rig_core` builds a deform-only UE5 Mannequin armature `SK_<Name>` from agent-supplied landmarks with automatic weights, retargets clips from a local `library.json` library (FBX or BVH, Mixamo or Manny bones) onto it, and exports a rigged FBX with `nmg-animations.json`. Three operators wrap it: `nmggamedev.rig_humanoid`, `nmggamedev.import_animations`, and `nmggamedev.export_rigged`. Reference: `docs/rigging-and-animation.md`. (#32)
+
 ## [0.11.0] - 2026-10-30
 
 ### Changed
