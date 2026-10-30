@@ -19,6 +19,8 @@ ASSET_CLASSES: Final[tuple[str, ...]] = (
     "environment_piece",
 )
 METRICS: Final[tuple[str, ...]] = ("tris", "max_texture_px", "materials")
+VARIANTS: Final[tuple[str, ...]] = ("desktop", "mobile")
+_DESKTOP_KEY: Final = "desktop"
 
 CONTRACT_BUDGETS: Final[dict[str, dict[str, dict[str, int]]]] = {
     "small_prop": {
@@ -58,25 +60,36 @@ class BudgetOverrideError(ValueError):
         self.remediation = remediation
 
 
-def resolve_budget(asset_class: str, budgets_path: str | Path | None = None) -> dict[str, int]:
-    """Return the Mobile budget for asset_class with nmg-budgets.json overrides merged in.
+def resolve_budget(
+    asset_class: str,
+    budgets_path: str | Path | None = None,
+    variant: str = "mobile",
+) -> dict[str, int]:
+    """Return the budget for asset_class and variant with nmg-budgets.json overrides merged in.
 
-    Always returns a fresh dict, so callers can keep or mutate it safely.
+    Top-level override metrics apply to the Mobile variant (the #33 format). The optional
+    ``desktop`` object applies to the Desktop variant. The default variant stays Mobile so the
+    variants and contract cores keep their existing behavior. Always returns a fresh dict.
     """
     if asset_class not in CONTRACT_BUDGETS:
         raise BudgetOverrideError(
             f"Unknown asset class '{asset_class}'.",
             f"Use one of: {', '.join(ASSET_CLASSES)}.",
         )
-    budget = dict(CONTRACT_BUDGETS[asset_class]["mobile"])
+    if variant not in VARIANTS:
+        raise ValueError(f"variant must be one of {', '.join(VARIANTS)}, got {variant!r}")
+    budget = dict(CONTRACT_BUDGETS[asset_class][variant])
     if not budgets_path:
         return budget
-    overrides = load_overrides(Path(budgets_path))
-    budget.update(overrides.get(asset_class, {}))
+    class_overrides = load_overrides(Path(budgets_path)).get(asset_class, {})
+    if variant == "desktop":
+        budget.update(class_overrides.get(_DESKTOP_KEY, {}))
+    else:
+        budget.update({k: v for k, v in class_overrides.items() if k != _DESKTOP_KEY})
     return budget
 
 
-def load_overrides(path: Path) -> dict[str, dict[str, int]]:
+def load_overrides(path: Path) -> dict[str, dict[str, Any]]:
     """Read and validate an nmg-budgets.json file; every class and metric is checked."""
     try:
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
@@ -98,7 +111,7 @@ def load_overrides(path: Path) -> dict[str, dict[str, int]]:
             'Use the form {"standard_prop": {"tris": 5000}}.',
         )
 
-    overrides: dict[str, dict[str, int]] = {}
+    overrides: dict[str, dict[str, Any]] = {}
     for asset_class, metrics in raw.items():
         if asset_class not in CONTRACT_BUDGETS:
             raise BudgetOverrideError(
@@ -110,19 +123,37 @@ def load_overrides(path: Path) -> dict[str, dict[str, int]]:
                 f"Overrides for '{asset_class}' must be an object of metric to integer.",
                 f'Use the form {{"{asset_class}": {{"tris": 5000}}}}.',
             )
-        checked: dict[str, int] = {}
+        checked: dict[str, Any] = {}
         for metric, value in metrics.items():
-            if metric not in METRICS:
-                raise BudgetOverrideError(
-                    f"Unknown budget metric '{metric}' for '{asset_class}'.",
-                    f"Use one of: {', '.join(METRICS)}.",
-                )
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise BudgetOverrideError(
-                    f"Budget override {asset_class}.{metric} must be a positive integer, "
-                    f"got {value!r}.",
-                    "Set it to a positive whole number.",
-                )
-            checked[metric] = value
+            if metric == _DESKTOP_KEY:
+                if not isinstance(value, dict):
+                    raise BudgetOverrideError(
+                        f"Overrides for '{asset_class}.desktop' must be an object of metric "
+                        "to integer.",
+                        f'Use the form {{"{asset_class}": {{"desktop": {{"tris": 5000}}}}}}.',
+                    )
+                checked[_DESKTOP_KEY] = _checked_metrics(asset_class, value, _DESKTOP_KEY)
+                continue
+            checked.update(_checked_metrics(asset_class, {metric: value}, None))
         overrides[asset_class] = checked
     return overrides
+
+
+def _checked_metrics(
+    asset_class: str, metrics: dict[str, Any], scope: str | None
+) -> dict[str, int]:
+    label = f"{asset_class}.{scope}" if scope else asset_class
+    checked: dict[str, int] = {}
+    for metric, value in metrics.items():
+        if metric not in METRICS:
+            raise BudgetOverrideError(
+                f"Unknown budget metric '{metric}' for '{label}'.",
+                f"Use one of: {', '.join(METRICS)}.",
+            )
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise BudgetOverrideError(
+                f"Budget override {label}.{metric} must be a positive integer, got {value!r}.",
+                "Set it to a positive whole number.",
+            )
+        checked[metric] = value
+    return checked
