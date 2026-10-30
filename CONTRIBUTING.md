@@ -52,7 +52,8 @@ version-managed metadata, and docs together when the contract requires it.
 
 Use the project gates described in `steering/snippets/project-tech.md`, including Python checks,
 BDD scenarios, Blender or Unreal automation where relevant, and version
-consistency across `VERSION`, `.codex-plugin/plugin.json`, Blender metadata,
+consistency across `VERSION`, `.codex-plugin/plugin.json`,
+`.claude-plugin/plugin.json`, Blender metadata,
 Unreal metadata, and `pyproject.toml`.
 
 Consumer-facing behavior should include onboarding or template updates when

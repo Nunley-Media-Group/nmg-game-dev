@@ -64,7 +64,7 @@ def test_plugin_manifest_valid() -> None:
     pass
 
 
-@scenario(FEATURE, "Directory layout matches steering/structure.md (AC2)")
+@scenario(FEATURE, "Directory layout matches steering/snippets/project-structure.md (AC2)")
 def test_directory_layout() -> None:
     pass
 
@@ -109,8 +109,8 @@ def test_mcp_config_pinned() -> None:
     pass
 
 
-@scenario(FEATURE, "AGENTS.md points at steering + SDLC entry (AC9)")
-def test_agents_md_pointers() -> None:
+@scenario(FEATURE, "CLAUDE.md points at steering + SDLC entry (AC9)")
+def test_claude_md_pointers() -> None:
     pass
 
 
@@ -189,9 +189,9 @@ def marketplace_points_local(marketplace_data: dict[str, Any]) -> None:
     assert entry["source"] == {"source": "local", "path": "."}
 
 
-@given("the layout declared in `steering/structure.md` § Project Layout")
+@given("the layout declared in `steering/snippets/project-structure.md` § Project Layout")
 def layout_declared(repo_root: pathlib.Path) -> None:
-    assert (repo_root / "steering" / "structure.md").is_file()
+    assert (repo_root / "steering" / "snippets" / "project-structure.md").is_file()
 
 
 @when("`ls` probes every top-level directory listed there")
@@ -523,9 +523,9 @@ def mcp_no_repo_paths(mcp_text: str) -> None:
     )
 
 
-@given("`AGENTS.md` at the repo root")
-def agents_md_exists(repo_root: pathlib.Path) -> None:
-    assert (repo_root / "AGENTS.md").is_file()
+@given("`CLAUDE.md` at the repo root")
+def claude_md_exists(repo_root: pathlib.Path) -> None:
+    assert (repo_root / "CLAUDE.md").is_file()
 
 
 @when("a new contributor opens the repo")
@@ -534,23 +534,28 @@ def contributor_opens_repo() -> None:
 
 
 @then(
-    "`AGENTS.md` references `steering/product.md`, `steering/tech.md`, and `steering/structure.md`"
+    "`CLAUDE.md` references `steering/snippets/project-product.md`,"
+    " `steering/snippets/project-tech.md`, and `steering/snippets/project-structure.md`"
 )
-def agents_md_references_steering(agents_md_text: str) -> None:
-    for ref in ("steering/product.md", "steering/tech.md", "steering/structure.md"):
-        assert ref in agents_md_text, f"AGENTS.md missing reference to {ref}"
+def claude_md_references_steering(claude_md_text: str) -> None:
+    for ref in (
+        "steering/snippets/project-product.md",
+        "steering/snippets/project-tech.md",
+        "steering/snippets/project-structure.md",
+    ):
+        assert ref in claude_md_text, f"CLAUDE.md missing reference to {ref}"
 
 
 @then("it mentions `$nmg-sdlc:draft-issue` as the SDLC entry point")
-def agents_md_draft_issue(agents_md_text: str) -> None:
-    assert "$nmg-sdlc:draft-issue" in agents_md_text
+def claude_md_draft_issue(claude_md_text: str) -> None:
+    assert "$nmg-sdlc:draft-issue" in claude_md_text
 
 
 @then("it does not duplicate content from any steering document")
-def agents_md_pointer_only(agents_md_text: str) -> None:
-    lines = agents_md_text.splitlines()
+def claude_md_pointer_only(claude_md_text: str) -> None:
+    lines = claude_md_text.splitlines()
     assert len(lines) < 60, (
-        f"AGENTS.md has {len(lines)} lines — may be duplicating steering content"
+        f"CLAUDE.md has {len(lines)} lines — may be duplicating steering content"
     )
 
 

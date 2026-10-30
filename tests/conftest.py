@@ -35,6 +35,13 @@ def plugin_data() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="session")
+def claude_plugin_data() -> dict[str, Any]:
+    with (REPO_ROOT / ".claude-plugin" / "plugin.json").open() as fh:
+        data: dict[str, Any] = json.load(fh)
+    return data
+
+
+@pytest.fixture(scope="session")
 def plugin_text() -> str:
     return (REPO_ROOT / ".codex-plugin" / "plugin.json").read_text()
 
@@ -71,8 +78,8 @@ def changelog_text() -> str:
 
 
 @pytest.fixture(scope="session")
-def agents_md_text() -> str:
-    return (REPO_ROOT / "AGENTS.md").read_text()
+def claude_md_text() -> str:
+    return (REPO_ROOT / "CLAUDE.md").read_text()
 
 
 @pytest.fixture(scope="session")

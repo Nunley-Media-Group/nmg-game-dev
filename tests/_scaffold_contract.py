@@ -13,6 +13,7 @@ FLOATING_VERSION_REFS = ("latest", "main", "HEAD")
 
 REQUIRED_DIRS = (
     ".agents/plugins",
+    ".claude-plugin",
     ".codex-plugin",
     "plugins/nmg-game-dev-blender-addon",
     "plugins/nmg-game-dev-ue-plugin",
@@ -59,6 +60,7 @@ GITKEEP_DIRS = (
 )
 
 CONSUMER_FACING = (
+    ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     ".agents/plugins/marketplace.json",
     "scripts/start-blender-mcp.sh",
@@ -72,8 +74,6 @@ CONSUMER_FACING = (
 BANNED_SUBSTRINGS = (
     "~/.cla" "ude/plugins/",
     ".cla" "ude/plugins/",
-    ".cla" "ude-plugin",
-    "CLA" "UDE.md",
     "Cla" "ude Code",
 )
 
