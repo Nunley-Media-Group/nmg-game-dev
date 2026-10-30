@@ -1,0 +1,44 @@
+**Issue**: #64
+**Date**: 2026-10-29
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/unit/pipeline/test_run.py, tests/unit/pipeline/test_no_meshy.py, tests/unit/test_scaffold_guards.py, tests/bdd/features/pipeline_*.feature
+# Generated from: specs/64-remove-meshy-from-the-pipeline-mcp-config-and-steering/requirements.md
+Feature: Remove Meshy from the pipeline and MCP config
+
+  @SCN001
+  Scenario: Blender is the only pipeline source
+    Given a valid prompt and MCP clients with only Blender and Unreal fakes
+    When pipeline.run is called with source "blender"
+    Then all six stages run in order and a PipelineResult is returned
+
+  @SCN002
+  Scenario Outline: Non-Blender sources are rejected
+    Given a valid prompt and MCP client fakes
+    When pipeline.run is called with source "<source>"
+    Then it raises PipelineError "pipeline.unsupported_source" whose remediation names "blender"
+    And no MCP fake was called and no cache entry was written
+
+    Examples:
+      | source |
+      | meshy  |
+      | other  |
+
+  @SCN003
+  Scenario: Meshy client types are gone
+    Given the nmg_game_dev.pipeline package
+    When it is imported
+    Then McpClients has no meshy field, MeshyMcp and generate_meshy do not exist, Server is "blender" | "unreal", and Source is "blender"
+
+  @SCN004
+  Scenario: The MCP configuration has no Meshy server
+    Given the repo .mcp.json
+    When the scaffold guard tests run
+    Then only the blender and unreal servers are declared and no MESHY_API_KEY or meshy-mcp-server text appears
+
+  @SCN005
+  Scenario: Steering does not offer Meshy as a source
+    Given the steering snippets
+    When the guard test scans them
+    Then none contains "--source meshy", 'source="meshy"', "meshy-mcp-server", or "MESHY_API_KEY"
