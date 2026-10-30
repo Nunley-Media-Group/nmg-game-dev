@@ -7,9 +7,11 @@
 # defaults to "upload". The keystore password never goes on UAT's command line, which UAT logs at
 # startup. For the run only, it goes into the project's Config/UserEngine.ini, the last config
 # layer UE reads; the file's previous state is restored on exit. UAT's output is also redacted, and
-# the password shows as *** in every printed line.
-# Exit 0 on success, 1 when UAT fails, 2 on bad arguments, a missing variable, or a missing
-# RunUAT.sh, each with a Remediation: line. --dry-run runs nothing and exits 0. UE_ROOT overrides
+# the password shows as *** in every printed line. The block sits between BEGIN and END
+# nmg-game-dev ship markers, so every run (dry or real) first removes a block that a killed or
+# crashed run left behind. In a git repo, a real run refuses to write the file unless git ignores it.
+# Exit 0 on success, 1 when UAT fails, 2 on bad arguments, a missing variable, a missing RunUAT.sh,
+# or a UserEngine.ini that git tracks or does not ignore, each with a Remediation: line. --dry-run runs nothing and exits 0. UE_ROOT overrides
 # the engine location.
 set -euo pipefail
 
@@ -78,7 +80,26 @@ if (( ! dry_run )); then
 fi
 
 section="[/Script/AndroidRuntimeSettings.AndroidRuntimeSettings]"
-user_ini="$(dirname "$project")/Config/UserEngine.ini"
+project_dir="$(dirname "$project")"
+user_ini="${project_dir}/Config/UserEngine.ini"
+begin_marker="; BEGIN nmg-game-dev ship"
+end_marker="; END nmg-game-dev ship"
+
+# Remove a password block that an interrupted run left behind, then delete the file if nothing else
+# was in it.
+if [[ -f "$user_ini" ]] && grep -qxF -- "$begin_marker" "$user_ini"; then
+  stripped="$(mktemp "${TMPDIR:-/tmp}/nmg-user-engine.XXXXXX")"
+  awk -v begin="$begin_marker" -v end="$end_marker" \
+    '$0 == begin { skip = 1; next } skip && $0 == end { skip = 0; next } !skip' \
+    "$user_ini" >"$stripped"
+  if [[ -s "$stripped" ]]; then
+    cat "$stripped" >"$user_ini"
+    rm -f "$stripped"
+  else
+    rm -f "$stripped" "$user_ini"
+  fi
+  printf 'Removed a KeyStorePassword block left in %s by an interrupted ship run.\n' "$user_ini"
+fi
 cmd=(
   "$runuat" BuildCookRun
   "-project=${project}" -platform=Android -clientconfig=Shipping
@@ -93,6 +114,17 @@ if (( dry_run )); then
   show "DRY-RUN:" "write ${section} KeyStorePassword=*** to ${user_ini} for the run"
   show "DRY-RUN:" "${cmd[@]}"
   exit 0
+fi
+
+if git -C "$project_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if git -C "$project_dir" ls-files --error-unmatch -- Config/UserEngine.ini >/dev/null 2>&1; then
+    die 2 "Run 'git rm --cached Config/UserEngine.ini', add Config/UserEngine.ini to the project's .gitignore, then rerun." \
+      "Config/UserEngine.ini is tracked by git; the ship will not write the keystore password into it"
+  fi
+  if ! git -C "$project_dir" check-ignore -q -- Config/UserEngine.ini; then
+    die 2 "Add Config/UserEngine.ini to the project's .gitignore, then rerun." \
+      "Config/UserEngine.ini is not ignored by git; the ship will not write the keystore password into it"
+  fi
 fi
 
 backup=""
@@ -125,8 +157,12 @@ rm -f "$user_ini"
   {
     if [[ -n "$backup" ]]; then
       cat "$backup"
+      # Keep the block on its own lines so a leftover cleanup restores the file exactly.
+      if [[ -s "$backup" && -n "$(tail -c 1 "$backup")" ]]; then
+        printf '\n'
+      fi
     fi
-    printf '\n%s\nKeyStorePassword=%s\n' "$section" "$password"
+    printf '%s\n%s\nKeyStorePassword=%s\n%s\n' "$begin_marker" "$section" "$password" "$end_marker"
   } >"$user_ini"
 )
 

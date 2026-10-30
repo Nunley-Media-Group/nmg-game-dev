@@ -47,7 +47,7 @@ Each target needs its own group. The ship names every missing variable and never
 | `MACOS_SIGNING_IDENTITY` | optional, macos | Pins the codesign identity by name |
 | `IOS_PROVISIONING_PROFILE` | ios | Path to the `.mobileprovision` file |
 | `ANDROID_KEYSTORE` | android | Path to the upload keystore |
-| `ANDROID_KEYSTORE_PASSWORD` | android | Keystore password. Kept off UAT's command line: written to the project's `Config/UserEngine.ini` for the run only and restored afterwards; shown as `***` and redacted from UAT output |
+| `ANDROID_KEYSTORE_PASSWORD` | android | Keystore password. Kept off UAT's command line: written to the project's `Config/UserEngine.ini` for the run only, between `; BEGIN nmg-game-dev ship` and `; END nmg-game-dev ship` markers, and restored afterwards. Every run removes a marked block an interrupted run left behind. In a git repo, a real run stops unless git ignores `Config/UserEngine.ini`: add it to the project's `.gitignore`. Shown as `***` and redacted from UAT output |
 | `ANDROID_KEYSTORE_ALIAS` | optional, android | Defaults to `upload` |
 | `WINDOWS_BUILD_HOST`, `WINDOWS_BUILD_USER` | windows | SSH target |
 | `WINDOWS_BUILD_SSH_KEY` | windows | Path to the SSH private key |

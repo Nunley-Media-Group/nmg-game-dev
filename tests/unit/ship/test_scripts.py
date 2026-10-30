@@ -6,7 +6,10 @@ write the outputs the scripts expect.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from tests.ship_fakes import ShipSandbox, run_script
 
@@ -144,6 +147,102 @@ def test_build_android_restores_user_engine_ini_when_uat_fails(sandbox: ShipSand
     assert result.returncode == 1
     assert _PASSWORD not in result.stdout + result.stderr
     assert not (sandbox.project.parent / "Config" / "UserEngine.ini").exists()
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_build_android_removes_a_block_left_by_an_interrupted_run(
+    sandbox: ShipSandbox, dry_run: bool
+) -> None:
+    user_ini = sandbox.project.parent / "Config" / "UserEngine.ini"
+    user_ini.parent.mkdir()
+    original = "[/Script/Engine.Engine]\nbUseFixedFrameRate=True\n"
+    user_ini.write_text(
+        original + "; BEGIN nmg-game-dev ship\n"
+        "[/Script/AndroidRuntimeSettings.AndroidRuntimeSettings]\n"
+        "KeyStorePassword=leftover-secret\n"
+        "; END nmg-game-dev ship\n",
+        encoding="utf-8",
+    )
+    args = ["--project", str(sandbox.project), "--archive", str(sandbox.project.parent / "archive")]
+    result = run_script(sandbox, "build-android.sh", *args, *(["--dry-run"] if dry_run else []))
+    assert result.returncode == 0, result.stderr
+    assert "left in" in result.stdout
+    assert "leftover-secret" not in result.stdout + result.stderr
+    assert user_ini.read_text(encoding="utf-8") == original
+
+
+def test_build_android_deletes_a_user_engine_ini_holding_only_a_leftover_block(
+    sandbox: ShipSandbox,
+) -> None:
+    user_ini = sandbox.project.parent / "Config" / "UserEngine.ini"
+    user_ini.parent.mkdir()
+    user_ini.write_text(
+        "; BEGIN nmg-game-dev ship\nKeyStorePassword=leftover-secret\n; END nmg-game-dev ship\n",
+        encoding="utf-8",
+    )
+    result = run_script(
+        sandbox,
+        "build-android.sh",
+        "--project",
+        str(sandbox.project),
+        "--archive",
+        str(sandbox.project.parent / "archive"),
+        "--dry-run",
+    )
+    assert result.returncode == 0, result.stderr
+    assert not user_ini.exists()
+
+
+def _git(sandbox: ShipSandbox, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(sandbox.project.parent), *args],
+        env=sandbox.env,
+        capture_output=True,
+        check=True,
+    )
+
+
+@pytest.mark.parametrize("tracked", [True, False])
+def test_build_android_refuses_a_user_engine_ini_git_would_commit(
+    sandbox: ShipSandbox, tracked: bool
+) -> None:
+    _git(sandbox, "init", "-q")
+    user_ini = sandbox.project.parent / "Config" / "UserEngine.ini"
+    if tracked:
+        user_ini.parent.mkdir()
+        user_ini.write_text("[/Script/Engine.Engine]\n", encoding="utf-8")
+        _git(sandbox, "add", "Config/UserEngine.ini")
+    result = run_script(
+        sandbox,
+        "build-android.sh",
+        "--project",
+        str(sandbox.project),
+        "--archive",
+        str(sandbox.project.parent / "archive"),
+    )
+    assert result.returncode == 2
+    assert ".gitignore" in result.stderr
+    assert "Remediation:" in result.stderr
+    assert not sandbox.invoked("RunUAT.sh")
+    if tracked:
+        assert user_ini.read_text(encoding="utf-8") == "[/Script/Engine.Engine]\n"
+    else:
+        assert not user_ini.exists()
+
+
+def test_build_android_writes_a_user_engine_ini_git_ignores(sandbox: ShipSandbox) -> None:
+    _git(sandbox, "init", "-q")
+    (sandbox.project.parent / ".gitignore").write_text("Config/UserEngine.ini\n", encoding="utf-8")
+    result = run_script(
+        sandbox,
+        "build-android.sh",
+        "--project",
+        str(sandbox.project),
+        "--archive",
+        str(sandbox.project.parent / "archive"),
+    )
+    assert result.returncode == 0, result.stderr
+    assert sandbox.invoked("RunUAT.sh")
 
 
 def test_build_android_redacts_the_password_from_uat_output(sandbox: ShipSandbox) -> None:
