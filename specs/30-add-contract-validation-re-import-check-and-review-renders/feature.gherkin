@@ -1,0 +1,65 @@
+**Issue**: #30
+**Date**: 2026-10-29
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_contract_*.py and tests/unit/quality/test_contract_gate.py (scenarios map 1:1 to tests)
+# Generated from: specs/30-add-contract-validation-re-import-check-and-review-renders/requirements.md
+Feature: Contract validation, re-import check, and review renders
+
+  @SCN001
+  Scenario: Validation reports every checkable contract rule
+    Given a compliant "Crate" asset collection of class "standard_prop"
+    When contract validation runs
+    Then the report passes with snapshots for every object and no findings
+
+  @SCN002
+  Scenario Outline: Each failure class is detected
+    Given a "Crate" fixture with <defect>
+    When contract validation runs
+    Then the report fails with rule "<rule>" naming the affected object or material and a remediation
+
+    Examples:
+      | defect                                   | rule                   |
+      | an unapplied root rotation               | transform.root_applied |
+      | an origin away from bottom center        | pivot.bottom_center    |
+      | no UV map                                | uv.single_map          |
+      | overlapping UVs                          | uv.overlap             |
+      | a Noise Texture material                 | material.node_types    |
+      | Position-driven texture coordinates      | material.uv_coordinates |
+      | a 4000-triangle Mobile LOD0              | budget.tris            |
+      | a Mobile name that differs from Desktop  | variants.names_match   |
+
+  @SCN003
+  Scenario: The re-import check compares exported FBX against the pre-export report
+    Given an exported Crate variant folder and its pre-export report
+    When the re-import check runs in a fresh headless Blender
+    Then it passes
+    When T_Crate_Body_BC.png is deleted and the check runs again
+    Then it fails with rule "reimport.texture_missing" naming the file
+
+  @SCN004
+  Scenario: Review renders are written to a known folder
+    Given "Crate" and "Crate_Mobile" collections
+    When review renders run into an output folder
+    Then front, back, side, and three_quarter PNGs exist for desktop and mobile
+    And the user's scenes are unchanged
+
+  @SCN005
+  Scenario: The texture proof sheet compares baked, re-imported, and pre-bake looks
+    Given an exported Crate variant folder and a pre-bake render
+    When the texture proof runs
+    Then Crate_proof.png shows the pre-bake, baked, and re-imported renders side by side
+
+  @SCN006
+  Scenario: The gate helper stops finalize on failure
+    Given a failing contract report and a failing re-import report
+    When gate runs on each
+    Then it raises "quality.contract_failed" and "quality.reimport_mismatch" with the findings and report
+
+  @SCN007
+  Scenario: One implementation is reachable from operators and the CLI
+    Given the add-on is enabled
+    When validate_contract runs as an operator and as a direct contract_core call on the same asset
+    Then both reports are identical
+    And the contract CLI exits 2 with a remediation when Blender can't be found
