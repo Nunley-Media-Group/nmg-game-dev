@@ -16,6 +16,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Added
 
+- Steering registers required verification gates: pytest (unit + BDD), ruff, and mypy on every change; `claude plugin validate .` and a plugin-session smoke on plugin-surface changes. The smoke (`steering/extensions/plugin-session-smoke.mjs`) starts `claude --plugin-dir <checkout>` in a Herdr tab inside an ephemeral project, with the installed `nmg-game-dev@nmg-plugins` turned off for that session only, and passes when the plugin's Blender MCP server connects.
 - `README.md` with install instructions, and `repository`/`keywords` in `.claude-plugin/plugin.json`.
 - `docs/asset-contract.md`: what "done" means for any Blender-generated asset (layout, pivots, UVs, FBX-safe materials, Desktop/Mobile variants, budgets, export, validation).
 - `.claude-plugin/plugin.json` so nmg-game-dev also installs as a Claude Code plugin; version-managed alongside `.codex-plugin/plugin.json`.

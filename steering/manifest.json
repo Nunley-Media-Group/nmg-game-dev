@@ -80,6 +80,122 @@
       "order": 500
     }
   ],
-  "extensions": [],
-  "validations": []
+  "extensions": [
+    {
+      "id": "project.plugin-session-smoke",
+      "path": "steering/extensions/plugin-session-smoke.mjs",
+      "providers": [
+        "project.plugin-session-smoke"
+      ]
+    }
+  ],
+  "validations": [
+    {
+      "id": "repository.tests",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "always"
+      },
+      "config": {
+        "program": "uv",
+        "args": [
+          "run",
+          "pytest",
+          "tests/unit",
+          "tests/bdd",
+          "-q"
+        ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
+      "id": "repository.lint",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "always"
+      },
+      "config": {
+        "program": "uv",
+        "args": [
+          "run",
+          "ruff",
+          "check",
+          "."
+        ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
+      "id": "repository.types",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "always"
+      },
+      "config": {
+        "program": "uv",
+        "args": [
+          "run",
+          "mypy",
+          "src",
+          "tests"
+        ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
+      "id": "plugin.validate",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "changed_paths",
+        "include": [
+          ".claude-plugin/**",
+          ".mcp.json",
+          "skills/**",
+          "agents/**",
+          "commands/**",
+          "hooks/**",
+          "templates/consumer/**"
+        ]
+      },
+      "config": {
+        "program": "claude",
+        "args": [
+          "plugin",
+          "validate",
+          "."
+        ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
+      "id": "plugin.session-smoke",
+      "provider": "project.plugin-session-smoke",
+      "required": true,
+      "when": {
+        "kind": "changed_paths",
+        "include": [
+          ".claude-plugin/**",
+          ".mcp.json",
+          "skills/**",
+          "agents/**",
+          "commands/**",
+          "hooks/**",
+          "templates/consumer/**"
+        ]
+      },
+      "config": {
+        "expectConnected": [
+          "blender"
+        ]
+      }
+    }
+  ]
 }
