@@ -90,17 +90,17 @@ Feature: Scaffold plugin + repo + session-start hooks
 
   Scenario: VERSION and CHANGELOG are seeded (AC7)
     When a developer reads `VERSION` and `CHANGELOG.md`
-    Then `VERSION` contains exactly `0.5.0` followed by a newline
+    Then `VERSION` contains exactly `0.6.0` followed by a newline
     And `CHANGELOG.md` has an `## [Unreleased]` section
-    And `.claude-plugin/plugin.json`'s `version` field equals `0.5.0`
-    And `pyproject.toml`'s `project.version` equals `0.5.0`
+    And `.claude-plugin/plugin.json`'s `version` field equals `0.6.0`
+    And `pyproject.toml`'s `project.version` equals `0.6.0`
 
   # --- MCP config ---
 
   Scenario: MCP server config is pinned and dual-purpose (AC8)
     Given `.mcp.json` at the repo root
     When the file is parsed
-    Then it declares three pinned MCP server entries: `blender` (ahujasid/blender-mcp), `unreal` (VibeUE), and `meshy`
+    Then it declares two pinned MCP server entries: `blender` (ahujasid/blender-mcp) and `unreal` (VibeUE)
     And every server entry carries a pinned version — no `latest`, `main`, or `HEAD` substring appears
     And the file contains no this-repo-specific absolute paths (usable verbatim by `onboard-consumer` in a consumer project)
 

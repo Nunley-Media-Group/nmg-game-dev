@@ -143,12 +143,11 @@ class TestQualityStage:
         prompt: Prompt,
         fake_blender: Any,
         fake_unreal: Any,
-        fake_meshy: Any,
         tmp_path: Path,
     ) -> None:
         from nmg_game_dev.pipeline.stages._base import McpClients
 
-        clients = McpClients(blender=fake_blender, unreal=fake_unreal, meshy=fake_meshy)
+        clients = McpClients(blender=fake_blender, unreal=fake_unreal)
         ctx = StageContext(
             prompt=prompt,
             upstream_artifact=_variants_artifact(tmp_path),
@@ -158,4 +157,3 @@ class TestQualityStage:
         quality(ctx)
         assert fake_blender.call_count == 0
         assert fake_unreal.call_count == 0
-        assert fake_meshy.call_count == 0

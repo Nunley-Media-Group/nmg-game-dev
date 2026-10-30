@@ -165,27 +165,6 @@ class FakeUnrealMcp:
         return len(self.import_asset_calls)
 
 
-class FakeMeshyMcp:
-    """Scripted fake for the MeshyMcp Protocol used in pipeline tests."""
-
-    def __init__(self, tmp_path: Path) -> None:
-        self._tmp = tmp_path
-        self.generate_side_effect: Exception | None = None
-        self.generate_calls: list[str] = []
-
-    def generate(self, prompt: str, **_kwargs: object) -> dict[str, object]:
-        if self.generate_side_effect is not None:
-            raise self.generate_side_effect
-        self.generate_calls.append(prompt)
-        out = self._tmp / f"meshy_out_{len(self.generate_calls)}.fbx"
-        out.write_bytes(b"FAKE_MESHY_MESH")
-        return {"output_path": str(out)}
-
-    @property
-    def call_count(self) -> int:
-        return len(self.generate_calls)
-
-
 @pytest.fixture()
 def fake_blender(tmp_path: Path) -> FakeBlenderMcp:
     """Scripted Blender MCP fake."""
@@ -199,29 +178,11 @@ def fake_unreal(tmp_path: Path) -> FakeUnrealMcp:
 
 
 @pytest.fixture()
-def fake_meshy(tmp_path: Path) -> FakeMeshyMcp:
-    """Scripted Meshy MCP fake."""
-    return FakeMeshyMcp(tmp_path)
-
-
-@pytest.fixture()
 def fake_mcp_clients(
     fake_blender: FakeBlenderMcp,
     fake_unreal: FakeUnrealMcp,
-    fake_meshy: FakeMeshyMcp,
 ) -> Any:
-    """McpClients DI container populated with scripted fakes (all three MCPs)."""
+    """McpClients DI container populated with scripted fakes (Blender + Unreal)."""
     from nmg_game_dev.pipeline.stages._base import McpClients
 
-    return McpClients(blender=fake_blender, unreal=fake_unreal, meshy=fake_meshy)
-
-
-@pytest.fixture()
-def fake_mcp_clients_no_meshy(
-    fake_blender: FakeBlenderMcp,
-    fake_unreal: FakeUnrealMcp,
-) -> Any:
-    """McpClients DI container without a Meshy client (Blender-first pipelines)."""
-    from nmg_game_dev.pipeline.stages._base import McpClients
-
-    return McpClients(blender=fake_blender, unreal=fake_unreal, meshy=None)
+    return McpClients(blender=fake_blender, unreal=fake_unreal)

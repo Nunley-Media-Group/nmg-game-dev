@@ -6,9 +6,9 @@ import pathlib
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
-EXPECTED_VERSION = "0.5.0"
+EXPECTED_VERSION = "0.6.0"
 
-REQUIRED_SERVERS = ("blender", "unreal", "meshy")
+REQUIRED_SERVERS = ("blender", "unreal")
 FLOATING_VERSION_REFS = ("latest", "main", "HEAD")
 
 REQUIRED_DIRS = (
@@ -66,9 +66,9 @@ CONSUMER_FACING = (
 
 # Legacy Codex host artifacts must not reappear in consumer-facing deliverables.
 BANNED_SUBSTRINGS = (
-    ".cod" "ex/",
-    "cod" "ex_hooks",
-    "Cod" "ex",
+    ".cod" + "ex/",
+    "cod" + "ex_hooks",
+    "Cod" + "ex",
 )
 
 # start-unreal-mcp.sh legitimately references $PWD/fixtures/dogfood.uproject as a

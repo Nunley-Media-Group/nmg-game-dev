@@ -16,7 +16,7 @@ from typing import Literal
 
 from ..errors import PipelineError
 
-Server = Literal["blender", "unreal", "meshy"]
+Server = Literal["blender", "unreal"]
 
 _REMEDIATION: dict[Server, str] = {
     "blender": (
@@ -26,10 +26,6 @@ _REMEDIATION: dict[Server, str] = {
     "unreal": (
         "Ensure UE Editor is running with the VibeUE plugin enabled. "
         "Run scripts/start-unreal-mcp.sh to launch it."
-    ),
-    "meshy": (
-        "Ensure MESHY_API_KEY is set and the Meshy MCP server is reachable. "
-        "Check .mcp.json for the correct server version pin."
     ),
 }
 

@@ -2,7 +2,7 @@
 
 E2E tests are gated behind ``pytest --runslow`` so that the default
 ``pytest tests/`` run skips the full-stack suite (which requires a running
-Blender + UE + Meshy environment).
+Blender + UE environment).
 
 Usage::
 
@@ -20,7 +20,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--runslow",
         action="store_true",
         default=False,
-        help="Run slow end-to-end tests that require live Blender + UE + Meshy.",
+        help="Run slow end-to-end tests that require live Blender + UE.",
     )
 
 

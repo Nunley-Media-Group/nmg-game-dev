@@ -48,16 +48,15 @@ class TestCleanupStage:
         assert artifact.stage == "cleanup"
         assert artifact.blob_path.suffix == ".fbx" or artifact.blob_path.exists() or True
 
-    def test_only_calls_blender_not_meshy(
+    def test_calls_blender(
         self,
         prompt: Prompt,
         upstream: StageArtifact,
         fake_blender: Any,
         fake_unreal: Any,
-        fake_meshy: Any,
         tmp_path: Path,
     ) -> None:
-        clients = McpClients(blender=fake_blender, unreal=fake_unreal, meshy=fake_meshy)
+        clients = McpClients(blender=fake_blender, unreal=fake_unreal)
         ctx = StageContext(
             prompt=prompt,
             upstream_artifact=upstream,
@@ -66,7 +65,6 @@ class TestCleanupStage:
         )
         cleanup(ctx)
         assert fake_blender.call_count == 1
-        assert fake_meshy.call_count == 0
 
     def test_mcp_error_raises_pipeline_error(
         self,

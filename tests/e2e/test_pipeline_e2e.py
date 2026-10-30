@@ -1,10 +1,9 @@
-"""End-to-end pipeline tests against live Blender + UE + Meshy MCPs.
+"""End-to-end pipeline tests against live Blender + UE MCPs.
 
 These tests are gated behind ``pytest --runslow`` and require:
 
 - Blender running with the MCP add-on (``scripts/start-blender-mcp.sh``).
 - UE Editor running with the VibeUE plugin (``scripts/start-unreal-mcp.sh``).
-- ``MESHY_API_KEY`` set in the environment (for Meshy-supplement tests).
 - A fixture UE project reachable at the path expected by the UE MCP bridge.
 
 The fixture prompt is loaded from ``tests/e2e/fixtures/fixture_prompt.json``.
@@ -20,7 +19,6 @@ FR10: E2E is "Should" (not Must) per requirements.md, and is gated behind
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -65,26 +63,6 @@ def test_blender_first_e2e(fixture_prompt: Prompt, tmp_path: Path) -> None:
 
     # Lazy import: real MCP client construction is a follow-up issue.
     # For now, this test documents the call site.
-    pytest.skip(
-        "Real MCP client loader is a follow-up issue — "
-        "pass mcp_clients= manually when clients are available."
-    )
-
-
-@pytest.mark.slow
-@pytest.mark.xfail(
-    reason="Fixture UE project not yet wired — out of scope for #4.",
-    strict=False,
-)
-def test_meshy_supplement_e2e(fixture_prompt: Prompt, tmp_path: Path) -> None:
-    """Full Meshy-supplement pipeline against live Meshy + Blender + UE MCPs.
-
-    Requires ``MESHY_API_KEY`` in the environment.
-    """
-    meshy_key = os.environ.get("MESHY_API_KEY")
-    if not meshy_key:
-        pytest.skip("MESHY_API_KEY not set — Meshy e2e skipped")
-
     pytest.skip(
         "Real MCP client loader is a follow-up issue — "
         "pass mcp_clients= manually when clients are available."

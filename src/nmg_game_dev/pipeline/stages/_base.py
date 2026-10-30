@@ -55,25 +55,12 @@ class UnrealMcp(Protocol):
         ...
 
 
-class MeshyMcp(Protocol):
-    """Minimum surface of the Meshy MCP client that stages call."""
-
-    def generate(self, prompt: str, **kwargs: object) -> dict[str, object]:
-        """Trigger Meshy asset generation and return the result dict."""
-        ...
-
-
 @dataclass(frozen=True)
 class McpClients:
-    """Immutable container of pre-configured MCP client instances.
-
-    ``meshy`` is optional because Blender-first runs do not require it.
-    Pass ``meshy=None`` (the default) for Blender-source pipelines.
-    """
+    """Immutable container of pre-configured MCP client instances."""
 
     blender: BlenderMcp
     unreal: UnrealMcp
-    meshy: MeshyMcp | None = None
 
 
 _HASH_CHUNK_BYTES = 1 << 20  # 1 MiB — streams 4K textures / hero meshes without RAM spikes
