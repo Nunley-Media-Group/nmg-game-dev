@@ -106,6 +106,27 @@ Environment pieces use the tiling mode and target a texel density of at least
   <Category>/<Name>/Mobile/SM_<Name>.fbx  + T_*.png
   ```
 
+### Rigged characters
+
+A character rigged with `rig_humanoid` (see
+`docs/rigging-and-animation.md`) exports one FBX that carries its armature and
+every baked clip:
+
+- The armature `SK_<Name>` sits at the world origin with identity transforms and
+  lives in collection `<Name>`.
+- The root mesh `SM_<Name>` is parented to `SK_<Name>` through an Armature
+  modifier. Every vertex has a non-zero weight on at least one deform bone.
+- The deform bones are the 26 UE5 Mannequin bones, in the Mannequin parent
+  hierarchy. The rig has no leaf, finger, twist, or helper bones.
+- The FBX holds the armature and each baked clip as an action. The armature is
+  named `Armature` inside the FBX, so it does not add an extra root bone.
+- `nmg-animations.json` sits beside the FBX. It lists each clip's name, frame
+  range, frame count, fps, and source (library, file, SHA-256, skeleton).
+
+The rig export writes `SM_<Name>.fbx` into the folder you give it. Placing it in
+the `Desktop/` or `Mobile/` layout is the finalize step's job (#69). A Mobile
+variant of a rigged character belongs to #33.
+
 ## 8. Before you say it's done
 
 1. **Validate** in Blender with a script and report the numbers: objects in the
