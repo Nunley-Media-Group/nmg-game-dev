@@ -35,8 +35,8 @@ resolve_blender() {
 BLENDER="$(resolve_blender)"
 readonly BLENDER
 
-# bpy.ops.blender_mcp.start_server() is a placeholder — the Blender MCP add-on's
-# concrete operator name lands with issue #2; see design.md § Open Questions.
+# ahujasid/blender-mcp add-on registers BLENDERMCP_OT_StartServer as
+# bpy.ops.blendermcp.start_server().
 BOOTSTRAP_PY="$(cat <<'PYEOF'
 import bpy
 import addon_utils
@@ -46,6 +46,7 @@ import sys
 override = os.environ.get("BLENDER_MCP_ADDON_OVERRIDE", "")
 candidates = [c for c in override.split(",") if c]
 candidates += [
+    "blender-mcp-addon",
     "bl_ext.user_default.blender_mcp",
     "bl_ext.user_default.blender-mcp",
     "blender_mcp",
@@ -68,7 +69,7 @@ if not enabled:
 
 def _start() -> None:
     try:
-        bpy.ops.blender_mcp.start_server()  # type: ignore[attr-defined]
+        bpy.ops.blendermcp.start_server()  # type: ignore[attr-defined]
     except Exception as exc:
         sys.stderr.write(f"blender_mcp: failed to start server: {exc}\n")
 
