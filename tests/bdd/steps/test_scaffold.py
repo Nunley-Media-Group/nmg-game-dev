@@ -477,7 +477,7 @@ def reads_version_files() -> None:
     pass
 
 
-@then("`VERSION` contains exactly `0.6.0` followed by a newline")
+@then("`VERSION` contains exactly `0.7.0` followed by a newline")
 def version_content(version_text: str) -> None:
     assert version_text == f"{EXPECTED_VERSION}\n"
 
@@ -487,12 +487,12 @@ def changelog_unreleased(changelog_text: str) -> None:
     assert "## [Unreleased]" in changelog_text
 
 
-@then("`.claude-plugin/plugin.json`'s `version` field equals `0.6.0`")
+@then("`.claude-plugin/plugin.json`'s `version` field equals `0.7.0`")
 def plugin_json_version(plugin_data: dict[str, Any]) -> None:
     assert plugin_data["version"] == EXPECTED_VERSION
 
 
-@then("`pyproject.toml`'s `project.version` equals `0.6.0`")
+@then("`pyproject.toml`'s `project.version` equals `0.7.0`")
 def pyproject_version(pyproject_data: dict[str, Any]) -> None:
     assert pyproject_data["project"]["version"] == EXPECTED_VERSION
 

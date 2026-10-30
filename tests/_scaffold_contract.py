@@ -6,7 +6,7 @@ import pathlib
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
-EXPECTED_VERSION = "0.6.0"
+EXPECTED_VERSION = "0.7.0"
 
 REQUIRED_SERVERS = ("blender", "unreal")
 
