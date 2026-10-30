@@ -111,18 +111,38 @@ Environment pieces use the tiling mode and target a texel density of at least
    collection, transforms, origin position and dimensions, UV map count/name,
    material node types, triangle counts per variant, texture sizes.
    Any rule above that fails is a blocker, not a footnote.
+   Standard tool: the contract validator, `nmggamedev.validate_contract` in the add-on
+   panel, or `python -m nmg_game_dev.contract validate --blend <file> --collection <Name>
+   --class <class> --report <json>`. It writes a JSON report (`passed`, one finding per
+   violated rule, per-object snapshots); a failing report exits 1.
 2. **Review the look** by rendering the asset from front, back, side, and three-quarter
    views. Critique each image against: parts floating or poking through each other,
    boxy or primitive-looking shapes where organic ones are expected, attached parts
    that don't sit or connect believably, proportions and real-world scale, texture
    stretching or obvious tiling seams. Fix what you find, then re-render.
+   Standard tool: `nmggamedev.render_review` in the add-on panel, or
+   `python -m nmg_game_dev.contract render --blend <file> --collection <Name> --out <dir>`.
+   Renders land in `<dir>/<variant>/<Name>_{front,back,side,three_quarter}.png`
+   (`desktop` and `mobile`). Every view uses the same camera distance and lighting, and
+   the open scenes are left unchanged.
 3. **Proof the textures in Blender**: the step 2 renders must use the baked,
    export-ready materials, not the procedural or authoring materials they replaced.
    Compare against a render from before baking and check for: baked seams,
    stretching, or blur; missing or black regions; wrong color space; normal maps
    that look inverted; roughness or metallic that reads wrong. Fix and re-bake
    before export.
+   Standard tool: pass the exported variant folder and the pre-bake render to the
+   same `nmggamedev.render_review` operator, or to `python -m nmg_game_dev.contract
+   render --blend <file> --collection <Name> --out <dir> --proof-variant-dir <variant
+   folder> --pre-bake <png>`. It writes
+   `<dir>/<variant>/<Name>_proof.png`, with the pre-bake, baked, and re-imported renders
+   side by side and labeled.
 4. **Re-import check**: import the exported FBX into an empty scene and confirm it
    still has its base color and normal textures, UVs, scale, orientation, part pivots,
    and names. Render it with the ORM texture wired in the same way the Unreal import
    will wire it, and confirm it matches the proofed look.
+   Standard tool: `nmggamedev.reimport_check`, or `python -m nmg_game_dev.contract
+   reimport --variant-dir <dir> --pre-report <validate report> --report <json>`. It
+   imports the FBX in a fresh headless Blender and compares it with the report written
+   before export, using the `reimport.*` rules. A missing texture fails with
+   `reimport.texture_missing` and names the file.

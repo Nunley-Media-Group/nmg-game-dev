@@ -60,13 +60,16 @@ def test_naming_contract_operators(enabled_addon: str) -> None:
             and getattr(cls, "bl_idname", "").startswith("nmggamedev.")
         )
     ]
-    assert len(nmg_ops) == 3, (
-        f"Expected exactly 3 nmggamedev.* operators, found {len(nmg_ops)}: {nmg_ops}"
+    assert len(nmg_ops) == 6, (
+        f"Expected exactly 6 nmggamedev.* operators, found {len(nmg_ops)}: {nmg_ops}"
     )
     expected = {
         "nmggamedev.cleanup_desktop",
         "nmggamedev.optimize_mobile",
         "nmggamedev.generate_variants",
+        "nmggamedev.validate_contract",
+        "nmggamedev.reimport_check",
+        "nmggamedev.render_review",
     }
     found_idnames = {getattr(bpy.types, name).bl_idname for name in nmg_ops}
     assert found_idnames == expected, (
