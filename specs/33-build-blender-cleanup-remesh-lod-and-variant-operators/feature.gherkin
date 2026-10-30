@@ -1,0 +1,63 @@
+**Issue**: #33
+**Date**: 2026-10-29
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_variants.py (Blender headless; scenarios map 1:1 to tests)
+# Generated from: specs/33-build-blender-cleanup-remesh-lod-and-variant-operators/requirements.md
+Feature: Blender cleanup, decimate, LOD, and variant operators
+
+  Background:
+    Given a collection "Crate" with root mesh "SM_Crate" of about 12000 triangles
+    And material "M_Crate_Body" uses baked 2048 px BC, N, and ORM images
+
+  @SCN001
+  Scenario: Desktop and Mobile variants are exported with identical names
+    When generate_variants runs for "Crate" in category "Props" with class "standard_prop"
+    Then Props/Crate/Desktop/SM_Crate.fbx and Props/Crate/Mobile/SM_Crate.fbx exist with their PNG textures
+    And re-importing each FBX yields "SM_Crate" and "M_Crate_Body" with no "_Mobile" suffix
+
+  @SCN002
+  Scenario: Desktop cleanup preserves quality
+    Given "SM_Crate" has duplicate vertices, a loose vertex, a zero-area face, and flipped normals
+    When cleanup_desktop runs on "Crate"
+    Then the degenerate geometry is removed and normals point outward
+    And no decimation happened and Desktop textures stay 2048 px
+
+  @SCN003
+  Scenario: The Mobile variant is decimated to budget with two LODs
+    When optimize_mobile runs on "Crate" with class "standard_prop"
+    Then "Crate_Mobile" has a LodGroup empty with LOD0, LOD1, and LOD2 meshes
+    And LOD0 has at most 3000 triangles and LOD1 and LOD2 have at most 50% and 25% of LOD0
+    And the Mobile textures are 1024 px
+
+  @SCN004
+  Scenario: Sidecars record metrics and budget settings
+    When generate_variants runs for "Crate"
+    Then nmg-variants.json records the class, budget, paths, per-LOD triangles, LOD levels, texture bytes, and material counts
+    And Mobile/nmg-asset.json has class, tris, max_texture_px, and materials
+    And the result includes desktop_path, mobile_path, poly counts, and texture byte totals
+
+  @SCN005
+  Scenario: Results are deterministic
+    When generate_variants runs twice into separate export roots
+    Then both nmg-variants.json files are equal apart from paths
+
+  @SCN006
+  Scenario: Budget overrides apply
+    Given an nmg-budgets.json setting standard_prop tris to 5000
+    When optimize_mobile runs on "Crate" with that budgets file
+    Then LOD0 has at most 5000 triangles and the applied budget shows 5000
+
+  @SCN007
+  Scenario: Unsupported inputs fail with a remediation
+    Given "M_Crate_Body" uses a Noise Texture node
+    When generate_variants runs for "Crate"
+    Then the operator is cancelled with "variants.unbaked_material" naming "M_Crate_Body" and a remediation
+    And no FBX or sidecar is written
+
+  @SCN008
+  Scenario: Processing is local
+    Given network sockets are blocked
+    When generate_variants runs for "Crate"
+    Then it finishes successfully
