@@ -1,5 +1,8 @@
 # templates/consumer — Consumer-onboarding templates
 
+Onboarding guide for consumer projects: [`docs/onboarding/index.md`](../../docs/onboarding/index.md).
+The `onboard-consumer` skill installs these templates (see `skills/onboard-consumer/SKILL.md`).
+
 This directory contains files that are **templates for consumer game projects**,
 not configuration used by `nmg-game-dev` itself.
 

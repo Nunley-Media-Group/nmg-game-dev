@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nmg-game-dev"
-version = "0.13.0"
+version = "0.14.0"
 description = "Blender-first, Unreal-shipped content pipeline for NMG games"
 readme = "CLAUDE.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]
 license = { text = "Proprietary" }
-dependencies = ["pydantic>=2,<3"]
+dependencies = ["pydantic>=2,<3", "numpy==2.4.6", "pillow==13.0.0"]
 
 [project.optional-dependencies]
 dev = [
@@ -18,6 +18,11 @@ dev = [
   "pytest-bdd>=7",
   "ruff>=0.4",
   "mypy>=1.10",
+]
+# Local texture generation (#7). Only the worker process imports mflux; core installs and CI skip it.
+texture-ai = [
+  "mflux==0.24.0",
+  "hf_transfer==0.1.9",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -48,6 +53,11 @@ exclude = ["tests/blender/"]
 module = ["_scaffold_contract"]
 ignore_missing_imports = true
 
+# mflux and mlx come from the optional texture-ai extra and are imported only by texture/worker.py.
+[[tool.mypy.overrides]]
+module = ["mflux", "mflux.*", "mlx", "mlx.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
@@ -55,6 +65,7 @@ bdd_features_base_dir = "tests/bdd/features"
 
 [dependency-groups]
 dev = [
+    "mcp==1.30.0",
     "mypy>=1.20.2",
     "pytest>=9.0.3",
     "pytest-bdd>=8.1.0",

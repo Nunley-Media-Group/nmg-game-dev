@@ -13,6 +13,7 @@ plugin, a Blender add-on, and a UE plugin. Install from the `nmg-plugins` market
 - **Code organization**: `steering/snippets/project-structure.md`
 - **Asset contract**: `docs/asset-contract.md`
 - **Start a new unit of work**: `/sdlc-draft-issue`
+- **Consumer onboarding (install into a game project)**: `docs/onboarding/index.md`
 
 ## What this file is
 
@@ -30,7 +31,7 @@ repo-root `.claude/settings.json` registering those hooks — this repo is a lib
 not a game.
 
 The consumer template lives at `templates/consumer/.claude/settings.json` and is
-installed into downstream projects by `/onboard-consumer` (a future v1 issue).
+installed into downstream projects by `/onboard-consumer` (see `docs/onboarding/index.md`).
 
 <!-- nmg-sdlc-managed: spec-context -->
 ## nmg-sdlc Spec Context

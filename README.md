@@ -36,6 +36,11 @@ default install paths.
 
 ## Consumer game projects
 
+Start with [`docs/onboarding/index.md`](docs/onboarding/index.md): run `/onboard-consumer` in your
+game project, then follow the first-asset and first-ship guides.
+
+
+
 Game projects run `scripts/start-blender-mcp.sh` and `scripts/start-unreal-mcp.sh` as
 Claude Code `SessionStart` hooks so Blender and Unreal are up when a session starts. The
 hook template is [`templates/consumer/.claude/settings.json`](templates/consumer/.claude/settings.json);
