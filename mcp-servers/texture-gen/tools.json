@@ -1,0 +1,41 @@
+{
+  "server": "texture-gen",
+  "tools": [
+    {
+      "name": "generate_textures",
+      "description": "Start a background texture job and return its job_id at once. backend is z-image-turbo, flux2-klein-4b, or both. Poll get_texture_job(job_id) for progress and the PNG paths.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "prompt": {"type": "string"},
+          "backend": {"type": "string", "enum": ["z-image-turbo", "flux2-klein-4b", "both"], "default": "flux2-klein-4b"},
+          "seeds": {"type": ["array", "null"], "items": {"type": "integer"}},
+          "resolution": {"type": "integer", "default": 1024},
+          "name": {"type": ["string", "null"]},
+          "maps": {"type": ["string", "null"], "enum": ["fabric", "wood", "stone", "plastic", "metal", null]},
+          "ao": {"type": "boolean", "default": false}
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "name": "get_texture_job",
+      "description": "Return a texture job's state: queued, running (completed/total), succeeded (with PNG paths and timings), or failed (with code, message, and remediation).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": {"type": "string"}
+        },
+        "required": ["job_id"]
+      }
+    },
+    {
+      "name": "texture_backends",
+      "description": "Report each texture backend as available, not_installed, unsupported_platform, or insufficient_memory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

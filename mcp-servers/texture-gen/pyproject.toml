@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "texture-gen-mcp"
+version = "0.1.0"
+description = "texture-gen MCP server: local seamless texture generation with the two pinned mflux models (#7)"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Nunley Media Group" }]
+dependencies = ["mcp==1.30.0", "nmg-game-dev[texture-ai]"]
+
+[project.scripts]
+texture-gen-mcp = "texture_gen_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/texture_gen_mcp"]
+
+[tool.uv.sources]
+# The texture package ships in the repository root package (src/nmg_game_dev).
+nmg-game-dev = { path = "../..", editable = true }

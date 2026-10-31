@@ -6,6 +6,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Consumer onboarding: `/onboard-consumer` runs `python -m nmg_game_dev.onboard install` to install the start scripts and SessionStart hooks, the asset contract, the nmg-game-dev and VibeUE Unreal plugins (pinned), the Blender add-on link, and the two local texture models into a game project. Re-runs are idempotent and report drift; `--refresh` repairs it. Reference: `docs/onboarding/index.md`. (#7)
+- Local texture generation: `python -m nmg_game_dev.texture generate` and the `texture-gen` MCP server generate seamless albedo with the pinned Z-Image Turbo and FLUX.2 klein 4B models, derive normal, roughness, metallic, and AO maps, and write to `SourceArt/Textures/Generated/<name>/`. Reference: `docs/onboarding/texture-models.md`. (#7)
+
 ## [0.13.0] - 2026-10-30
 
 ### Added
