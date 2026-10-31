@@ -1,0 +1,37 @@
+**Issue**: #105
+**Date**: 2026-10-31
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/98-add-optional-meshy-model-generation-and-retexturing-through-the-meshy-api/
+
+# File: tests/blender/test_meshy_session.py (SCN001–SCN003), tests/bdd/features/meshy.feature (SCN004)
+# Generated from: specs/105-normalize-meshy-glb-imports-to-a-welded-mesh-with-the-origin-at-the-bottom-center/requirements.md
+Feature: Meshy GLB imports arrive welded, bottom-centered, and smooth-shaded
+
+  @SCN001
+  Scenario: Seam-split vertices are welded
+    Given a GLB of a UV-seamed cube whose exporter split its vertices at the seams
+    When import_glb imports it as "Crate"
+    Then SM_Crate is one connected island
+    And its face count, per-corner UVs, and material slots match the source cube
+
+  @SCN002
+  Scenario: The origin is at the bottom center
+    Given a GLB of a cube placed at (2, 3, 4)
+    When import_glb imports it as "Crate"
+    Then SM_Crate has identity location, rotation, and scale
+    And its bounding box X and Y center and minimum Z are within 0.001 m of 0
+
+  @SCN003
+  Scenario: Custom normals are replaced by smoothing by angle
+    Given a GLB of a cube with custom split normals
+    When import_glb imports it as "Crate"
+    Then SM_Crate has no custom split normals
+    And its faces are smooth with edges sharper than 30 degrees marked sharp
+    And every face normal points away from the cube's center
+
+  @SCN004
+  Scenario: The import and job results report the normalization
+    Given a Meshy generate job whose session import succeeds
+    When the job finishes
+    Then the import result and the job result carry merged_vertices and origin_offset
