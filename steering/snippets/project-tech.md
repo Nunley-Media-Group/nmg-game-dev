@@ -108,12 +108,12 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 | `.claude-plugin/plugin.json` | `version` | Claude Code plugin manifest |
 | `plugins/nmg-game-dev-blender-addon/blender_manifest.toml` | `version` | Blender extension manifest |
 | `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` | `VersionName` | UE plugin manifest |
-| `pyproject.toml` | `project.version` | Python tooling package |
 
 ### Path Syntax
 
 - **JSON files**: dot-notation (e.g., `version`, `packages.mylib.version`).
 - **TOML files**: dot-notation matching TOML keys (e.g., `project.version`).
+- **`pyproject.toml` `project.version`**: not listed — the version is `dynamic`, and hatchling derives it from `VERSION` (`[tool.hatch.version] path = "VERSION"`). No bump rewrites it, and no lockfile records it.
 - **Plain text**: `line:N` or omit Path if the whole file is the version.
 - **Blender add-on `bl_info.version`**: not listed — `__init__.py` derives it from `VERSION` at import time via `utils.version.version_tuple()`, so it never needs rewriting.
 
@@ -389,7 +389,7 @@ Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` not
 | `UE_MCP_PORT` / `BLENDER_MCP_PORT` | Override the MCP endpoint ports (defaults 8000 and 9876) |
 | `BLENDER_BIN` / `BLENDER_APP` | Override if Blender isn't at the default install path |
 | `TEXTURE_GEN_MODELS_DIR` / `HF_HOME` | Local texture model weights location (optional texture models) |
-| `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS notarization (`/build-platform macos` / `/build-platform ios`) |
+| `NOTARIZATION_KEYCHAIN_PROFILE` (preferred), or `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS notarization (`/build-platform macos` / `/build-platform ios`) |
 | `IOS_PROVISIONING_PROFILE` | iOS builds |
 | `ANDROID_HOME` / `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` | Android builds |
 | `WINDOWS_BUILD_HOST` / `_USER` / `_SSH_KEY` / `WINDOWS_REMOTE_PROJECT_PATH` | Windows remote builds |

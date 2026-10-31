@@ -389,6 +389,68 @@ def test_notarize_missing_team_exits_2_naming_the_variable(sandbox: ShipSandbox)
     assert "placeholder-app-password" not in result.stderr
 
 
+_APPLE_ID_PAIR_AND_TEAM = (
+    "NOTARIZATION_APPLE_ID",
+    "NOTARIZATION_APP_SPECIFIC_PASSWORD",
+    "NOTARIZATION_TEAM_ID",
+)
+
+
+def test_notarize_keychain_profile_submits_with_no_apple_id_or_password(
+    sandbox: ShipSandbox,
+) -> None:
+    app = sandbox.project.parent / "archive" / "Mac" / "Dogfood.app"
+    app.mkdir(parents=True)
+    result = run_script(
+        sandbox,
+        "notarize-macos.sh",
+        str(app),
+        extra_env={"NOTARIZATION_KEYCHAIN_PROFILE": "nmg-notary"},
+        without=_APPLE_ID_PAIR_AND_TEAM,
+    )
+    assert result.returncode == 0, result.stderr
+    (submit,) = [call for call in sandbox.calls("xcrun") if call[:2] == ["notarytool", "submit"]]
+    assert submit[submit.index("--keychain-profile") + 1] == "nmg-notary"
+    assert "--wait" in submit
+    assert "--apple-id" not in submit
+    assert "--password" not in submit
+    assert "--keychain-profile nmg-notary" in result.stdout
+    assert ["stapler", "staple", str(app)] in sandbox.calls("xcrun")
+    assert "WARNING" not in result.stderr
+    assert "placeholder-app-password" not in result.stdout + result.stderr
+
+
+def test_notarize_password_path_still_submits_and_warns_about_arguments(
+    sandbox: ShipSandbox,
+) -> None:
+    app = sandbox.project.parent / "archive" / "Mac" / "Dogfood.app"
+    app.mkdir(parents=True)
+    result = run_script(sandbox, "notarize-macos.sh", str(app))
+    assert result.returncode == 0, result.stderr
+    assert "WARNING: the app-specific password is visible in process arguments" in result.stderr
+    assert "NOTARIZATION_KEYCHAIN_PROFILE" in result.stderr
+    assert "placeholder-app-password" not in result.stdout + result.stderr
+    (submit,) = [call for call in sandbox.calls("xcrun") if call[:2] == ["notarytool", "submit"]]
+    assert submit[submit.index("--apple-id") + 1] == "ship-test@example.invalid"
+    assert submit[submit.index("--password") + 1] == "placeholder-app-password"
+    assert submit[submit.index("--team-id") + 1] == "SMOKE00000"
+
+
+def test_notarize_dry_run_with_keychain_profile_submits_nothing(sandbox: ShipSandbox) -> None:
+    app = sandbox.project.parent / "archive" / "Mac" / "Dogfood.app"
+    result = run_script(
+        sandbox,
+        "notarize-macos.sh",
+        str(app),
+        "--dry-run",
+        extra_env={"NOTARIZATION_KEYCHAIN_PROFILE": "nmg-notary"},
+        without=_APPLE_ID_PAIR_AND_TEAM,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "DRY-RUN: notarization pass (no submission)" in result.stdout
+    assert sandbox.calls() == []
+
+
 def test_verify_cook_manifest_passes_a_clean_directory(sandbox: ShipSandbox) -> None:
     cooked = sandbox.project.parent / "cooked"
     (cooked / "Content" / "Shared").mkdir(parents=True)

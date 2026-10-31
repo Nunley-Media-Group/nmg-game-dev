@@ -41,8 +41,9 @@ Each target needs its own group. The ship names every missing variable and never
 
 | Variable | Needed by | Purpose |
 |---|---|---|
-| `NOTARIZATION_APPLE_ID` | macos | Apple ID for notarytool |
-| `NOTARIZATION_APP_SPECIFIC_PASSWORD` | macos | App-specific password (never printed) |
+| `NOTARIZATION_KEYCHAIN_PROFILE` | macos (recommended) | Name of a profile saved with `xcrun notarytool store-credentials`. notarytool reads the credentials from the keychain, so no secret appears in its arguments. Set it, and the Apple ID and app-specific password are not needed |
+| `NOTARIZATION_APPLE_ID` | macos, without the profile | Apple ID for notarytool |
+| `NOTARIZATION_APP_SPECIFIC_PASSWORD` | macos, without the profile | App-specific password (never printed). Without the profile it is passed in notarytool's arguments, where it is visible in process arguments while notarytool runs; the ship warns before it submits. Set `NOTARIZATION_KEYCHAIN_PROFILE` to avoid this |
 | `NOTARIZATION_TEAM_ID` | macos | Team that owns the signing identity |
 | `MACOS_SIGNING_IDENTITY` | optional, macos | Pins the codesign identity by name |
 | `IOS_PROVISIONING_PROFILE` | ios | Path to the `.mobileprovision` file |

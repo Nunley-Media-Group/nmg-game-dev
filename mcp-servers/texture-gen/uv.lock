@@ -1489,7 +1489,6 @@ wheels = [
 
 [[package]]
 name = "nmg-game-dev"
-version = "0.13.0"
 source = { editable = "../../" }
 dependencies = [
     { name = "numpy" },

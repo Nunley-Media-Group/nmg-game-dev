@@ -8,6 +8,7 @@ scripts/blender/contract_entry.py and reads back the report it writes.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 from collections.abc import Mapping
@@ -20,7 +21,9 @@ from mathutils import Vector
 from .report import ContractError, build_report, finding
 from .validate import export_name, object_snapshot, triangle_count
 
-ENTRY_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "blender" / "contract_entry.py"
+CHECKOUT_ENTRY_SCRIPT = (
+    Path(__file__).resolve().parents[3] / "scripts" / "blender" / "contract_entry.py"
+)
 DIMENSION_TOLERANCE = 1e-3
 PIVOT_TOLERANCE = 1e-4
 _DIMENSION_FLOOR = 1e-6
@@ -79,19 +82,34 @@ def reimport_check(
     return build_report("reimport", asset, pre["class"], findings, actual_snapshot)
 
 
+def entry_script() -> Path:
+    """Return the headless entry script: CLAUDE_PLUGIN_ROOT first, then the add-on's checkout.
+
+    A copied or zip-installed add-on sits outside a framework checkout, so CLAUDE_PLUGIN_ROOT
+    names the framework root that supplies scripts/blender/contract_entry.py.
+    """
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
+    plugin_entry = Path(plugin_root) / "scripts" / "blender" / "contract_entry.py"
+    if plugin_root and plugin_entry.is_file():
+        return plugin_entry
+    if CHECKOUT_ENTRY_SCRIPT.is_file():
+        return CHECKOUT_ENTRY_SCRIPT
+    tried = plugin_entry if plugin_root else "CLAUDE_PLUGIN_ROOT (unset)"
+    raise ContractError(
+        "reimport.entry_missing",
+        f"Neither {tried} nor {CHECKOUT_ENTRY_SCRIPT} exists.",
+        "Set CLAUDE_PLUGIN_ROOT to the framework root that contains "
+        "scripts/blender/contract_entry.py, or run the re-import check from a framework checkout.",
+    )
+
+
 def run_isolated(
     variant_dir: str | Path,
     pre_report: str | Path | Mapping[str, Any],
     report_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run reimport_check in a fresh headless Blender process and return the report it writes."""
-    if not ENTRY_SCRIPT.is_file():
-        raise ContractError(
-            "reimport.entry_missing",
-            f"{ENTRY_SCRIPT} does not exist.",
-            "Run the re-import check from a checkout that contains scripts/blender/"
-            "contract_entry.py.",
-        )
+    entry = entry_script()
     workdir = Path(tempfile.mkdtemp(prefix="nmg_reimport_"))
     pre_path = _pre_report_file(pre_report, workdir)
     out = Path(report_path) if report_path is not None else workdir / "reimport-report.json"
@@ -102,7 +120,7 @@ def run_isolated(
         "--background",
         "--factory-startup",
         "--python",
-        str(ENTRY_SCRIPT),
+        str(entry),
         "--",
         "reimport",
         "--variant-dir",
