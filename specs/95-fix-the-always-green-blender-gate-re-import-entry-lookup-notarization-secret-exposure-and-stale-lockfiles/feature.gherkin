@@ -1,0 +1,68 @@
+**Issue**: #95
+**Date**: 2026-10-30
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/6-ship-skills-per-platform-build-sign-notarize-package/
+
+# File: tests/bdd/features/release_tooling_fixes.feature (SCN001, SCN004–SCN008), tests/blender/test_reimport_entry.py (SCN002–SCN003)
+# Generated from: specs/95-fix-the-always-green-blender-gate-re-import-entry-lookup-notarization-secret-exposure-and-stale-lockfiles/requirements.md
+Feature: Release and ship tooling report failures, find their entry scripts, keep secrets out of argv, and keep lockfiles in sync
+
+  @SCN001 @regression
+  Scenario: The Blender gate fails when a Blender test fails
+    Given a Blender test suite with one failing test
+    When scripts/run-blender-tests.sh runs against it
+    Then it exits non-zero
+    And it exits 0 against a suite whose tests all pass
+
+  @SCN002 @regression
+  Scenario: Re-import finds the entry script through CLAUDE_PLUGIN_ROOT
+    Given the add-on is not inside a framework checkout
+    And CLAUDE_PLUGIN_ROOT names a framework root containing scripts/blender/contract_entry.py
+    When the re-import check starts
+    Then it launches that entry script instead of raising reimport.entry_missing
+
+  @SCN003 @regression
+  Scenario: Re-import falls back to the checkout and names CLAUDE_PLUGIN_ROOT when nothing is found
+    Given CLAUDE_PLUGIN_ROOT is unset or names a root without the entry script
+    When the re-import check starts from an add-on inside a framework checkout
+    Then it uses the checkout's entry script
+    And with neither location holding the script it raises reimport.entry_missing whose remediation names CLAUDE_PLUGIN_ROOT
+
+  @SCN004 @regression
+  Scenario: Notarization with a keychain profile keeps secrets out of argv
+    Given NOTARIZATION_KEYCHAIN_PROFILE is set and the Apple ID and app-specific password are unset
+    When scripts/notarize-macos.sh runs on a signed app
+    Then notarytool is called with --keychain-profile and the profile name
+    And notarytool is called without --apple-id or --password
+
+  @SCN005 @regression
+  Scenario: The password path still submits and warns
+    Given NOTARIZATION_KEYCHAIN_PROFILE is unset and the Apple ID, app-specific password and team ID are set
+    When scripts/notarize-macos.sh runs on a signed app
+    Then notarytool is called with the Apple ID, password and team ID as before
+    And the password does not appear in the output
+    And a warning says the password is visible in process arguments and names NOTARIZATION_KEYCHAIN_PROFILE
+
+  @SCN006 @regression
+  Scenario: A version bump leaves every lockfile in sync
+    Given copies of the root and both MCP sub-projects with their committed lockfiles
+    When VERSION changes to a new semver value
+    Then uv lock --check passes in the root and in both MCP sub-projects
+    And the installed nmg-game-dev package reports the new version
+
+  @SCN007 @regression
+  Scenario: Lock drift is reported with the project name
+    Given a project whose pyproject.toml no longer matches its lockfile
+    When the lockfile check runs
+    Then it fails and names that project as needing uv lock
+
+  @SCN008 @regression
+  Scenario: Existing ship and MCP server behavior is preserved
+    Given the committed finalize and texture-gen MCP sub-projects
+    When each server module is resolved through uv run --project as a consumer launches it
+    Then both import successfully
+    And notarize-macos.sh --dry-run submits nothing
+
+# Change History
+# | #95 | 2026-10-30 | Initial defect scenarios |
