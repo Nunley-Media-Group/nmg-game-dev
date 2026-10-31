@@ -40,6 +40,8 @@ class FinalizeResult(BaseModel):
         mobile_content_path: ``/Game/<Category>/<Name>/Mobile`` under the same condition.
         loaded_back: ``True`` when the baked collections replaced the session's copies.
         result_blend: The last mutating step's ``.blend``, used for load-back.
+        warnings: Non-fatal problems, each ``{"code", "message", "remediation"}``.  The job still
+            succeeds.  For example, ``design.backlog_update_failed``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -49,3 +51,4 @@ class FinalizeResult(BaseModel):
     mobile_content_path: str | None = None
     loaded_back: bool = False
     result_blend: str | None = None
+    warnings: list[dict[str, str]] = Field(default_factory=list)

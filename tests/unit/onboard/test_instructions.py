@@ -1,10 +1,11 @@
-"""The marked CLAUDE.md / AGENTS.md block is added once and replaced in place (#7 FR4, AC1, AC8)."""
+"""The marked CLAUDE.md / AGENTS.md block is added once and replaced in place (#7 FR4, AC1, AC8;
+#112 FR8, AC7)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from nmg_game_dev.onboard.instructions import BEGIN, END, upsert_block
+from nmg_game_dev.onboard.instructions import BEGIN, END, block_text, upsert_block
 
 
 def test_claude_md_is_created_when_missing(tmp_path: Path) -> None:
@@ -14,6 +15,24 @@ def test_claude_md_is_created_when_missing(tmp_path: Path) -> None:
     text = target.read_text()
     assert text.count(BEGIN) == 1 and text.count(END) == 1
     assert "docs/nmg-game-dev/asset-contract.md" in text
+
+
+def test_block_links_the_design_contract_and_design_dir() -> None:
+    """AC7: the block links docs/nmg-game-dev/design-contract.md and docs/design/, inside the
+    markers."""
+    text = block_text()
+    assert text.startswith(f"{BEGIN}\n") and text.endswith(f"\n{END}")
+    assert "](docs/nmg-game-dev/design-contract.md)" in text
+    assert "](docs/design/)" in text
+
+
+def test_claude_md_created_with_block_links_both_design_paths(tmp_path: Path) -> None:
+    target = tmp_path / "CLAUDE.md"
+    upsert_block("agent_instructions:CLAUDE.md", target, create=True)
+    text = target.read_text()
+    assert text.count("](docs/nmg-game-dev/design-contract.md)") == 1
+    assert text.count("](docs/design/)") == 1
+    assert text.count(BEGIN) == 1 and text.count(END) == 1
 
 
 def test_block_is_appended_once_and_keeps_existing_text(tmp_path: Path) -> None:

@@ -26,11 +26,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
+from nmg_game_dev.design import backlog as design_backlog
+
 from .blender_proc import StepRunner, SubprocessStepRunner
 from .cache import ArtifactCache, default_cache_root
 from .engine import FinalizeClients, FinalizeSessionChangedError, execute
 from .errors import PipelineError
 from .request import FinalizeRequest
+from .result import FinalizeResult
 from .steps import STEP_ORDER
 
 Launcher = Callable[[Path], int]
@@ -190,11 +193,36 @@ def run_job(
             },
         )
     else:
+        result = _mark_backlog(request, steps, result)
         current.update(state="succeeded", result=result.model_dump(mode="json"), progress=1.0)
     finally:
         _write_json(job_dir / "status.json", current)
         _release_lock(job_dir.parent, pid=os.getpid())
     return current
+
+
+def _mark_backlog(
+    request: FinalizeRequest, steps: tuple[str, ...], result: FinalizeResult
+) -> FinalizeResult:
+    """Mark the request's design-backlog entry ``finalized`` after a full successful run (#112).
+
+    Only a run of every step marks the entry, so ``run_finalize_step`` never does.  A failed
+    backlog write adds a ``design.backlog_update_failed`` warning and does not fail the job.
+    """
+    if request.backlog_path is None or steps != STEP_ORDER:
+        return result
+    try:
+        design_backlog.mark(request.backlog_path, request.collection, "finalized")
+    except (OSError, ValueError) as error:
+        warning = {
+            "code": "design.backlog_update_failed",
+            "message": f"{request.collection} was finalized, but its design backlog entry was not "
+            f"marked finalized in {request.backlog_path}: {error}",
+            "remediation": "Check that docs/design/backlog.json is writable, then run "
+            "`python -m nmg_game_dev.design sync`.",
+        }
+        return result.model_copy(update={"warnings": [*result.warnings, warning]})
+    return result
 
 
 #: Child processes this interpreter started.  Kept so a finished child is reaped and not mistaken

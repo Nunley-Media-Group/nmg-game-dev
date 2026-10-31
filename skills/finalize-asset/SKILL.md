@@ -19,8 +19,11 @@ never sends a bake, variant, or export through a Blender MCP call.
 
 1. Confirm that the collection `<Name>` exists in the open Blender session, or that a saved `.blend`
    is available. Confirm `category` (PascalCase) and `asset_class` (`small_prop`, `standard_prop`,
-   `hero_prop`, `character`, or `environment_piece`). If one is missing, stop with an error that names
-   it. Do not guess a category or class.
+   `hero_prop`, `character`, or `environment_piece`). When either is omitted, both come from the design
+   backlog (`docs/design/backlog.json`): the asset entry whose `asset_name` is `<Name>` supplies them,
+   and explicit values win. A successful `finalize_asset` marks that entry `finalized`. If one is
+   missing and no backlog entry supplies it, stop with an error that names it. Do not guess a category
+   or class.
 2. Call `finalize_asset` with `collection`, `category`, `asset_class`, and `export_root`. Add `blend`
    or `budgets_path` when they apply. Pass `force: true` only when the developer asks to rerun every
    step. Pass `wait_seconds: 150` so a small asset returns its result in the same call.

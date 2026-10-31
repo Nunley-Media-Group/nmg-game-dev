@@ -31,9 +31,9 @@ def _logged(response: dict[str, Any]) -> dict[str, Any]:
 @mcp.tool(name="finalize_asset")
 def finalize_asset(
     collection: str,
-    category: str,
-    asset_class: str,
     export_root: str,
+    category: str | None = None,
+    asset_class: str | None = None,
     blend: str | None = None,
     budgets_path: str | None = None,
     force: bool = False,
@@ -62,9 +62,9 @@ def finalize_asset(
 def run_finalize_step(
     step: str,
     collection: str,
-    category: str,
-    asset_class: str,
     export_root: str,
+    category: str | None = None,
+    asset_class: str | None = None,
     blend: str | None = None,
     budgets_path: str | None = None,
     force: bool = False,

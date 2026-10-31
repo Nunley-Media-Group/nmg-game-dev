@@ -16,7 +16,7 @@
           "force": {"type": "boolean", "default": false},
           "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
         },
-        "required": ["collection", "category", "asset_class", "export_root"]
+        "required": ["collection", "export_root"]
       }
     },
     {
@@ -35,7 +35,7 @@
           "force": {"type": "boolean", "default": false},
           "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
         },
-        "required": ["step", "collection", "category", "asset_class", "export_root"]
+        "required": ["step", "collection", "export_root"]
       }
     },
     {

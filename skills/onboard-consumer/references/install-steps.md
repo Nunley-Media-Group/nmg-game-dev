@@ -11,7 +11,7 @@ unchanged unless `--refresh` is given.
 |-------|--------------|
 | One `.uproject` at the root, or `--uproject` names one | `onboard.uproject_not_found`, `onboard.uproject_ambiguous` |
 | `--models-dir`, or `TEXTURE_GEN_MODELS_DIR` | `onboard.models_dir_missing` |
-| Framework sources present (start scripts, asset contract, hook template, UE plugin, Blender manifest) | `onboard.framework_incomplete` |
+| Framework sources present (start scripts, asset contract, design contract, hook template, UE plugin, Blender manifest) | `onboard.framework_incomplete` |
 | `git` on PATH | `onboard.git_missing` |
 | When any model is missing: Apple Silicon macOS | `onboard.unsupported_platform` |
 | When any model is missing: at least 60 GiB free on the models volume | `onboard.insufficient_disk` |
@@ -24,6 +24,8 @@ unchanged unless `--refresh` is given.
 | `scripts/start-unreal-mcp.sh` | `scripts/start-unreal-mcp.sh` | Copy the framework script; keep the executable bit | Yes |
 | `settings_hooks` | `.claude/settings.json` | Append each SessionStart hook whose `command` is not already present. Other keys are kept. | No (merge only) |
 | `asset_contract` | `docs/nmg-game-dev/asset-contract.md` | Copy `docs/asset-contract.md` | Yes |
+| `design_contract` | `docs/nmg-game-dev/design-contract.md` | Copy `docs/design-contract.md` | Yes |
+| `design_dir` | `docs/design/` | Create the directory when absent. An existing directory is reported as is; its contents are never listed or changed. | No (directory only) |
 | `agent_instructions:CLAUDE.md` | `CLAUDE.md` | Add the marked block once, or replace it in place. Creates the file if missing. | Block replaced in place |
 | `agent_instructions:AGENTS.md` | `AGENTS.md` | Same as CLAUDE.md, only when the file already exists | Block replaced in place |
 | `ue_plugin` | `Plugins/nmg-game-dev/` | Copy the UE plugin tree without `Binaries/` and `Intermediate/` | Yes (tree) |
@@ -40,6 +42,7 @@ unchanged unless `--refresh` is given.
 - `.mcp.json`: the plugin's root `.mcp.json` ships the MCP servers. Consumers get no MCP config from onboarding.
 - `fixtures/` (including `dogfood.uproject`): the framework's fixtures never reach a consumer.
 - `.env`: onboarding never asks for, creates, or writes the project `.env`. The optional Meshy key (`MESHY_API_KEY=`) is the developer's to add; `gitignore_env` only keeps that file out of git.
+- `docs/design/` contents: the design docs are the consumer's. Onboarding creates the directory and nothing inside it.
 - `nmg-budgets.json`: the consumer owns it. Onboarding never reads, writes, or reports it.
 - Any settings value whose name ends in `_API_KEY`.
 - `SourceArt/Textures/Generated/`: generated textures are created by the texture commands, not by onboarding.

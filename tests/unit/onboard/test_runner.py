@@ -31,6 +31,19 @@ HOOK_COMMANDS = (
     'bash "$CLAUDE_PROJECT_DIR/scripts/start-blender-mcp.sh"',
     'bash "$CLAUDE_PROJECT_DIR/scripts/start-unreal-mcp.sh"',
 )
+DESIGN_CONTRACT_TEXT = "# Design contract\n\nFixture copy for the onboarding tests.\n"
+
+
+def _framework_tree(root: Path) -> Path:
+    """The shared fake framework plus a design contract, which onboarding now requires (#112)."""
+    framework = make_framework(root)
+    (framework / "docs" / "design-contract.md").write_text(DESIGN_CONTRACT_TEXT, encoding="utf-8")
+    return framework
+
+
+@pytest.fixture
+def framework(tmp_path: Path) -> Path:
+    return _framework_tree(tmp_path / "framework")
 
 
 def install(
@@ -93,6 +106,8 @@ def test_fresh_install_installs_framework_files(
     assert {r.name for r in results} >= {
         "settings_hooks",
         "asset_contract",
+        "design_contract",
+        "design_dir",
         "texture_env",
         "gitignore_env",
     }
@@ -289,7 +304,7 @@ def test_install_scope_does_not_change_result(
     """AC7: two framework copies onboard identical consumers to identical trees."""
     trees = []
     for scope in ("user-scope", "project-scope"):
-        framework = make_framework(tmp_path / scope / "framework")
+        framework = _framework_tree(tmp_path / scope / "framework")
         consumer_root = tmp_path / scope / "consumer"
         consumer_root.mkdir(parents=True)
         consumer = make_consumer(consumer_root)
@@ -369,6 +384,84 @@ def test_vibeue_branch_drift_is_repaired_with_refresh(
     git_c = refresh_runner.argv_starting("git", "-C")
     assert any(call[3:] == ["fetch", "--depth", "1", "origin", "5-8"] for call in git_c)
     assert any(call[3:] == ["checkout", "--force", "FETCH_HEAD"] for call in git_c)
+
+
+def test_design_contract_is_installed_and_unchanged_on_rerun(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC7: the design contract is copied beside the asset contract; a second run reports it
+    unchanged."""
+    first = install(consumer, framework, models, env)
+    assert {r.name: r.status for r in first}["design_contract"] == "installed"
+    copy = consumer / "docs" / "nmg-game-dev" / "design-contract.md"
+    assert copy.read_bytes() == (framework / "docs" / "design-contract.md").read_bytes()
+
+    second = install(consumer, framework, models, env)
+    assert {r.name: r.status for r in second}["design_contract"] == "unchanged"
+
+
+def test_design_contract_drift_is_reported_then_refreshed(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC7: an edited design contract copy is drift and stays edited; --refresh restores it."""
+    install(consumer, framework, models, env)
+    copy = consumer / "docs" / "nmg-game-dev" / "design-contract.md"
+    copy.write_text("local edit\n", encoding="utf-8")
+
+    drifted = {r.name: r for r in install(consumer, framework, models, env)}
+    assert drifted["design_contract"].status == "drift"
+    assert drifted["design_contract"].remediation == "re-run with --refresh"
+    assert copy.read_text(encoding="utf-8") == "local edit\n"
+
+    refreshed = install(consumer, framework, models, env, refresh=True)
+    assert {r.name: r.status for r in refreshed}["design_contract"] == "refreshed"
+    assert copy.read_bytes() == (framework / "docs" / "design-contract.md").read_bytes()
+
+
+def test_design_dir_is_created_when_absent(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC7: docs/design/ is created empty on the first run and reported unchanged after."""
+    design = consumer / "docs" / "design"
+    assert not design.exists()
+
+    first = install(consumer, framework, models, env)
+    assert {r.name: r.status for r in first}["design_dir"] == "installed"
+    assert design.is_dir() and not any(design.iterdir())
+
+    second = install(consumer, framework, models, env)
+    assert {r.name: r.status for r in second}["design_dir"] == "unchanged"
+
+
+def test_existing_design_docs_are_untouched(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC7: design docs already in docs/design/ keep their exact bytes, and the step reports
+    unchanged."""
+    design = consumer / "docs" / "design"
+    (design / "missions").mkdir(parents=True)
+    (design / "hero.md").write_bytes(b"---\r\nname: Hero\r\n---\n\nNo trailing newline")
+    (design / "missions" / "boss.md").write_text("# Boss\n", encoding="utf-8")
+    before = snapshot(design)
+
+    results = install(consumer, framework, models, env)
+
+    assert {r.name: r.status for r in results}["design_dir"] == "unchanged"
+    assert snapshot(design) == before
+
+
+def test_missing_design_contract_fails_before_any_write(
+    consumer: Path, tmp_path: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC7: a framework without docs/design-contract.md is incomplete, and nothing is written."""
+    framework = make_framework(tmp_path / "bare-framework")
+    (framework / "docs" / "design-contract.md").unlink()
+    before = snapshot(consumer)
+    with pytest.raises(OnboardError) as caught:
+        install(consumer, framework, models, env)
+    assert caught.value.code == "onboard.framework_incomplete"
+    assert "docs/design-contract.md" in caught.value.message
+    assert snapshot(consumer) == before
 
 
 def test_cli_volumes_prints_a_json_list(capsys: pytest.CaptureFixture[str]) -> None:

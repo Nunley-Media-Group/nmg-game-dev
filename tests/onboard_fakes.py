@@ -31,6 +31,7 @@ def make_framework(root: Path) -> Path:
         script.chmod(0o755)
     (root / "docs").mkdir()
     shutil.copy(REPO_ROOT / "docs" / "asset-contract.md", root / "docs" / "asset-contract.md")
+    shutil.copy(REPO_ROOT / "docs" / "design-contract.md", root / "docs" / "design-contract.md")
     template = root / "templates" / "consumer" / ".claude"
     template.mkdir(parents=True)
     shutil.copy(REPO_ROOT / "templates" / "consumer" / ".claude" / "settings.json", template)

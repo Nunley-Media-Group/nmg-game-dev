@@ -6,8 +6,9 @@ first, then follow the guides in order.
 ## The flow
 
 1. **Onboard the project.** Run `/onboard-consumer` in the game's project. It installs the start
-   scripts and SessionStart hooks, the asset contract, the Unreal and Blender plugins, the two
-   local texture models, and a `.gitignore` entry for `.env`. See `skills/onboard-consumer/SKILL.md`.
+   scripts and SessionStart hooks, the asset contract and the design contract, the Unreal and Blender
+   plugins, the two local texture models, and a `.gitignore` entry for `.env`. It also creates
+   `docs/design/` for your design docs. See `skills/onboard-consumer/SKILL.md`.
 2. **Make your first asset.** [first-asset.md](first-asset.md) covers prompting for an asset, the
    review loop, the contract checks, texture sources, budget overrides, and import into Unreal.
 3. **Ship it.** [first-ship.md](first-ship.md) walks through the `ship` skill on a fixture project.
@@ -30,5 +31,8 @@ add `MESHY_API_KEY=<key>` to the project's `.env`. Onboarding adds `.env` to you
 
 - Asset contract: `docs/asset-contract.md` (installed into your project at
   `docs/nmg-game-dev/asset-contract.md`).
+- Design contract: `docs/design-contract.md` (installed into your project at
+  `docs/nmg-game-dev/design-contract.md`). Write the design as one markdown file per entity under
+  `docs/design/`, then run the `design` skill. See [docs/skills/design.md](../skills/design.md).
 - Onboarding skill and install rules: `skills/onboard-consumer/SKILL.md` and
   `skills/onboard-consumer/references/install-steps.md`.

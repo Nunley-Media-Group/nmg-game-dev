@@ -32,6 +32,9 @@ class FinalizeRequest(BaseModel):
         blend: Optional saved ``.blend`` to finalize headlessly instead of the open session.
         budgets_path: Optional budget overrides file.  ``None`` uses the add-on defaults.
         device: Bake device.  ``GPU`` falls back to ``CPU`` inside Blender when unavailable.
+        backlog_path: The design backlog (``docs/design/backlog.json``) when it holds an asset
+            entry for ``collection``.  A successful ``finalize_asset`` job marks that entry
+            ``finalized``.  It never enters the cache settings.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -43,6 +46,7 @@ class FinalizeRequest(BaseModel):
     blend: Path | None = None
     budgets_path: Path | None = None
     device: Device = "GPU"
+    backlog_path: Path | None = None
 
     def to_json_dict(self) -> dict[str, object]:
         """Return the JSON-serialisable projection written to ``<job_dir>/request.json``."""
