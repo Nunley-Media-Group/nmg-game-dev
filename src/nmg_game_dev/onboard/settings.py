@@ -31,8 +31,10 @@ def _write(path: Path, data: Mapping[str, Any]) -> None:
 def merge_session_hooks(name: str, settings_path: Path, template_path: Path) -> StepResult:
     """Add each template SessionStart hook whose ``command`` the settings do not already run.
 
-    Groups from the template are appended, not rewritten. Existing hooks, groups, and other keys
-    keep their order and values.
+    A hook the settings already run gets the template's ``timeout`` when its own is absent or lower
+    (#103 AC5); that is reported as ``refreshed``. Groups from the template are appended, not
+    rewritten. Existing hooks, groups, and other keys keep their order and values, except the
+    ``timeout`` of a hook the template raises.
     """
     template = _load(template_path)
     wanted_groups: list[dict[str, Any]] = list(template.get("hooks", {}).get("SessionStart", []))
@@ -41,8 +43,8 @@ def merge_session_hooks(name: str, settings_path: Path, template_path: Path) -> 
     if not isinstance(hooks, dict):
         raise ValueError(f"{settings_path}: 'hooks' must be an object")
     session: list[Any] = hooks.setdefault("SessionStart", [])
-    present = {
-        hook.get("command")
+    existing: dict[Any, dict[str, Any]] = {
+        hook.get("command"): hook
         for group in session
         if isinstance(group, dict)
         for hook in group.get("hooks", [])
@@ -53,21 +55,35 @@ def merge_session_hooks(name: str, settings_path: Path, template_path: Path) -> 
         missing = [
             hook
             for hook in group.get("hooks", [])
-            if isinstance(hook, dict) and hook.get("command") not in present
+            if isinstance(hook, dict) and hook.get("command") not in existing
         ]
         if not missing:
             continue
         session.append({**{k: v for k, v in group.items() if k != "hooks"}, "hooks": missing})
-        present.update(hook.get("command") for hook in missing)
+        existing.update((hook.get("command"), hook) for hook in missing)
         added += len(missing)
-    if added == 0:
+    raised = 0
+    for group in wanted_groups:
+        for hook in group.get("hooks", []):
+            if not isinstance(hook, dict) or "timeout" not in hook:
+                continue
+            current = existing[hook.get("command")].get("timeout")
+            if not isinstance(current, (int, float)) or current < hook["timeout"]:
+                existing[hook.get("command")]["timeout"] = hook["timeout"]
+                raised += 1
+    if added == 0 and raised == 0:
         return StepResult(
             name, "unchanged", f"{settings_path.name} already runs the SessionStart hooks"
         )
     _write(settings_path, settings)
-    return StepResult(
-        name, "installed", f"merged {added} SessionStart hook(s) into {settings_path.name}"
-    )
+    changes: list[str] = []
+    if added:
+        changes.append(f"merged {added} SessionStart hook(s) into {settings_path.name}")
+    if raised:
+        changes.append(
+            f"raised the timeout of {raised} SessionStart hook(s) in {settings_path.name}"
+        )
+    return StepResult(name, "refreshed" if raised else "installed", "; ".join(changes))
 
 
 def merge_env(name: str, settings_local_path: Path, values: Mapping[str, str]) -> StepResult:
