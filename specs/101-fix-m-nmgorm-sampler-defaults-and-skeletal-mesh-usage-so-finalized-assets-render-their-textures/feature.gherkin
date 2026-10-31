@@ -1,0 +1,32 @@
+**Issue**: #101
+**Date**: 2026-10-31
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/69-reshape-the-pipeline-to-finalize-an-authored-asset-instead-of-generating-from-a-prompt/
+
+# File: tests/bdd/features/master_material.feature
+# Generated from: specs/101-fix-m-nmgorm-sampler-defaults-and-skeletal-mesh-usage-so-finalized-assets-render-their-textures/requirements.md
+Feature: M_NmgORM compiles with typed sampler defaults and supports skeletal meshes
+
+  @SCN001 @regression
+  Scenario: The master material's samplers default to textures that match their sampler type
+    Given the M_NmgORM builder code from scripts/unreal/build_master_material.py
+    When it builds the BaseColor, Normal, and ORM sampler parameters
+    Then Normal defaults to /Engine/EngineMaterials/DefaultNormal
+    And ORM defaults to /Engine/EngineMaterials/DefaultDiffuse_TC_Masks
+    And the shipped M_NmgORM.uasset references both default textures
+
+  @SCN002 @regression
+  Scenario: The master material is usable on skeletal meshes
+    Given the M_NmgORM builder code from scripts/unreal/build_master_material.py
+    When it builds the material
+    Then it enables used_with_skeletal_mesh before recompiling
+    And the shipped M_NmgORM.uasset records bUsedWithSkeletalMesh
+
+  @SCN003 @regression
+  Scenario: Rebuilding keeps instances, parameter names, and channel wiring
+    Given an existing M_NmgORM asset
+    When the builder runs again
+    Then it loads and clears the existing material instead of recreating it
+    And the BaseColor, Normal, and ORM parameters keep their names
+    And ORM R, G, and B still feed Ambient Occlusion, Roughness, and Metallic
