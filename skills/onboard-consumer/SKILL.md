@@ -38,8 +38,8 @@ repair the project. Never edit the installed copies by hand. Run this instead.
    gives the remediation `re-run with --refresh`. Offer to re-run with `--refresh` and do so only if
    the developer agrees.
 
-4. **Refresh when asked.** `--refresh` restores drifted framework copies, re-pins VibeUE to its
-   commit, and replaces a wrong Blender link. It never touches `nmg-budgets.json`. Run it only when
+4. **Refresh when asked.** `--refresh` restores drifted framework copies, moves VibeUE to the head
+   of its `5-8` branch, and replaces a wrong Blender link. It never touches `nmg-budgets.json`. Run it only when
    the developer asks to repair the install.
 
 5. **Point at the next step.** Once the report is clean, direct the developer to

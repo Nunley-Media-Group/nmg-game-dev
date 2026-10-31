@@ -1,5 +1,5 @@
-"""Unreal setup: uproject plugins, MCP auto-start ini, and the pinned VibeUE clone (#7 FR5, AC2,
-AC9)."""
+"""Unreal setup: uproject plugins, MCP auto-start ini, and the VibeUE clone tracking branch 5-8
+(#7 FR5, AC2, AC9; #104 AC1-AC3)."""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ import pytest
 from nmg_game_dev.onboard.errors import OnboardError
 from nmg_game_dev.onboard.unreal import (
     DEFAULT_PORT,
-    VIBEUE_COMMIT,
+    VIBEUE_URL,
     enable_plugins,
     ensure_mcp_autostart,
     ensure_vibeue,
 )
-from tests.onboard_fakes import FakeRunner
+from tests.onboard_fakes import BRANCH_HEAD, FakeRunner
+
+OLD_PIN = "bc7bc45c1e2025123778560f45c15d1f8e1be41d"
 
 
 def test_enable_plugins_keeps_other_entries_and_fields(tmp_path: Path) -> None:
@@ -71,29 +73,68 @@ def test_mcp_autostart_keeps_an_existing_port_and_other_sections(tmp_path: Path)
     assert "[Other]\nKeep=1" in text and "[More]\nAlso=2" in text
 
 
-def test_vibeue_is_cloned_at_the_pinned_tag(tmp_path: Path) -> None:
+def test_vibeue_is_cloned_from_branch_5_8(tmp_path: Path) -> None:
+    """AC1: a fresh install clones branch 5-8 at depth 1 and reports the cloned commit."""
     runner = FakeRunner()
     result = ensure_vibeue(tmp_path, run=runner, refresh=False)
     assert result.status == "installed"
-    assert runner.calls[0][:2] == ["git", "clone"]
-    assert runner.calls[0][-1] == str(tmp_path / "Plugins" / "VibeUE")
+    assert result.detail == f"cloned 5-8 ({BRANCH_HEAD[:12]}) into Plugins/VibeUE"
+    assert runner.calls[0] == [
+        "git",
+        "clone",
+        "--depth",
+        "1",
+        "--branch",
+        "5-8",
+        VIBEUE_URL,
+        str(tmp_path / "Plugins" / "VibeUE"),
+    ]
     assert ensure_vibeue(tmp_path, run=FakeRunner(), refresh=False).status == "unchanged"
 
 
-def test_vibeue_wrong_head_is_drift_then_refreshed(tmp_path: Path) -> None:
+def test_vibeue_old_pin_is_drift_naming_both_commits_then_refresh_moves_to_branch_head(
+    tmp_path: Path,
+) -> None:
+    """AC2: HEAD at the old pin is drift against the 5-8 head; --refresh fetches 5-8 and moves."""
     ensure_vibeue(tmp_path, run=FakeRunner(), refresh=False)
-    wrong = FakeRunner(head="1" * 40)
-    assert ensure_vibeue(tmp_path, run=wrong, refresh=False).status == "drift"
-    fix = FakeRunner(head="1" * 40)
+    drifted = FakeRunner(head=OLD_PIN)
+    result = ensure_vibeue(tmp_path, run=drifted, refresh=False)
+    assert result.status == "drift"
+    assert OLD_PIN[:12] in result.detail and BRANCH_HEAD[:12] in result.detail
+    assert not any(call[:2] == ["git", "clone"] for call in drifted.calls)
+
+    target = str(tmp_path / "Plugins" / "VibeUE")
+    fix = FakeRunner(head=OLD_PIN)
     assert ensure_vibeue(tmp_path, run=fix, refresh=True).status == "refreshed"
-    assert [
-        "git",
-        "-C",
-        str(tmp_path / "Plugins" / "VibeUE"),
-        "checkout",
-        "--force",
-        VIBEUE_COMMIT,
-    ] in fix.calls
+    assert ["git", "-C", target, "fetch", "--depth", "1", "origin", "5-8"] in fix.calls
+    assert ["git", "-C", target, "checkout", "--force", "FETCH_HEAD"] in fix.calls
+
+
+def test_vibeue_at_current_branch_head_is_unchanged(tmp_path: Path) -> None:
+    """AC3: a checkout at the origin 5-8 head is left alone, with no fetch or checkout."""
+    ensure_vibeue(tmp_path, run=FakeRunner(), refresh=False)
+    runner = FakeRunner()
+    result = ensure_vibeue(tmp_path, run=runner, refresh=True)
+    assert result.status == "unchanged"
+    assert not any("fetch" in call or "checkout" in call for call in runner.calls)
+
+
+def test_vibeue_unreachable_origin_is_unchanged_not_drift(tmp_path: Path) -> None:
+    """AC3: when ls-remote fails, the 5-8 head could not be checked, so the checkout is kept."""
+    ensure_vibeue(tmp_path, run=FakeRunner(), refresh=False)
+    runner = FakeRunner(head=OLD_PIN, fail="ls-remote")
+    result = ensure_vibeue(tmp_path, run=runner, refresh=True)
+    assert result.status == "unchanged"
+    assert "could not check the 5-8 head" in result.detail
+    assert OLD_PIN[:12] in result.detail
+    assert not any("fetch" in call or "checkout" in call for call in runner.calls)
+
+
+def test_vibeue_ls_remote_asks_for_branch_5_8(tmp_path: Path) -> None:
+    ensure_vibeue(tmp_path, run=FakeRunner(), refresh=False)
+    runner = FakeRunner()
+    ensure_vibeue(tmp_path, run=runner, refresh=False)
+    assert ["git", "ls-remote", VIBEUE_URL, "refs/heads/5-8"] in runner.calls
 
 
 def test_vibeue_clone_failure_raises(tmp_path: Path) -> None:

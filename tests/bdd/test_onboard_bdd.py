@@ -144,7 +144,7 @@ def _nothing_excluded(ctx: dict[str, Any]) -> None:
 
 @scenario(FEATURE, "Unreal plugins are installed and enabled")
 def test_unreal_plugins_installed_and_enabled() -> None:
-    """AC2: UE plugin copy, pinned VibeUE clone, .uproject plugins, and MCP auto-start."""
+    """AC2: UE plugin copy, VibeUE clone on branch 5-8, .uproject plugins, and MCP auto-start."""
 
 
 @given("a consumer with Game.uproject and git available", target_fixture="ctx")
@@ -157,11 +157,11 @@ def _ue_plugin_present(ctx: dict[str, Any]) -> None:
     assert (ctx["consumer"] / "Plugins" / "nmg-game-dev" / "nmg-game-dev.uplugin").is_file()
 
 
-@then("VibeUE is cloned at tag v5.0-ue5.8 into Plugins/VibeUE")
+@then("VibeUE is cloned from branch 5-8 into Plugins/VibeUE")
 def _vibeue_cloned(ctx: dict[str, Any]) -> None:
     clones = ctx["runner"].argv_starting("git", "clone")
     assert len(clones) == 1
-    assert "v5.0-ue5.8" in clones[0]
+    assert clones[0][clones[0].index("--branch") + 1] == "5-8"
     assert clones[0][-1] == str(ctx["consumer"] / "Plugins" / "VibeUE")
 
 

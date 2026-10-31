@@ -16,7 +16,7 @@ from nmg_game_dev.onboard.commands import CommandResult, HostFacts
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GIB = 2**30
-PINNED_COMMIT = "bc7bc45c1e2025123778560f45c15d1f8e1be41d"
+BRANCH_HEAD = "eabe83aba0708aeb79ce586f23684417d17cb852"
 APPLE_SILICON = HostFacts(system="Darwin", machine="arm64")
 
 
@@ -87,10 +87,13 @@ def snapshot(root: Path) -> dict[str, bytes]:
 class FakeRunner:
     """Stands in for subprocess: logs every argv and fakes the files each command leaves behind."""
 
-    def __init__(self, *, head: str = PINNED_COMMIT, fail: str | None = None) -> None:
+    def __init__(
+        self, *, head: str = BRANCH_HEAD, remote: str = BRANCH_HEAD, fail: str | None = None
+    ) -> None:
         self.calls: list[list[str]] = []
         self.envs: list[dict[str, str] | None] = []
         self.head = head
+        self.remote = remote
         self.fail = fail
 
     def __call__(self, argv: Sequence[str], env: Mapping[str, str] | None = None) -> CommandResult:
@@ -104,6 +107,10 @@ class FakeRunner:
             (target / ".git").mkdir(parents=True)
             (target / "VibeUE.uplugin").write_text('{"FileVersion": 3}\n')
             return CommandResult(returncode=0)
+        if args[:2] == ["git", "ls-remote"]:
+            if self.fail == "ls-remote":
+                return CommandResult(returncode=128, stderr="could not resolve host")
+            return CommandResult(returncode=0, stdout=f"{self.remote}\trefs/heads/5-8\n")
         if "rev-parse" in args:
             return CommandResult(returncode=0, stdout=f"{self.head}\n")
         if args[:1] == ["mflux-save"]:

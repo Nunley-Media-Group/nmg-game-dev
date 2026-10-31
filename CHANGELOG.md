@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.15.3] - 2026-10-31
+
+### Fixed
+
+- Onboarding and `scripts/install-vibeue.sh` track VibeUE's UE 5.8 branch `5-8` instead of a frozen tag and commit, which did not compile on UE 5.8 macOS; `--refresh` moves VibeUE to the `5-8` head (#104)
+
 ## [0.15.2] - 2026-10-31
 
 ### Fixed

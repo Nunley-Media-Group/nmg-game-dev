@@ -27,7 +27,7 @@ unchanged unless `--refresh` is given.
 | `agent_instructions:CLAUDE.md` | `CLAUDE.md` | Add the marked block once, or replace it in place. Creates the file if missing. | Block replaced in place |
 | `agent_instructions:AGENTS.md` | `AGENTS.md` | Same as CLAUDE.md, only when the file already exists | Block replaced in place |
 | `ue_plugin` | `Plugins/nmg-game-dev/` | Copy the UE plugin tree without `Binaries/` and `Intermediate/` | Yes (tree) |
-| `vibeue` | `Plugins/VibeUE/` | `git clone --depth 1 --branch v5.0-ue5.8 https://github.com/kevinpbuckley/VibeUE.git Plugins/VibeUE`, then check HEAD equals `bc7bc45c1e2025123778560f45c15d1f8e1be41d` | Yes (HEAD) |
+| `vibeue` | `Plugins/VibeUE/` | `git clone --depth 1 --branch 5-8 https://github.com/kevinpbuckley/VibeUE.git Plugins/VibeUE` (VibeUE's UE 5.8 branch), then check HEAD equals the head of branch `5-8` on origin (`git ls-remote`) | Yes (HEAD) |
 | `uproject_plugins` | `<name>.uproject` | Enable `ModelContextProtocol`, `EditorToolset`, `VibeUE`, and `nmg-game-dev` in `Plugins`. Other entries and fields are kept. Tab indentation. | No (merge only) |
 | `mcp_autostart_ini` | `Config/DefaultEditorPerProjectUserSettings.ini` | Under `[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]`, set `bAutoStartServer=True`. Add `ServerPortNumber=8000` only when no port line exists. Other lines are kept. | No (merge only) |
 | `blender_addon` | `$BLENDER_EXTENSIONS_DIR/nmg_game_dev_blender_addon` (outside the consumer) | Symlink to `<framework>/plugins/nmg-game-dev-blender-addon`. Default extensions dir: `~/Library/Application Support/Blender/5.2/extensions/user_default`. | Yes (link target) |
@@ -48,5 +48,7 @@ unchanged unless `--refresh` is given.
 
 A re-run without `--refresh` reports each differing framework-owned item as `drift` with the
 remediation `re-run with --refresh`, and exits 0. With `--refresh`, the framework copy is restored,
-VibeUE is checked out at its pinned commit (or cloned again if it is not a git checkout), and a wrong
-Blender link is replaced.
+VibeUE is moved to the head of its `5-8` branch on origin (or cloned again if it is not a git
+checkout), and a wrong Blender link is replaced. VibeUE's drift is measured against that branch
+head, so a checkout that is already at the head is `unchanged`. If `git ls-remote` cannot reach
+origin, the `5-8` head is not checked: the checkout is left as is and reported `unchanged`.
