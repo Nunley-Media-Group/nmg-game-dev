@@ -1,0 +1,35 @@
+**Issue**: #106
+**Date**: 2026-10-31
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/98-add-optional-meshy-model-generation-and-retexturing-through-the-meshy-api/
+
+# File: tests/blender/test_meshy_session.py (SCN001, SCN002, SCN004), tests/bdd/features/meshy.feature (SCN003)
+# Generated from: specs/106-raise-meshy-a-pose-arms-to-within-the-rig-humanoid-arm-drop-limit-on-import/requirements.md
+Feature: Meshy A-pose imports have their arms raised to rig_humanoid's limit
+
+  @SCN001
+  Scenario: A 55 degree A-pose is raised to 48 degrees
+    Given a GLB of a 1.8 m box humanoid with both arms dropped 55 degrees
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each arm's drop is 48 degrees within 0.5
+    And torso-midline and leg vertices have not moved
+    And vertex count, face count, and connectivity are unchanged with no flipped faces
+
+  @SCN002
+  Scenario: Compliant or non-A-pose imports are untouched
+    Given a GLB of the box humanoid
+    When import_glb imports it with pose t-pose, with no pose, or as an A-pose dropped 45 degrees
+    Then no vertex moves
+
+  @SCN003
+  Scenario: The job result reports the arm raise
+    Given a Meshy generate job with pose a-pose whose session import succeeds
+    When the job finishes
+    Then the job result carries arm_raise with left and right drop_before_deg, drop_after_deg, and rotation_deg
+
+  @SCN004
+  Scenario: The raised humanoid passes the neutral-pose check
+    Given the raised Hero with shoulder landmarks at the pivots and wrist landmarks on the raised arms
+    When rig_core.landmarks.validate runs for a humanoid
+    Then it does not report rig.pose_not_neutral
