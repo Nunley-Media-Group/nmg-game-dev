@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc verify worker, run 40468ffe-0554-4b4f-b7a9-4cdbd44bd3ba)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 10df08ff0b77a668a57f9eaa063cccb09789e6c9
+**Verification head**: a041a5bfe33372063aba67268f6a70b3f2c0b89f
 
 ---
 
@@ -13,26 +13,23 @@
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 4 |
+| Spec Compliance | 5 |
 | Architecture (SOLID) | 4 |
 | Security | 4 |
 | Performance | 4 |
 | Testability | 5 |
 | Error Handling | 4 |
-| **Overall** | 4.2 |
+| **Overall** | 4.3 |
 
-### Implementation Status: Fail
+### Implementation Status: Pass
 
-**Total Issues**: 4 (1 high, 1 medium, 2 low)
+**Total Issues**: 3 (all low; none block delivery)
 
-The implementation covers every approved AC, and 594 of 595 unit and BDD tests pass. The required
-`repository.tests` validation fails on one test. The version-bump commit `10df08f` ("feat: deliver
-issue #7") moved the two #7 CHANGELOG entries from `## [Unreleased]` into `## [0.14.0]`, but
-`tests/unit/onboard/test_docs_and_skill.py::test_changelog_has_both_unreleased_entries_ending_with_issue`
-still expects them under `## [Unreleased]`. Because of that failure, the steering runner deferred
-`plugin.session-smoke` (status `incomplete`). The overall status is therefore Fail. The fix is
-outside this verify worker's publication scope, which only allows writing the report, so the work
-goes back to implementation.
+Every approved AC (AC1–AC20) is implemented, and all five registered validations passed at
+`a041a5b` on a clean tree. That includes the real `plugin.session-smoke`: the plugin loaded via
+`--plugin-dir` and `nmg-game-dev:blender` connected. Commit `a041a5b` fixed both blocking
+findings from the previous verification (`10df08f`, Fail): the out-of-date CHANGELOG test, and the
+committed `uv.lock` still at 0.13.0. The full unit and BDD suite now passes (595 passed).
 
 ---
 
@@ -49,7 +46,7 @@ goes back to implementation.
 
 ## Delivery Validation
 
-- Local verification: Not complete (`repository.tests` failed; `plugin.session-smoke` deferred)
+- Local verification: Pass
 - PR evidence: Not required
 
 ---
@@ -57,22 +54,22 @@ goes back to implementation.
 ## Deterministic Steering Artifact and Ceiling
 
 Runner: `sdlc-verify-steering.mjs --project . --issue 7 --spec specs/7-… --base main --controller-run-id 40468ffe-0554-4b4f-b7a9-4cdbd44bd3ba`
-Artifact: `.nmg-sdlc/verification/7.json` (head `10df08ff0b77a668a57f9eaa063cccb09789e6c9`; tree state `dirty`, because `uv.lock` was rewritten, see Remaining Issues)
+Artifact: `.nmg-sdlc/verification/7.json` (head `a041a5bfe33372063aba67268f6a70b3f2c0b89f`, tree state `clean`)
 
 | Coverage | Value |
 |----------|-------|
 | declared | 5 |
 | recorded | 5 |
 | complete | true |
-| ceiling | **Incomplete** (runner); the required `failed` result lowers the cap to **Fail** |
+| ceiling | none |
 
 | Validation | Provider | Required | Status | Summary |
 |------------|----------|----------|--------|---------|
-| `repository.tests` | builtin.command (`uv run pytest tests/unit tests/bdd -q`) | yes | **failed** | command exited 1 — 1 failed, 594 passed |
+| `repository.tests` | builtin.command (`uv run pytest tests/unit tests/bdd -q`) | yes | passed | command exited 0: 595 passed |
 | `repository.lint` | builtin.command (`uv run ruff check .`) | yes | passed | command exited 0 |
 | `repository.types` | builtin.command (`uv run mypy src tests`) | yes | passed | command exited 0 |
 | `plugin.validate` | builtin.command (`claude plugin validate .`) | yes | passed | command exited 0 |
-| `plugin.session-smoke` | project.plugin-session-smoke | yes | **incomplete** | deferred until required local validations pass |
+| `plugin.session-smoke` | project.plugin-session-smoke | yes | passed | plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
 
 ---
 
@@ -101,8 +98,7 @@ Artifact: `.nmg-sdlc/verification/7.json` (head `10df08ff0b77a668a57f9eaa063cccb
 | AC19 | Derived PBR maps are seamless | Pass | `texture/maps.py`; SCN019 passes |
 | AC20 | Agent generates textures through CLI and MCP | Pass | `texture/__main__.py`, `texture/generate.py`, `mcp-servers/texture-gen/` (`generate_textures`, `get_texture_job`), `.mcp.json`; SCN020 passes |
 
-Every AC is implemented. The overall status is still Fail because a required registered validation
-failed (see the gates section).
+Every AC is implemented, and every registered validation passes.
 
 ---
 
@@ -117,7 +113,7 @@ failed (see the gates section).
 | T005 | Texture models and volume listing | Complete | `onboard/textures.py`, `onboard/volumes.py` |
 | T006 | Onboard runner and CLI | Complete | `onboard/runner.py`, `onboard/__main__.py` |
 | T007 | Skill, references, docs, and links | Complete | `skills/onboard-consumer/`, `docs/onboarding/`, README/CLAUDE links |
-| T008 | Unit tests for onboarding | Complete, with a defect | `tests/unit/onboard/`; one test is out of date after the version bump |
+| T008 | Unit tests for onboarding | Complete | `tests/unit/onboard/`; the CHANGELOG test was fixed in `a041a5b` to hold before and after the release bump |
 | T009 | BDD scenarios | Complete | `tests/bdd/features/onboard_consumer.feature`, `texture_generation.feature`; all pass |
 | T010 | Texture registry, errors, paths, hardware | Complete | `texture/{registry,errors,paths,hardware}.py` |
 | T011 | Seamless post-process and derived maps | Complete | `texture/{seamless,maps}.py` |
@@ -173,7 +169,6 @@ The onboard package depends on the texture package only for path and env-var con
 - [x] Query optimization: N/A
 
 ---
-
 ## Test Coverage
 
 ### BDD Scenarios
@@ -187,18 +182,8 @@ The onboard package depends on the texture package only for path and env-var con
 
 - Feature files: 20 #7 scenarios, all passing
 - Step definitions: Implemented
-- Unit + BDD run: 595 tests, 594 passed, **1 failed**
+- Unit + BDD run: 595 passed, 0 failed
 - Opt-in real-model e2e: `tests/e2e/test_texture_models_e2e.py` (runs only when both models are installed; not part of the registered gate)
-
-Failing test:
-
-```text
-FAILED tests/unit/onboard/test_docs_and_skill.py::test_changelog_has_both_unreleased_entries_ending_with_issue
-```
-
-`CHANGELOG.md` at HEAD has an empty `## [Unreleased]` section, and the two #7 entries now sit under
-`## [0.14.0] - 2026-10-31`. The test splits on `## [Unreleased]` and asserts two bullets, so it
-fails after any release bump.
 
 ---
 
@@ -213,53 +198,45 @@ change, and the registered `plugin.validate` and `plugin.session-smoke` validati
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Fail | `uv run pytest tests/unit tests/bdd -q` → 1 failed, 594 passed |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 595 passed |
 | `repository.lint` | Pass | `uv run ruff check .` exit 0 |
 | `repository.types` | Pass | `uv run mypy src tests` exit 0 |
 | `plugin.validate` | Pass | `claude plugin validate .` exit 0 |
-| `plugin.session-smoke` | Incomplete | deferred until required local validations pass |
+| `plugin.session-smoke` | Pass | plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 3/5 passed, 1 failed, 1 incomplete
+**Gate Summary**: 5/5 passed, 0 failed, 0 incomplete
 
 ---
 
 ## Fixes Applied
 
-None. The verify publication scope (`NMG_SDLC_PUBLICATION.allowedPaths`) only allows writing this
-report, so both fixable findings are left for implementation.
+These fixes landed in implementation commit `a041a5b`, after the previous verification. This
+verify run made no source changes; the publication scope only allows writing the report.
+
+| Severity | Category | Location | Original Issue | Fix Applied | Routing |
+|----------|----------|----------|----------------|-------------|---------|
+| High | Testing | `tests/unit/onboard/test_docs_and_skill.py:88` | The CHANGELOG test read only `## [Unreleased]`, so it failed after the 0.14.0 bump | Reads whichever of `[Unreleased]` or the first released section holds the #7 bullets | `direct` |
+| Medium | Release hygiene | `uv.lock:1608` | The lock was still at 0.13.0 after the bump, so every `uv run` dirtied the tree | Committed the lock at 0.14.0 | `direct` |
 
 ## Remaining Issues
-
-### High Priority
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
-| **Category** | Testing |
-| **Location** | `tests/unit/onboard/test_docs_and_skill.py:88` |
-| **Issue** | `test_changelog_has_both_unreleased_entries_ending_with_issue` only reads `## [Unreleased]`; the version bump in `10df08f` moved the #7 entries into `## [0.14.0]` |
-| **Impact** | The required `repository.tests` validation fails, and the session smoke cannot run |
-| **Reason Not Fixed** | Outside the verify publication scope (only the report is writable). Suggested fix: read the #7 entries from `## [Unreleased]` or, when that section is empty, from the first released section, so the assertion holds before and after `/sdlc-open-pr` bumps the version |
-
-### Medium Priority
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Medium |
-| **Category** | Architecture (release hygiene) |
-| **Location** | `uv.lock:1608` |
-| **Issue** | `10df08f` bumped `pyproject.toml` to 0.14.0 but left the committed `uv.lock` at `version = "0.13.0"` for the editable `nmg-game-dev` package. Every `uv run` rewrites it, which makes the tree dirty (the steering artifact records `treeState: dirty`) |
-| **Impact** | Verification and finalization run against a dirty tree; the lock does not match the version |
-| **Reason Not Fixed** | Outside the verify publication scope. Suggested fix: commit the regenerated `uv.lock`, and have the version bump also refresh `uv.lock` (for example, `uv lock` after the bump) |
 
 ### Low Priority
 
 | Field | Value |
 |-------|-------|
 | **Severity** | Low |
+| **Category** | Release hygiene |
+| **Location** | `mcp-servers/finalize/uv.lock`, `mcp-servers/texture-gen/uv.lock` |
+| **Issue** | The committed sub-project locks are stale. Both are still at `nmg-game-dev` 0.13.0, and the finalize lock lacks the #7 dependencies (`numpy`, `pillow`, the `texture-ai` extra). Running the session smoke regenerates both, which leaves the tree dirty afterwards. I restored them with `git checkout` so the tree stays clean at the verified head |
+| **Impact** | Each smoke run dirties the tree; the locks do not match the package |
+| **Reason Not Fixed** | Outside the verify publication scope. Suggested fix: run `uv lock` in each `mcp-servers/*` project and commit, and refresh the sub-locks during the version bump |
+
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
 | **Category** | Code quality |
 | **Location** | `src/nmg_game_dev/onboard/runner.py:1` |
-| **Issue** | The module docstring has line breaks in the middle of sentences ("…before the\nfirst\nconsumer write") |
+| **Issue** | The module docstring has line breaks in the middle of sentences |
 | **Impact** | Readability only |
 | **Reason Not Fixed** | Outside the verify publication scope |
 
@@ -267,8 +244,8 @@ report, so both fixable findings are left for implementation.
 |-------|-------|
 | **Severity** | Low |
 | **Category** | Error Handling |
-| **Location** | `src/nmg_game_dev/texture/batch.py:82` |
-| **Issue** | `_parse_timings` calls `json.loads` on any worker stdout line starting with `{`, so a non-JSON line from mflux would raise a raw `JSONDecodeError` instead of a `TextureGenError` |
+| **Location** | `src/nmg_game_dev/texture/batch.py:88` |
+| **Issue** | `_parse_timings` calls `json.loads` on any worker stdout line starting with `{`, so a non-JSON line would raise a raw `JSONDecodeError` instead of a `TextureGenError` |
 | **Impact** | An unstructured error on an unlikely path |
 | **Reason Not Fixed** | Outside the verify publication scope; low risk |
 
@@ -279,6 +256,7 @@ report, so both fixable findings are left for implementation.
 - Preflight resolves everything and fails with `OnboardError(code, message, remediation)` before any consumer write (AC5, FR2).
 - Side effects are injected throughout, so tests use stub `git`, `mflux-save`, `uv`, and fake workers, with no real models or network.
 - The texture job lock is taken atomically with `O_CREAT | O_EXCL` and clears stale holders.
+- The CHANGELOG test now holds both before and after `/sdlc-open-pr` bumps the version.
 
 ---
 
@@ -286,13 +264,11 @@ report, so both fixable findings are left for implementation.
 
 ### Before PR (Must)
 
-- [ ] Make the CHANGELOG test pass after a version bump (`tests/unit/onboard/test_docs_and_skill.py:88`)
-- [ ] Commit the regenerated `uv.lock` so the tree is clean at 0.14.0
-- [ ] Re-run the full registered gate, including `plugin.session-smoke`
+- None
 
 ### Short Term (Should)
 
-- [ ] Make the version bump refresh `uv.lock`
+- [ ] Commit refreshed `mcp-servers/*/uv.lock` files, and have the version bump refresh them
 
 ### Long Term (Could)
 
@@ -304,19 +280,20 @@ report, so both fixable findings are left for implementation.
 
 | File | Issues | Notes |
 |------|--------|-------|
+| `tests/unit/onboard/test_docs_and_skill.py` | 0 | Fixed in `a041a5b` |
+| `uv.lock` | 0 | Fixed in `a041a5b` |
+| `mcp-servers/finalize/uv.lock` | 1 | Stale sub-lock |
+| `mcp-servers/texture-gen/uv.lock` | 1 | Stale sub-lock |
 | `src/nmg_game_dev/onboard/runner.py` | 1 | Docstring formatting |
 | `src/nmg_game_dev/texture/batch.py` | 1 | Decode error not wrapped |
 | `src/nmg_game_dev/texture/jobs.py` | 0 | |
-| `tests/unit/onboard/test_docs_and_skill.py` | 1 | Out of date after the version bump |
-| `CHANGELOG.md` | 0 | Correct after the bump |
-| `uv.lock` | 1 | Version drift |
 
 ---
 
 ## Recommendation
 
-**Needs fixes**
+**Ready for PR**
 
-The feature is implemented and every AC passes, but a required registered validation fails at
-`10df08ff0b77a668a57f9eaa063cccb09789e6c9`. Return to implementation: fix the out-of-date CHANGELOG
-test and commit the synced `uv.lock`, then run the full gate again.
+Every AC passes, and all five registered validations, including the real session smoke, passed at
+`a041a5bfe33372063aba67268f6a70b3f2c0b89f` on a clean tree. The remaining items are low-severity
+hygiene and do not block delivery.
