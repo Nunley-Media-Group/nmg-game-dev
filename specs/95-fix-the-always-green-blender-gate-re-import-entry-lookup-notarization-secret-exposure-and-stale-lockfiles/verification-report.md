@@ -4,7 +4,7 @@
 **Issue**: #95
 **Reviewer**: Claude
 **Scope**: Implementation verification against spec
-**Verification head**: 3e8b0b50b2e49b55e4d54de6335a775d81d101a4
+**Verification head**: eb78418ca69459ba593c0309188073078b6046c5
 
 ---
 
@@ -24,7 +24,7 @@
 
 **Total Issues**: 2 (both low, no fix needed for delivery)
 
-All ten acceptance criteria are implemented and covered by tests. All five registered validations pass at the verification head (`.nmg-sdlc/verification/95.json`, coverage 5/5 complete). Every steering gate that applies passed, including the full headless Blender gate with the host add-on installed. The spec was amended on 2026-10-30 to add AC9/FR7 (coexistence assertion) and AC10/FR8 (removal of the unrunnable `gate-skill-schema` and `gate-markdown-lint`), after the first implement pass showed those gates could not go green within the original scope.
+All eleven acceptance criteria are implemented and covered by tests. All five registered validations pass at the verification head (`.nmg-sdlc/verification/95.json`, coverage 5/5 complete). Every steering gate that applies passed, including the full headless Blender gate with the host add-on installed. The spec was amended on 2026-10-30 to add AC9/FR7 (coexistence assertion) and AC10/FR8 (removal of the unrunnable `gate-skill-schema` and `gate-markdown-lint`), after the first implement pass showed those gates could not go green within the original scope. It was amended again on 2026-10-31 to add AC11/FR9: the 0.14.1 release bump (`eb2d273`) pushed the #7 changelog entries below the first release section, which broke the onboarding changelog guard.
 
 ---
 
@@ -34,10 +34,10 @@ All ten acceptance criteria are implemented and covered by tests. All five regis
 - Spec: `specs/95-fix-the-always-green-blender-gate-re-import-entry-lookup-notarization-secret-exposure-and-stale-lockfiles`
 - Manifest: implicit single issue
 - Resolver status: `implicit_single_issue`
-- Delivery: AC [AC1–AC10]; FR [FR1–FR8]; tasks [T001–T009]; scenarios [SCN001–SCN009]
+- Delivery: AC [AC1–AC11]; FR [FR1–FR9]; tasks [T001–T010]; scenarios [SCN001–SCN009]
 - Regression: AC []; FR []; scenarios []
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":95,"specPath":"specs/95-fix-the-always-green-blender-gate-re-import-entry-lookup-notarization-secret-exposure-and-stale-lockfiles","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9","AC10"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":95,"specPath":"specs/95-fix-the-always-green-blender-gate-re-import-entry-lookup-notarization-secret-exposure-and-stale-lockfiles","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9","AC10","AC11"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009","T010"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
 
 ## Delivery Validation
 
@@ -60,6 +60,7 @@ All ten acceptance criteria are implemented and covered by tests. All five regis
 | AC8 | Existing behavior preserved | Pass | Unit 561 passed, BDD 58 passed / 1 pre-existing skip, Blender 125 passed; SCN008 imports both MCP servers through `uv run --project`; `scripts/ship-smoke.sh` exit 0 |
 | AC9 | Coexistence suite checks the loaded state | Pass | `tests/blender/test_coexistence.py` asserts the second value of `addon_utils.check()`; both previously failing tests pass with blender-mcp installed in Blender 5.2.3 |
 | AC10 | Steering lists only gates that can run | Pass | `gate-skill-schema` and `gate-markdown-lint` rows and the `markdownlint` standards line removed from `steering/snippets/project-tech.md`; `validate-skills.py` line removed from `steering/snippets/project-structure.md`; no other references remain outside `specs/` |
+| AC11 | Changelog guard survives later releases | Pass | `tests/unit/onboard/test_docs_and_skill.py::test_changelog_has_both_unreleased_entries_ending_with_issue` searches every section for the `(#7)` entries; passes with the 0.14.1 section above 0.14.0 |
 
 ---
 
@@ -76,6 +77,7 @@ All ten acceptance criteria are implemented and covered by tests. All five regis
 | T007 | BDD scenarios | Complete | `tests/bdd/features/release_tooling_fixes.feature` |
 | T008 | Coexistence loaded-state assertion | Complete | |
 | T009 | Remove unrunnable gates from steering | Complete | |
+| T010 | Changelog guard finds its section after later releases | Complete | |
 
 ---
 
@@ -136,6 +138,7 @@ Unchanged. The sub-project locks now resolve against the current root dependenci
 | AC8 | SCN008 | Yes | Yes |
 | AC9 | SCN009 (Blender test) | Yes | Yes |
 | AC10 | Steering-only change | N/A | Checked by inspection and grep |
+| AC11 | Unit test | N/A | Yes |
 
 ### Coverage Summary
 
@@ -148,11 +151,11 @@ Unchanged. The sub-project locks now resolve against the current root dependenci
 
 ## Steering Doc Verification Gates
 
-Registered validations (`.nmg-sdlc/verification/95.json`, head `3e8b0b50b2e49b55e4d54de6335a775d81d101a4`, coverage 5/5 complete):
+Registered validations (`.nmg-sdlc/verification/95.json`, head `eb78418ca69459ba593c0309188073078b6046c5`, coverage 5/5 complete):
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 616 passed, 4 skipped |
 | `repository.lint` | Pass | `uv run ruff check .` |
 | `repository.types` | Pass | `uv run mypy src tests` |
 | `plugin.validate` | Pass | `claude plugin validate .` |
@@ -164,9 +167,9 @@ Steering gates (`steering/snippets/project-tech.md` § Verification Gates):
 |------|--------|----------|
 | `gate-python-lint` | Pass | `ruff check .` all checks passed; `ruff format --check .` 246 files formatted |
 | `gate-python-types` | Pass | `mypy src/ tests/`: no issues in 147 source files |
-| `gate-python-unit` | Pass | `pytest tests/unit/`: 561 passed |
-| `gate-python-bdd` | Pass | `pytest tests/bdd/`: 58 passed, 1 skipped (pre-existing) |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` with Blender 5.2.3: 125 passed, exit 0 |
+| `gate-python-unit` | Pass | `pytest tests/unit tests/bdd` (registered): 616 passed, 4 skipped |
+| `gate-python-bdd` | Pass | Included in the registered run above |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` with Blender 5.2.3 at `eb2d273`: 125 passed, exit 0 (`eb78418` changes only a unit test and the spec) |
 | `gate-mcp-schema` | Pass | `scripts/validate-mcp-tools.py` exit 0 |
 | `gate-shellcheck` | Pass | `shellcheck -S style scripts/*.sh` exit 0 |
 | `gate-ship-smoke` | Pass | `scripts/ship-smoke.sh` exit 0 |
@@ -182,6 +185,7 @@ Steering gates (`steering/snippets/project-tech.md` § Verification Gates):
 |----------|----------|----------|----------------|-------------|---------|
 | High | Testing | `tests/blender/test_coexistence.py` | Asserted `loaded_default` from `addon_utils.check()`, which is always False under `default_set=False` | Assert `loaded_state` (spec amendment AC9, T008) | `direct` |
 | Medium | Steering | `steering/snippets/project-tech.md`, `project-structure.md` | `gate-skill-schema` and `gate-markdown-lint` named a script and a tool that do not exist | Removed (spec amendment AC10, T009) | `direct` |
+| High | Testing | `tests/unit/onboard/test_docs_and_skill.py` | Changelog guard looked only in `[Unreleased]` and the first release, so the 0.14.1 bump failed `repository.tests` at `eb2d273` | Search every section (spec amendment AC11, T010) | `direct` |
 
 ## Remaining Issues
 
@@ -244,6 +248,8 @@ Steering gates (`steering/snippets/project-tech.md` § Verification Gates):
 | `pyproject.toml`, `uv.lock`, `mcp-servers/*/uv.lock` | 0 | |
 | `steering/snippets/project-tech.md`, `project-structure.md` | 0 | |
 | `tests/blender/test_coexistence.py` | 0 | |
+| `tests/unit/onboard/test_docs_and_skill.py` | 0 | |
+| `VERSION`, `CHANGELOG.md`, `.claude-plugin/plugin.json`, add-on and UE plugin manifests | 0 | 0.14.1 release bump |
 | `tests/unit/*`, `tests/bdd/*`, `tests/blender/test_reimport_entry.py`, `tests/*_fakes.py` | 1 | Low: helpers not listed in tasks |
 
 ---
