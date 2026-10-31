@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-31
+
 ### Fixed
 
 - Fix the M_NmgORM master material so its samplers default to textures of their own sampler type and it is enabled for skeletal meshes, so finalized assets render their baked textures (#101)
