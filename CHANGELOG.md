@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-31
+
+### Added
+
+- Meshy `a-pose` imports raise each arm about its shoulder until its drop is 48°, so `rig_humanoid` accepts the arms without hand reposing (its limit is 50°); the `import_glb` and generate-job results report `arm_raise` with each side's `drop_before_deg`, `drop_after_deg`, and `rotation_deg` (#106)
+
 ## [0.17.0] - 2026-10-31
 
 ### Added

@@ -7,8 +7,9 @@ same contract as scripts/blender/finalize_session.py:
     NMG_PAYLOAD = {...}
 
     collection_state: {"name"}                        -> {"ok", "state": missing|exists|no_mesh}
-    import_glb:       {"name", "path"}                -> {"ok", "collection", "mesh", "material",
-                                                          "merged_vertices", "origin_offset"}
+    import_glb:       {"name", "path", "pose"?}       -> {"ok", "collection", "mesh", "material",
+                                                          "merged_vertices", "origin_offset",
+                                                          "arm_raise"}
     export_glb:       {"name", "path"}                -> {"ok", "path", "meshes"}
     apply_maps:       {"name", "maps": {kind: path}}  -> {"ok", "material", "maps"}
 
@@ -16,6 +17,10 @@ same contract as scripts/blender/finalize_session.py:
 ``import_glb`` also welds the mesh, bakes its transform, moves its origin to the bottom center at
 the world origin, and smooths its normals. ``merged_vertices`` counts the vertices the weld removed,
 and ``origin_offset`` is the [x, y, z] translation it applied to the geometry, in meters.
+When ``pose`` is ``a-pose``, ``import_glb`` also raises each arm about its shoulder to a 48 degree
+drop, so ``rig_humanoid`` accepts it (#106). ``arm_raise`` holds ``{"left", "right"}``, each with
+``drop_before_deg``, ``drop_after_deg``, and ``rotation_deg`` (0 when that side is already
+compliant), and it is ``null`` for any other pose or for none.
 Each run prints exactly one line, NMG_RESULT <json>. Failures come back as
 {"ok": false, "error": {"code", "message", "remediation"}} and never raise into the session.
 Nodes are created here, and every lookup goes by data type or by the datablock name this script set,
@@ -27,13 +32,20 @@ import math
 
 import bmesh
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 NOT_FOUND = "meshy.collection_not_found"
 EXISTS = "meshy.collection_exists"
 SESSION_FAILED = "meshy.session_failed"
 WELD_DISTANCE = 1e-5
 SMOOTH_ANGLE_DEG = 30
+# A-pose arm raise (#106). The shoulder pivot sits at (x_c ± 0.10·H, y_c, z_min + 0.81·H).
+TARGET_DROP_DEG = 48.0
+SHOULDER_HEIGHT = 0.81
+SHOULDER_HALF_WIDTH = 0.10
+BLEND_WIDTH = 0.04
+ARM_CONE_EXTRA_DEG = 20.0
+ARM_SIDES = (("left", 1.0), ("right", -1.0))
 MAP_INPUTS = {
     "base_color": ("Base Color", "sRGB"),
     "roughness": ("Roughness", "Non-Color"),
@@ -145,6 +157,85 @@ def _normalize(obj):
     return {"merged_vertices": merged, "origin_offset": [round(value, 6) for value in offset]}
 
 
+def _drop_deg(pivot, point):
+    """Return how many degrees the line from ``pivot`` to ``point`` falls below horizontal."""
+    horizontal = math.hypot(point[0] - pivot[0], point[1] - pivot[1])
+    return math.degrees(math.atan2(pivot[2] - point[2], horizontal))
+
+
+def _raise_point(point, pivot, angle):
+    """Rotate ``point`` about the Y axis through ``pivot`` by ``angle`` radians, right-hand rule."""
+    dx = point[0] - pivot[0]
+    dz = point[2] - pivot[2]
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    return (
+        pivot[0] + cos_a * dx + sin_a * dz,
+        point[1],
+        pivot[2] - sin_a * dx + cos_a * dz,
+    )
+
+
+def _hand_tip(points, sign, x_c):
+    """Return the index of the vertex farthest on side ``sign`` of the midline ``x_c``."""
+    return max(range(len(points)), key=lambda index: sign * (points[index][0] - x_c))
+
+
+def _raise_arms(obj):
+    """Raise each arm of the A-pose ``obj`` about its shoulder until its drop is 48 degrees (#106).
+
+    The pivot and hand tip come from the world bounding box and the farthest vertex on each side.
+    A side at or under the target keeps every vertex. Otherwise each vertex outboard of the pivot,
+    and no more than ARM_CONE_EXTRA_DEG below the hand tip, rotates about the pivot by the excess
+    drop, weighted linearly over BLEND_WIDTH·H so the midline and legs stay put. This is vertex math
+    only: no modifier and no armature. Returns each side's drops and rotation, in degrees.
+    """
+    mesh = obj.data
+    to_world = obj.matrix_world
+    to_local = to_world.inverted()
+    points = [tuple(to_world @ vertex.co) for vertex in mesh.vertices]
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    zs = [point[2] for point in points]
+    z_min = min(zs)
+    height = max(zs) - z_min
+    x_c = (min(xs) + max(xs)) / 2
+    y_c = (min(ys) + max(ys)) / 2
+    limit = SHOULDER_HALF_WIDTH * height
+    blend = BLEND_WIDTH * height
+    moved = {}
+    report = {}
+    for side, sign in ARM_SIDES:
+        pivot = (x_c + sign * limit, y_c, z_min + SHOULDER_HEIGHT * height)
+        tip = _hand_tip(points, sign, x_c)
+        drop = _drop_deg(pivot, points[tip])
+        if drop <= TARGET_DROP_DEG:
+            report[side] = {
+                "drop_before_deg": round(drop, 2),
+                "drop_after_deg": round(drop, 2),
+                "rotation_deg": 0.0,
+            }
+            continue
+        excess = drop - TARGET_DROP_DEG
+        for index, point in enumerate(points):
+            lateral = sign * (point[0] - x_c) - limit
+            if lateral <= 0 or _drop_deg(pivot, point) > drop + ARM_CONE_EXTRA_DEG:
+                continue
+            weight = min(1.0, lateral / blend)
+            points[index] = _raise_point(point, pivot, math.radians(-sign * weight * excess))
+            moved[index] = points[index]
+        report[side] = {
+            "drop_before_deg": round(drop, 2),
+            "drop_after_deg": round(_drop_deg(pivot, points[tip]), 2),
+            "rotation_deg": round(excess, 2),
+        }
+    for index, point in moved.items():
+        mesh.vertices[index].co = to_local @ Vector(point)
+    if moved:
+        mesh.update()
+    return {"left": report["left"], "right": report["right"]}
+
+
 def _import_glb(payload):
     name = payload["name"]
     if bpy.data.collections.get(name) is not None:
@@ -205,12 +296,14 @@ def _import_glb(payload):
             f"{error} The {name} collection stays in the open file.",
             f"Delete the {name} collection in Blender, then retry.",
         )
+    arm_raise = _raise_arms(target) if payload.get("pose") == "a-pose" else None
     return {
         "ok": True,
         "collection": collection.name,
         "mesh": target.name,
         "material": material.name,
         **normalized,
+        "arm_raise": arm_raise,
     }
 
 

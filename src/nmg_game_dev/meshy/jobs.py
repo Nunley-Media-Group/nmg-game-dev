@@ -447,7 +447,7 @@ def _run_generate(run: _Run, stored: Mapping[str, Any]) -> dict[str, Any]:
         "warnings": [],
     }
     try:
-        imported = run.session.import_glb(request.name, target)
+        imported = run.session.import_glb(request.name, target, pose=request.pose)
     except PipelineError as error:
         if error.code != UNREACHABLE:
             raise
@@ -459,6 +459,7 @@ def _run_generate(run: _Run, stored: Mapping[str, Any]) -> dict[str, Any]:
         result["material"] = imported.get("material")
         result["merged_vertices"] = imported.get("merged_vertices")
         result["origin_offset"] = imported.get("origin_offset")
+        result["arm_raise"] = imported.get("arm_raise")
     return result
 
 

@@ -49,6 +49,11 @@ be combined with `texture=false`, because the prompt would go unused.
 `pose` is `a-pose` or `t-pose`. It is sent as `pose_mode` on the geometry request only when given.
 Set it only for characters and creatures with limbs. Never set it for props, which it distorts.
 
+Meshy's `a-pose` drops the arms about 55° below horizontal, and `rig_humanoid` rejects arms dropped
+more than 50°. So an `a-pose` import raises each arm about its shoulder until its drop is 48°,
+leaving 2° of margin. The raise is described under [Arm raise](#arm-raise). A `t-pose` import, or an
+import with no pose, is left as the GLB has it.
+
 ## Retexture
 
 `retexture_model` exports the collection's meshes to GLB, sends them to Meshy with a text or
@@ -81,6 +86,28 @@ by 30°, keeping edges sharper than 30° marked sharp.
 The `import_glb` result reports this as `merged_vertices` (vertices the weld removed, an integer
 of at least 0) and `origin_offset` (the `[x, y, z]` translation applied to the geometry, in meters).
 
+## Arm raise
+
+After the normalization, an `a-pose` import raises the arms. It finds each shoulder pivot from the
+mesh's world bounding box, at `(x_c ± 0.10·H, y_c, z_min + 0.81·H)`, where `H` is the height. The
+hand tip is the vertex farthest on that side. The arm's drop is the angle below horizontal of the
+line from the pivot to the hand tip. A side whose drop is 48° or less keeps every vertex. Otherwise
+each vertex outboard of the pivot, and no more than 20° below the hand tip, rotates about the pivot
+around the front-to-back axis by the excess. The rotation blends linearly over `0.04·H` outward from
+the pivot, so the midline and the legs do not move. Vertex and face counts, connectivity, and face
+orientation are unchanged. This is vertex math only, with no modifier and no armature.
+
+The import reports this as `arm_raise`, with `left` and `right` each holding:
+
+| Field | Meaning |
+|-------|---------|
+| `drop_before_deg` | The arm's drop below horizontal before the raise |
+| `drop_after_deg` | The drop after the raise, 48° within 0.5° when the raise applied |
+| `rotation_deg` | The degrees the hand tip rotated; 0 when that side was already at 48° or less |
+
+`arm_raise` is `null` for any pose other than `a-pose`, and for an import with no pose. A generate
+job's `result` carries `arm_raise` only when `loaded_into_session` is `true`.
+
 ## Status document
 
 ```json
@@ -89,9 +116,9 @@ of at least 0) and `origin_offset` (the `[x, y, z]` translation applied to the g
 
 `state` is `queued`, `running`, `succeeded`, or `failed`. A succeeded generate job's `result` holds
 `name`, `route` (`text`, `image`, or `multi_image`), `glb_path`, `loaded_into_session`,
-`collection`, `mesh`, `material`, `merged_vertices`, `origin_offset`, and `warnings`. `collection`,
-`mesh`, `material`, `merged_vertices`, and `origin_offset` are set only when `loaded_into_session` is
-`true`; they carry the import's values. A succeeded retexture job's `result` holds `name`,
+`collection`, `mesh`, `material`, `merged_vertices`, `origin_offset`, `arm_raise`, and `warnings`.
+`collection`, `mesh`, `material`, `merged_vertices`, `origin_offset`, and `arm_raise` are set only
+when `loaded_into_session` is `true`; they carry the import's values. A succeeded retexture job's `result` holds `name`,
 `maps`, `applied_to_session`, and `warnings`. A failed job carries `error` with `code`, `message`,
 and `remediation`.
 

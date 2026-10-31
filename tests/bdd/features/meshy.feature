@@ -141,3 +141,34 @@ Feature: Optional Meshy model generation and retexturing
     Given a Meshy generate job whose session import succeeds
     When the job finishes
     Then the import result and the job result carry merged_vertices and origin_offset
+
+  # #106 spec SCN001–SCN004. Numbered SCN016–SCN019 here, because SCN001–SCN015 are this file's
+  # #98 and #105 scenarios. The geometry steps need bpy, so tests/blender/test_meshy_session.py
+  # runs them under the same #106 tests; the bindings here check the contract and the neutral-pose
+  # check on the rotation that contract reports.
+
+  @SCN016
+  Scenario: A 55 degree A-pose is raised to 48 degrees
+    Given a GLB of a 1.8 m box humanoid with both arms dropped 55 degrees
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each arm's drop is 48 degrees within 0.5
+    And torso-midline and leg vertices have not moved
+    And vertex count, face count, and connectivity are unchanged with no flipped faces
+
+  @SCN017
+  Scenario: Compliant or non-A-pose imports are untouched
+    Given a GLB of the box humanoid
+    When import_glb imports it with pose t-pose, with no pose, or as an A-pose dropped 45 degrees
+    Then no vertex moves
+
+  @SCN018
+  Scenario: The job result reports the arm raise
+    Given a Meshy generate job with pose a-pose whose session import succeeds
+    When the job finishes
+    Then the job result carries arm_raise with left and right drop_before_deg, drop_after_deg, and rotation_deg
+
+  @SCN019
+  Scenario: The raised humanoid passes the neutral-pose check
+    Given the raised Hero with shoulder landmarks at the pivots and wrist landmarks on the raised arms
+    When rig_core.landmarks.validate runs for a humanoid
+    Then it does not report rig.pose_not_neutral
