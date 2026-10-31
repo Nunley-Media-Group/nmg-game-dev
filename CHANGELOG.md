@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-31
+
 ### Added
 
 - `scripts/start-unreal-mcp.sh` builds missing or stale source-only project plugin binaries before it launches the editor, logging to `/tmp/unreal-mcp-build.log`; the consumer SessionStart hook for it gets a 900-second timeout (#103)
