@@ -1,0 +1,44 @@
+{
+  "server": "meshy",
+  "tools": [
+    {
+      "name": "generate_model",
+      "description": "Start a background Meshy generate job and return its job_id at once. Give a prompt, one to four reference images, or both. Prompt only: Meshy shapes the model from the text. With images, the images shape the model and the prompt steers only the texture. texture=False returns the untextured mesh, with no prompt and images together. pose is a-pose or t-pose and applies to characters and creatures with limbs only; set it only for those, never for props. Poll get_meshy_job(job_id) until it succeeds.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "prompt": {"type": ["string", "null"]},
+          "image_paths": {"type": ["array", "null"], "items": {"type": "string"}},
+          "texture": {"type": "boolean", "default": true},
+          "pose": {"type": ["string", "null"], "enum": ["a-pose", "t-pose", null]}
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "retexture_model",
+      "description": "Start a background Meshy retexture job for an authored collection and return its job_id. The collection must already be in the Blender session with mesh SM_<name>. Give exactly one of prompt and image_path. The job downloads base color, normal, roughness, and metallic maps and wires them into the collection's material.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "prompt": {"type": ["string", "null"]},
+          "image_path": {"type": ["string", "null"]}
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "get_meshy_job",
+      "description": "Return a Meshy job's state: queued, running (stage and progress), succeeded (with the GLB or map paths and any warnings), or failed (with code, message, and remediation).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": {"type": "string"}
+        },
+        "required": ["job_id"]
+      }
+    }
+  ]
+}

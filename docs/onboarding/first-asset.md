@@ -34,6 +34,13 @@ Mobile variants must fit the mobile budget in the contract. If a specific asset 
 more, record the override in the project-root `nmg-budgets.json`. Onboarding never reads or changes
 that file. Keep the reason next to the override so the next reviewer can judge it.
 
+## Optional: Meshy generation or retexture
+
+With a Meshy key in the project's `.env`, the `meshy` MCP can generate a model from a prompt, from
+one to four reference images, or both, and retexture an authored mesh. Results land in the session
+as the same `<Name>` collection this guide builds. Set `pose` only for characters with limbs. See
+[docs/mcp/meshy.md](../mcp/meshy.md).
+
 ## 5. Import
 
 Finalize writes both variants into Unreal under `Content/<Category>/<Name>/{Desktop,Mobile}/`, with

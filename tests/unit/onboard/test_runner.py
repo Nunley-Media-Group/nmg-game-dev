@@ -91,7 +91,15 @@ def test_fresh_install_installs_framework_files(
     assert not (consumer / "Plugins" / "nmg-game-dev" / "Binaries").exists()
     local = json.loads((consumer / ".claude" / "settings.local.json").read_text())
     assert not [key for key in local["env"] if key.endswith("_API_KEY")]
-    assert {r.name for r in results} >= {"settings_hooks", "asset_contract", "texture_env"}
+    assert {r.name for r in results} >= {
+        "settings_hooks",
+        "asset_contract",
+        "texture_env",
+        "gitignore_env",
+    }
+    ignore = (consumer / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ignore.count(".env") == 1
+    assert not (consumer / ".env").exists(), "onboarding must never create the project .env"
 
 
 def test_unreal_plugins_installed_and_enabled(

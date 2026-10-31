@@ -54,7 +54,7 @@ The headline capability: **the developer and Claude author an asset freeform in 
 
 ## Core Value Proposition
 
-1. **Freeform authoring, contract-checked output** — Claude models any asset freeform in Blender, with no per-asset-type recipes; the asset contract and its tooling make every result game-ready. No paid generation service in the loop.
+1. **Freeform authoring, contract-checked output** — Claude models any asset freeform in Blender, with no per-asset-type recipes; the asset contract and its tooling make every result game-ready. No paid generation service required.
 2. **Creative freedom with quality gates** — adhoc iteration is the default path; quality (polycount, texture budgets, manifest correctness, player-facing perf) is enforced automatically, not by human review.
 3. **Drop-in plugin shape** — a consumer project installs `nmg-game-dev` from the `nmg-plugins` marketplace, installs the Blender add-on and UE plugin, and immediately has the full skill suite available. Onboarding is a first-class deliverable, not an afterthought.
 4. **Claude Code-native orchestration** — every pipeline stage and every ship step is addressable by a skill or MCP tool. The developer's interface is chat + natural language, not a bespoke CLI.
@@ -96,6 +96,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 - **MCP + skill scaffolding** — the plugin shell and MCP server wiring for Blender (Blender MCP) and Unreal (Epic's native MCP on UE 5.8, expanded by VibeUE).
 - **Asset contract + finalize pipeline** — freeform authoring in Blender, then validate → bake → Desktop/Mobile variants → export → re-import check → UE import, each step also callable by the agent.
+- **Optional Meshy source** — opt-in and paid: text, reference-image, or combined generation and retexture through the `meshy` MCP, used only when a Meshy API key is in the project's git-ignored `.env`. Its results enter the same Blender collection contract as local work.
 - **Texture generation** — local AI texture models (Z-Image Turbo, FLUX.2 klein 4B via mflux) the agent calls while authoring; procedural Blender materials as the fallback; everything baked to contract texture sets and proofed in Blender.
 - **Unreal Engine plugin** — editor-side capability (import, retarget, level dressing, variant routing) AND runtime capability that ships inside the consumer's game binary.
 - **Blender add-on** — authoring-side capability (generation, cleanup, mobile optimization).
@@ -107,7 +108,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 - Console-specific tooling paths (PlayStation / Xbox / Switch) — not a v1 target.
 - Runtime (play-time) asset generation — generation is authoring-time; what ships is pre-baked.
-- Any cloud-hosted or paid generation service (ours or third-party, including Meshy) — generation is local: Blender plus local models.
+- Any cloud-hosted or paid generation service other than the optional Meshy source — generation is local by default: Blender plus local models.
 - A per-asset-type recipe library — the agent authors freeform; the contract defines the target.
 - Composing levels or multi-asset scenes in Blender — that happens in Unreal.
 - A bespoke launcher / storefront — we ship to Apple / Google / (direct download for desktop), not our own distribution.

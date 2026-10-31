@@ -23,10 +23,12 @@ def test_prompt_run_and_source_symbols_are_gone() -> None:
         assert not hasattr(pipeline, name), name
 
 
-def test_no_meshy_or_generate_in_package_source() -> None:
+def test_no_meshy_or_generate_in_pipeline_or_finalize_source() -> None:
+    """Meshy lives in nmg_game_dev.meshy; pipeline and finalize stay free of it (#98)."""
     offenders = [
         str(path.relative_to(_SRC))
-        for path in _SRC.rglob("*.py")
+        for folder in (_SRC / "pipeline", _SRC / "finalize")
+        for path in folder.rglob("*.py")
         if "meshy" in path.read_text(encoding="utf-8").lower()
         or "generate_mesh" in path.read_text(encoding="utf-8")
     ]

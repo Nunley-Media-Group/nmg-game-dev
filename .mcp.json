@@ -22,6 +22,11 @@
       "command": "uv",
       "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT}/mcp-servers/texture-gen", "texture-gen-mcp"],
       "description": "texture-gen MCP — local seamless texture generation with the two pinned mflux models (#7)"
+    },
+    "meshy": {
+      "command": "uv",
+      "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT}/mcp-servers/meshy", "meshy-mcp"],
+      "description": "meshy MCP — optional Meshy model generation and retexturing (#98); reads its key from the project .env"
     }
   }
 }
