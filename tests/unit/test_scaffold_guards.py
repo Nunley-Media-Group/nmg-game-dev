@@ -101,10 +101,50 @@ def test_mcp_json_carries_no_version_constraint(mcp_data: dict[str, Any], server
         assert not re.search(r"==|[<>]|@\d", ref), f"{server} pins a version in {ref!r}"
 
 
-def test_mcp_json_has_no_meshy(mcp_data: dict[str, Any], mcp_text: str) -> None:
-    assert "meshy" not in mcp_data["mcpServers"], ".mcp.json still declares a meshy server"
-    assert "MESHY_API_KEY" not in mcp_text, ".mcp.json still references MESHY_API_KEY"
+def test_mcp_json_declares_the_optional_meshy_server(
+    mcp_data: dict[str, Any], mcp_text: str
+) -> None:
+    entry = mcp_data["mcpServers"]["meshy"]
+    assert entry["command"] == "uv"
+    assert entry["args"] == [
+        "run",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}/mcp-servers/meshy",
+        "meshy-mcp",
+    ]
+    assert "env" not in entry, "the meshy entry must not carry a key in its env"
+    assert "MESHY_API_KEY" not in mcp_text, ".mcp.json must not reference MESHY_API_KEY"
     assert "meshy-mcp-server" not in mcp_text, ".mcp.json still pins meshy-mcp-server"
+
+
+_EXPECTED_WIRING: dict[str, dict[str, Any]] = {
+    "blender": {
+        "command": "uvx",
+        "args": ["mcp-for-blender@latest"],
+        "env": {"BLENDER_MCP_DISABLE_TELEMETRY": "1"},
+    },
+    "unreal": {"type": "http", "url": "http://127.0.0.1:${UE_MCP_PORT:-8000}/mcp"},
+    "finalize": {
+        "command": "uv",
+        "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT}/mcp-servers/finalize", "finalize-mcp"],
+    },
+    "texture-gen": {
+        "command": "uv",
+        "args": [
+            "run",
+            "--project",
+            "${CLAUDE_PLUGIN_ROOT}/mcp-servers/texture-gen",
+            "texture-gen-mcp",
+        ],
+    },
+}
+
+
+@pytest.mark.parametrize("server", sorted(_EXPECTED_WIRING))
+def test_mcp_json_other_entries_keep_their_wiring(mcp_data: dict[str, Any], server: str) -> None:
+    entry = mcp_data["mcpServers"][server]
+    wiring = {key: entry[key] for key in ("type", "command", "args", "env", "url") if key in entry}
+    assert wiring == _EXPECTED_WIRING[server], f"{server} wiring changed for #98"
 
 
 MESHY_SOURCE_STRINGS = (

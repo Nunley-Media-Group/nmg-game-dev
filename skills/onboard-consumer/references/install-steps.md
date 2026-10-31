@@ -33,11 +33,13 @@ unchanged unless `--refresh` is given.
 | `blender_addon` | `$BLENDER_EXTENSIONS_DIR/nmg_game_dev_blender_addon` (outside the consumer) | Symlink to `<framework>/plugins/nmg-game-dev-blender-addon`. Default extensions dir: `~/Library/Application Support/Blender/5.2/extensions/user_default`. | Yes (link target) |
 | `texture_models` | `<models dir>/z-image-turbo-q4`, `<models dir>/flux2-klein-4b-q4` (outside the consumer) | For each missing model, run `mflux-save --model <id> --quantize 4 --path <models dir>/<id>-q4` with `HF_HOME=<models dir>/hf-cache`, one after the other. Runs `uv tool install mflux==0.24.0` first only when `mflux-save` is not on PATH. | Skipped when present |
 | `texture_env` | `.claude/settings.local.json` `env` | Set `TEXTURE_GEN_MODELS_DIR=<models dir>` and `HF_HOME=<models dir>/hf-cache`. Other keys are kept. | No (set to the resolved values) |
+| `gitignore_env` | `.gitignore` | Append a `.env` line, creating `.gitignore` when missing. An existing `.env` or `/.env` line counts as present, so a rerun adds nothing. | Skipped when present |
 
 ## Never written
 
 - `.mcp.json`: the plugin's root `.mcp.json` ships the MCP servers. Consumers get no MCP config from onboarding.
 - `fixtures/` (including `dogfood.uproject`): the framework's fixtures never reach a consumer.
+- `.env`: onboarding never asks for, creates, or writes the project `.env`. The optional Meshy key (`MESHY_API_KEY=`) is the developer's to add; `gitignore_env` only keeps that file out of git.
 - `nmg-budgets.json`: the consumer owns it. Onboarding never reads, writes, or reports it.
 - Any settings value whose name ends in `_API_KEY`.
 - `SourceArt/Textures/Generated/`: generated textures are created by the texture commands, not by onboarding.

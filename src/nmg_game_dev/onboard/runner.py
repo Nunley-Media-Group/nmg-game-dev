@@ -27,6 +27,7 @@ from nmg_game_dev.onboard.commands import (
 )
 from nmg_game_dev.onboard.errors import OnboardError
 from nmg_game_dev.onboard.files import sync_file, sync_tree
+from nmg_game_dev.onboard.gitignore import ensure_gitignore_env
 from nmg_game_dev.onboard.instructions import upsert_block
 from nmg_game_dev.onboard.report import StepResult
 from nmg_game_dev.onboard.settings import merge_env, merge_session_hooks
@@ -233,4 +234,5 @@ def run_onboard(
             },
         )
     )
+    results.append(ensure_gitignore_env("gitignore_env", target / ".gitignore"))
     return results

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meshy-mcp"
+version = "0.1.0"
+description = "meshy MCP server: optional Meshy model generation and retexturing (#98)"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Nunley Media Group" }]
+dependencies = ["mcp==1.30.0", "nmg-game-dev"]
+
+[project.scripts]
+meshy-mcp = "meshy_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meshy_mcp"]
+
+[tool.uv.sources]
+# The meshy package ships in the repository root package (src/nmg_game_dev).
+nmg-game-dev = { path = "../..", editable = true }

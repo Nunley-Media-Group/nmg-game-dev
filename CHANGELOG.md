@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-31
+
+### Changed
+
+- Add optional Meshy model generation and retexturing through the Meshy API (#98)
+
 ## [0.14.1] - 2026-10-31
 
 ### Fixed

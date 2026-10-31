@@ -90,9 +90,15 @@ class BlenderSessionClient:
             )
         return _result_from_reply(reply)
 
-    def run_session_op(self, op: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """Run one ``finalize_session.py`` operation and return its ``NMG_RESULT`` object."""
-        return self.execute(session_code(op, payload))
+    def run_session_op(
+        self,
+        op: str,
+        payload: Mapping[str, Any],
+        *,
+        script: Path = SESSION_SCRIPT,
+    ) -> dict[str, Any]:
+        """Run one operation of ``script`` (default ``finalize_session.py``); return its result."""
+        return self.execute(session_code(op, payload, script=script))
 
     def checkpoint(self, *, collection: str, path: Path) -> str:
         """Save a checkpoint copy of the session to ``path`` and return the collection hash."""
@@ -128,12 +134,14 @@ class BlenderSessionClient:
         return result
 
 
-def session_code(op: str, payload: Mapping[str, Any]) -> str:
-    """Return the code string that runs ``finalize_session.py`` with ``op`` and ``payload``.
+def session_code(op: str, payload: Mapping[str, Any], *, script: Path = SESSION_SCRIPT) -> str:
+    """Return the code string that runs ``script`` with ``op`` and ``payload``.
 
-    The JSON is embedded as string literals, so no caller value is interpolated as Python source.
+    ``script`` defaults to ``finalize_session.py``. It follows the ``NMG_OP`` / ``NMG_PAYLOAD``
+    contract. The JSON is embedded as string literals, so no caller value is interpolated as Python
+    source.
     """
-    script = str(SESSION_SCRIPT)
+    script_path = str(script)
     # The session script loads the add-on package from addon_dir: exec'd code has no __file__.
     body = {"addon_dir": str(ADDON_DIR), **dict(payload)}
     return "\n".join(
@@ -141,8 +149,8 @@ def session_code(op: str, payload: Mapping[str, Any]) -> str:
             "import json as _json",
             f"NMG_OP = {json.dumps(op)}",
             f"NMG_PAYLOAD = _json.loads({json.dumps(json.dumps(body))})",
-            f"exec(compile(open({json.dumps(script)}, encoding='utf-8').read(), "
-            f"{json.dumps(script)}, 'exec'))",
+            f"exec(compile(open({json.dumps(script_path)}, encoding='utf-8').read(), "
+            f"{json.dumps(script_path)}, 'exec'))",
         ]
     )
 

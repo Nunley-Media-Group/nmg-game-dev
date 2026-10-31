@@ -9,7 +9,7 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 # Derived from VERSION (the versioning source of truth) so release bumps never strand a pin.
 EXPECTED_VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
-REQUIRED_SERVERS = ("blender", "unreal", "texture-gen")
+REQUIRED_SERVERS = ("blender", "unreal", "texture-gen", "meshy")
 
 # Toolchain contract for issue #68: Epic's native Unreal MCP endpoint (VibeUE rides on it),
 # the latest mcp-for-blender release, and the Unreal Engine version the fixture targets.
