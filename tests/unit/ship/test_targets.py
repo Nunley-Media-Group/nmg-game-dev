@@ -45,3 +45,25 @@ def test_preflight_treats_an_empty_variable_as_missing() -> None:
     env["IOS_PROVISIONING_PROFILE"] = ""
     with pytest.raises(ShipError, match="IOS_PROVISIONING_PROFILE"):
         preflight_env(("ios",), env)
+
+
+def test_keychain_profile_replaces_the_apple_id_and_password_in_preflight() -> None:
+    env = {"NOTARIZATION_KEYCHAIN_PROFILE": "nmg-notary", "NOTARIZATION_TEAM_ID": "SMOKE00000"}
+    preflight_env(("macos",), env)
+
+
+def test_keychain_profile_still_requires_the_team() -> None:
+    with pytest.raises(ShipError) as caught:
+        preflight_env(("macos",), {"NOTARIZATION_KEYCHAIN_PROFILE": "nmg-notary"})
+    error = caught.value
+    assert error.code == "ship.env_missing"
+    assert "NOTARIZATION_TEAM_ID" in error.message
+    assert "NOTARIZATION_APPLE_ID" not in error.message
+    assert "NOTARIZATION_APP_SPECIFIC_PASSWORD" not in error.message
+
+
+def test_without_the_profile_the_apple_id_pair_is_still_required() -> None:
+    with pytest.raises(ShipError) as caught:
+        preflight_env(("macos",), {"NOTARIZATION_TEAM_ID": "SMOKE00000"})
+    assert "NOTARIZATION_APPLE_ID" in caught.value.message
+    assert "NOTARIZATION_APP_SPECIFIC_PASSWORD" in caught.value.message

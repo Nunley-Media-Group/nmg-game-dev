@@ -11,7 +11,9 @@ Steps:
 1. Parse the pytest target from ``sys.argv`` (after ``--``).
 2. Attempt ``import pytest``.  On ``ImportError``, bootstrap pip into
    Blender's bundled Python (idempotent — safe to run on every launch).
-3. Invoke ``pytest.main([target, "-q"])`` and exit with pytest's return code.
+3. Invoke ``pytest.main([target, "-q"])`` and exit with pytest's return code. The exit goes
+   through ``os._exit`` after flushing, because Blender swallows the ``SystemExit`` that
+   ``sys.exit`` raises from a ``--python`` script.
 
 No Blender GUI APIs are imported here so this script runs cleanly under
 ``--background``.
@@ -19,6 +21,7 @@ No Blender GUI APIs are imported here so this script runs cleanly under
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -119,7 +122,9 @@ def main() -> None:
     # inherit "Blender" as the program name or misread leaked flags.
     sys.argv = [sys.argv[0], target, "-q"]
     result = pytest.main([target, "-q"])
-    sys.exit(result)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(int(result))
 
 
 if __name__ == "__main__":

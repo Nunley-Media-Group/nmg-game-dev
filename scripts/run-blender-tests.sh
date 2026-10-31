@@ -11,7 +11,11 @@
 #   3. /Applications/Blender.app/Contents/MacOS/Blender  — documented default
 #
 # Usage (from repo root):
-#   scripts/run-blender-tests.sh
+#   scripts/run-blender-tests.sh [target]
+#
+# target is the optional pytest path (default tests/blender). Blender exits with the pytest
+# result: --python-exit-code 1 turns an unhandled exception in the runner into exit 1, and
+# _runner.py exits with pytest's exact code, so a failing or erroring test fails the gate.
 set -euo pipefail
 
 resolve_blender() {
@@ -32,4 +36,5 @@ resolve_blender() {
 BLENDER="$(resolve_blender)"
 readonly BLENDER
 
-exec "${BLENDER}" --background --python tests/blender/_runner.py -- tests/blender
+target="${1:-tests/blender}"
+exec "${BLENDER}" --background --python-exit-code 1 --python tests/blender/_runner.py -- "${target}"

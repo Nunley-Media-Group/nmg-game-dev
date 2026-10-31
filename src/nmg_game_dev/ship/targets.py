@@ -28,6 +28,11 @@ TARGETS: Final[tuple[str, ...]] = (
 )
 MOBILE_PLATFORMS: Final[frozenset[Platform]] = frozenset({"ios", "android"})
 
+_APPLE_ID_CREDENTIALS: Final[tuple[str, ...]] = (
+    "NOTARIZATION_APPLE_ID",
+    "NOTARIZATION_APP_SPECIFIC_PASSWORD",
+)
+
 _PLATFORMS: Final[tuple[Platform, ...]] = ("macos", "ios", "android", "windows")
 _GROUPS: Final[dict[str, tuple[Platform, ...]]] = {
     "desktop": ("macos", "windows"),
@@ -68,11 +73,18 @@ def expand_target(target: str) -> tuple[Platform, ...]:
     )
 
 
+def _required(platform: Platform, env: Mapping[str, str]) -> tuple[str, ...]:
+    """Return the variables ``platform`` needs; a keychain profile replaces the Apple ID pair."""
+    if platform == "macos" and env.get("NOTARIZATION_KEYCHAIN_PROFILE"):
+        return tuple(name for name in REQUIRED_ENV[platform] if name not in _APPLE_ID_CREDENTIALS)
+    return REQUIRED_ENV[platform]
+
+
 def preflight_env(platforms: Sequence[Platform], env: Mapping[str, str]) -> None:
     """Raise ``ship.env_missing`` naming every required variable that is unset or empty."""
     missing = list(
         dict.fromkeys(
-            name for platform in platforms for name in REQUIRED_ENV[platform] if not env.get(name)
+            name for platform in platforms for name in _required(platform, env) if not env.get(name)
         )
     )
     if missing:

@@ -492,9 +492,12 @@ def plugin_json_version(plugin_data: dict[str, Any]) -> None:
     assert plugin_data["version"] == EXPECTED_VERSION
 
 
-@then("`pyproject.toml`'s `project.version` equals `VERSION`")
+@then("`pyproject.toml` declares `project.version` dynamic, sourced from `VERSION`")
 def pyproject_version(pyproject_data: dict[str, Any]) -> None:
-    assert pyproject_data["project"]["version"] == EXPECTED_VERSION
+    project = pyproject_data["project"]
+    assert "version" not in project
+    assert "version" in project["dynamic"]
+    assert pyproject_data["tool"]["hatch"]["version"]["path"] == "VERSION"
 
 
 @given("`.mcp.json` at the repo root")

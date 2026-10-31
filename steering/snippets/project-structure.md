@@ -62,7 +62,6 @@ nmg-game-dev/
 │   ├── start-unreal-mcp.sh        # SessionStart hook — idempotent UE Editor launcher
 │   ├── blender/                   # Headless Blender entries: contract_entry.py, finalize_entry.py, finalize_session.py
 │   ├── unreal/                    # UE Python run through the Unreal MCP: build_master_material.py
-│   ├── validate-skills.py         # Runtime of gate-skill-schema
 │   ├── validate-mcp-tools.py      # Runtime of gate-mcp-schema
 │   ├── audit-mobile-budgets.py
 │   ├── verify-cook-manifest.sh

@@ -93,7 +93,7 @@ Feature: Scaffold plugin + repo + session-start hooks
     Then `VERSION` contains exactly one `X.Y.Z` semver followed by a newline
     And `CHANGELOG.md` has an `## [Unreleased]` section
     And `.claude-plugin/plugin.json`'s `version` field equals `VERSION`
-    And `pyproject.toml`'s `project.version` equals `VERSION`
+    And `pyproject.toml` declares `project.version` dynamic, sourced from `VERSION`
 
   # --- MCP config ---
 

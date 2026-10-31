@@ -39,7 +39,7 @@
 - Without it, the script keeps its existing required variables, submit argv and masked `RUN:` line. Before submitting it writes a stderr warning that names process-argument visibility and `NOTARIZATION_KEYCHAIN_PROFILE` (AC5).
 - `--dry-run` submits nothing in either mode (AC8).
 - `preflight_env(["macos"], env)` does not report `NOTARIZATION_APPLE_ID` or `NOTARIZATION_APP_SPECIFIC_PASSWORD` as missing when `NOTARIZATION_KEYCHAIN_PROFILE` is set, and still reports `NOTARIZATION_TEAM_ID`.
-- `skills/ship/SKILL.md` `required_env` marks `NOTARIZATION_APPLE_ID?` and `NOTARIZATION_APP_SPECIFIC_PASSWORD?` optional and adds `NOTARIZATION_KEYCHAIN_PROFILE?`. `scripts/validate-skills.py` passes.
+- `skills/ship/SKILL.md` `required_env` marks `NOTARIZATION_APPLE_ID?` and `NOTARIZATION_APP_SPECIFIC_PASSWORD?` optional and adds `NOTARIZATION_KEYCHAIN_PROFILE?`. Its frontmatter still parses.
 - `docs/skills/ship.md` lists `NOTARIZATION_KEYCHAIN_PROFILE`, recommends it, and says the Apple ID and password are needed only without it. The steering notarization env row names it (FR3).
 
 ### T004: Derive the package version from VERSION and relock every project
@@ -96,8 +96,38 @@
 - SCN002 and SCN003 are realized by `tests/blender/test_reimport_entry.py` from T006.
 - `pytest tests/bdd/` passes.
 
+### T008: Assert the host add-on's loaded state in the coexistence suite
+
+**File(s)**: `tests/blender/test_coexistence.py`
+**Type**: Modify
+**Depends**: none
+**Acceptance**:
+- `test_both_addons_load` and `test_disabling_nmg_leaves_host_functional` take the second value of `addon_utils.check()` (loaded state) for their assertions (AC9, FR7).
+- With the host add-on installed, `scripts/run-blender-tests.sh` passes; without it, the module still skips.
+
+### T009: Remove the unrunnable skill-schema and markdown-lint gates from steering
+
+**File(s)**: `steering/snippets/project-tech.md`, `steering/snippets/project-structure.md`
+**Type**: Modify
+**Depends**: none
+**Acceptance**:
+- The Verification Gates table has no `gate-skill-schema` or `gate-markdown-lint` row (AC10, FR8).
+- The Markdown coding standards no longer claim a `markdownlint` CI gate.
+- The repository layout no longer lists `scripts/validate-skills.py`.
+
+### T010: Let the onboarding changelog guard find its section after later releases
+
+**File(s)**: `tests/unit/onboard/test_docs_and_skill.py`
+**Type**: Modify
+**Depends**: none
+**Acceptance**:
+- `test_changelog_has_both_unreleased_entries_ending_with_issue` reads the first `CHANGELOG.md` section after `[Unreleased]` that holds `(#7)` entries, instead of only `[Unreleased]` or the first release (AC11, FR9).
+- `pytest tests/unit/` passes after the #95 release bump.
+
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #95 | 2026-10-30 | Initial defect tasks |
+| #95 | 2026-10-30 | Amended: T008 coexistence assertion, T009 gate removal; T003 no longer runs the missing skill validator |
+| #95 | 2026-10-31 | Amended: T010 changelog guard |

@@ -3,10 +3,13 @@
 #
 #   scripts/notarize-macos.sh <app> [--dry-run]
 #
-# Outside --dry-run it needs NOTARIZATION_APPLE_ID, NOTARIZATION_APP_SPECIFIC_PASSWORD, and
-# NOTARIZATION_TEAM_ID. It zips the app, submits the zip with notarytool --wait, requires
-# "status: Accepted" in the output, then staples. The app-specific password and Apple ID are shown
-# as *** and never printed.
+# Outside --dry-run it needs either NOTARIZATION_KEYCHAIN_PROFILE (a profile saved with
+# xcrun notarytool store-credentials; preferred) or NOTARIZATION_APPLE_ID,
+# NOTARIZATION_APP_SPECIFIC_PASSWORD, and NOTARIZATION_TEAM_ID. With the profile, notarytool gets
+# --keychain-profile and no secret is in its arguments. The password path passes the password in
+# arguments, so it warns before submitting. It zips the app, submits the zip with notarytool --wait,
+# requires "status: Accepted" in the output, then staples. The app-specific password and Apple ID
+# are shown as *** and never printed.
 # Exit 0 when accepted and stapled, 1 when submission or staple fails or the status is not
 # Accepted, 2 on bad arguments or a missing variable or tool, each with a Remediation: line.
 # --dry-run prints the plan, submits nothing, and exits 0.
@@ -51,6 +54,7 @@ done
 
 [[ -n "$app" ]] || die 2 "Pass the path to the signed .app." "no .app path was given"
 
+profile="${NOTARIZATION_KEYCHAIN_PROFILE:-}"
 apple_id="${NOTARIZATION_APPLE_ID:-}"
 password="${NOTARIZATION_APP_SPECIFIC_PASSWORD:-}"
 team="${NOTARIZATION_TEAM_ID:-}"
@@ -58,9 +62,11 @@ team="${NOTARIZATION_TEAM_ID:-}"
 if (( dry_run )); then
   team="${team:-<NOTARIZATION_TEAM_ID>}"
 else
-  for name in NOTARIZATION_APPLE_ID NOTARIZATION_APP_SPECIFIC_PASSWORD NOTARIZATION_TEAM_ID; do
-    [[ -n "${!name:-}" ]] || die 2 "Set ${name}, then rerun the macOS ship." "${name} is not set"
-  done
+  if [[ -z "$profile" ]]; then
+    for name in NOTARIZATION_APPLE_ID NOTARIZATION_APP_SPECIFIC_PASSWORD NOTARIZATION_TEAM_ID; do
+      [[ -n "${!name:-}" ]] || die 2 "Set ${name}, then rerun the macOS ship." "${name} is not set"
+    done
+  fi
   [[ -d "$app" ]] || die 2 "Sign the .app first, or pass the path that the signed .app is at." "app bundle not found: $app"
   command -v ditto >/dev/null || die 2 "Install the Xcode command line tools so ditto is on PATH." "ditto not found on PATH"
   command -v xcrun >/dev/null || die 2 "Install the Xcode command line tools so xcrun is on PATH." "xcrun not found on PATH"
@@ -68,8 +74,13 @@ fi
 
 zip="${app%/}.zip"
 ditto_cmd=(ditto -c -k --keepParent "$app" "$zip")
-submit_cmd=(xcrun notarytool submit "$zip" --apple-id "$apple_id" --password "$password" --team-id "$team" --wait)
-shown_submit=(xcrun notarytool submit "$zip" --apple-id '***' --password '***' --team-id "$team" --wait)
+if [[ -n "$profile" ]]; then
+  submit_cmd=(xcrun notarytool submit "$zip" --keychain-profile "$profile" --wait)
+  shown_submit=("${submit_cmd[@]}")
+else
+  submit_cmd=(xcrun notarytool submit "$zip" --apple-id "$apple_id" --password "$password" --team-id "$team" --wait)
+  shown_submit=(xcrun notarytool submit "$zip" --apple-id '***' --password '***' --team-id "$team" --wait)
+fi
 staple_cmd=(xcrun stapler staple "$app")
 
 if (( dry_run )); then
@@ -81,6 +92,9 @@ fi
 
 show "RUN:" "${ditto_cmd[@]}"
 "${ditto_cmd[@]}" || die 1 "Check that the signed .app is readable and that its folder is writable, then rerun." "ditto could not zip $app"
+if [[ -z "$profile" ]]; then
+  printf '%s\n' "WARNING: the app-specific password is visible in process arguments while notarytool runs; set NOTARIZATION_KEYCHAIN_PROFILE (xcrun notarytool store-credentials) to avoid it." >&2
+fi
 show "RUN:" "${shown_submit[@]}"
 if ! output="$("${submit_cmd[@]}" 2>&1)"; then
   printf '%s\n' "$output"

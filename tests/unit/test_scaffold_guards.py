@@ -169,7 +169,10 @@ def test_plugin_json_version(plugin_data: dict[str, Any]) -> None:
 
 
 def test_pyproject_version(pyproject_data: dict[str, Any]) -> None:
-    assert pyproject_data["project"]["version"] == EXPECTED_VERSION
+    project = pyproject_data["project"]
+    assert "version" not in project, "project.version must be dynamic, not a static value"
+    assert "version" in project["dynamic"]
+    assert pyproject_data["tool"]["hatch"]["version"]["path"] == "VERSION"
 
 
 def test_nmg_game_dev_package_version() -> None:
@@ -184,11 +187,12 @@ def test_version_triangulation(
 ) -> None:
     file_version = version_text.strip()
     plugin_version = plugin_data["version"]
-    pyproject_version = pyproject_data["project"]["version"]
-    assert file_version == plugin_version == pyproject_version, (
-        f"Version mismatch: VERSION={file_version!r},"
-        f" plugin.json={plugin_version!r},"
-        f" pyproject.toml={pyproject_version!r}"
+    # pyproject.toml takes its version from VERSION at build time, so only the plugin manifest
+    # needs an equality check against the file.
+    assert "version" in pyproject_data["project"]["dynamic"]
+    assert pyproject_data["tool"]["hatch"]["version"]["path"] == "VERSION"
+    assert file_version == plugin_version, (
+        f"Version mismatch: VERSION={file_version!r}, plugin.json={plugin_version!r}"
     )
 
 

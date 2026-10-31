@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nmg-game-dev"
-version = "0.14.0"
+dynamic = ["version"]
 description = "Blender-first, Unreal-shipped content pipeline for NMG games"
 readme = "CLAUDE.md"
 requires-python = ">=3.11"
@@ -27,6 +27,16 @@ texture-ai = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nmg_game_dev"]
+
+# VERSION is the single source of truth (steering/snippets/project-tech.md § Versioning). Declaring
+# the version dynamic keeps it out of every lockfile, and cache-keys rebuilds the editable install
+# when VERSION changes, so importlib.metadata reports the new version without a relock.
+[tool.hatch.version]
+path = "VERSION"
+pattern = "(?P<version>\\S+)"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "VERSION" }]
 
 [tool.ruff]
 line-length = 100

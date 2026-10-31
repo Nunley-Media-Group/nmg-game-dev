@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-31
+
+### Fixed
+
+- Fix the always-green Blender gate, re-import entry lookup, notarization secret exposure, and stale lockfiles (#95)
+
 ## [0.14.0] - 2026-10-31
 
 ### Added
