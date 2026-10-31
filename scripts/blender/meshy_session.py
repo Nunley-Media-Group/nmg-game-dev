@@ -7,11 +7,15 @@ same contract as scripts/blender/finalize_session.py:
     NMG_PAYLOAD = {...}
 
     collection_state: {"name"}                        -> {"ok", "state": missing|exists|no_mesh}
-    import_glb:       {"name", "path"}                -> {"ok", "collection", "mesh", "material"}
+    import_glb:       {"name", "path"}                -> {"ok", "collection", "mesh", "material",
+                                                          "merged_vertices", "origin_offset"}
     export_glb:       {"name", "path"}                -> {"ok", "path", "meshes"}
     apply_maps:       {"name", "maps": {kind: path}}  -> {"ok", "material", "maps"}
 
 ``<Name>`` is the collection, ``SM_<Name>`` its root mesh, and ``M_<Name>_Body`` its material.
+``import_glb`` also welds the mesh, bakes its transform, moves its origin to the bottom center at
+the world origin, and smooths its normals. ``merged_vertices`` counts the vertices the weld removed,
+and ``origin_offset`` is the [x, y, z] translation it applied to the geometry, in meters.
 Each run prints exactly one line, NMG_RESULT <json>. Failures come back as
 {"ok": false, "error": {"code", "message", "remediation"}} and never raise into the session.
 Nodes are created here, and every lookup goes by data type or by the datablock name this script set,
@@ -19,12 +23,17 @@ never by a localized node name.
 """
 
 import json
+import math
 
+import bmesh
 import bpy
+from mathutils import Matrix
 
 NOT_FOUND = "meshy.collection_not_found"
 EXISTS = "meshy.collection_exists"
 SESSION_FAILED = "meshy.session_failed"
+WELD_DISTANCE = 1e-5
+SMOOTH_ANGLE_DEG = 30
 MAP_INPUTS = {
     "base_color": ("Base Color", "sRGB"),
     "roughness": ("Roughness", "Non-Color"),
@@ -68,6 +77,72 @@ def _collection_state(payload):
     else:
         state = "exists"
     return {"ok": True, "state": state}
+
+
+class _NormalizeStepError(Exception):
+    """A normalization step failed; the message names the step."""
+
+
+def _weld(mesh):
+    """Merge vertices within WELD_DISTANCE, recalculate face normals, and return the merge count."""
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        before = len(bm.verts)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=WELD_DISTANCE)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+        merged = before - len(bm.verts)
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    return merged
+
+
+def _recenter(mesh):
+    """Translate the geometry so its bottom center is at the origin, and return the translation."""
+    if not mesh.vertices:
+        raise _NormalizeStepError("Recentering the mesh failed: it has no vertices.")
+    xs = [vertex.co.x for vertex in mesh.vertices]
+    ys = [vertex.co.y for vertex in mesh.vertices]
+    zs = [vertex.co.z for vertex in mesh.vertices]
+    offset = (-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs))
+    mesh.transform(Matrix.Translation(offset))
+    return offset
+
+
+def _fix_normals(obj):
+    """Clear custom split normals, then smooth by angle, keeping edges sharper than the angle."""
+    if obj.data.has_custom_normals:
+        try:
+            with bpy.context.temp_override(object=obj, active_object=obj):
+                bpy.ops.mesh.customdata_custom_splitnormals_clear()
+        except RuntimeError as error:
+            raise _NormalizeStepError(f"Clearing the custom normals failed: {error}.") from error
+    try:
+        with bpy.context.temp_override(
+            selected_editable_objects=[obj], active_object=obj, object=obj
+        ):
+            bpy.ops.object.shade_smooth_by_angle(
+                angle=math.radians(SMOOTH_ANGLE_DEG), keep_sharp_edges=True
+            )
+    except RuntimeError as error:
+        raise _NormalizeStepError(
+            f"Smoothing by {SMOOTH_ANGLE_DEG} degrees failed: {error}."
+        ) from error
+
+
+def _normalize(obj):
+    """Bake the transform, weld, recenter to the bottom center, and fix the normals of ``obj``.
+
+    Returns the numbers the import result reports. Raises _NormalizeStepError on a failed step.
+    """
+    mesh = obj.data
+    mesh.transform(obj.matrix_world)
+    obj.matrix_world = Matrix.Identity(4)
+    merged = _weld(mesh)
+    offset = _recenter(mesh)
+    _fix_normals(obj)
+    return {"merged_vertices": merged, "origin_offset": [round(value, 6) for value in offset]}
 
 
 def _import_glb(payload):
@@ -122,11 +197,20 @@ def _import_glb(payload):
         else:
             target.data.materials.append(material)
     material.name = _material_name(name)
+    try:
+        normalized = _normalize(target)
+    except _NormalizeStepError as error:
+        return _fail(
+            SESSION_FAILED,
+            f"{error} The {name} collection stays in the open file.",
+            f"Delete the {name} collection in Blender, then retry.",
+        )
     return {
         "ok": True,
         "collection": collection.name,
         "mesh": target.name,
         "material": material.name,
+        **normalized,
     }
 
 

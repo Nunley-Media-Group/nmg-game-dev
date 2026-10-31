@@ -457,6 +457,8 @@ def _run_generate(run: _Run, stored: Mapping[str, Any]) -> dict[str, Any]:
         result["collection"] = imported.get("collection")
         result["mesh"] = imported.get("mesh")
         result["material"] = imported.get("material")
+        result["merged_vertices"] = imported.get("merged_vertices")
+        result["origin_offset"] = imported.get("origin_offset")
     return result
 
 

@@ -15,6 +15,7 @@ from nmg_game_dev.pipeline.errors import PipelineError
 from tests.meshy_fakes import (
     ENV,
     GLB_BYTES,
+    IMPORT_NORMALIZATION,
     MAP_BYTES,
     MAP_NAMES,
     TEST_KEY,
@@ -208,6 +209,25 @@ def test_an_unreachable_session_at_import_keeps_the_glb_and_warns(tmp_path: Path
     assert result["warnings"][0]["code"] == UNREACHABLE
     assert result["warnings"][0]["remediation"]
     assert glb_path(tmp_path, "Crate").read_bytes() == GLB_BYTES
+
+
+def test_a_loaded_generate_job_copies_the_import_normalization(tmp_path: Path) -> None:
+    _job, final, _meshy, _session = generate_and_run(
+        GenerateRequest(name="Crate", prompt="crate"), tmp_path
+    )
+    result = final["result"]
+    assert result["merged_vertices"] == IMPORT_NORMALIZATION["merged_vertices"]
+    assert result["origin_offset"] == IMPORT_NORMALIZATION["origin_offset"]
+
+
+def test_an_unreachable_import_adds_no_normalization_keys(tmp_path: Path) -> None:
+    _job, final, _meshy, _session = generate_and_run(
+        GenerateRequest(name="Crate", prompt="crate"),
+        tmp_path,
+        session=FakeSession(down={"import_glb"}),
+    )
+    assert "merged_vertices" not in final["result"]
+    assert "origin_offset" not in final["result"]
 
 
 def test_a_meshy_job_without_a_glb_fails_with_task_failed(tmp_path: Path) -> None:

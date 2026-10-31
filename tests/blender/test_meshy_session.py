@@ -1,4 +1,4 @@
-"""Headless Blender tests for scripts/blender/meshy_session.py (#98 AC1, AC7, AC11).
+"""Headless Blender tests for scripts/blender/meshy_session.py (#98 AC1, AC7, AC11; #105 AC1–AC4).
 
 Run with ``scripts/run-blender-tests.sh tests/blender/test_meshy_session.py``. Outside Blender the
 module skips, because ``bpy`` is only importable inside Blender's bundled Python.
@@ -9,12 +9,15 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import math
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 bpy = pytest.importorskip("bpy")
+bmesh = pytest.importorskip("bmesh")
+mathutils = pytest.importorskip("mathutils")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SESSION = REPO_ROOT / "scripts" / "blender" / "meshy_session.py"
@@ -69,6 +72,61 @@ def _mesh_objects(collection_name: str) -> list[Any]:
     return [obj for obj in bpy.data.collections[collection_name].all_objects if obj.type == "MESH"]
 
 
+def _corner_uvs(mesh: Any) -> list[tuple[float, float]]:
+    """Return every face corner's UV, rounded and sorted, so comparisons ignore corner order."""
+    uv_layer = mesh.uv_layers.active.data
+    return sorted((round(item.uv[0], 5), round(item.uv[1], 5)) for item in uv_layer)
+
+
+def _island_count(mesh: Any) -> int:
+    """Count the connected islands of the mesh's faces, joined through shared vertices."""
+    parent = {index: index for poly in mesh.polygons for index in poly.vertices}
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for poly in mesh.polygons:
+        root = find(poly.vertices[0])
+        for index in poly.vertices[1:]:
+            parent[find(index)] = root
+    return len({find(index) for index in parent})
+
+
+def _build_seamed_cube_glb(path: Path) -> tuple[Path, dict[str, Any]]:
+    """Export a cube at (2, 3, 4) with inward faces and custom split normals (#105 AC1–AC3).
+
+    The cube's per-face UVs make the exporter split its corners, so the GLB holds more vertices than
+    the cube's eight. glTF stores triangles, so the cube is triangulated first, and the source
+    counts are taken from the triangles. Returns the GLB path and the source's face count, sorted
+    corner UVs, and material slot count.
+    """
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(2.0, 3.0, 4.0))
+    cube = next(obj for obj in bpy.data.objects if obj.type == "MESH")
+    cube.data.materials.append(bpy.data.materials.new("Stone"))
+    bm = bmesh.new()
+    bm.from_mesh(cube.data)
+    bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    bm.to_mesh(cube.data)
+    bm.free()
+    cube.data.normals_split_custom_set_from_vertices(
+        [tuple(vertex.co.normalized()) for vertex in cube.data.vertices]
+    )
+    assert cube.data.has_custom_normals
+    source = {
+        "faces": len(cube.data.polygons),
+        "uvs": _corner_uvs(cube.data),
+        "slots": len(cube.material_slots),
+    }
+    bpy.ops.export_scene.gltf(filepath=str(path), export_format="GLB")
+    for obj in list(bpy.data.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    return path, source
+
+
 def _texture_links(material: Any) -> dict[str, str]:
     """Map each image file stem to the socket of the node it feeds (through a Normal Map if any)."""
     tree = material.node_tree
@@ -96,11 +154,82 @@ def test_import_creates_the_collection_with_one_sm_mesh_and_body_material(
         "collection": "Crate",
         "mesh": "SM_Crate",
         "material": "M_Crate_Body",
+        "merged_vertices": 16,
+        "origin_offset": [0.0, 0.0, 0.5],
     }
     meshes = _mesh_objects("Crate")
     assert [obj.name for obj in meshes] == ["SM_Crate"]
     assert [slot.material.name for slot in meshes[0].material_slots] == ["M_Crate_Body"]
     assert "SM_Crate" not in bpy.context.scene.collection.objects
+
+
+def test_seam_split_vertices_are_welded_and_the_topology_is_kept(
+    tmp_path: Path, empty_scene: None
+) -> None:
+    glb, source = _build_seamed_cube_glb(tmp_path / "cube.glb")
+    result = _run("import_glb", {"name": "Crate", "path": str(glb)})
+    assert result["ok"] is True
+    assert result["merged_vertices"] > 0
+    (obj,) = _mesh_objects("Crate")
+    mesh = obj.data
+    assert len(mesh.vertices) == 8
+    assert _island_count(mesh) == 1
+    assert len(mesh.polygons) == source["faces"] == 12
+    assert _corner_uvs(mesh) == source["uvs"]
+    assert len(obj.material_slots) == source["slots"] == 1
+
+
+def test_the_origin_moves_to_the_bottom_center_with_identity_transforms(
+    tmp_path: Path, empty_scene: None
+) -> None:
+    glb, _ = _build_seamed_cube_glb(tmp_path / "cube.glb")
+    assert _run("import_glb", {"name": "Crate", "path": str(glb)})["ok"] is True
+    (obj,) = _mesh_objects("Crate")
+    identity = mathutils.Matrix.Identity(4)
+    for row, expected_row in zip(obj.matrix_world, identity, strict=True):
+        for value, expected in zip(row, expected_row, strict=True):
+            assert value == pytest.approx(expected, abs=1e-6)
+    corners = [obj.matrix_world @ mathutils.Vector(corner) for corner in obj.bound_box]
+    xs = [corner.x for corner in corners]
+    ys = [corner.y for corner in corners]
+    zs = [corner.z for corner in corners]
+    assert (min(xs) + max(xs)) / 2 == pytest.approx(0.0, abs=1e-3)
+    assert (min(ys) + max(ys)) / 2 == pytest.approx(0.0, abs=1e-3)
+    assert min(zs) == pytest.approx(0.0, abs=1e-3)
+
+
+def test_custom_normals_are_cleared_and_faces_smooth_with_outward_normals(
+    tmp_path: Path, empty_scene: None
+) -> None:
+    glb, _ = _build_seamed_cube_glb(tmp_path / "cube.glb")
+    assert _run("import_glb", {"name": "Crate", "path": str(glb)})["ok"] is True
+    (obj,) = _mesh_objects("Crate")
+    mesh = obj.data
+    assert mesh.has_custom_normals is False
+    assert all(poly.use_smooth for poly in mesh.polygons)
+    faces_by_edge: dict[tuple[int, int], list[Any]] = {}
+    for poly in mesh.polygons:
+        for key in poly.edge_keys:
+            faces_by_edge.setdefault(tuple(sorted(key)), []).append(poly)
+    for edge in mesh.edges:
+        first, second = faces_by_edge[tuple(sorted(edge.vertices))]
+        sharper_than_30 = math.degrees(first.normal.angle(second.normal)) > 30.0
+        assert edge.use_edge_sharp == sharper_than_30
+    assert sum(edge.use_edge_sharp for edge in mesh.edges) == 12
+    centroid = sum((vertex.co for vertex in mesh.vertices), mathutils.Vector()) / len(mesh.vertices)
+    for poly in mesh.polygons:
+        assert poly.normal.dot(poly.center - centroid) > 0
+
+
+def test_the_import_result_reports_the_weld_and_the_origin_offset(
+    tmp_path: Path, empty_scene: None
+) -> None:
+    glb, _ = _build_seamed_cube_glb(tmp_path / "cube.glb")
+    result = _run("import_glb", {"name": "Crate", "path": str(glb)})
+    expected_keys = {"ok", "collection", "mesh", "material", "merged_vertices", "origin_offset"}
+    assert set(result) == expected_keys
+    assert isinstance(result["merged_vertices"], int) and result["merged_vertices"] >= 0
+    assert result["origin_offset"] == pytest.approx([-2.0, -3.0, -3.5], abs=1e-6)
 
 
 def test_a_second_import_of_the_same_name_is_refused(tmp_path: Path, empty_scene: None) -> None:

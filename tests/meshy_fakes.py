@@ -30,6 +30,11 @@ MAP_URLS: Final[Mapping[str, str]] = {
 MAP_BYTES: Final = b"\x89PNG-fake-map"
 PNG_BYTES: Final = b"\x89PNG\r\n\x1a\nfake"
 ALL_OPS: Final = frozenset({"collection_state", "import_glb", "export_glb", "apply_maps"})
+# What the session's import_glb reports about its normalization (#105 AC4); the values are fixed.
+IMPORT_NORMALIZATION: Final[Mapping[str, Any]] = {
+    "merged_vertices": 16,
+    "origin_offset": [0.0, 0.0, 0.5],
+}
 TEST_KEY: Final = "test-key-do-not-leak"
 ENV: Final[Mapping[str, str]] = {"MESHY_API_KEY": TEST_KEY}
 
@@ -148,6 +153,7 @@ class FakeSession:
         self.down = frozenset(down)
         self.ops: list[tuple[str, dict[str, Any]]] = []
         self.scripts: list[Path] = []
+        self.import_results: dict[str, dict[str, Any]] = {}
 
     def run_session_op(
         self,
@@ -175,7 +181,9 @@ class FakeSession:
             if name in self.collections:
                 return _error("meshy.collection_exists", f"{name!r} already exists.")
             self.collections[name] = _collection(name)
-            return {"ok": True, **_collection(name)}
+            imported = {"ok": True, **_collection(name), **IMPORT_NORMALIZATION}
+            self.import_results[name] = imported
+            return imported
         if name not in self.collections:
             return _error("meshy.collection_not_found", f"No collection {name!r}.")
         if op == "export_glb":
