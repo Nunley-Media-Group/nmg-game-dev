@@ -5,7 +5,10 @@
 
 The graph has three texture parameters. ``BaseColor`` (Color) feeds Base Color, ``Normal``
 (Normal) feeds Normal, and ``ORM`` (Masks) feeds Ambient Occlusion from R, Roughness from G, and
-Metallic from B. The nmg-game-dev plugin mounts at /nmg-game-dev/, so the asset saves to
+Metallic from B. Each sampler starts from a default texture of its own sampler type:
+``DefaultTexture`` for BaseColor, ``DefaultNormal`` for Normal, and ``DefaultDiffuse_TC_Masks``
+for ORM. The material is also enabled for skeletal meshes, so instances compile on both mesh
+types. The nmg-game-dev plugin mounts at /nmg-game-dev/, so the asset saves to
 plugins/nmg-game-dev-ue-plugin/Content/Materials/M_NmgORM.uasset.
 
 Running it again rebuilds the graph of an existing M_NmgORM in place, so material instances
@@ -38,12 +41,16 @@ NAME = "M_NmgORM"
 RESULT = {"ok": False, "asset": PACKAGE_DIR + "/" + NAME, "error": None}
 
 
-def _sampler(material, parameter, y, sampler_type):
+def _sampler(material, parameter, y, sampler_type, default_texture):
     node = unreal.MaterialEditingLibrary.create_material_expression(
         material, unreal.MaterialExpressionTextureSampleParameter2D, -700, y
     )
     node.set_editor_property("parameter_name", parameter)
     node.set_editor_property("sampler_type", sampler_type)
+    texture = unreal.EditorAssetLibrary.load_asset(default_texture)
+    if not isinstance(texture, unreal.Texture):
+        raise RuntimeError("could not load default texture " + default_texture)
+    node.set_editor_property("texture", texture)
     return node
 
 
@@ -62,14 +69,33 @@ def _clear(material):
 
 def _build(material):
     mel = unreal.MaterialEditingLibrary
-    base = _sampler(material, "BaseColor", -200, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    base = _sampler(
+        material,
+        "BaseColor",
+        -200,
+        unreal.MaterialSamplerType.SAMPLERTYPE_COLOR,
+        "/Engine/EngineResources/DefaultTexture",
+    )
     mel.connect_material_property(base, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
-    normal = _sampler(material, "Normal", 100, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL)
+    normal = _sampler(
+        material,
+        "Normal",
+        100,
+        unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL,
+        "/Engine/EngineMaterials/DefaultNormal",
+    )
     mel.connect_material_property(normal, "RGB", unreal.MaterialProperty.MP_NORMAL)
-    orm = _sampler(material, "ORM", 400, unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
+    orm = _sampler(
+        material,
+        "ORM",
+        400,
+        unreal.MaterialSamplerType.SAMPLERTYPE_MASKS,
+        "/Engine/EngineMaterials/DefaultDiffuse_TC_Masks",
+    )
     mel.connect_material_property(orm, "R", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
     mel.connect_material_property(orm, "G", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.connect_material_property(orm, "B", unreal.MaterialProperty.MP_METALLIC)
+    material.set_editor_property("used_with_skeletal_mesh", True)
     mel.recompile_material(material)
 
 
