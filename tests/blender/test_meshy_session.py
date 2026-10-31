@@ -1,4 +1,5 @@
-"""Headless Blender tests for scripts/blender/meshy_session.py (#98 AC1, AC7, AC11; #105 AC1–AC4).
+"""Headless Blender tests for scripts/blender/meshy_session.py (#98 AC1, AC7, AC11; #105 AC1–AC4;
+#106 AC1–AC4).
 
 Run with ``scripts/run-blender-tests.sh tests/blender/test_meshy_session.py``. Outside Blender the
 module skips, because ``bpy`` is only importable inside Blender's bundled Python.
@@ -7,6 +8,7 @@ module skips, because ``bpy`` is only importable inside Blender's bundled Python
 from __future__ import annotations
 
 import contextlib
+import importlib
 import io
 import json
 import math
@@ -18,6 +20,9 @@ import pytest
 bpy = pytest.importorskip("bpy")
 bmesh = pytest.importorskip("bmesh")
 mathutils = pytest.importorskip("mathutils")
+
+from ..meshy_arm_geometry import HIP_Z, PIVOT_X, raise_arm_landmarks  # noqa: E402
+from .meshy_fixtures import build_humanoid  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SESSION = REPO_ROOT / "scripts" / "blender" / "meshy_session.py"
@@ -35,14 +40,7 @@ def _run(op: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture()
 def empty_scene() -> None:
-    for obj in list(bpy.data.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    for collection in list(bpy.data.collections):
-        bpy.data.collections.remove(collection)
-    for mesh in list(bpy.data.meshes):
-        bpy.data.meshes.remove(mesh)
-    for material in list(bpy.data.materials):
-        bpy.data.materials.remove(material)
+    _clear_scene()
 
 
 def _build_glb(path: Path, cubes: int = 1) -> Path:
@@ -156,6 +154,7 @@ def test_import_creates_the_collection_with_one_sm_mesh_and_body_material(
         "material": "M_Crate_Body",
         "merged_vertices": 16,
         "origin_offset": [0.0, 0.0, 0.5],
+        "arm_raise": None,
     }
     meshes = _mesh_objects("Crate")
     assert [obj.name for obj in meshes] == ["SM_Crate"]
@@ -226,7 +225,15 @@ def test_the_import_result_reports_the_weld_and_the_origin_offset(
 ) -> None:
     glb, _ = _build_seamed_cube_glb(tmp_path / "cube.glb")
     result = _run("import_glb", {"name": "Crate", "path": str(glb)})
-    expected_keys = {"ok", "collection", "mesh", "material", "merged_vertices", "origin_offset"}
+    expected_keys = {
+        "ok",
+        "collection",
+        "mesh",
+        "material",
+        "merged_vertices",
+        "origin_offset",
+        "arm_raise",
+    }
     assert set(result) == expected_keys
     assert isinstance(result["merged_vertices"], int) and result["merged_vertices"] >= 0
     assert result["origin_offset"] == pytest.approx([-2.0, -3.0, -3.5], abs=1e-6)
@@ -343,3 +350,128 @@ def test_an_unknown_operation_is_a_session_failure(empty_scene: None) -> None:
     result = _run("delete_everything", {"name": "Crate"})
     assert result["ok"] is False
     assert result["error"]["code"] == "meshy.session_failed"
+
+
+# --- #106: A-pose arms are raised to rig_humanoid's limit on import ------------------------------
+
+HERO = "Hero"
+
+
+def _import_hero(glb: Path, pose: str | None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"name": HERO, "path": str(glb)}
+    if pose is not None:
+        payload["pose"] = pose
+    return _run("import_glb", payload)
+
+
+def _snapshot() -> dict[str, Any]:
+    """Return the positions, faces, face normals, and bounding box of the imported ``Hero``."""
+    (obj,) = _mesh_objects(HERO)
+    mesh = obj.data
+    positions = [tuple(vertex.co) for vertex in mesh.vertices]
+    axes = list(zip(*positions, strict=True))
+    return {
+        "positions": positions,
+        "faces": [tuple(poly.vertices) for poly in mesh.polygons],
+        "normals": [tuple(poly.normal) for poly in mesh.polygons],
+        "bbox": (tuple(min(axis) for axis in axes), tuple(max(axis) for axis in axes)),
+    }
+
+
+def _clear_scene() -> None:
+    for obj in list(bpy.data.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    for collection in list(bpy.data.collections):
+        bpy.data.collections.remove(collection)
+    for mesh in list(bpy.data.meshes):
+        bpy.data.meshes.remove(mesh)
+    for material in list(bpy.data.materials):
+        bpy.data.materials.remove(material)
+
+
+def _import_and_snapshot(glb: Path, pose: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Import ``glb`` as ``Hero`` with ``pose``, snapshot it, then clear the scene."""
+    result = _import_hero(glb, pose)
+    assert result["ok"] is True
+    snapshot = _snapshot()
+    _clear_scene()
+    return result, snapshot
+
+
+def test_a_steep_a_pose_arm_drops_to_48_degrees(tmp_path: Path, empty_scene: None) -> None:
+    """#106 AC1, AC3: a 55 degree A-pose drops to 48 degrees on both sides and reports it."""
+    glb, _ = build_humanoid(tmp_path / "hero.glb", drop_deg=55.0)
+    result, _ = _import_and_snapshot(glb, "a-pose")
+    assert set(result["arm_raise"]) == {"left", "right"}
+    for side in ("left", "right"):
+        report = result["arm_raise"][side]
+        assert set(report) == {"drop_before_deg", "drop_after_deg", "rotation_deg"}
+        assert report["drop_before_deg"] == pytest.approx(55.0, abs=0.05)
+        assert report["drop_after_deg"] == pytest.approx(48.0, abs=0.5)
+        assert report["rotation_deg"] == pytest.approx(7.0, abs=0.05)
+
+
+def test_a_raise_keeps_the_torso_midline_and_legs_still(tmp_path: Path, empty_scene: None) -> None:
+    """#106 AC1: vertices within 0.10·H of the midline and every leg vertex stay where they were."""
+    glb, _ = build_humanoid(tmp_path / "hero.glb", drop_deg=55.0)
+    _, before = _import_and_snapshot(glb, None)
+    _, after = _import_and_snapshot(glb, "a-pose")
+    arm_moves = 0
+    for old, new in zip(before["positions"], after["positions"], strict=True):
+        if abs(old[0]) <= PIVOT_X or old[2] <= HIP_Z:
+            assert new == pytest.approx(old, abs=1e-6)
+        elif new != pytest.approx(old, abs=1e-6):
+            arm_moves += 1
+    assert arm_moves > 0
+
+
+def test_a_raise_keeps_counts_connectivity_and_normals(tmp_path: Path, empty_scene: None) -> None:
+    """#106 AC1: counts and connectivity are unchanged, and no face normal flips."""
+    glb, _ = build_humanoid(tmp_path / "hero.glb", drop_deg=55.0)
+    _, before = _import_and_snapshot(glb, None)
+    _, after = _import_and_snapshot(glb, "a-pose")
+    assert len(after["positions"]) == len(before["positions"])
+    assert after["faces"] == before["faces"]
+    for old, new in zip(before["normals"], after["normals"], strict=True):
+        assert sum(a * b for a, b in zip(old, new, strict=True)) > 0
+
+
+@pytest.mark.parametrize(
+    ("pose", "drop_deg"),
+    [("t-pose", 55.0), (None, 55.0), ("a-pose", 45.0)],
+    ids=["t-pose", "no-pose", "a-pose-45"],
+)
+def test_compliant_or_non_a_pose_imports_move_no_vertex(
+    tmp_path: Path, empty_scene: None, pose: str | None, drop_deg: float
+) -> None:
+    """#106 AC2, AC3: a t-pose, a pose-less, or a 45 degree A-pose moves no vertex."""
+    glb, _ = build_humanoid(tmp_path / "hero.glb", drop_deg=drop_deg)
+    _, baseline = _import_and_snapshot(glb, None)
+    result, after = _import_and_snapshot(glb, pose)
+    assert result["ok"] is True
+    for old, new in zip(baseline["positions"], after["positions"], strict=True):
+        assert new == pytest.approx(old, abs=1e-6)
+    if pose == "a-pose":
+        for side in ("left", "right"):
+            report = result["arm_raise"][side]
+            assert report["drop_before_deg"] == pytest.approx(45.0, abs=0.05)
+            assert report["drop_after_deg"] == report["drop_before_deg"]
+            assert report["rotation_deg"] == 0.0
+    else:
+        assert result["arm_raise"] is None
+
+
+def test_the_raised_humanoid_passes_the_neutral_pose_check(
+    tmp_path: Path, empty_scene: None, enabled_addon: str
+) -> None:
+    """#106 AC4: the raised humanoid passes rig_core's check, and the unraised one fails it."""
+    validate = importlib.import_module(f"{enabled_addon}.rig_core.landmarks").validate
+    glb, landmarks = build_humanoid(tmp_path / "hero.glb", drop_deg=55.0)
+    _, unraised = _import_and_snapshot(glb, None)
+    failure = validate("humanoid", landmarks, unraised["bbox"])
+    assert failure is not None and failure["code"] == "rig.pose_not_neutral"
+
+    result, raised = _import_and_snapshot(glb, "a-pose")
+    rotations = {side: report["rotation_deg"] for side, report in result["arm_raise"].items()}
+    raised_landmarks = raise_arm_landmarks(landmarks, rotations)
+    assert validate("humanoid", raised_landmarks, raised["bbox"]) is None

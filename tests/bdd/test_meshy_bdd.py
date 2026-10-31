@@ -1,8 +1,10 @@
-"""pytest-bdd bindings for meshy.feature: SCN001–SCN014 (#98) and SCN015 (#105).
+"""pytest-bdd bindings for meshy.feature: SCN001–SCN014 (#98), SCN015 (#105), SCN016–SCN019 (#106).
 
 The Meshy transport, the Blender session, detached spawning, and time are the fakes in
-``tests/meshy_fakes.py``. Session behavior, including the #105 import normalization, is covered by
-``tests/blender/test_meshy_session.py``.
+``tests/meshy_fakes.py``. Session behavior, including the #105 normalization and the #106 arm raise,
+is covered by ``tests/blender/test_meshy_session.py``. The #106 geometry needs bpy, so its steps
+check that the Blender suite defines the test that runs them; the neutral-pose step runs
+``rig_core``'s check on the geometry in ``tests/meshy_arm_geometry.py``.
 """
 
 from __future__ import annotations
@@ -26,8 +28,16 @@ from nmg_game_dev.meshy import config, jobs
 from nmg_game_dev.meshy.client import MeshyClient
 from nmg_game_dev.meshy.paths import glb_path, jobs_root, maps_dir
 from nmg_game_dev.meshy.request import GenerateRequest, RetextureRequest
+from nmg_game_dev.meshy.session import MeshySession
 from nmg_game_dev.onboard.gitignore import ensure_gitignore_env
 from nmg_game_dev.pipeline.errors import PipelineError
+from tests.meshy_arm_geometry import (
+    bounding_box,
+    drop_deg_from,
+    landmarks,
+    raise_arm_landmarks,
+    side_pivot,
+)
 from tests.meshy_fakes import (
     ENV,
     GLB_BYTES,
@@ -45,6 +55,8 @@ from tests.meshy_fakes import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_FILE = REPO_ROOT / "mcp-servers" / "meshy" / "src" / "meshy_mcp" / "server.py"
+RIG_CORE_DIR = REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon" / "rig_core"
+BLENDER_TESTS = REPO_ROOT / "tests" / "blender" / "test_meshy_session.py"
 ENDPOINTS = {
     "image-to-3D": "/openapi/v1/image-to-3d",
     "multi-image-to-3D": "/openapi/v1/multi-image-to-3d",
@@ -206,7 +218,7 @@ def _untextured(ctx: dict[str, Any]) -> None:
 
 @when("the job finishes")
 def _job_finishes(ctx: dict[str, Any]) -> None:
-    _generate(ctx, GenerateRequest(name="Crate", prompt="crate"))
+    _generate(ctx, GenerateRequest(name="Crate", prompt="crate", pose=ctx.get("pose")))
 
 
 @when(
@@ -661,3 +673,128 @@ def _gitignore_steps(ctx: dict[str, Any], first: str, second: str) -> None:
 @then('no ".env" file was created')
 def _no_env_file(ctx: dict[str, Any]) -> None:
     assert not (ctx["project"] / ".env").exists()
+
+
+# --- #106: A-pose arms are raised to rig_humanoid's limit (SCN016–SCN019) -------------------------
+
+
+def _rig_landmarks() -> types.ModuleType:
+    """Load ``rig_core.landmarks`` by file, since the add-on's package imports bpy."""
+    package = "_nmg_rig_core"
+    if package not in sys.modules:
+        stub = types.ModuleType(package)
+        stub.__path__ = [str(RIG_CORE_DIR)]
+        sys.modules[package] = stub
+    return importlib.import_module(f"{package}.landmarks")
+
+
+def _blender_covers(test_name: str) -> None:
+    """Check that the Blender suite defines ``test_name``, the test that runs a bpy-only step."""
+    assert f"def {test_name}(" in BLENDER_TESTS.read_text(encoding="utf-8")
+
+
+def _import_hero(ctx: dict[str, Any], pose: str | None) -> dict[str, Any]:
+    return MeshySession(FakeSession()).import_glb("Hero", Path(ctx["glb"]), pose=pose)
+
+
+def _rotations(arm_raise: dict[str, Any]) -> dict[str, float]:
+    return {side: float(report["rotation_deg"]) for side, report in arm_raise.items()}
+
+
+@given("a GLB of a 1.8 m box humanoid with both arms dropped 55 degrees")
+def _humanoid_55(ctx: dict[str, Any]) -> None:
+    ctx.update(glb=str(ctx["project"] / "hero.glb"), drop_deg=55.0)
+
+
+@given("a GLB of the box humanoid")
+def _box_humanoid(ctx: dict[str, Any]) -> None:
+    ctx.update(glb=str(ctx["project"] / "hero.glb"), drop_deg=55.0)
+
+
+@given("a Meshy generate job with pose a-pose whose session import succeeds")
+def _a_pose_job(ctx: dict[str, Any]) -> None:
+    ctx["pose"] = "a-pose"
+
+
+@given(
+    "the raised Hero with shoulder landmarks at the pivots and wrist landmarks on the raised arms"
+)
+def _raised_hero(ctx: dict[str, Any]) -> None:
+    ctx.update(glb=str(ctx["project"] / "hero.glb"), drop_deg=55.0)
+    ctx["import"] = _import_hero(ctx, "a-pose")
+
+
+@when('import_glb imports it as "Hero" with pose a-pose')
+def _import_a_pose(ctx: dict[str, Any]) -> None:
+    ctx["import"] = _import_hero(ctx, "a-pose")
+
+
+@when("import_glb imports it with pose t-pose, with no pose, or as an A-pose dropped 45 degrees")
+def _import_compliant(ctx: dict[str, Any]) -> None:
+    # The A-pose dropped 45 degrees is not reachable here: the fake answers every a-pose the same
+    # way. Tests/blender/test_meshy_session.py runs that case on real geometry.
+    ctx["imports"] = {
+        "t-pose": _import_hero(ctx, "t-pose"),
+        "no pose": _import_hero(ctx, None),
+    }
+
+
+@when("rig_core.landmarks.validate runs for a humanoid")
+def _validate_raised(ctx: dict[str, Any]) -> None:
+    validate = _rig_landmarks().validate
+    drop = float(ctx["drop_deg"])
+    # The control: unraised landmarks at 55 degrees must fail the check with the code under test.
+    ctx["unraised_failure"] = validate("humanoid", landmarks(drop), bounding_box(drop))
+    arm_raise = ctx["import"]["arm_raise"]
+    raised = raise_arm_landmarks(landmarks(drop), _rotations(arm_raise))
+    raised_drop = float(arm_raise["left"]["drop_after_deg"])
+    ctx["failure"] = validate("humanoid", raised, bounding_box(raised_drop))
+
+
+@then("each arm's drop is 48 degrees within 0.5")
+def _arms_drop_to_48(ctx: dict[str, Any]) -> None:
+    arm_raise = ctx["import"]["arm_raise"]
+    points = raise_arm_landmarks(landmarks(ctx["drop_deg"]), _rotations(arm_raise))
+    for suffix, sign, side in (("l", 1.0, "left"), ("r", -1.0, "right")):
+        report = arm_raise[side]
+        assert report["drop_before_deg"] == pytest.approx(ctx["drop_deg"], abs=0.05)
+        assert report["drop_after_deg"] == pytest.approx(48.0, abs=0.5)
+        drop = drop_deg_from(side_pivot(sign), points[f"hand_tip_{suffix}"])
+        assert drop == pytest.approx(48.0, abs=0.5)
+
+
+@then("torso-midline and leg vertices have not moved")
+def _midline_and_legs_still() -> None:
+    _blender_covers("test_a_raise_keeps_the_torso_midline_and_legs_still")
+
+
+@then("vertex count, face count, and connectivity are unchanged with no flipped faces")
+def _counts_and_normals_kept() -> None:
+    _blender_covers("test_a_raise_keeps_counts_connectivity_and_normals")
+
+
+@then("no vertex moves")
+def _no_vertex_moves(ctx: dict[str, Any]) -> None:
+    for name, result in ctx["imports"].items():
+        assert result["arm_raise"] is None, name
+    _blender_covers("test_compliant_or_non_a_pose_imports_move_no_vertex")
+
+
+@then(
+    "the job result carries arm_raise with left and right drop_before_deg, drop_after_deg, "
+    "and rotation_deg"
+)
+def _job_carries_arm_raise(ctx: dict[str, Any]) -> None:
+    (imported,) = ctx["session"].ops_named("import_glb")
+    assert imported["pose"] == "a-pose"
+    arm_raise = ctx["final"]["result"]["arm_raise"]
+    assert set(arm_raise) == {"left", "right"}
+    for report in arm_raise.values():
+        assert set(report) == {"drop_before_deg", "drop_after_deg", "rotation_deg"}
+
+
+@then("it does not report rig.pose_not_neutral")
+def _not_pose_neutral(ctx: dict[str, Any]) -> None:
+    control = ctx["unraised_failure"]
+    assert control is not None and control["code"] == "rig.pose_not_neutral"
+    assert ctx["failure"] is None, ctx["failure"]

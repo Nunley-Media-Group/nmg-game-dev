@@ -35,6 +35,11 @@ IMPORT_NORMALIZATION: Final[Mapping[str, Any]] = {
     "merged_vertices": 16,
     "origin_offset": [0.0, 0.0, 0.5],
 }
+# What the session's import_glb reports for an A-pose import (#106 AC3); only a-pose gets it.
+ARM_RAISE: Final[Mapping[str, Any]] = {
+    "left": {"drop_before_deg": 55.0, "drop_after_deg": 48.0, "rotation_deg": 7.0},
+    "right": {"drop_before_deg": 55.0, "drop_after_deg": 48.0, "rotation_deg": 7.0},
+}
 TEST_KEY: Final = "test-key-do-not-leak"
 ENV: Final[Mapping[str, str]] = {"MESHY_API_KEY": TEST_KEY}
 
@@ -181,7 +186,13 @@ class FakeSession:
             if name in self.collections:
                 return _error("meshy.collection_exists", f"{name!r} already exists.")
             self.collections[name] = _collection(name)
-            imported = {"ok": True, **_collection(name), **IMPORT_NORMALIZATION}
+            arm_raise = dict(ARM_RAISE) if payload.get("pose") == "a-pose" else None
+            imported = {
+                "ok": True,
+                **_collection(name),
+                **IMPORT_NORMALIZATION,
+                "arm_raise": arm_raise,
+            }
             self.import_results[name] = imported
             return imported
         if name not in self.collections:
