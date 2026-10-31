@@ -14,7 +14,7 @@ Feature: Onboard a consumer game project
     Given a consumer with Game.uproject and git available
     When onboarding installs into the consumer
     Then the nmg-game-dev UE plugin is in Plugins/nmg-game-dev
-    And VibeUE is cloned at tag v5.0-ue5.8 into Plugins/VibeUE
+    And VibeUE is cloned from branch 5-8 into Plugins/VibeUE
     And Game.uproject enables ModelContextProtocol, EditorToolset, VibeUE, and nmg-game-dev
     And the MCP settings section has bAutoStartServer=True and ServerPortNumber=8000
 

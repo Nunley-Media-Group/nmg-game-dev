@@ -17,7 +17,6 @@ from nmg_game_dev.onboard.paths import framework_root
 from nmg_game_dev.onboard.report import StepResult
 from tests.onboard_fakes import (
     APPLE_SILICON,
-    PINNED_COMMIT,
     FakeRunner,
     all_tools_present,
     gib_free,
@@ -105,8 +104,8 @@ def test_fresh_install_installs_framework_files(
 def test_unreal_plugins_installed_and_enabled(
     consumer: Path, framework: Path, models: Path, env: dict[str, str]
 ) -> None:
-    """AC2: the UE plugin copy, the pinned VibeUE clone, the four .uproject plugins, and the MCP
-    ini."""
+    """AC2: the UE plugin copy, the VibeUE clone on branch 5-8, the four .uproject plugins, and
+    the MCP ini."""
     runner = FakeRunner()
     install(consumer, framework, models, env, runner=runner)
 
@@ -124,7 +123,7 @@ def test_unreal_plugins_installed_and_enabled(
             "--depth",
             "1",
             "--branch",
-            "v5.0-ue5.8",
+            "5-8",
             "https://github.com/kevinpbuckley/VibeUE.git",
             str(consumer / "Plugins" / "VibeUE"),
         ]
@@ -354,10 +353,10 @@ def test_drift_is_reported_then_repaired_by_refresh(
     assert budgets.read_text() == '{"Hero": {"tris": 60000}}\n'
 
 
-def test_vibeue_pin_drift_is_repaired_with_refresh(
+def test_vibeue_branch_drift_is_repaired_with_refresh(
     consumer: Path, framework: Path, models: Path, env: dict[str, str]
 ) -> None:
-    """AC9: a VibeUE HEAD other than the pin is drift; --refresh checks the pin out again."""
+    """AC9: a VibeUE HEAD other than the 5-8 branch head is drift; --refresh moves it there."""
     install(consumer, framework, models, env)
     drifted_runner = FakeRunner(head="0" * 40)
     results = install(consumer, framework, models, env, runner=drifted_runner)
@@ -367,8 +366,9 @@ def test_vibeue_pin_drift_is_repaired_with_refresh(
     refresh_runner = FakeRunner(head="0" * 40)
     results = install(consumer, framework, models, env, runner=refresh_runner, refresh=True)
     assert {r.name: r.status for r in results}["vibeue"] == "refreshed"
-    checkout = refresh_runner.argv_starting("git", "-C")
-    assert any(call[-3:] == ["checkout", "--force", PINNED_COMMIT] for call in checkout)
+    git_c = refresh_runner.argv_starting("git", "-C")
+    assert any(call[3:] == ["fetch", "--depth", "1", "origin", "5-8"] for call in git_c)
+    assert any(call[3:] == ["checkout", "--force", "FETCH_HEAD"] for call in git_c)
 
 
 def test_cli_volumes_prints_a_json_list(capsys: pytest.CaptureFixture[str]) -> None:

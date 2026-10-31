@@ -27,8 +27,8 @@ and changes nothing. Run it with `--refresh` to bring the copies up to date:
 uv run --project "${CLAUDE_PLUGIN_ROOT}" python -m nmg_game_dev.onboard install --consumer "$CLAUDE_PROJECT_DIR" --models-dir <models dir> --refresh
 ```
 
-`--refresh` restores the start scripts, the asset contract, and the UE plugin, re-pins VibeUE to its
-commit, and fixes the Blender link. It never changes `nmg-budgets.json`, which belongs to the project.
+`--refresh` restores the start scripts, the asset contract, and the UE plugin, moves VibeUE to the
+head of its `5-8` branch, and fixes the Blender link. It never changes `nmg-budgets.json`, which belongs to the project.
 
 ## 4. Check the project
 

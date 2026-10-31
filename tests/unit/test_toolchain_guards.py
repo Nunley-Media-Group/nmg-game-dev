@@ -4,6 +4,7 @@ uproject_* / uplugin_* / fixture_*  — AC1, AC2: engine version, fixture plugin
 launcher_* / ue_test_runner_*       — AC1, AC2: 5.8 default, port 8000, native-server flags
 blender_candidate_order_*           — AC5: blender_mcp add-on probed first
 install_scripts_*                   — AC6: no tag, commit, or version pin
+vibeue_branch_* / vibeue_pin_*      — #104 AC4, AC5: VibeUE tracks branch 5-8, no retired pin
 no_stale_ue_5_7_reference           — AC1: no UE 5.7 reference outside specs/ and CHANGELOG.md
 """
 
@@ -152,14 +153,29 @@ def test_blender_candidate_order_prefers_blender_mcp_addon() -> None:
 @pytest.mark.parametrize("name", INSTALL_SCRIPTS)
 def test_install_scripts_pin_no_tag_commit_or_version(name: str) -> None:
     code = _code_lines(REPO_ROOT / "scripts" / name)
-    for pattern in (r"--branch", r"--tags", r"\bcheckout\b", r"\btags?\b", r"==", r"@\d"):
+    patterns = [r"--tags", r"\bcheckout\b", r"\btags?\b", r"==", r"@\d"]
+    if name != "install-vibeue.sh":
+        patterns.append(r"--branch")
+    for pattern in patterns:
         assert not re.search(pattern, code), f"{name} pins a version via {pattern!r}"
 
 
-def test_install_vibeue_clones_default_branch_shallow() -> None:
+def test_install_vibeue_tracks_only_branch_5_8() -> None:
+    """#104 AC4: the only --branch in install-vibeue.sh names VibeUE's 5-8 branch."""
     code = _code_lines(REPO_ROOT / "scripts" / "install-vibeue.sh")
-    assert "git clone --depth 1" in code
-    assert "pull --ff-only" in code
+    assert 'readonly VIBEUE_BRANCH="5-8"' in code
+    assert re.findall(r"--branch\s+(\S+)", code) == ['"${VIBEUE_BRANCH}"']
+
+
+def test_install_vibeue_clones_and_updates_branch_5_8_shallow() -> None:
+    """#104 AC4: a fresh clone is depth 1 on 5-8; an existing clone is fetched from origin 5-8 and
+    fast-forwarded or switched to it."""
+    code = _code_lines(REPO_ROOT / "scripts" / "install-vibeue.sh")
+    assert 'git clone --depth 1 --quiet --branch "${VIBEUE_BRANCH}"' in code
+    assert 'git -C "${DEST}" fetch --quiet origin "${VIBEUE_BRANCH}"' in code
+    assert "merge --ff-only --quiet FETCH_HEAD" in code
+    assert 'switch --quiet -C "${VIBEUE_BRANCH}" FETCH_HEAD' in code
+    assert "pull --ff-only" not in code
     assert "rev-parse --short HEAD" in code
 
 
@@ -167,6 +183,37 @@ def test_install_blender_addon_runs_latest_install_addon() -> None:
     code = _code_lines(REPO_ROOT / "scripts" / "install-blender-mcp-addon.sh")
     assert "uvx mcp-for-blender@latest install-addon" in code
     assert "command -v uvx" in code
+
+
+RETIRED_VIBEUE_PINS = (
+    "v5.0-ue5.8",
+    "bc7bc45c1e2025123778560f45c15d1f8e1be41d",
+    "VIBEUE_TAG",
+    "VIBEUE_COMMIT",
+)
+VIBEUE_PIN_SCAN_DIRS = ("src", "scripts", "skills", "docs")
+
+
+def _vibeue_pin_scan_files() -> Iterator[pathlib.Path]:
+    for dirname in VIBEUE_PIN_SCAN_DIRS:
+        for root, dirs, files in os.walk(REPO_ROOT / dirname):
+            dirs[:] = [d for d in dirs if d not in SCAN_SKIP_DIRS]
+            for name in files:
+                yield pathlib.Path(root) / name
+
+
+def test_no_vibeue_tag_or_commit_pin_remains() -> None:
+    """#104 AC5: no retired VibeUE tag or commit pin in src, scripts, skills, or docs."""
+    hits: list[str] = []
+    for path in _vibeue_pin_scan_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for token in RETIRED_VIBEUE_PINS:
+            if token in text:
+                hits.append(f"{path.relative_to(REPO_ROOT).as_posix()}: {token}")
+    assert not hits, "VibeUE tag or commit pin remains:\n" + "\n".join(hits)
 
 
 def test_no_stale_ue_5_7_reference() -> None:

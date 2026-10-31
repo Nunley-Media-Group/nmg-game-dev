@@ -18,7 +18,7 @@ See `specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md` § 
 | `Config/DefaultEngine.ini`, `Config/DefaultInput.ini` | Tracked project settings so a fresh clone can build the `DogfoodEditor` target. |
 | `Source/` | `Dogfood` game module plus `Dogfood.Target.cs` and `DogfoodEditor.Target.cs`. Tracked for the same reason as `Config/`. |
 | `smoke/SM_SmokeCube.fbx` | 1 m cube exported from headless Blender per `docs/asset-contract.md` §7. `scripts/smoke-unreal-mcp.py` imports it into `/Game/__NmgSmoke` and removes it again. Rebuild it with `"$BLENDER_APP/Contents/MacOS/Blender" --background --factory-startup --python fixtures/smoke/make_smoke_fbx.py`. |
-| `Plugins/VibeUE/` | Not tracked (see `.gitignore`). Fetched by `scripts/install-vibeue.sh`, which clones VibeUE's default branch at depth 1, or fast-forwards an existing clone, and prints the commit it checked out. |
+| `Plugins/VibeUE/` | Not tracked (see `.gitignore`). Fetched by `scripts/install-vibeue.sh`, which clones VibeUE's `5-8` branch at depth 1, or updates an existing clone to that branch's head, and prints the commit it checked out. |
 
 Build output (`Binaries/`, `Intermediate/`, `Saved/`) stays untracked.
 

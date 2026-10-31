@@ -42,7 +42,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install.add_argument(
         "--refresh",
         action="store_true",
-        help="Restore drifted framework-owned copies and the VibeUE pin.",
+        help="Restore drifted framework-owned copies and move VibeUE to its 5-8 branch head.",
     )
     install.add_argument("--json", action="store_true", help="Print the report as JSON.")
 

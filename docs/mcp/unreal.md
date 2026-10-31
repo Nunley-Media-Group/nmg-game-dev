@@ -31,10 +31,11 @@ overrides the smoke FBX.
 
 ## Setup
 
-1. **Install VibeUE.** `scripts/install-vibeue.sh [plugins_dir]` clones VibeUE's default
-   branch at depth 1 into `fixtures/Plugins/VibeUE`, or fast-forwards an existing clone. It
-   prints the commit it checked out. No tag or commit is pinned. Consumer projects get VibeUE
-   from `onboard-consumer` (#7).
+1. **Install VibeUE.** `scripts/install-vibeue.sh [plugins_dir]` clones branch `5-8` of VibeUE
+   (its UE 5.8 line) at depth 1 into `fixtures/Plugins/VibeUE`, or updates an existing clone to
+   origin's `5-8` head. It prints the commit it checked out. It tracks that branch head and never
+   pins a tag or commit. Consumer projects get VibeUE from `onboard-consumer` (#7), which tracks
+   the same branch.
 2. **Start the editor.** `scripts/start-unreal-mcp.sh` launches UE 5.8 with
    `-ModelContextProtocolStartServer -ModelContextProtocolPort=$UE_MCP_PORT`. It is idempotent:
    if the port is already listening it exits 0 without launching a second editor. It runs
@@ -69,7 +70,7 @@ Calls run one at a time, because the native server runs tools on the game thread
 
 ## Versions
 
-UE 5.8 is the engine. Epic's MCP plugins ship with it, and VibeUE comes from its default branch.
+UE 5.8 is the engine. Epic's MCP plugins ship with it, and VibeUE comes from its `5-8` branch, its UE 5.8 line.
 Nothing here is pinned to a version, tag, or commit. The smoke script is what
 verifies that the latest versions work together. When it fails after an upgrade, fix the smoke
 script or report the regression upstream. Don't pin the old version.

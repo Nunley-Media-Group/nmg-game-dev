@@ -1,18 +1,19 @@
 """Unreal setup for a consumer project on UE 5.8 (#7 FR5, AC2, AC9).
 
 Three pieces: the four plugins enabled in the ``.uproject``, MCP auto-start written to the
-per-project editor ini, and VibeUE cloned at the pinned tag and commit. Each merge keeps the
-entries it does not own. VibeUE is drift-checked against its pinned commit, and ``--refresh``
-checks it out again.
+per-project editor ini, and VibeUE cloned from its UE 5.8 branch. Each merge keeps the
+entries it does not own. VibeUE is drift-checked against the head of that branch on origin, and
+``--refresh`` moves it to that head.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from nmg_game_dev.onboard.commands import CommandResult, Runner
 from nmg_game_dev.onboard.errors import OnboardError
@@ -28,9 +29,9 @@ UPROJECT_PLUGINS: tuple[str, ...] = (
 MCP_SECTION = "[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]"
 DEFAULT_PORT = 8000
 VIBEUE_URL = "https://github.com/kevinpbuckley/VibeUE.git"
-VIBEUE_TAG = "v5.0-ue5.8"
-VIBEUE_COMMIT = "bc7bc45c1e2025123778560f45c15d1f8e1be41d"
+VIBEUE_BRANCH: Final = "5-8"
 VIBEUE_REL = "Plugins/VibeUE"
+_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 def enable_plugins(
@@ -107,51 +108,75 @@ def _head(run: Runner, target: Path) -> str | None:
     return result.stdout.strip()
 
 
+def _remote_head(run: Runner) -> str | None:
+    """The head SHA of VibeUE's branch on origin, or None when ls-remote fails or finds nothing."""
+    result = run(["git", "ls-remote", VIBEUE_URL, f"refs/heads/{VIBEUE_BRANCH}"], None)
+    if result.returncode != 0:
+        return None
+    fields = result.stdout.split()
+    if not fields or not _SHA.fullmatch(fields[0]):
+        return None
+    return fields[0]
+
+
 def _clone(run: Runner, target: Path) -> CommandResult:
     target.parent.mkdir(parents=True, exist_ok=True)
     result = run(
-        ["git", "clone", "--depth", "1", "--branch", VIBEUE_TAG, VIBEUE_URL, str(target)],
+        ["git", "clone", "--depth", "1", "--branch", VIBEUE_BRANCH, VIBEUE_URL, str(target)],
         None,
     )
     if result.returncode != 0:
         raise OnboardError(
             "onboard.vibeue_clone_failed",
-            f"git clone of VibeUE {VIBEUE_TAG} failed (exit {result.returncode}).",
+            f"git clone of VibeUE branch {VIBEUE_BRANCH} failed (exit {result.returncode}).",
             "Check network access to github.com and that git is installed, then re-run onboarding.",
         )
     return result
 
 
 def ensure_vibeue(consumer: Path, *, run: Runner, refresh: bool) -> StepResult:
-    """Clone VibeUE at the pinned tag, verify its HEAD, and with ``refresh`` re-pin it."""
+    """Clone VibeUE from its UE 5.8 branch, drift-check it against that branch's origin head, and
+    with ``refresh`` move it to that head."""
     assert_not_excluded(Path(VIBEUE_REL))
     target = consumer / VIBEUE_REL
     if not target.exists():
         _clone(run, target)
-        return StepResult("vibeue", "installed", f"cloned {VIBEUE_TAG} into {VIBEUE_REL}")
+        cloned = _head(run, target)
+        short = cloned[:12] if cloned else "unknown"
+        return StepResult(
+            "vibeue", "installed", f"cloned {VIBEUE_BRANCH} ({short}) into {VIBEUE_REL}"
+        )
     head = _head(run, target)
-    if head == VIBEUE_COMMIT:
-        return StepResult("vibeue", "unchanged", f"{VIBEUE_REL} is at {VIBEUE_COMMIT[:12]}")
-    detail = (
-        f"{VIBEUE_REL} is not a git checkout"
-        if head is None
-        else f"{VIBEUE_REL} is at {head[:12]}, not the pinned {VIBEUE_COMMIT[:12]}"
-    )
-    if not refresh:
-        return StepResult("vibeue", "drift", f"{detail}; left unchanged", REFRESH_REMEDIATION)
     if head is None:
+        if not refresh:
+            return StepResult(
+                "vibeue",
+                "drift",
+                f"{VIBEUE_REL} is not a git checkout; left unchanged",
+                REFRESH_REMEDIATION,
+            )
         shutil.rmtree(target)
         _clone(run, target)
-        return StepResult("vibeue", "refreshed", f"cloned {VIBEUE_TAG} again into {VIBEUE_REL}")
-    fetch = run(
-        ["git", "-C", str(target), "fetch", "--depth", "1", "origin", "tag", VIBEUE_TAG],
-        None,
-    )
-    checkout = run(["git", "-C", str(target), "checkout", "--force", VIBEUE_COMMIT], None)
+        return StepResult("vibeue", "refreshed", f"cloned {VIBEUE_BRANCH} again into {VIBEUE_REL}")
+    remote = _remote_head(run)
+    if remote is None:
+        return StepResult(
+            "vibeue",
+            "unchanged",
+            f"could not check the {VIBEUE_BRANCH} head (git ls-remote failed); "
+            f"{VIBEUE_REL} left at {head[:12]}",
+        )
+    if head == remote:
+        return StepResult("vibeue", "unchanged", f"{VIBEUE_REL} is at {head[:12]}")
+    detail = f"{VIBEUE_REL} is at {head[:12]}, branch {VIBEUE_BRANCH} is at {remote[:12]}"
+    if not refresh:
+        return StepResult("vibeue", "drift", f"{detail}; left unchanged", REFRESH_REMEDIATION)
+    fetch = run(["git", "-C", str(target), "fetch", "--depth", "1", "origin", VIBEUE_BRANCH], None)
+    checkout = run(["git", "-C", str(target), "checkout", "--force", "FETCH_HEAD"], None)
     if fetch.returncode != 0 or checkout.returncode != 0:
         raise OnboardError(
             "onboard.vibeue_refresh_failed",
-            f"Could not check out VibeUE {VIBEUE_COMMIT[:12]} in {VIBEUE_REL}.",
+            f"Could not move VibeUE to branch {VIBEUE_BRANCH} in {VIBEUE_REL}.",
             f"Remove {VIBEUE_REL} and re-run onboarding to clone it again.",
         )
-    return StepResult("vibeue", "refreshed", f"checked out {VIBEUE_COMMIT[:12]} in {VIBEUE_REL}")
+    return StepResult("vibeue", "refreshed", f"checked out {remote[:12]} in {VIBEUE_REL}")
