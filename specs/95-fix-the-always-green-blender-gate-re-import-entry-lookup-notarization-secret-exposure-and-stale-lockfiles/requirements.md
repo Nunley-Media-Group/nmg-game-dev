@@ -70,6 +70,18 @@
 **When** the full test suite runs and the `finalize` and `texture-gen` MCP servers are resolved as a consumer launches them
 **Then** they pass and start as before, and `--dry-run` notarization still submits nothing
 
+### AC9: The coexistence suite checks whether the host add-on is loaded
+
+**Given** the ahujasid/blender-mcp host add-on is installed in Blender's add-on paths
+**When** `tests/blender/test_coexistence.py` enables it with `default_set=False`
+**Then** its load assertions read the loaded state that `addon_utils.check()` returns, not the default-enabled flag, so the suite passes when both add-ons are loaded
+
+### AC10: Steering lists only gates that can run
+
+**Given** the steering Verification Gates table
+**When** a contributor or `/sdlc-verify-code` reads it
+**Then** it no longer lists `gate-skill-schema` (whose `scripts/validate-skills.py` was never written) or `gate-markdown-lint` (which has no tool or project config), and no steering doc refers to either as a gate
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -80,15 +92,19 @@
 | FR4 | The `nmg-game-dev` package version is derived from `VERSION`, so no lockfile records a value that a bump changes. The steering versioning table no longer lists `pyproject.toml` `project.version` | Must |
 | FR5 | `mcp-servers/finalize` and `mcp-servers/texture-gen` are relocked so both match the current root dependencies | Must |
 | FR6 | A unit test runs `uv lock --check` for the root and each `mcp-servers/*` project | Must |
+| FR7 | `test_both_addons_load` and `test_disabling_nmg_leaves_host_functional` assert the second value of `addon_utils.check()` (loaded state) | Must |
+| FR8 | `gate-skill-schema` and `gate-markdown-lint` are removed from `steering/snippets/project-tech.md`, and the `validate-skills.py` entry is removed from `steering/snippets/project-structure.md` | Must |
 
 ## Out of Scope
 
 - Changing how the Python package (`src/nmg_game_dev/contract`, `pipeline`) locates `scripts/blender/`; it runs from the framework install.
 - Removing the Apple ID and password notarization path.
-- The `test_coexistence.py` assertion, the `JSONDecodeError` path in `texture/batch.py`, the docstring wrapping in `onboard/runner.py`, the missing steering gate scripts, and the markdownlint config.
+- The `JSONDecodeError` path in `texture/batch.py` and the docstring wrapping in `onboard/runner.py`.
+- Writing a skill-schema validator or adding a markdownlint config; the gates that named them are removed instead (FR8).
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #95 | 2026-10-30 | Initial defect report |
+| #95 | 2026-10-30 | Amended: coexistence assertion fix (AC9, FR7) and removal of the unrunnable skill-schema and markdown-lint gates (AC10, FR8) |

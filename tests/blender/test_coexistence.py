@@ -55,8 +55,10 @@ def test_both_addons_load(enabled_addon: str) -> None:
     assert _HOST_ADDON_ID is not None  # guaranteed by skipif
     addon_utils.enable(_HOST_ADDON_ID, default_set=False, persistent=False)
 
-    nmg_loaded, _ = addon_utils.check(enabled_addon)
-    host_loaded, _ = addon_utils.check(_HOST_ADDON_ID)
+    # check() returns (loaded_default, loaded_state); default_set=False leaves
+    # loaded_default False, so the loaded state is the second value.
+    _, nmg_loaded = addon_utils.check(enabled_addon)
+    _, host_loaded = addon_utils.check(_HOST_ADDON_ID)
     assert nmg_loaded, f"nmg add-on '{enabled_addon}' is not loaded"
     assert host_loaded, f"blender-mcp host '{_HOST_ADDON_ID}' is not loaded"
 
@@ -102,7 +104,7 @@ def test_disabling_nmg_leaves_host_functional(enabled_addon: str) -> None:
     addon_utils.enable(_HOST_ADDON_ID, default_set=False, persistent=False)
     addon_utils.disable(enabled_addon, default_set=False)
     try:
-        host_loaded, _ = addon_utils.check(_HOST_ADDON_ID)
+        _, host_loaded = addon_utils.check(_HOST_ADDON_ID)
         assert host_loaded, f"host '{_HOST_ADDON_ID}' unavailable after disabling nmg add-on"
     finally:
         addon_utils.enable(enabled_addon, default_set=True, persistent=False)

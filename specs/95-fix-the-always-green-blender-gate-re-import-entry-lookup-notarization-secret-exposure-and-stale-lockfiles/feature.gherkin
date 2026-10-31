@@ -4,7 +4,7 @@
 **Author**: Rich Nunley
 **Related Spec**: specs/6-ship-skills-per-platform-build-sign-notarize-package/
 
-# File: tests/bdd/features/release_tooling_fixes.feature (SCN001, SCN004–SCN008), tests/blender/test_reimport_entry.py (SCN002–SCN003)
+# File: tests/bdd/features/release_tooling_fixes.feature (SCN001, SCN004–SCN008), tests/blender/test_reimport_entry.py (SCN002–SCN003), tests/blender/test_coexistence.py (SCN009)
 # Generated from: specs/95-fix-the-always-green-blender-gate-re-import-entry-lookup-notarization-secret-exposure-and-stale-lockfiles/requirements.md
 Feature: Release and ship tooling report failures, find their entry scripts, keep secrets out of argv, and keep lockfiles in sync
 
@@ -64,5 +64,12 @@ Feature: Release and ship tooling report failures, find their entry scripts, kee
     Then both import successfully
     And notarize-macos.sh --dry-run submits nothing
 
+  @SCN009 @regression
+  Scenario: The coexistence suite passes when both add-ons are loaded
+    Given the blender-mcp host add-on is installed in Blender's add-on paths
+    When the coexistence suite enables it without making it a default
+    Then its load checks pass because they read the loaded state
+
 # Change History
 # | #95 | 2026-10-30 | Initial defect scenarios |
+# | #95 | 2026-10-30 | Amended: SCN009 coexistence load checks |

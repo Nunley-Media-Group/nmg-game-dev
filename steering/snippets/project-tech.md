@@ -204,7 +204,6 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 ### Markdown (docs)
 
 - CommonMark.
-- `markdownlint` CI gate with project config.
 - Onboarding docs lead with a flow, not an API reference.
 
 ---
@@ -354,10 +353,8 @@ def _(blender_mcp):
 | `gate-python-bdd` | Diff touches `src/**/*.py` or `tests/bdd/**` | `pytest tests/bdd/` | Exit code 0 |
 | `gate-blender-headless` | Diff touches `plugins/nmg-game-dev-blender-addon/**` or `tests/blender/**` | `scripts/run-blender-tests.sh` | Exit code 0 |
 | `gate-ue-automation` | Diff touches `plugins/nmg-game-dev-ue-plugin/Source/**/*.cpp` or `*.h` | `scripts/run-ue-tests.sh` | Exit code 0 |
-| `gate-skill-schema` | Diff touches `skills/**/SKILL.md` | `scripts/validate-skills.py` | Exit code 0 AND every SKILL.md parses |
 | `gate-mcp-schema` | Diff touches `mcp-servers/**` | `scripts/validate-mcp-tools.py` | Exit code 0 |
 | `gate-shellcheck` | Diff touches `**/*.sh` | `shellcheck -S style scripts/*.sh` | Exit code 0 |
-| `gate-markdown-lint` | Diff touches `**/*.md` | `markdownlint docs/ steering/ *.md` | Exit code 0 |
 | `gate-ship-smoke` | Diff touches `skills/build-*/` or `skills/ship/**` or UE plugin runtime | `scripts/ship-smoke.sh` | Exit code 0 — dry run of `/build-platform` on fixture project succeeds |
 
 Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` note in the spec's `tasks.md` with a justification. `/sdlc-verify-code` surfaces skipped gates in the PR body.
