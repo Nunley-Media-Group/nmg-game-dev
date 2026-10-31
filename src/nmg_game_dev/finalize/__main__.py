@@ -26,7 +26,13 @@ from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.steps import STEP_ORDER
 
-from .service import FinalizeService, build_request, error_dict, is_prerequisite
+from .service import (
+    FinalizeService,
+    MissingArgumentError,
+    build_request,
+    error_dict,
+    is_prerequisite,
+)
 
 STEP_COMMANDS: Final = ("all", *STEP_ORDER)
 EXIT_OK: Final = 0
@@ -62,12 +68,15 @@ _STEP_HELP: Final = {
 
 def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--collection", required=True, help="Blender collection, e.g. Crate.")
-    parser.add_argument("--category", required=True, help="Content category, e.g. Props.")
+    parser.add_argument(
+        "--category",
+        help="Content category, e.g. Props. Defaults to the design backlog entry's category.",
+    )
     parser.add_argument(
         "--class",
         dest="asset_class",
-        required=True,
-        help="small_prop, standard_prop, hero_prop, character, or environment_piece.",
+        help="small_prop, standard_prop, hero_prop, character, or environment_piece. Defaults to "
+        "the design backlog entry's asset_class.",
     )
     parser.add_argument("--export-root", required=True, help="Directory for the exported variants.")
     parser.add_argument("--blend", help="Finalize this saved .blend instead of the open session.")
@@ -106,6 +115,8 @@ def main(
             budgets_path=args.budgets,
             device=args.device,
         )
+    except MissingArgumentError as error:
+        return _report_error(error.payload(), args.json, out, err)
     except ValidationError as error:
         return _report_error(
             {

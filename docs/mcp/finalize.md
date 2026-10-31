@@ -20,13 +20,16 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `finalize_asset` | `collection`, `category`, `asset_class`, `export_root`, optional `blend`, `budgets_path`, `force`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds` |
+| `finalize_asset` | `collection`, `export_root`, optional `category`, `asset_class`, `blend`, `budgets_path`, `force`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds` |
 | `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` | The same shape as `finalize_asset`, for one step |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "result"?, "error"?}` |
 
 `wait_seconds` is clamped to 0–150. A value of 0 returns the job id at once. `get_finalize_job`
 reports `state` as `queued`, `running`, `succeeded`, or `failed`, and `progress` as a number from 0
 to 1. An unknown `job_id` returns `finalize.job_not_found`.
+
+`category` and `asset_class` are optional on `finalize_asset` and `run_finalize_step`. When one is
+omitted, finalize takes it from the design backlog. See [Backlog fallback](#backlog-fallback).
 
 Errors come back as `{"error": {"code", "message", "remediation", "stage"}}`. The server writes
 logs to stderr only, because stdout is the MCP channel.
@@ -35,7 +38,7 @@ logs to stderr only, because stdout is the MCP channel.
 
 ```text
 python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue} \
-  --collection Crate --category Props --class standard_prop --export-root <dir> \
+  --collection Crate --export-root <dir> [--category Props] [--class standard_prop] \
   [--blend B] [--budgets P] [--device GPU|CPU] [--force] [--json]
 ```
 
@@ -55,12 +58,29 @@ Every entry point takes one `FinalizeRequest`:
 | Field | Meaning |
 |-------|---------|
 | `collection` | The asset's collection name `<Name>`, PascalCase. The session (or `--blend`) must hold it. |
-| `category` | The Unreal category, PascalCase. Content lands in `/Game/<Category>/<Name>/`. |
-| `asset_class` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, or `environment_piece`. Sets the texture sizes and the material limit. |
+| `category` | Optional. The Unreal category, PascalCase. Content lands in `/Game/<Category>/<Name>/`. When omitted, taken from the design backlog. |
+| `asset_class` | Optional. One of `small_prop`, `standard_prop`, `hero_prop`, `character`, or `environment_piece`. Sets the texture sizes and the material limit. When omitted, taken from the design backlog. |
 | `export_root` | Folder that receives `<Category>/<Name>/Desktop/` and `<Category>/<Name>/Mobile/`. |
 | `blend` | Optional saved `.blend` to finalize instead of the open session. |
 | `budgets_path` | Optional `nmg-budgets.json` with budget overrides. |
 | `device` | `GPU` (default) or `CPU` for the bake. |
+
+## Backlog fallback
+
+When `category` or `asset_class` is omitted, finalize reads the design backlog,
+`docs/design/backlog.json` under the project root (`CLAUDE_PROJECT_DIR` when set, else the working
+directory). It takes the value from the asset entry whose `asset_name` equals `collection`. Asset
+entries have the types `character`, `vehicle`, `prop`, and `environment`. The backlog is written by
+`python -m nmg_game_dev.design sync`. See `docs/design-contract.md`.
+
+- An explicit argument always wins over the backlog.
+- If an argument is still missing and no asset entry matches, the call fails with
+  `finalize.invalid_request`. The error names the missing argument and the backlog path it checked.
+- A `finalize_asset` job that succeeds sets the matching entry's `status` to `finalized`.
+  `run_finalize_step` never changes the backlog.
+- If the backlog cannot be updated after a successful job, the job still succeeds. Its result's
+  `warnings` list holds `design.backlog_update_failed`.
+- The cache key is the same whether a value came from the backlog or from an argument.
 
 ## Steps
 
@@ -142,6 +162,7 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `finalize.job_crashed` | A background Blender process exited before its step finished. The step is named in the error. | Read `blender-<step>.log` in the job directory. Fix the cause and rerun. The open session is unchanged. |
 | `finalize.job_running` | Another finalize job holds the lock for this cache root. | Wait for it with `get_finalize_job`, or stop it, then rerun. |
 | `finalize.job_not_found` | No job has that id in this cache root. | Use the `job_id` that `finalize_asset` or `run_finalize_step` returned. |
+| `finalize.invalid_request` | `category` or `asset_class` is omitted, and no asset entry in `docs/design/backlog.json` supplies it. The message names the argument and the backlog path. | Pass the argument, or add the asset's design doc, run `python -m nmg_game_dev.design sync`, then rerun. |
 | `finalize.blender_not_found` | No Blender executable at `BLENDER_BIN`, `BLENDER_APP`, or `/Applications/Blender.app`. | Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun. |
 | `finalize.collection_not_found` | The session, or `--blend`, has no collection named `<Name>`. | Check that the collection name matches `--collection` and is PascalCase. |
 | `quality.contract_failed` | A contract report failed. Its findings name each rule and target. | Fix each finding in Blender, using `docs/asset-contract.md`, then rerun. |

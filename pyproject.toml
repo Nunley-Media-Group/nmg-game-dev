@@ -10,7 +10,7 @@ readme = "CLAUDE.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]
 license = { text = "Proprietary" }
-dependencies = ["pydantic>=2,<3", "numpy==2.4.6", "pillow==13.0.0"]
+dependencies = ["pydantic>=2,<3", "numpy==2.4.6", "pillow==13.0.0", "pyyaml==6.0.3"]
 
 [project.optional-dependencies]
 dev = [
@@ -61,6 +61,11 @@ exclude = ["tests/blender/"]
 
 [[tool.mypy.overrides]]
 module = ["_scaffold_contract"]
+ignore_missing_imports = true
+
+# PyYAML ships without type stubs; nmg_game_dev.design.parse is its only importer (#112).
+[[tool.mypy.overrides]]
+module = ["yaml", "yaml.*"]
 ignore_missing_imports = true
 
 # mflux and mlx come from the optional texture-ai extra and are imported only by texture/worker.py.

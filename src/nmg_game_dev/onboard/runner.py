@@ -4,9 +4,9 @@ Preflight resolves the ``.uproject``, the models directory, the framework source
 when
 a model is missing) the platform and free disk. Every failure raises ``OnboardError`` before the
 first
-consumer write. The steps then run in this order: scripts, settings hooks, asset contract, agent
-instructions, UE plugin, VibeUE, ``.uproject`` plugins, MCP auto-start ini, Blender add-on, texture
-models, texture env.
+consumer write. The steps then run in this order: scripts, settings hooks, asset contract, design
+contract, design dir, agent instructions, UE plugin, VibeUE, ``.uproject`` plugins, MCP auto-start
+ini, Blender add-on, texture models, texture env.
 """
 
 from __future__ import annotations
@@ -38,6 +38,9 @@ from nmg_game_dev.texture.paths import HF_HOME_NAME, MODELS_DIR_ENV
 START_SCRIPTS: tuple[str, ...] = ("start-blender-mcp.sh", "start-unreal-mcp.sh")
 ASSET_CONTRACT_SRC = Path("docs/asset-contract.md")
 ASSET_CONTRACT_DST = "docs/nmg-game-dev/asset-contract.md"
+DESIGN_CONTRACT_SRC = Path("docs/design-contract.md")
+DESIGN_CONTRACT_DST = "docs/nmg-game-dev/design-contract.md"
+DESIGN_DIR_REL = "docs/design"
 HOOK_TEMPLATE = Path("templates/consumer/.claude/settings.json")
 UE_PLUGIN_SRC = Path("plugins/nmg-game-dev-ue-plugin")
 UE_PLUGIN_DST = "Plugins/nmg-game-dev"
@@ -49,6 +52,7 @@ REQUIRED_FRAMEWORK: tuple[Path, ...] = (
     Path("scripts/start-blender-mcp.sh"),
     Path("scripts/start-unreal-mcp.sh"),
     ASSET_CONTRACT_SRC,
+    DESIGN_CONTRACT_SRC,
     HOOK_TEMPLATE,
     UE_PLUGIN_DESCRIPTOR,
     BLENDER_ADDON_MANIFEST,
@@ -155,6 +159,16 @@ def _extensions_dir(env: Mapping[str, str]) -> Path:
     return Path(raw).expanduser() if raw else DEFAULT_EXTENSIONS_DIR
 
 
+def _design_dir(target: Path) -> StepResult:
+    """Create ``docs/design/`` when absent. An existing directory is left alone: the design docs in
+    it belong to the consumer, so they are never listed, read, or changed."""
+    path = target / DESIGN_DIR_REL
+    if path.is_dir():
+        return StepResult("design_dir", "unchanged", f"{DESIGN_DIR_REL}/ exists")
+    path.mkdir(parents=True)
+    return StepResult("design_dir", "installed", f"created {DESIGN_DIR_REL}/")
+
+
 def run_onboard(
     consumer: Path,
     *,
@@ -210,6 +224,16 @@ def run_onboard(
             refresh=refresh,
         )
     )
+    results.append(
+        sync_file(
+            framework / DESIGN_CONTRACT_SRC,
+            target,
+            DESIGN_CONTRACT_DST,
+            name="design_contract",
+            refresh=refresh,
+        )
+    )
+    results.append(_design_dir(target))
     for filename, create in (("CLAUDE.md", True), ("AGENTS.md", False)):
         block = upsert_block(f"agent_instructions:{filename}", target / filename, create=create)
         if block is not None:

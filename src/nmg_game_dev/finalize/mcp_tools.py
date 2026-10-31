@@ -15,7 +15,7 @@ from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER, parse_step
 
-from .service import FinalizeService, build_request, clamp_wait, error_dict
+from .service import FinalizeService, MissingArgumentError, build_request, clamp_wait, error_dict
 
 _JOB_FIELDS = ("job_id", "state", "step", "progress", "message", "result", "error")
 
@@ -23,8 +23,8 @@ _JOB_FIELDS = ("job_id", "state", "step", "progress", "message", "result", "erro
 def finalize_asset(
     *,
     collection: str,
-    category: str,
-    asset_class: str,
+    category: str | None = None,
+    asset_class: str | None = None,
     export_root: str,
     blend: str | None = None,
     budgets_path: str | None = None,
@@ -50,8 +50,8 @@ def run_finalize_step(
     *,
     step: str,
     collection: str,
-    category: str,
-    asset_class: str,
+    category: str | None = None,
+    asset_class: str | None = None,
     export_root: str,
     blend: str | None = None,
     budgets_path: str | None = None,
@@ -93,8 +93,8 @@ class _InvalidRequestError(Exception):
 
 def _request(
     collection: str,
-    category: str,
-    asset_class: str,
+    category: str | None,
+    asset_class: str | None,
     export_root: str,
     blend: str | None,
     budgets_path: str | None,
@@ -108,6 +108,8 @@ def _request(
             blend=blend,
             budgets_path=budgets_path,
         )
+    except MissingArgumentError as error:
+        raise _InvalidRequestError(error.payload()) from error
     except ValidationError as error:
         raise _InvalidRequestError(
             {

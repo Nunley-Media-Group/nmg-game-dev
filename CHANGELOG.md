@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-31
+
+### Added
+
+- Design docs: `/design` reads the markdown in `docs/design/` into `docs/design/backlog.json` with `python -m nmg_game_dev.design sync`, which keeps each entry's status across re-syncs and marks removed docs `orphaned`. `scaffold` creates each region's level, each mission's `UNmgMissionDefinition` data asset, and each system's Blueprint in Unreal, and never overwrites an existing asset. `finalize_asset` takes `category` and `asset_class` from the backlog when they are omitted, and marks the entry `finalized` on success. Reference: `docs/design-contract.md` and `docs/skills/design.md`. (#112)
+
 ## [0.18.0] - 2026-10-31
 
 ### Added
