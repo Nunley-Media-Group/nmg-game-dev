@@ -63,9 +63,11 @@ def reimport_check(
         for name, entry in pre["snapshot"].items()
         if entry["variant"] == variant
     }
+    rigged = _is_rigged(pre, asset)
     findings = _texture_findings(asset, folder, expected)
 
-    bpy.ops.import_scene.fbx(filepath=str(fbx))
+    for path in _variant_fbx_files(folder, asset):
+        bpy.ops.import_scene.fbx(filepath=str(path))
     actual_objects = list(bpy.data.objects)
     actual_meshes = {obj.name: obj for obj in actual_objects if obj.type == "MESH"}
     actual_snapshot = {
@@ -79,6 +81,8 @@ def reimport_check(
     findings += _name_findings(expected_meshes, actual_meshes, expected)
     findings += _mesh_findings(expected_meshes, actual_meshes)
     findings += _pivot_findings(asset, expected_meshes, actual_meshes)
+    if rigged:
+        findings += _skin_findings(expected_meshes, actual_meshes)
     return build_report("reimport", asset, pre["class"], findings, actual_snapshot)
 
 
@@ -294,6 +298,43 @@ def _pivot_findings(
                     name,
                     f"{name} pivot moved {moved * 1000:.3f} mm relative to {root_name}; the "
                     "limit is 0.1 mm.",
+                )
+            )
+    return findings
+
+
+def _is_rigged(pre: Mapping[str, Any], asset: str) -> bool:
+    """True when the pre-export report holds the armature SK_<Name> (a rigged character)."""
+    entry = pre["snapshot"].get(f"SK_{asset}")
+    return isinstance(entry, dict) and entry.get("type") == "ARMATURE"
+
+
+def _variant_fbx_files(folder: Path, asset: str) -> list[Path]:
+    """SM_<Name>.fbx, then each rigged LOD file that exists, in LOD order."""
+    files = [folder / f"SM_{asset}.fbx"]
+    files += [folder / f"SM_{asset}_LOD{level}.fbx" for level in (1, 2)]
+    return [path for path in files if path.is_file()]
+
+
+def _skin_findings(
+    expected_meshes: dict[str, dict[str, Any]], actual_meshes: dict[str, bpy.types.Object]
+) -> list[dict[str, str]]:
+    """Each expected mesh of a rigged asset must come back deformed by an armature, with groups."""
+    findings: list[dict[str, str]] = []
+    for name in sorted(set(expected_meshes) & set(actual_meshes)):
+        obj = actual_meshes[name]
+        parented = obj.parent is not None and obj.parent.type == "ARMATURE"
+        modified = any(
+            modifier.type == "ARMATURE" and modifier.object is not None
+            for modifier in obj.modifiers
+        )
+        if not (parented or modified) or len(obj.vertex_groups) == 0:
+            findings.append(
+                finding(
+                    "reimport.skin_missing",
+                    name,
+                    f"{name} has no armature deform or no vertex groups after import; the rig "
+                    "was lost on export.",
                 )
             )
     return findings

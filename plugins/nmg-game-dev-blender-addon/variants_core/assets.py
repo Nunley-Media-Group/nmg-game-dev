@@ -3,15 +3,44 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Final
 
 import bpy
 
 from .errors import VariantError
 from .textures import check_baked_material
 
+#: The armature's name inside every rigged FBX. Export renames SK_<Name> to this and restores it.
+ARMATURE_EXPORT_NAME: Final = "Armature"
+
 
 def mobile_collection_name(name: str) -> str:
     return f"{name}_Mobile"
+
+
+def asset_armature(name: str) -> bpy.types.Object | None:
+    """Return SK_<Name> when it is an ARMATURE in collection <Name>, else None (unrigged)."""
+    collection = bpy.data.collections.get(name)
+    if collection is None:
+        return None
+    rig = collection.objects.get(f"SK_{name}")
+    if rig is None or rig.type != "ARMATURE":
+        return None
+    return rig
+
+
+def require_armature_name_free(rig: bpy.types.Object | None) -> None:
+    """Raise before any write if an object other than the rig already holds the export name."""
+    if rig is None:
+        return
+    clash = bpy.data.objects.get(ARMATURE_EXPORT_NAME)
+    if clash is not None and clash != rig:
+        raise VariantError(
+            "variants.armature_name_taken",
+            f"An object named '{ARMATURE_EXPORT_NAME}' already exists, so {rig.name} cannot be "
+            "renamed for export.",
+            f"Rename or delete the object named {ARMATURE_EXPORT_NAME}, then rerun.",
+        )
 
 
 def require_asset(name: str) -> tuple[bpy.types.Collection, bpy.types.Object]:

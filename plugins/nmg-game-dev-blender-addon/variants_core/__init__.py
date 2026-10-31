@@ -13,7 +13,14 @@ from typing import Any
 import bpy
 
 from ..utils.budgets import BudgetOverrideError, resolve_budget
-from .assets import desktop_export_objects, distinct_materials, require_export_root, validate_inputs
+from .assets import (
+    asset_armature,
+    desktop_export_objects,
+    distinct_materials,
+    require_armature_name_free,
+    require_export_root,
+    validate_inputs,
+)
 from .cleanup import cleanup_desktop
 from .errors import VariantError
 from .export import export_variants
@@ -51,6 +58,7 @@ def generate_variants(
     budget = _budget(asset_class, budgets_path)
     require_export_root(export_root)
     validate_inputs(collection_name, budget)
+    require_armature_name_free(asset_armature(collection_name))
 
     desktop_objects = desktop_export_objects(bpy.data.collections[collection_name])
     desktop_materials = distinct_materials(desktop_objects)
@@ -65,6 +73,7 @@ def generate_variants(
         "category": category,
         "class": asset_class,
         "budget": budget,
+        "rigged": exported["rigged"],
         "desktop": {
             "fbx": f"Desktop/SM_{collection_name}.fbx",
             "tris": cleanup["tris_after"],
@@ -82,6 +91,10 @@ def generate_variants(
             "materials": mobile["materials"],
         },
     }
+    if exported["rigged"]:
+        payload["mobile"]["lod_files"] = [
+            f"Mobile/{path.name}" for path in exported["mobile_fbx_files"]
+        ]
     write_sidecars(Path(export_root) / category / collection_name, payload)
 
     return {

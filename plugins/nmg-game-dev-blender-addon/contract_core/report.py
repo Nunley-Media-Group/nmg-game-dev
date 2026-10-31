@@ -69,6 +69,10 @@ RULES: Final[dict[str, str]] = {
     "reimport.dimensions": "Re-export without changing scale or geometry, then validate again.",
     "reimport.pivot": "Re-export with child-part pivots unchanged from the pre-export report.",
     "reimport.tris": "Re-export with the same triangle count as the pre-export report.",
+    "reimport.skin_missing": (
+        "Re-export the rigged variant with the armature and its skin: every mesh needs an "
+        "Armature modifier or armature parent, and vertex groups (#102)."
+    ),
 }
 
 

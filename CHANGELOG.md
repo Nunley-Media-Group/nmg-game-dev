@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Finalize keeps the rig of a character rigged with `rig_humanoid`: the Desktop FBX stays skinned to its armature, the Mobile variant ships three skinned LODs as one FBX each, and UE imports both variants as Skeletal Meshes that share the Desktop skeleton and physics asset (#102)
+
 ## [0.15.1] - 2026-10-31
 
 ### Fixed
