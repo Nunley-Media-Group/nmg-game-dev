@@ -38,9 +38,15 @@ overrides the smoke FBX.
    the same branch.
 2. **Start the editor.** `scripts/start-unreal-mcp.sh` launches UE 5.8 with
    `-ModelContextProtocolStartServer -ModelContextProtocolPort=$UE_MCP_PORT`. It is idempotent:
-   if the port is already listening it exits 0 without launching a second editor. It runs
-   detached, and its output goes to `/tmp/unreal-mcp.log`. If UE or the project can't be found
-   it exits 1 with a one-line remediation.
+   if the port is already listening it exits 0 without launching a second editor. Before it
+   launches, it builds the project's source-only plugins that need it: an enabled plugin under
+   `Plugins/` or an `AdditionalPluginDirectories` entry, with `Source/`, whose editor module
+   dylib in `Binaries/Mac/` is missing or older than its sources. The build runs the engine's
+   `Build.sh` in the foreground and logs to `/tmp/unreal-mcp-build.log`. If it fails, the script
+   exits non-zero with the first `error:` line and does not launch the editor. The consumer
+   SessionStart hook for this script has a 900-second timeout, so a first build can finish. The
+   editor runs detached, and its output goes to `/tmp/unreal-mcp.log`. If UE or the project can't
+   be found it exits 1 with a one-line remediation.
 3. **Smoke-test the pair.** `scripts/smoke-unreal-mcp.py` (see below).
 
 The dogfood fixture (`fixtures/dogfood.uproject`) enables `ModelContextProtocol`,

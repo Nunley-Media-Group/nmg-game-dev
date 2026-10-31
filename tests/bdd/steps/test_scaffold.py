@@ -140,6 +140,12 @@ def fake_ue_root(tmp_path: pathlib.Path) -> pathlib.Path:
     # Record the editor's argv so the scenario can check the native MCP server flags.
     fake.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$FAKE_UE_ARGV_FILE"\nexit 0\n')
     fake.chmod(0o755)
+    # The launcher builds source-only project plugins through Build.sh before it starts the editor.
+    build_dir = tmp_path / "Engine" / "Build" / "BatchFiles" / "Mac"
+    build_dir.mkdir(parents=True)
+    build = build_dir / "Build.sh"
+    build.write_text("#!/usr/bin/env bash\nexit 0\n")
+    build.chmod(0o755)
     return tmp_path
 
 
