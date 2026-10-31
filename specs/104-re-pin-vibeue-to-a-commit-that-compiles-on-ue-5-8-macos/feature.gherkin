@@ -1,0 +1,46 @@
+**Issue**: #104
+**Date**: 2026-10-31
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/7-consumer-onboarding-onboard-consumer-skill-asset-contract-install-and-onboarding-docs/
+
+# File: tests/bdd/features/onboard_consumer.feature (SCN001), tests/unit/onboard/test_unreal.py (SCN002, SCN003), tests/unit/test_toolchain_guards.py (SCN004, SCN005)
+# Generated from: specs/104-re-pin-vibeue-to-a-commit-that-compiles-on-ue-5-8-macos/requirements.md
+Feature: VibeUE tracks its UE 5.8 branch 5-8
+
+  @SCN001 @regression
+  Scenario: Onboarding clones VibeUE from branch 5-8
+    Given a fresh consumer project with Game.uproject and git available
+    When onboarding installs VibeUE
+    Then it clones https://github.com/kevinpbuckley/VibeUE.git at --depth 1 --branch 5-8 into Plugins/VibeUE
+    And the vibeue step reports installed
+
+  @SCN002 @regression
+  Scenario: The old pin is drift, and refresh moves to the 5-8 head
+    Given Plugins/VibeUE is at bc7bc45c1e2025123778560f45c15d1f8e1be41d
+    And origin branch 5-8 is at eabe83aba0708aeb79ce586f23684417d17cb852
+    When onboarding runs without --refresh
+    Then the vibeue step reports drift naming bc7bc45c1e20 and eabe83aba070
+    When onboarding runs with --refresh
+    Then it fetches origin 5-8 and checks out FETCH_HEAD
+    And the vibeue step reports refreshed
+
+  @SCN003 @regression
+  Scenario: A current or unverifiable checkout is left alone
+    Given Plugins/VibeUE is at the origin 5-8 head
+    When onboarding runs
+    Then the vibeue step reports unchanged
+    And when git ls-remote fails the vibeue step reports unchanged and says the 5-8 head could not be checked
+
+  @SCN004 @regression
+  Scenario: The dogfood installer tracks branch 5-8
+    Given scripts/install-vibeue.sh
+    When its code is inspected
+    Then a fresh clone uses --depth 1 --branch 5-8
+    And an existing clone is fetched from origin 5-8 and switched or fast-forwarded to it
+
+  @SCN005 @regression
+  Scenario: No VibeUE tag or commit pin remains
+    Given the repository's src, scripts, skills, and docs trees
+    When the toolchain guards scan them
+    Then none contains v5.0-ue5.8, bc7bc45c1e2025123778560f45c15d1f8e1be41d, VIBEUE_TAG, or VIBEUE_COMMIT
