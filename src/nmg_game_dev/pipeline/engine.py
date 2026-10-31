@@ -336,6 +336,9 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
         client = owned
     imports: dict[str, Any] = {}
     paths: dict[str, str] = {}
+    # A rigged Mobile reuses the Desktop skeleton and physics asset, so both variants name the
+    # Desktop folder, and Desktop is imported first (VARIANTS orders it).
+    skeleton_dest = ue_destination(request, "Desktop")
     try:
         for variant in VARIANTS:
             entry = export[variant]
@@ -349,6 +352,7 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
                 dest=destination,
                 name=request.collection,
                 report=report,
+                skeleton_dest=skeleton_dest,
             )
             paths[variant] = destination
     finally:

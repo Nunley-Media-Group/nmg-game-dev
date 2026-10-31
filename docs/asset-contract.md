@@ -76,6 +76,11 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
   children are `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and `SM_<Name>_LOD2`. LOD1 and LOD2 are
   50% and 25% of LOD0's triangles. Assets with child parts keep the root mesh `SM_<Name>`
   and their parts, with LOD0 only.
+- A rigged character (its armature `SK_<Name>` is in the collection; see §7) has no LOD
+  group. Its Mobile variant is three skinned meshes, `SM_<Name>_Mobile`,
+  `SM_<Name>_Mobile_LOD1`, and `SM_<Name>_Mobile_LOD2`, each parented to `SK_<Name>` with an
+  Armature modifier. Each exports to its own FBX: one per LOD level. LOD1 and LOD2 are 50%
+  and 25% of LOD0's triangles. Assets with child parts keep LOD0 only, skinned the same way.
 - Inside the .blend, Mobile objects, materials, and images may carry a suffix to avoid
   name clashes. Exported files never do: object, material, and texture names in the
   Mobile export are identical to the Desktop export.
@@ -123,9 +128,23 @@ every baked clip:
 - `nmg-animations.json` sits beside the FBX. It lists each clip's name, frame
   range, frame count, fps, and source (library, file, SHA-256, skeleton).
 
-The rig export writes `SM_<Name>.fbx` into the folder you give it. Placing it in
-the `Desktop/` or `Mobile/` layout is the finalize step's job (#69). A Mobile
-variant of a rigged character belongs to #33.
+The finalize export places a rigged character in the layout above:
+
+- `Desktop/SM_<Name>.fbx` holds the armature and the skinned Desktop mesh. Cleanup
+  applies every modifier except the Armature modifier, so the skin and the vertex
+  groups survive.
+- `Mobile/SM_<Name>.fbx`, `Mobile/SM_<Name>_LOD1.fbx`, and `Mobile/SM_<Name>_LOD2.fbx`
+  each hold the armature and one skinned mesh. An asset with child parts writes only
+  `Mobile/SM_<Name>.fbx`, which holds LOD0 and its parts.
+- Both variants export with the armature named `Armature`, `add_leaf_bones` off,
+  deform-only armature export, primary bone axis Y, secondary X, and no baked animation.
+- In Unreal, `/Game/<Category>/<Name>/Desktop/SM_<Name>` is a Skeletal Mesh. It creates
+  `SM_<Name>_Skeleton` and `SM_<Name>_PhysicsAsset` beside it. `/Game/<Category>/<Name>/Mobile/SM_<Name>`
+  is a Skeletal Mesh with up to three LODs that uses the Desktop skeleton and physics asset.
+  Each skeletal material slot `M_<Name>_<Part>` binds to `MI_<Name>_<Part>`.
+- `nmg-variants.json` records `"rigged": true` and, when rigged, lists the Mobile files
+  in `mobile.lod_files`. An unrigged asset records `"rigged": false` and writes the
+  Static Mesh layout above.
 
 ## 8. Before you say it's done
 

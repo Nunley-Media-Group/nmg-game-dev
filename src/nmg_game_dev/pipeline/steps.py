@@ -36,7 +36,7 @@ VARIANTS: Final[tuple[str, ...]] = ("Desktop", "Mobile")
 ENVELOPE_SCHEMA_VERSION: Final = 1
 
 _STEP_VERSION: Final = (
-    "2"  # bumped for the #69 fixes: authored validate, UV link, packed mobile, LOD dedupe
+    "3"  # bumped for #102: rigged variants import as Skeletal Meshes; cached unrigged-era results
 )
 _REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 _BUDGET_TABLE: Final = (

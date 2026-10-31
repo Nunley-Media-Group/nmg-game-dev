@@ -9,14 +9,19 @@ Import order for one variant, run inside the editor:
 1. Import every ``T_*.png`` into ``dest`` (``AssetImportTask(automated=True,
    replace_existing=True, save=True)``). ``_BC`` is sRGB. ``_N`` has flip green channel, normal
    compression, and linear color. ``_ORM`` is linear with masks compression.
-2. Import ``SM_<Name>.fbx`` with materials, textures, and skeletal import off, and with
-   ``combine_meshes``, ``transform_vertex_to_absolute``, and ``bake_pivot_in_vertex`` all off.
-   Each mesh node becomes its own static mesh.
-3. For each static mesh material slot named ``M_<Name>_<Part>``, create or reuse
+2. Import ``SM_<Name>.fbx``. A static asset imports with materials, textures, and skeletal import
+   off, and with ``combine_meshes``, ``transform_vertex_to_absolute``, and
+   ``bake_pivot_in_vertex`` all off. Each mesh node becomes its own static mesh.
+   A rigged asset (its snapshot holds the armature ``SK_<Name>``) imports as a Skeletal Mesh.
+   The Desktop variant creates ``SM_<Name>_Skeleton`` and ``SM_<Name>_PhysicsAsset`` in ``dest``.
+   The Mobile variant reuses those two from ``skeleton_dest`` and imports
+   ``SM_<Name>_LOD1.fbx`` and ``SM_<Name>_LOD2.fbx`` as LOD 1 and 2 with
+   ``SkeletalMeshEditorSubsystem.import_lod``.
+3. For each mesh material slot named ``M_<Name>_<Part>``, create or reuse
    ``MI_<Name>_<Part>`` in ``dest``. Parent it to ``/nmg-game-dev/Materials/M_NmgORM`` and set
    ``BaseColor``, ``Normal``, and ``ORM`` from ``T_<Name>_<Part>_{BC,N,ORM}``. Assign it to the
    slot and save.
-4. Report each static mesh's local bounds.
+4. Report each mesh's local bounds.
 
 NMG_RESULT schema. The UE code prints exactly one ``NMG_RESULT {json}`` line, and it is always
 printed, even on failure::
@@ -32,22 +37,31 @@ printed, even on failure::
         "SM_Crate_Body": {"path": "/Game/.../SM_Crate_Body",
                           "bounds": {"min": [x, y, z], "max": [x, y, z]}}   # cm, UE axes, local
       },
+      "skeletal_meshes": {                                       # rigged variants only
+        "SM_Hero": {"path": "/Game/.../SM_Hero",
+                    "bounds": {"min": [x, y, z], "max": [x, y, z]},
+                    "lod_count": 3,
+                    "skeleton": "/Game/.../SM_Hero_Skeleton",
+                    "physics_asset": "/Game/.../SM_Hero_PhysicsAsset"}
+      },
       "error": null | "ExceptionType: message"
     }
 
 Pivot check. ``check_pivots`` compares each snapshot ``MESH`` entry of the variant with its UE
-static mesh. The snapshot key is the Blender object name. The UE static mesh is matched by the
-same key, or by the key with ``_Mobile`` removed (the export name). Blender meters are converted
-to centimeters, and Y is negated, which swaps the Y extremes. Each component must match within
-0.01 cm. The snapshot entry must carry ``local_bounds``: ``{"min": [x, y, z], "max": [x, y, z]}``
-in Blender meters, object-local space. Without it the check cannot run, so it fails closed with
-``import_ue.pivot_mismatch``.
+mesh, static or skeletal. The snapshot key is the Blender object name. The UE mesh is matched by
+the same key, or by the key with ``_Mobile`` removed (the export name). A rigged asset's
+``_LOD1``/``_LOD2`` entries are not compared, because they are LODs of the root Skeletal Mesh.
+Blender meters are converted to centimeters, and Y is negated, which swaps the Y extremes. Each
+component must match within 0.01 cm. The snapshot entry must carry ``local_bounds``:
+``{"min": [x, y, z], "max": [x, y, z]}`` in Blender meters, object-local space. Without it the
+check cannot run, so it fails closed with ``import_ue.pivot_mismatch``.
 """
 
 from __future__ import annotations
 
 import json
 import math
+import re
 from typing import Any, Final, NoReturn, Protocol, cast
 
 from nmg_game_dev.pipeline.errors import PipelineError
@@ -56,6 +70,8 @@ _STAGE: Final = "import_ue"
 _RESULT_PREFIX: Final = "NMG_RESULT "
 #: Matches ``contract_core.validate.MOBILE_SUFFIX``; the Mobile export name drops it.
 _MOBILE_SUFFIX: Final = "_Mobile"
+#: Matches ``contract_core.validate._LOD_EXTRA``: LOD1 and LOD2 objects of a rigged Mobile variant.
+_LOD_EXTRA: Final = re.compile(r"_LOD[1-9]$")
 PIVOT_TOLERANCE_CM: Final = 0.01
 _CM_PER_METER: Final = 100.0
 _MASTER_PATH: Final = "/nmg-game-dev/Materials/M_NmgORM"
@@ -87,8 +103,10 @@ RESULT = {
     "textures": [],
     "materials": {},
     "static_meshes": {},
+    "skeletal_meshes": {},
     "error": None,
 }
+LOD_COUNT = {}
 
 
 def _load(path):
@@ -139,10 +157,7 @@ def _import_textures(tools):
         RESULT["textures"].append(dest + "/" + stem)
 
 
-def _import_meshes(tools):
-    fbx = os.path.join(PARAMS["variant_dir"], "SM_" + PARAMS["name"] + ".fbx")
-    if not os.path.isfile(fbx):
-        raise RuntimeError("FBX missing from the variant folder: " + fbx)
+def _static_options():
     options = unreal.FbxImportUI()
     options.import_materials = False
     options.import_textures = False
@@ -150,6 +165,34 @@ def _import_meshes(tools):
     options.static_mesh_import_data.combine_meshes = False
     options.static_mesh_import_data.transform_vertex_to_absolute = False
     options.static_mesh_import_data.bake_pivot_in_vertex = False
+    return options
+
+
+def _skeleton_path():
+    return PARAMS["skeleton_dest"] + "/SM_" + PARAMS["name"] + "_Skeleton"
+
+
+def _physics_path():
+    return PARAMS["skeleton_dest"] + "/SM_" + PARAMS["name"] + "_PhysicsAsset"
+
+
+def _skeletal_options(desktop):
+    options = unreal.FbxImportUI()
+    options.import_materials = False
+    options.import_textures = False
+    options.import_as_skeletal = True
+    options.mesh_type_to_import = unreal.FBXImportType.FBXIT_SKELETAL_MESH
+    options.import_animations = False
+    if desktop:
+        options.create_physics_asset = True
+    else:
+        options.create_physics_asset = False
+        options.skeleton = _load(_skeleton_path())
+        options.physics_asset = _load(_physics_path())
+    return options
+
+
+def _import_fbx(tools, fbx, options):
     task = unreal.AssetImportTask()
     task.filename = fbx
     task.destination_path = PARAMS["dest"]
@@ -158,13 +201,54 @@ def _import_meshes(tools):
     task.save = True
     task.options = options
     tools.import_asset_tasks([task])
-    meshes = []
+    return task
+
+
+def _imported_assets(task, asset_class):
+    found = []
     for object_path in sorted({path.split(".")[0] for path in task.imported_object_paths}):
         asset = unreal.EditorAssetLibrary.load_asset(object_path)
-        if isinstance(asset, unreal.StaticMesh):
-            meshes.append((object_path, asset))
+        if isinstance(asset, asset_class):
+            found.append((object_path, asset))
+    return found
+
+
+def _import_meshes(tools):
+    fbx = os.path.join(PARAMS["variant_dir"], "SM_" + PARAMS["name"] + ".fbx")
+    if not os.path.isfile(fbx):
+        raise RuntimeError("FBX missing from the variant folder: " + fbx)
+    if PARAMS["rigged"]:
+        return _import_skeletal(tools, fbx)
+    task = _import_fbx(tools, fbx, _static_options())
+    meshes = _imported_assets(task, unreal.StaticMesh)
     if not meshes:
         raise RuntimeError("the FBX imported no static meshes: " + fbx)
+    return meshes
+
+
+def _import_skeletal(tools, fbx):
+    desktop = PARAMS["variant"] == "desktop"
+    task = _import_fbx(tools, fbx, _skeletal_options(desktop))
+    meshes = _imported_assets(task, unreal.SkeletalMesh)
+    if len(meshes) != 1:
+        raise RuntimeError("the FBX imported " + str(len(meshes)) + " skeletal meshes: " + fbx)
+    object_path, mesh = meshes[0]
+    lod_count = 1
+    if not desktop:
+        subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
+        for level in (1, 2):
+            lod_fbx = os.path.join(
+                PARAMS["variant_dir"], "SM_" + PARAMS["name"] + "_LOD" + str(level) + ".fbx"
+            )
+            if not os.path.isfile(lod_fbx):
+                continue
+            placed = subsystem.import_lod(mesh, level, lod_fbx)
+            if placed != level:
+                raise RuntimeError(
+                    lod_fbx + " was imported as LOD " + str(placed) + ", expected " + str(level)
+                )
+            lod_count += 1
+    LOD_COUNT[object_path] = lod_count
     return meshes
 
 
@@ -173,6 +257,16 @@ def _bounds(mesh):
     return {
         "min": [box.min.x, box.min.y, box.min.z],
         "max": [box.max.x, box.max.y, box.max.z],
+    }
+
+
+def _skeletal_bounds(mesh):
+    bounds = mesh.get_bounds()
+    origin = bounds.origin
+    extent = bounds.box_extent
+    return {
+        "min": [origin.x - extent.x, origin.y - extent.y, origin.z - extent.z],
+        "max": [origin.x + extent.x, origin.y + extent.y, origin.z + extent.z],
     }
 
 
@@ -206,8 +300,20 @@ def _bind_materials(tools, meshes):
     prefix = "M_" + name + "_"
     for object_path, mesh in meshes:
         mesh_name = object_path.rsplit("/", 1)[-1]
-        RESULT["static_meshes"][mesh_name] = {"path": object_path, "bounds": _bounds(mesh)}
-        for index, slot in enumerate(mesh.static_materials):
+        skeletal = isinstance(mesh, unreal.SkeletalMesh)
+        if skeletal:
+            RESULT["skeletal_meshes"][mesh_name] = {
+                "path": object_path,
+                "bounds": _skeletal_bounds(mesh),
+                "lod_count": LOD_COUNT[object_path],
+                "skeleton": _skeleton_path(),
+                "physics_asset": _physics_path(),
+            }
+            slots = mesh.get_editor_property("materials")
+        else:
+            RESULT["static_meshes"][mesh_name] = {"path": object_path, "bounds": _bounds(mesh)}
+            slots = mesh.static_materials
+        for index, slot in enumerate(slots):
             slot_name = str(slot.material_slot_name)
             if not slot_name.startswith(prefix):
                 raise RuntimeError(
@@ -224,8 +330,14 @@ def _bind_materials(tools, meshes):
                     instance, parameter, texture
                 )
             unreal.EditorAssetLibrary.save_loaded_asset(instance)
-            mesh.set_material(index, instance)
+            if skeletal:
+                slot.material_interface = instance
+                slots[index] = slot
+            else:
+                mesh.set_material(index, instance)
             RESULT["materials"][slot_name] = dest + "/MI_" + name + "_" + part
+        if skeletal:
+            mesh.set_editor_property("materials", slots)
         unreal.EditorAssetLibrary.save_loaded_asset(mesh)
 
 
@@ -259,20 +371,28 @@ def build_import_code(
     dest: str,
     name: str,
     report: dict[str, Any],
+    skeleton_dest: str | None = None,
 ) -> str:
     """Return the UE Python that imports one variant folder into ``dest``.
 
     ``report`` is the pre-export contract report. Its snapshot tells the UE side which
-    ``MESH`` parts of this variant must come back as static meshes, so a missing part fails
-    before any material is bound.
+    ``MESH`` parts of this variant must come back as meshes, so a missing part fails before any
+    material is bound, and whether the asset is rigged (it holds the armature ``SK_<Name>``).
+    A rigged Mobile variant reads its skeleton and physics asset from ``skeleton_dest``, the
+    Desktop folder, so ``skeleton_dest`` is required for it.
     """
     variant = _variant_of(dest)
+    rigged = _is_rigged(report, name)
+    if rigged and variant == "mobile" and skeleton_dest is None:
+        raise ValueError("a rigged Mobile import needs skeleton_dest, the Desktop folder")
     params: dict[str, Any] = {
         "variant": variant,
         "variant_dir": variant_dir,
         "dest": dest,
         "name": name,
-        "expected_meshes": _expected_mesh_candidates(report, variant),
+        "rigged": rigged,
+        "skeleton_dest": skeleton_dest if skeleton_dest is not None else dest,
+        "expected_meshes": _expected_mesh_candidates(report, variant, rigged),
     }
     return _IMPORT_TEMPLATE.replace("__PARAMS__", json.dumps(json.dumps(params, sort_keys=True)))
 
@@ -303,19 +423,29 @@ def parse_nmg_result(output: str) -> dict[str, Any]:
 def check_pivots(report: dict[str, Any], result: dict[str, Any]) -> None:
     """Compare each child part's local bounds with the pre-export snapshot, within 0.01 cm.
 
-    Raises ``import_ue.pivot_mismatch`` on any mismatch, on a part with no static mesh, or on a
+    Static and skeletal meshes are both measured. A rigged asset's LOD1 and LOD2 entries are
+    skipped. Raises ``import_ue.pivot_mismatch`` on any mismatch, on a part with no mesh, or on a
     snapshot part that has no ``local_bounds``.
     """
     variant = str(result.get("variant", ""))
     snapshot = report.get("snapshot")
-    measured = result.get("static_meshes")
-    if not isinstance(snapshot, dict) or not isinstance(measured, dict):
+    static = result.get("static_meshes")
+    skeletal = result.get("skeletal_meshes", {})
+    if (
+        not isinstance(snapshot, dict)
+        or not isinstance(static, dict)
+        or not isinstance(skeletal, dict)
+    ):
         _fail_pivot("the report or the UE result has no snapshot or static_meshes")
+    measured: dict[str, Any] = {**static, **skeletal}
+    rigged = _is_rigged(report, str(result.get("name", "")))
     for key in sorted(snapshot):
         entry = snapshot[key]
         if not isinstance(entry, dict) or entry.get("type") != "MESH":
             continue
         if entry.get("variant") != variant:
+            continue
+        if rigged and _LOD_EXTRA.search(key):
             continue
         mesh_name = _matching_mesh(key, measured)
         if mesh_name is None:
@@ -336,9 +466,10 @@ def import_variant(
     dest: str,
     name: str,
     report: dict[str, Any],
+    skeleton_dest: str | None = None,
 ) -> dict[str, Any]:
     """Import one variant through ``client``, then check its pivots. Return the UE result."""
-    code = build_import_code(variant_dir, dest, name, report)
+    code = build_import_code(variant_dir, dest, name, report, skeleton_dest=skeleton_dest)
     result = parse_nmg_result(client.execute_python_code(code))
     if result.get("ok") is not True:
         error_text = result.get("error") or "UE reported no error text"
@@ -366,19 +497,33 @@ def _export_name(key: str) -> str:
     return key.replace(_MOBILE_SUFFIX, "", 1)
 
 
-def _expected_mesh_candidates(report: dict[str, Any], variant: str) -> list[list[str]]:
+def _is_rigged(report: dict[str, Any], name: str) -> bool:
+    """True when the report snapshot holds the armature SK_<Name>, which marks a rigged asset."""
+    snapshot = report.get("snapshot")
+    if not isinstance(snapshot, dict):
+        return False
+    entry = snapshot.get(f"SK_{name}")
+    return isinstance(entry, dict) and entry.get("type") == "ARMATURE"
+
+
+def _expected_mesh_candidates(
+    report: dict[str, Any], variant: str, rigged: bool
+) -> list[list[str]]:
     snapshot = report.get("snapshot")
     if not isinstance(snapshot, dict):
         return []
     candidates: list[list[str]] = []
     for key in sorted(snapshot):
         entry = snapshot[key]
-        if (
+        if not (
             isinstance(entry, dict)
             and entry.get("type") == "MESH"
             and entry.get("variant") == variant
         ):
-            candidates.append(sorted({key, _export_name(key)}))
+            continue
+        if rigged and _LOD_EXTRA.search(key):
+            continue
+        candidates.append(sorted({key, _export_name(key)}))
     return candidates
 
 

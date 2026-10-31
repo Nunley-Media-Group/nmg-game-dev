@@ -7,7 +7,10 @@ refusal), AC4 (cache hits, changes, and ``--force``), and AC6 (failures stop the
 
 from __future__ import annotations
 
+import ast
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -24,6 +27,14 @@ from nmg_game_dev.pipeline import (
 from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
 
 BLENDER_STEPS = ("validate", "bake", "variants", "export", "reimport")
+
+
+def _ue_params(code: str) -> dict[str, Any]:
+    """The PARAMS literal that build_import_code embeds in the UE code, decoded."""
+    line = next(line for line in code.splitlines() if line.startswith("PARAMS = json.loads("))
+    decoded = ast.literal_eval(line[len("PARAMS = json.loads(") : -1])
+    params: dict[str, Any] = json.loads(decoded)
+    return params
 
 
 @pytest.fixture()
@@ -96,6 +107,21 @@ class TestChain:
         assert result.desktop_content_path == "/Game/Props/Crate/Desktop"
         assert result.mobile_content_path == "/Game/Props/Crate/Mobile"
         assert len(unreal.codes) == 2
+
+    def test_both_variants_read_the_skeleton_from_the_desktop_folder(
+        self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
+    ) -> None:
+        runner = FakeStepRunner(blend_request)
+        unreal = FakeUnrealRunner()
+
+        _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
+
+        params = [_ue_params(code) for code in unreal.codes]
+        assert [item["dest"] for item in params] == [
+            "/Game/Props/Crate/Desktop",
+            "/Game/Props/Crate/Mobile",
+        ]
+        assert [item["skeleton_dest"] for item in params] == ["/Game/Props/Crate/Desktop"] * 2
 
     def test_result_blend_is_the_variants_output(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter

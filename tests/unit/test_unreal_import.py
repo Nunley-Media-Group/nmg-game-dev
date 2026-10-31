@@ -338,3 +338,134 @@ def test_import_variant_raises_pivot_mismatch_after_a_successful_import() -> Non
         )
 
     assert raised.value.code == "import_ue.pivot_mismatch"
+
+
+# --- rigged variants (#102) -----------------------------------------------------------------
+
+_LOCAL_BOUNDS = {"min": [-0.5, 0.1, 0.0], "max": [0.5, 0.4, 1.0]}
+
+
+def _rigged_desktop_snapshot() -> dict[str, Any]:
+    """A rigged Desktop: the root mesh and the armature SK_Crate, which marks the asset rigged."""
+    return {
+        "SM_Crate": {"variant": "desktop", "type": "MESH", "local_bounds": _LOCAL_BOUNDS},
+        "SK_Crate": {"variant": "desktop", "type": "ARMATURE", "local_bounds": None},
+    }
+
+
+def _rigged_mobile_snapshot() -> dict[str, Any]:
+    """A rigged Mobile: the root and its two LODs, each a skinned mesh (no LodGroup Empty)."""
+    return {
+        "SK_Crate": {"variant": "desktop", "type": "ARMATURE", "local_bounds": None},
+        "SM_Crate_Mobile": {"variant": "mobile", "type": "MESH", "local_bounds": _LOCAL_BOUNDS},
+        "SM_Crate_Mobile_LOD1": {
+            "variant": "mobile",
+            "type": "MESH",
+            "local_bounds": _LOCAL_BOUNDS,
+        },
+        "SM_Crate_Mobile_LOD2": {
+            "variant": "mobile",
+            "type": "MESH",
+            "local_bounds": _LOCAL_BOUNDS,
+        },
+    }
+
+
+def _skeletal_result(mesh: str = "SM_Crate", variant: str = "desktop") -> dict[str, Any]:
+    return {
+        "ok": True,
+        "variant": variant,
+        "name": "Crate",
+        "dest": DESKTOP_DEST if variant == "desktop" else MOBILE_DEST,
+        "textures": [],
+        "materials": {},
+        "static_meshes": {},
+        "skeletal_meshes": {
+            mesh: {
+                "path": f"/Game/Props/Crate/{variant}/{mesh}",
+                "bounds": _ue_bounds([-50.0, -40.0, 0.0], [50.0, -10.0, 100.0]),
+                "lod_count": 3 if variant == "mobile" else 1,
+                "skeleton": f"{DESKTOP_DEST}/SM_Crate_Skeleton",
+                "physics_asset": f"{DESKTOP_DEST}/SM_Crate_PhysicsAsset",
+            }
+        },
+        "error": None,
+    }
+
+
+def test_rigged_desktop_code_imports_a_skeletal_mesh_with_its_physics_asset() -> None:
+    report = _report(snapshot=_rigged_desktop_snapshot())
+
+    code = build_import_code(VARIANT_DIR, DESKTOP_DEST, "Crate", report)
+
+    params = _embedded_params(code)
+    assert params["rigged"] is True
+    assert params["skeleton_dest"] == DESKTOP_DEST
+    assert params["expected_meshes"] == [["SM_Crate"]]
+    assert "FBXIT_SKELETAL_MESH" in code
+    assert "options.import_as_skeletal = True" in code
+    assert "options.import_animations = False" in code
+    assert "options.create_physics_asset = True" in code
+    compile(code, "<ue-import>", "exec")
+
+
+def test_rigged_mobile_code_reuses_the_desktop_skeleton_and_imports_the_lods() -> None:
+    report = _report("mobile", _rigged_mobile_snapshot())
+
+    code = build_import_code(VARIANT_DIR, MOBILE_DEST, "Crate", report, skeleton_dest=DESKTOP_DEST)
+
+    params = _embedded_params(code)
+    assert params["rigged"] is True
+    assert params["skeleton_dest"] == DESKTOP_DEST
+    assert "SM_" in code and "_Skeleton" in code and "_PhysicsAsset" in code
+    assert "options.create_physics_asset = False" in code
+    assert "SkeletalMeshEditorSubsystem" in code
+    assert "import_lod(mesh, level, lod_fbx)" in code
+    assert params["expected_meshes"] == [["SM_Crate", "SM_Crate_Mobile"]]
+    compile(code, "<ue-import>", "exec")
+
+
+def test_rigged_mobile_code_needs_the_desktop_skeleton_destination() -> None:
+    report = _report("mobile", _rigged_mobile_snapshot())
+
+    with pytest.raises(ValueError, match="skeleton_dest"):
+        build_import_code(VARIANT_DIR, MOBILE_DEST, "Crate", report)
+
+
+def test_unrigged_report_keeps_the_static_path() -> None:
+    code = build_import_code(VARIANT_DIR, DESKTOP_DEST, "Crate", _report())
+
+    assert _embedded_params(code)["rigged"] is False
+    assert "import_as_skeletal = False" in code
+
+
+def test_pivot_check_matches_the_skeletal_root_and_skips_the_rigged_lods() -> None:
+    report = _report("mobile", _rigged_mobile_snapshot())
+
+    check_pivots(report, _skeletal_result("SM_Crate_Mobile", variant="mobile"))
+
+
+def test_pivot_check_fails_when_a_rigged_root_has_no_skeletal_mesh() -> None:
+    report = _report("mobile", _rigged_mobile_snapshot())
+    result = _skeletal_result("SM_Other", variant="mobile")
+
+    with pytest.raises(PipelineError) as raised:
+        check_pivots(report, result)
+
+    assert raised.value.code == "import_ue.pivot_mismatch"
+
+
+def test_import_variant_hands_the_skeleton_destination_to_the_code() -> None:
+    fake = FakeUnreal(_nmg_output(_skeletal_result("SM_Crate_Mobile", variant="mobile")))
+
+    result = import_variant(
+        fake,
+        variant_dir=VARIANT_DIR,
+        dest=MOBILE_DEST,
+        name="Crate",
+        report=_report("mobile", _rigged_mobile_snapshot()),
+        skeleton_dest=DESKTOP_DEST,
+    )
+
+    assert result["ok"] is True
+    assert _embedded_params(fake.codes[0])["skeleton_dest"] == DESKTOP_DEST

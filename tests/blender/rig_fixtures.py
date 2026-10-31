@@ -264,6 +264,52 @@ def _select_only(objects: list[Any]) -> None:
     bpy.context.view_layer.objects.active = objects[0]
 
 
+def add_baked_hero_material() -> None:
+    """Give SM_Hero a UV map and a baked surface, M_Hero_Body, with T_Hero_Body_{BC,N,ORM} images.
+
+    The variant and re-import checks need a UV map, a baked material, and each texture the
+    material names, so the fixture supplies all of them.
+    """
+    import bpy  # noqa: PLC0415
+
+    mesh = bpy.data.objects["SM_Hero"].data
+    uv_layer = mesh.uv_layers.new(name="UVMap")
+    for loop in mesh.loops:
+        co = mesh.vertices[loop.vertex_index].co
+        uv_layer.data[loop.index].uv = ((co.x + 1.0) / 2.0, (co.z + 0.5) / 2.0)
+
+    for image in list(bpy.data.images):
+        if image.name.startswith("T_Hero_Body_"):
+            bpy.data.images.remove(image)
+    material = bpy.data.materials.new("M_Hero_Body")
+    material.use_nodes = True
+    nodes, links = material.node_tree.nodes, material.node_tree.links
+    bsdf = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
+    uv = nodes.new("ShaderNodeUVMap")
+    uv.uv_map = "UVMap"
+
+    def texture(suffix: str, colorspace: str) -> Any:
+        image = bpy.data.images.new(f"T_Hero_Body_{suffix}", 64, 64)
+        image.colorspace_settings.name = colorspace
+        node = nodes.new("ShaderNodeTexImage")
+        node.image = image
+        links.new(uv.outputs["UV"], node.inputs["Vector"])
+        return node
+
+    base = texture("BC", "sRGB")
+    normal = texture("N", "Non-Color")
+    orm = texture("ORM", "Non-Color")
+    normal_map = nodes.new("ShaderNodeNormalMap")
+    split = nodes.new("ShaderNodeSeparateColor")
+    links.new(base.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(normal.outputs["Color"], normal_map.inputs["Color"])
+    links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    links.new(orm.outputs["Color"], split.inputs["Color"])
+    links.new(split.outputs["Green"], bsdf.inputs["Roughness"])
+    links.new(split.outputs["Blue"], bsdf.inputs["Metallic"])
+    mesh.materials.append(material)
+
+
 def _remove_object(obj: Any) -> None:
     import bpy  # noqa: PLC0415
 
