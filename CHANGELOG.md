@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-31
+
 ### Added
 
 - Consumer onboarding: `/onboard-consumer` runs `python -m nmg_game_dev.onboard install` to install the start scripts and SessionStart hooks, the asset contract, the nmg-game-dev and VibeUE Unreal plugins (pinned), the Blender add-on link, and the two local texture models into a game project. Re-runs are idempotent and report drift; `--refresh` repairs it. Reference: `docs/onboarding/index.md`. (#7)
