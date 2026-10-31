@@ -1,7 +1,8 @@
-"""pytest-bdd bindings for meshy.feature: SCN001–SCN014 (#98).
+"""pytest-bdd bindings for meshy.feature: SCN001–SCN014 (#98) and SCN015 (#105).
 
 The Meshy transport, the Blender session, detached spawning, and time are the fakes in
-``tests/meshy_fakes.py``. Session behavior is covered by ``tests/blender/test_meshy_session.py``.
+``tests/meshy_fakes.py``. Session behavior, including the #105 import normalization, is covered by
+``tests/blender/test_meshy_session.py``.
 """
 
 from __future__ import annotations
@@ -132,6 +133,7 @@ def _crate_exists(ctx: dict[str, Any]) -> None:
 
 @given("a generation job whose Meshy task succeeded")
 @given("a Meshy job in progress")
+@given("a Meshy generate job whose session import succeeds")
 def _job_in_progress() -> None:
     return None
 
@@ -505,6 +507,15 @@ def _unreachable_warning(ctx: dict[str, Any], state: str, code: str) -> None:
 @then("the GLB stays on disk")
 def _glb_kept(ctx: dict[str, Any]) -> None:
     assert glb_path(ctx["project"], "Crate").read_bytes() == GLB_BYTES
+
+
+@then("the import result and the job result carry merged_vertices and origin_offset")
+def _normalization_reported(ctx: dict[str, Any]) -> None:
+    imported = ctx["session"].import_results["Crate"]
+    job_result = ctx["final"]["result"]
+    for key in ("merged_vertices", "origin_offset"):
+        assert key in imported and key in job_result
+        assert job_result[key] == imported[key]
 
 
 @then("Meshy retexture receives the exported collection as a GLB data URI")

@@ -69,6 +69,18 @@ No job file holds the key. If the Blender session is unreachable at import or ap
 downloaded files are kept and the result carries a warning with code `mcp.blender.unreachable`.
 `loaded_into_session` or `applied_to_session` is then `false`.
 
+## Imported mesh
+
+Each import into the session normalizes `SM_<Name>`. The glTF importer splits vertices along UV
+seams, so the import first welds vertices within 1e-5 m, which keeps the face count, UVs, and
+material slots. It then bakes the object transform into the geometry and recenters the mesh so its
+bottom center sits at the world origin, with identity location, rotation, and scale. That is the
+contract's `pivot.bottom_center` check. Last, it clears imported custom normals and smooths the mesh
+by 30°, keeping edges sharper than 30° marked sharp.
+
+The `import_glb` result reports this as `merged_vertices` (vertices the weld removed, an integer
+of at least 0) and `origin_offset` (the `[x, y, z]` translation applied to the geometry, in meters).
+
 ## Status document
 
 ```json
@@ -77,7 +89,9 @@ downloaded files are kept and the result carries a warning with code `mcp.blende
 
 `state` is `queued`, `running`, `succeeded`, or `failed`. A succeeded generate job's `result` holds
 `name`, `route` (`text`, `image`, or `multi_image`), `glb_path`, `loaded_into_session`,
-`collection`, `mesh`, `material`, and `warnings`. A succeeded retexture job's `result` holds `name`,
+`collection`, `mesh`, `material`, `merged_vertices`, `origin_offset`, and `warnings`. `collection`,
+`mesh`, `material`, `merged_vertices`, and `origin_offset` are set only when `loaded_into_session` is
+`true`; they carry the import's values. A succeeded retexture job's `result` holds `name`,
 `maps`, `applied_to_session`, and `warnings`. A failed job carries `error` with `code`, `message`,
 and `remediation`.
 

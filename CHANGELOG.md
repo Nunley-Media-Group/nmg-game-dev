@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Meshy imports into the Blender session are normalized: `SM_<Name>` is welded within 1e-5 m, its origin sits at the bottom center at the world origin with identity transforms, and its normals are cleared and smoothed by 30°; the `import_glb` and generate-job results report `merged_vertices` and `origin_offset` (#105)
+
 ## [0.16.0] - 2026-10-31
 
 ### Added

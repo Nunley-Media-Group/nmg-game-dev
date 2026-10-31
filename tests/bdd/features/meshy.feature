@@ -134,3 +134,10 @@ Feature: Optional Meshy model generation and retexturing
     Then the consumer .gitignore contains exactly one ".env" line
     And the "gitignore_env" step reports "installed" then "unchanged"
     And no ".env" file was created
+
+  # #105 spec SCN004. Numbered SCN015 here, because SCN004 is already this file's pose scenario.
+  @SCN015
+  Scenario: The import and job results report the normalization
+    Given a Meshy generate job whose session import succeeds
+    When the job finishes
+    Then the import result and the job result carry merged_vertices and origin_offset
