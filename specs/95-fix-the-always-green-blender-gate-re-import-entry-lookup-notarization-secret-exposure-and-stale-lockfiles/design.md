@@ -55,6 +55,9 @@
 6. **Unrunnable gates.**
    - `gate-skill-schema` names `scripts/validate-skills.py`, which was never written, and `gate-markdown-lint` has no installed tool or project config. Earlier issues (#32, #67, #69) recorded both as not runnable.
    - Remove both rows from the Verification Gates table, the `markdownlint` line from the Markdown standards, and the `validate-skills.py` line from the repository layout.
+7. **Changelog guard.**
+   - `test_changelog_has_both_unreleased_entries_ending_with_issue` (#7) looks for its entries only in `[Unreleased]` or the first versioned section. This issue's release bump adds a 0.14.1 section above 0.14.0, so the guard fails on any release after the one that shipped #7.
+   - Search every section after `[Unreleased]` for the first one that holds `(#7)` entries.
 
 ## Changes
 
@@ -73,6 +76,7 @@
 | `tests/unit/test_scaffold_guards.py`, `tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature`, `tests/bdd/steps/test_scaffold.py` | version guards assert that `project.version` is dynamic and sourced from `VERSION` | AC8, FR4 |
 | `tests/blender/test_coexistence.py` | assert the loaded state from `addon_utils.check()` | AC9, FR7 |
 | `steering/snippets/project-tech.md`, `steering/snippets/project-structure.md` | remove `gate-skill-schema`, `gate-markdown-lint`, and the `validate-skills.py` entry | AC10, FR8 |
+| `tests/unit/onboard/test_docs_and_skill.py` | changelog guard searches every section for the #7 entries | AC11, FR9 |
 
 ## Blast Radius
 
@@ -98,3 +102,4 @@
 |-------|------|---------|
 | #95 | 2026-10-30 | Initial defect design |
 | #95 | 2026-10-30 | Amended: coexistence assertion fix and removal of the unrunnable skill-schema and markdown-lint gates |
+| #95 | 2026-10-31 | Amended: changelog guard survives later release bumps |

@@ -87,11 +87,10 @@ def test_skill_flow_runs_the_install_and_asks_the_disk() -> None:
 
 def test_changelog_has_both_unreleased_entries_ending_with_issue() -> None:
     text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    # The entries start under [Unreleased]; the release bump moves them into the
-    # first versioned section, so read whichever of the two holds the #7 bullets.
+    # The entries start under [Unreleased]; each release bump pushes them down into
+    # a versioned section, so read whichever section holds the #7 bullets.
     sections = text.split("## [Unreleased]", 1)[1].split("## [")
-    unreleased, first_release = sections[0], sections[1] if len(sections) > 1 else ""
-    section = unreleased if "(#7)" in unreleased else first_release
+    section = next(part for part in sections if "(#7)" in part)
     bullets = [line for line in section.splitlines() if line.startswith("- ")]
     assert len(bullets) == 2
     assert all(line.rstrip().endswith("(#7)") for line in bullets)

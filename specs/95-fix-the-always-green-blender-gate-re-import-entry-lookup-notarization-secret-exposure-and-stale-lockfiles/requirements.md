@@ -82,6 +82,12 @@
 **When** a contributor or `/sdlc-verify-code` reads it
 **Then** it no longer lists `gate-skill-schema` (whose `scripts/validate-skills.py` was never written) or `gate-markdown-lint` (which has no tool or project config), and no steering doc refers to either as a gate
 
+### AC11: The onboarding changelog guard survives later releases
+
+**Given** the #7 onboarding entries sit in any versioned section of `CHANGELOG.md`, not only `[Unreleased]` or the first release
+**When** the unit test suite runs after a later release bump (such as this issue's)
+**Then** `test_changelog_has_both_unreleased_entries_ending_with_issue` finds the section that holds them and passes
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -94,6 +100,7 @@
 | FR6 | A unit test runs `uv lock --check` for the root and each `mcp-servers/*` project | Must |
 | FR7 | `test_both_addons_load` and `test_disabling_nmg_leaves_host_functional` assert the second value of `addon_utils.check()` (loaded state) | Must |
 | FR8 | `gate-skill-schema` and `gate-markdown-lint` are removed from `steering/snippets/project-tech.md`, and the `validate-skills.py` entry is removed from `steering/snippets/project-structure.md` | Must |
+| FR9 | The onboarding changelog guard locates the #7 entries in whichever `CHANGELOG.md` section holds them | Must |
 
 ## Out of Scope
 
@@ -108,3 +115,4 @@
 |-------|------|---------|
 | #95 | 2026-10-30 | Initial defect report |
 | #95 | 2026-10-30 | Amended: coexistence assertion fix (AC9, FR7) and removal of the unrunnable skill-schema and markdown-lint gates (AC10, FR8) |
+| #95 | 2026-10-31 | Amended: changelog guard survives later release bumps (AC11, FR9) |

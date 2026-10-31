@@ -115,9 +115,19 @@
 - The Markdown coding standards no longer claim a `markdownlint` CI gate.
 - The repository layout no longer lists `scripts/validate-skills.py`.
 
+### T010: Let the onboarding changelog guard find its section after later releases
+
+**File(s)**: `tests/unit/onboard/test_docs_and_skill.py`
+**Type**: Modify
+**Depends**: none
+**Acceptance**:
+- `test_changelog_has_both_unreleased_entries_ending_with_issue` reads the first `CHANGELOG.md` section after `[Unreleased]` that holds `(#7)` entries, instead of only `[Unreleased]` or the first release (AC11, FR9).
+- `pytest tests/unit/` passes after the #95 release bump.
+
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #95 | 2026-10-30 | Initial defect tasks |
 | #95 | 2026-10-30 | Amended: T008 coexistence assertion, T009 gate removal; T003 no longer runs the missing skill validator |
+| #95 | 2026-10-31 | Amended: T010 changelog guard |
