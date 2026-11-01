@@ -1,0 +1,74 @@
+**Issue**: #127
+**Date**: 2026-11-01
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/69-reshape-the-pipeline-to-finalize-an-authored-asset-instead-of-generating-from-a-prompt/
+
+# File: tests/unit/test_model_asset_skill.py (SCN001, SCN002, SCN008), tests/blender/test_inspect_spatial.py (SCN003-SCN006), tests/blender/test_model_asset_api_reference.py (SCN007)
+# Generated from: specs/127-add-a-model-asset-skill-that-self-reviews-blender-modeling-with-multi-view-renders-and-spatial-checks/requirements.md
+Feature: Self-reviewing freeform modeling with the /model-asset skill
+
+  @SCN001
+  Scenario: The skill declares its contract
+    Given the nmg-game-dev plugin checkout
+    When skills/model-asset/SKILL.md frontmatter is read
+    Then name is "model-asset", required_mcp is "[blender]", unattended_safe is "true"
+    And the one-line description names freeform modeling through the Blender MCP
+
+  @SCN002
+  Scenario: The Flow is an autonomous plan, blockout, inspect, fix loop
+    Given skills/model-asset/SKILL.md
+    When its Flow section is read
+    Then it lists scene inspection, a plan in metres with collection and asset_class, one generating script with localized edits, blockout, inspection with review renders read by look, fixing blocking findings until none remain, detail and materials with re-inspection, and final presentation, in that order
+    And no step waits for developer approval
+    And no asset-type recipe appears
+
+  @SCN003
+  Scenario: A defective collection reports every spatial finding
+    Given a "small_prop" collection with a part 0.05 m from the rest, an interpenetrating pair, an open-box part, and more than 2000 triangles
+    When inspect_asset runs with the default 1 mm gap tolerance
+    Then the JSON-serializable report lists each part's world bounds and geometry findings
+    And it has a blocking floating finding naming the separated part with a gap of about 0.05
+    And a non-blocking interpenetration finding naming the pair
+    And a blocking non_manifold finding with the edge count
+    And a blocking over_budget finding with the triangle count and the budget 2000
+
+  @SCN004
+  Scenario: A clean collection passes with headroom
+    Given a collection whose manifold parts touch or overlap a connected neighbour within budget
+    When inspect_asset runs
+    Then the report has no blocking findings
+    And it reports positive triangle headroom against the Desktop budget
+
+  @SCN005
+  Scenario Outline: Bad inputs fail with structured errors and no changes
+    Given a scene snapshot
+    When inspect_asset runs with collection "<collection>" and asset_class "<asset_class>"
+    Then it raises a ContractError with code "<code>", a message, and a remediation
+    And the scene matches the snapshot
+
+    Examples:
+      | collection | asset_class   | code                        |
+      | Missing    | standard_prop | inspect.collection_missing  |
+      | Probe      | spaceship     | inspect.unknown_asset_class |
+
+  @SCN006
+  Scenario: The live-session snippet and the operator return the report
+    Given the add-on is enabled and a collection "Probe" exists
+    When the execute_blender_code snippet from SKILL.md runs
+    Then it returns the inspection report and the scene matches its prior snapshot
+    And bpy.ops.nmggamedev.inspect_spatial stores the same report in scene.nmg_game_dev.last_result
+
+  @SCN007
+  Scenario: Every Blender API reference snippet runs
+    Given skills/model-asset/references/blender-api.md
+    When each fenced python snippet runs in a cleared headless Blender scene
+    Then every snippet completes without error
+    And the snippets cover bmesh, modifier apply, Geometry Nodes groups, shader lookup by type, and changes since Blender 4.x
+
+  @SCN008
+  Scenario: Consumer docs and the changelog describe the skill
+    Given the skill ships
+    When docs/skills/model-asset.md and CHANGELOG.md are read
+    Then the doc names the loop, the report fields, the blocking rules, and the inspect.* failure codes
+    And the Unreleased changelog section has an entry citing #127
