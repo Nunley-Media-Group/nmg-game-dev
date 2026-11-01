@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-01
+
+### Changed
+
+- Configure Git LFS for binary assets during consumer onboarding (#122)
+
 ## [0.19.0] - 2026-10-31
 
 ### Added
