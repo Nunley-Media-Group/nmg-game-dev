@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `/model-asset` skill models an asset freeform in Blender through the Blender MCP: it plans in metres, blocks out, runs the spatial inspection and multi-view review renders, and fixes blocking findings until they pass, with no approval waits. The add-on's `inspect_core.inspect_asset` reports each part's world bounds, floating parts, interpenetration, non-manifold edges, and Desktop triangle headroom, and the `nmggamedev.inspect_spatial` operator exposes the same report. Reference: `docs/skills/model-asset.md` and `skills/model-asset/references/blender-api.md`. (#127)
+
 ## [0.20.0] - 2026-11-01
 
 ### Changed

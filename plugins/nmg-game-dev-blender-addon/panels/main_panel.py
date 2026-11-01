@@ -30,6 +30,7 @@ class NMGGAMEDEV_PT_main_panel(bpy.types.Panel):
         layout.operator("nmggamedev.validate_contract")
         layout.operator("nmggamedev.reimport_check")
         layout.operator("nmggamedev.render_review")
+        layout.operator("nmggamedev.inspect_spatial")
         layout.separator()
         layout.operator("nmggamedev.bake_materials")
         layout.separator()
@@ -60,7 +61,7 @@ def _summary_lines(raw: str) -> list[str]:
         return [f"Cleanup: {data['tris_before']} -> {data['tris_after']} triangles"]
     if "lod_tris" in data:
         return [f"Mobile LOD0: {data['tris']} triangles, {data['lod_levels']} LOD(s)"]
-    if data.get("kind") in {"contract", "reimport"}:
+    if data.get("kind") in {"contract", "reimport", "inspect"}:
         verdict = "PASS" if data["passed"] else "FAIL"
         return [
             f"{data['kind'].title()} {data['asset']}: {verdict}",
