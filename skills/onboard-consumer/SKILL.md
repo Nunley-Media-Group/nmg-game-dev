@@ -10,7 +10,7 @@ unattended_safe: true
 
 Installs everything a consumer game project needs from nmg-game-dev in one run: the start scripts and
 their SessionStart hooks, the asset contract, the nmg-game-dev and VibeUE Unreal plugins, the Blender
-add-on link, and the two local texture models. Every write is idempotent. A re-run reports what has
+add-on link, Git LFS tracking for binary assets, and the two local texture models. Every write is idempotent. A re-run reports what has
 drifted from the framework and changes nothing unless it is given `--refresh`.
 
 Use it when the developer starts a new consumer project, upgrades nmg-game-dev, or asks to set up or
@@ -34,9 +34,10 @@ repair the project. Never edit the installed copies by hand. Run this instead.
    link, and merge rules are in `references/install-steps.md`.
 
 3. **Relay the report.** Each step prints one line: `<status> <step>: <detail>`. Statuses are
-   `installed`, `unchanged`, `drift`, and `refreshed`. Show every line. For each `drift`, the report
-   gives the remediation `re-run with --refresh`. Offer to re-run with `--refresh` and do so only if
-   the developer agrees.
+   `installed`, `unchanged`, `drift`, `refreshed`, and `skipped`. Show every line. For each `drift`, the
+   report gives the remediation `re-run with --refresh`. `skipped` means the step does not apply here,
+   for example `git_lfs_hooks` in a folder that is not a git work tree. It is not an error. Offer to
+   re-run with `--refresh` and do so only if the developer agrees.
 
 4. **Refresh when asked.** `--refresh` restores drifted framework copies, moves VibeUE to the head
    of its `5-8` branch, and replaces a wrong Blender link. It never touches `nmg-budgets.json`. Run it only when
@@ -57,6 +58,8 @@ repair the project. Never edit the installed copies by hand. Run this instead.
 - `onboard.framework_incomplete` → the framework root is incomplete. Check `CLAUDE_PLUGIN_ROOT`
   or reinstall the plugin.
 - `onboard.git_missing` → install git, then re-run.
+- `onboard.git_lfs_missing` → install Git LFS (`brew install git-lfs`), then re-run. Nothing in the consumer has changed.
+- `onboard.git_lfs_hooks_failed` → `git lfs install --local` refused to run, usually because the repository already has a custom `pre-push` hook. Resolve that hook, then re-run. The steps before it have already written their files.
 - `onboard.model_install_failed` or `onboard.mflux_install_failed` → check disk space and network
   access. The remediation names the `mflux-save` command to re-run.
 - `onboard.vibeue_clone_failed` → check network access to github.com, then re-run.

@@ -85,6 +85,26 @@ def test_skill_flow_runs_the_install_and_asks_the_disk() -> None:
     assert (SKILL.parent / "references" / "install-steps.md").is_file()
 
 
+def test_git_lfs_docs_and_skill_cover_the_new_steps() -> None:
+    """#122 FR8: the step and preflight tables, the status list, the two error codes, and the
+    conversion guidance name the Git LFS steps."""
+    steps = (SKILL.parent / "references" / "install-steps.md").read_text(encoding="utf-8")
+    for topic in (
+        "onboard.git_lfs_missing",
+        "gitattributes_lfs",
+        "git_lfs_hooks",
+        "git lfs install --local",
+        "not a git repository",
+    ):
+        assert topic in steps, topic
+    skill = SKILL.read_text(encoding="utf-8")
+    for topic in ("skipped", "onboard.git_lfs_missing", "onboard.git_lfs_hooks_failed"):
+        assert topic in skill, topic
+    index = (ONBOARDING / "index.md").read_text(encoding="utf-8")
+    for topic in ("Git LFS", "git add --renormalize .", "git lfs migrate"):
+        assert topic in index, topic
+
+
 def test_changelog_has_both_unreleased_entries_ending_with_issue() -> None:
     text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
     # The entries start under [Unreleased]; each release bump pushes them down into
