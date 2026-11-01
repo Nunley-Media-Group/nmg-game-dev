@@ -1,0 +1,26 @@
+**Issue**: #123
+**Date**: 2026-11-01
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: specs/123-register-the-project-verification-gates-and-a-ue-compile-extension-in-steering/feature.gherkin
+# Generated from: specs/123-register-the-project-verification-gates-and-a-ue-compile-extension-in-steering/requirements.md
+Feature: Register the project verification gates in steering
+
+  @SCN001
+  Scenario: The manifest registers every project gate
+    Given steering/manifest.json
+    When it is loaded
+    Then repository.format, gate-blender-headless, gate-ue-compile, gate-mcp-schema, gate-shellcheck, and gate-ship-smoke are registered as required validations
+
+  @SCN002
+  Scenario: The UE compile extension reports the build result
+    Given the project.ue-compile extension
+    When gate-ue-compile applies on a macOS host with UE 5.8 and the dogfood project
+    Then it runs Build.sh DogfoodEditor Mac Development and reports passed on exit 0 or failed with the error lines
+
+  @SCN003
+  Scenario: The tech steering table mirrors the manifest
+    Given steering/snippets/project-tech.md
+    When a contributor reads the Verification Gates section
+    Then every registered validation id appears with its condition, command, and host prerequisite

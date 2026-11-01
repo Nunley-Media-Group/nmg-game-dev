@@ -343,35 +343,28 @@ def _(blender_mcp):
 
 ## Verification Gates
 
-`/sdlc-verify-code` enforces these. Each declares when it applies.
+`steering/manifest.json` registers every gate, and `/sdlc-verify-code` runs only what it registers. This table mirrors those registrations. Every gate is required: when its condition matches the change, verification cannot pass until the gate passes, and no spec note can skip it.
 
-| Gate | Condition | Action | Pass Criteria |
-|------|-----------|--------|---------------|
-| `gate-python-lint` | Diff touches `**/*.py` | `ruff check . && ruff format --check .` | Exit code 0 |
-| `gate-python-types` | Diff touches `**/*.py` | `mypy src/ tests/` | Exit code 0 |
-| `gate-python-unit` | Diff touches `src/**/*.py` or `tests/unit/**` | `pytest tests/unit/` | Exit code 0 |
-| `gate-python-bdd` | Diff touches `src/**/*.py` or `tests/bdd/**` | `pytest tests/bdd/` | Exit code 0 |
-| `gate-blender-headless` | Diff touches `plugins/nmg-game-dev-blender-addon/**` or `tests/blender/**` | `scripts/run-blender-tests.sh` | Exit code 0 |
-| `gate-ue-automation` | Diff touches `plugins/nmg-game-dev-ue-plugin/Source/**/*.cpp` or `*.h` | `scripts/run-ue-tests.sh` | Exit code 0 |
-| `gate-mcp-schema` | Diff touches `mcp-servers/**` | `scripts/validate-mcp-tools.py` | Exit code 0 |
-| `gate-shellcheck` | Diff touches `**/*.sh` | `shellcheck -S style scripts/*.sh` | Exit code 0 |
-| `gate-ship-smoke` | Diff touches `skills/build-*/` or `skills/ship/**` or UE plugin runtime | `scripts/ship-smoke.sh` | Exit code 0 — dry run of `/build-platform` on fixture project succeeds |
+| Validation id | Applies when the change touches | Runs | Host prerequisite |
+|---------------|---------------------------------|------|-------------------|
+| `repository.tests` | anything | `uv run pytest tests/unit tests/bdd -q` | — |
+| `repository.lint` | anything | `uv run ruff check .` | — |
+| `repository.format` | anything | `uv run ruff format --check .` | — |
+| `repository.types` | anything | `uv run mypy src tests` | — |
+| `gate-blender-headless` | `plugins/nmg-game-dev-blender-addon/**`, `tests/blender/**`, `scripts/blender/**`, `scripts/run-blender-tests.sh` | `scripts/run-blender-tests.sh` (headless Blender pytest) | Blender 5.2. When it is not at `/Applications/Blender.app`, export `BLENDER_APP` (or `BLENDER_BIN`) in `~/.zshenv`; the gate forwards only those two variables |
+| `gate-ue-compile` | `plugins/nmg-game-dev-ue-plugin/Source/**`, `plugins/nmg-game-dev-ue-plugin/*.uplugin`, `fixtures/Source/**`, `fixtures/dogfood.uproject` | extension `project.ue-compile`: the engine `Build.sh DogfoodEditor Mac Development` for `fixtures/dogfood.uproject`, which compiles the UE plugin and its automation specs | UE 5.8 (`UE_ROOT` overrides the default path); VibeUE in `fixtures/Plugins/` from `scripts/install-vibeue.sh`; no Live Coding session open on the dogfood project |
+| `gate-mcp-schema` | `mcp-servers/**`, `scripts/validate-mcp-tools.py` | `uv run python scripts/validate-mcp-tools.py` | — |
+| `gate-shellcheck` | `scripts/**.sh` | `shellcheck -S style` on every `scripts/**.sh` (through `find -exec`) | shellcheck |
+| `gate-ship-smoke` | `skills/ship/**`, `src/nmg_game_dev/ship/**`, `scripts/build-*.sh`, `scripts/sign-macos.sh`, `scripts/notarize-macos.sh`, `scripts/verify-cook-manifest.sh`, `scripts/ship-smoke.sh` | `scripts/ship-smoke.sh`: a dry-run ship of the fixture with placeholder credentials; no UE build | — |
+| `plugin.validate` | `.claude-plugin/**`, `.mcp.json`, `skills/**`, `agents/**`, `commands/**`, `hooks/**`, `templates/consumer/**` | `claude plugin validate .` | — |
+| `plugin.session-smoke` | the same paths as `plugin.validate` | extension `project.plugin-session-smoke`: loads this checkout with `--plugin-dir` and checks that its MCP servers connect | Herdr |
 
-Skipping a gate that applies requires an explicit `verify-skip: <gate-name>` note in the spec's `tasks.md` with a justification. `/sdlc-verify-code` surfaces skipped gates in the PR body.
+### Not gated yet
 
-### Condition Evaluation Rules
+- **UE Automation** (`scripts/run-ue-tests.sh`). It writes its reports into tracked files under `tests/ue-automation/`, so running it dirties the tree in the middle of verification. `gate-ue-compile` compiles the specs but does not run them. Register `gate-ue-automation` once the reports move to an ignored path.
+- **E2E pipeline** (`uv run pytest tests/e2e --runslow`). It drives live Blender, Unreal and texture MCPs. Run it by hand before a release.
 
-- `Always` — gate always applies.
-- `{path} directory exists` — `test -d {path}`.
-- `{glob} files exist in {path}` — glob probe.
-- `Diff touches {glob}` — `git diff --name-only` intersects the glob.
-
-### Pass Criteria Evaluation Rules
-
-- `Exit code 0` — the Action command exits 0.
-- `{file} file generated` — named file exists post-command.
-- `output contains "{text}"` — stdout/stderr contains the text.
-- Compound criteria use `AND`.
+Specs name these validation ids in their tasks. Do not cite the gates above as passing evidence unless the verification artifact recorded them.
 
 ---
 
