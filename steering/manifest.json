@@ -87,6 +87,13 @@
       "providers": [
         "project.plugin-session-smoke"
       ]
+    },
+    {
+      "id": "project.ue-compile",
+      "path": "steering/extensions/ue-compile.mjs",
+      "providers": [
+        "project.ue-compile"
+      ]
     }
   ],
   "validations": [
@@ -130,6 +137,26 @@
       }
     },
     {
+      "id": "repository.format",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "always"
+      },
+      "config": {
+        "program": "uv",
+        "args": [
+          "run",
+          "ruff",
+          "format",
+          "--check",
+          "."
+        ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
       "id": "repository.types",
       "provider": "builtin.command",
       "required": true,
@@ -144,6 +171,119 @@
           "src",
           "tests"
         ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
+      "id": "gate-blender-headless",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "changed_paths",
+        "include": [
+          "plugins/nmg-game-dev-blender-addon/**",
+          "tests/blender/**",
+          "scripts/blender/**",
+          "scripts/run-blender-tests.sh"
+        ]
+      },
+      "config": {
+        "program": "scripts/run-blender-tests.sh",
+        "args": [],
+        "cwd": ".",
+        "env": [
+          "BLENDER_APP",
+          "BLENDER_BIN"
+        ]
+      }
+    },
+    {
+      "id": "gate-ue-compile",
+      "provider": "project.ue-compile",
+      "required": true,
+      "when": {
+        "kind": "changed_paths",
+        "include": [
+          "plugins/nmg-game-dev-ue-plugin/Source/**",
+          "plugins/nmg-game-dev-ue-plugin/*.uplugin",
+          "fixtures/Source/**",
+          "fixtures/dogfood.uproject"
+        ]
+      },
+      "config": {
+        "project": "fixtures/dogfood.uproject",
+        "target": "DogfoodEditor"
+      }
+    },
+    {
+      "id": "gate-mcp-schema",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "changed_paths",
+        "include": [
+          "mcp-servers/**",
+          "scripts/validate-mcp-tools.py"
+        ]
+      },
+      "config": {
+        "program": "uv",
+        "args": [
+          "run",
+          "python",
+          "scripts/validate-mcp-tools.py"
+        ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
+      "id": "gate-shellcheck",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "changed_paths",
+        "include": [
+          "scripts/**.sh"
+        ]
+      },
+      "config": {
+        "program": "find",
+        "args": [
+          "scripts",
+          "-name",
+          "*.sh",
+          "-exec",
+          "shellcheck",
+          "-S",
+          "style",
+          "{}",
+          "+"
+        ],
+        "cwd": ".",
+        "env": []
+      }
+    },
+    {
+      "id": "gate-ship-smoke",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "changed_paths",
+        "include": [
+          "skills/ship/**",
+          "src/nmg_game_dev/ship/**",
+          "scripts/build-*.sh",
+          "scripts/sign-macos.sh",
+          "scripts/notarize-macos.sh",
+          "scripts/verify-cook-manifest.sh",
+          "scripts/ship-smoke.sh"
+        ]
+      },
+      "config": {
+        "program": "scripts/ship-smoke.sh",
+        "args": [],
         "cwd": ".",
         "env": []
       }
