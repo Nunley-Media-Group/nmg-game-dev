@@ -170,6 +170,20 @@ def test_bad_inputs_raise_structured_errors_and_change_nothing(
     assert _snapshot() == before
 
 
+def test_collection_without_mesh_parts_returns_an_empty_report(core: Any) -> None:
+    """AC5: a collection with no mesh parts returns an empty report instead of crashing."""
+    build_probe()
+    empty = bpy.data.collections.new("Empty")
+    bpy.context.scene.collection.children.link(empty)
+    before = _snapshot()
+    report = core.inspect_asset("Empty", "small_prop")
+    assert report["parts"] == []
+    assert report["findings"] == []
+    assert report["triangles"]["total"] == 0
+    json.dumps(report)
+    assert _snapshot() == before
+
+
 def test_invalid_budget_file_raises_the_budget_code(
     core: Any, contract_error: Any, tmp_path: Path
 ) -> None:

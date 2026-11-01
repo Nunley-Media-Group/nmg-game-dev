@@ -106,10 +106,14 @@ def test_consumer_doc_names_the_loop_rules_and_codes() -> None:
         assert f"`{field}`" in text, f"the doc does not describe the {field} field"
 
 
-def test_changelog_unreleased_cites_127() -> None:
-    """SCN008: the Unreleased section has an Added entry for the skill, citing #127."""
+def test_changelog_cites_127_under_added() -> None:
+    """SCN008: the changelog has an Added entry for the skill, citing #127.
+
+    The entry starts under [Unreleased]; the release bump moves it into a versioned section,
+    so read whichever section holds the #127 bullet.
+    """
     text = CHANGELOG.read_text(encoding="utf-8")
-    unreleased = text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
-    assert "### Added" in unreleased
-    assert "/model-asset" in unreleased
-    assert "(#127)" in unreleased
+    sections = text.split("## [Unreleased]", 1)[1].split("\n## [")
+    section = next(part for part in sections if "(#127)" in part)
+    assert "### Added" in section
+    assert "/model-asset" in section

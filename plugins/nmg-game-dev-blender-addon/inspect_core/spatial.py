@@ -176,6 +176,8 @@ def _measure(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> _Part | N
 
 def _findings(parts: list[_Part], gap_tolerance: float) -> list[dict[str, Any]]:
     """Floating and non-manifold findings (blocking), plus interpenetration (non-blocking)."""
+    if not parts:
+        return []
     findings: list[dict[str, Any]] = []
     gaps: dict[tuple[int, int], float] = {}
     overlapping: set[tuple[int, int]] = set()
