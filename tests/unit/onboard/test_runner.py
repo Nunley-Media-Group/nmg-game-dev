@@ -110,6 +110,8 @@ def test_fresh_install_installs_framework_files(
         "design_dir",
         "texture_env",
         "gitignore_env",
+        "gitattributes_lfs",
+        "git_lfs_hooks",
     }
     ignore = (consumer / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ignore.count(".env") == 1
@@ -334,7 +336,12 @@ def test_rerun_is_a_no_op(
 
     assert runner.argv_starting("git", "clone") == []
     assert runner.argv_starting("mflux-save") == []
-    assert all(result.status == "unchanged" for result in results), [r.as_json() for r in results]
+    # The fake consumer is not a git work tree, so git_lfs_hooks is the one step that is skipped.
+    assert all(
+        result.status == "unchanged"
+        or (result.name == "git_lfs_hooks" and result.status == "skipped")
+        for result in results
+    ), [r.as_json() for r in results]
     settings = json.loads((consumer / ".claude" / "settings.json").read_text())
     assert len(settings["hooks"]["SessionStart"]) == 1
     uproject = json.loads((consumer / "Game.uproject").read_text())
@@ -488,3 +495,45 @@ def test_cli_install_error_exits_one_with_remediation(
     assert "ERROR [onboard.uproject_not_found]" in err
     assert "Remediation:" in err
     assert not (empty / "scripts").exists()
+
+
+def test_missing_git_lfs_fails_before_any_write(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC6: git-lfs off PATH raises onboard.git_lfs_missing with its remediation; nothing is
+    written."""
+    before = snapshot(consumer)
+
+    def without_git_lfs(name: str) -> str | None:
+        return None if name == "git-lfs" else f"/usr/bin/{name}"
+
+    with pytest.raises(OnboardError) as caught:
+        install(consumer, framework, models, env, which=without_git_lfs)
+    assert caught.value.code == "onboard.git_lfs_missing"
+    assert caught.value.remediation == (
+        "Install Git LFS (brew install git-lfs), then re-run onboarding."
+    )
+    assert snapshot(consumer) == before
+
+
+def test_lfs_steps_follow_gitignore_env(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """FR7: gitattributes_lfs then git_lfs_hooks run directly after gitignore_env."""
+    names = [r.name for r in install(consumer, framework, models, env)]
+    assert names[-3:] == ["gitignore_env", "gitattributes_lfs", "git_lfs_hooks"]
+
+
+def test_git_consumer_gets_lfs_hooks_once(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC5: in a git work tree the LFS hooks are installed on the first run and left alone after."""
+    first_runner = FakeRunner(work_tree=True)
+    first = {r.name: r for r in install(consumer, framework, models, env, runner=first_runner)}
+    assert first["git_lfs_hooks"].status == "installed"
+    assert first_runner.argv_starting("git", "-C", str(consumer), "lfs", "install", "--local")
+
+    second_runner = FakeRunner(work_tree=True)
+    second = {r.name: r for r in install(consumer, framework, models, env, runner=second_runner)}
+    assert second["git_lfs_hooks"].status == "unchanged"
+    assert second_runner.argv_starting("git", "-C", str(consumer), "lfs") == []

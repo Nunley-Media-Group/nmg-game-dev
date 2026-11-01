@@ -89,13 +89,19 @@ class FakeRunner:
     """Stands in for subprocess: logs every argv and fakes the files each command leaves behind."""
 
     def __init__(
-        self, *, head: str = BRANCH_HEAD, remote: str = BRANCH_HEAD, fail: str | None = None
+        self,
+        *,
+        head: str = BRANCH_HEAD,
+        remote: str = BRANCH_HEAD,
+        fail: str | None = None,
+        work_tree: bool = False,
     ) -> None:
         self.calls: list[list[str]] = []
         self.envs: list[dict[str, str] | None] = []
         self.head = head
         self.remote = remote
         self.fail = fail
+        self.work_tree = work_tree
 
     def __call__(self, argv: Sequence[str], env: Mapping[str, str] | None = None) -> CommandResult:
         args = list(argv)
@@ -112,6 +118,19 @@ class FakeRunner:
             if self.fail == "ls-remote":
                 return CommandResult(returncode=128, stderr="could not resolve host")
             return CommandResult(returncode=0, stdout=f"{self.remote}\trefs/heads/5-8\n")
+        if "rev-parse" in args and "--is-inside-work-tree" in args:
+            if self.work_tree:
+                return CommandResult(returncode=0, stdout="true\n")
+            return CommandResult(returncode=128, stderr="fatal: not a git repository")
+        if "rev-parse" in args and "--git-path" in args:
+            return CommandResult(returncode=0, stdout=".git/hooks\n")
+        if args[-3:] == ["lfs", "install", "--local"]:
+            if self.fail == "lfs-install":
+                return CommandResult(returncode=1, stderr="refusing to overwrite pre-push")
+            hook = Path(args[2]) / ".git" / "hooks" / "pre-push"
+            hook.parent.mkdir(parents=True, exist_ok=True)
+            hook.write_text('#!/bin/sh\ngit lfs pre-push "$@"\n', encoding="utf-8")
+            return CommandResult(returncode=0)
         if "rev-parse" in args:
             return CommandResult(returncode=0, stdout=f"{self.head}\n")
         if args[:1] == ["mflux-save"]:

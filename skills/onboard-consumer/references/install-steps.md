@@ -13,6 +13,7 @@ unchanged unless `--refresh` is given.
 | `--models-dir`, or `TEXTURE_GEN_MODELS_DIR` | `onboard.models_dir_missing` |
 | Framework sources present (start scripts, asset contract, design contract, hook template, UE plugin, Blender manifest) | `onboard.framework_incomplete` |
 | `git` on PATH | `onboard.git_missing` |
+| `git-lfs` on PATH | `onboard.git_lfs_missing` |
 | When any model is missing: Apple Silicon macOS | `onboard.unsupported_platform` |
 | When any model is missing: at least 60 GiB free on the models volume | `onboard.insufficient_disk` |
 
@@ -36,8 +37,12 @@ unchanged unless `--refresh` is given.
 | `texture_models` | `<models dir>/z-image-turbo-q4`, `<models dir>/flux2-klein-4b-q4` (outside the consumer) | For each missing model, run `mflux-save --model <id> --quantize 4 --path <models dir>/<id>-q4` with `HF_HOME=<models dir>/hf-cache`, one after the other. Runs `uv tool install mflux==0.24.0` first only when `mflux-save` is not on PATH. | Skipped when present |
 | `texture_env` | `.claude/settings.local.json` `env` | Set `TEXTURE_GEN_MODELS_DIR=<models dir>` and `HF_HOME=<models dir>/hf-cache`. Other keys are kept. | No (set to the resolved values) |
 | `gitignore_env` | `.gitignore` | Append a `.env` line, creating `.gitignore` when missing. An existing `.env` or `/.env` line counts as present, so a rerun adds nothing. | Skipped when present |
+| `gitattributes_lfs` | `.gitattributes` | Add the marked `# nmg-game-dev:begin` … `# nmg-game-dev:end` block, which tracks the binary asset patterns in Git LFS (`.blend`, `.glb`, `.uasset`, `.umap`, textures, audio, and video). Creates the file when missing. Lines outside the block are kept byte-for-byte. | Yes (managed block) |
+| `git_lfs_hooks` | `.git/hooks/pre-push` (the repository's hooks directory) | When the consumer is a git work tree and no `pre-push` hook mentions `git lfs`, run `git lfs install --local`. Outside a git work tree the step is `skipped` with the detail `not a git repository`. A non-zero exit raises `onboard.git_lfs_hooks_failed`. | No (installs once) |
 
 ## Never written
+
+- Git history and the index: onboarding never runs `git add --renormalize .` or `git lfs migrate`. Files already committed as full blobs stay blobs until you convert them yourself; [docs/onboarding/index.md](../../../docs/onboarding/index.md) gives the commands.
 
 - `.mcp.json`: the plugin's root `.mcp.json` ships the MCP servers. Consumers get no MCP config from onboarding.
 - `fixtures/` (including `dogfood.uproject`): the framework's fixtures never reach a consumer.
@@ -55,3 +60,6 @@ VibeUE is moved to the head of its `5-8` branch on origin (or cloned again if it
 checkout), and a wrong Blender link is replaced. VibeUE's drift is measured against that branch
 head, so a checkout that is already at the head is `unchanged`. If `git ls-remote` cannot reach
 origin, the `5-8` head is not checked: the checkout is left as is and reported `unchanged`.
+
+`skipped` is not a drift. It means the step does not apply to this consumer. `git_lfs_hooks` reports
+`skipped` outside a git work tree, and the rest of the install still runs.

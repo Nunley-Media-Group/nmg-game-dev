@@ -1,12 +1,11 @@
 """Onboard a consumer project: preflight, then the install steps in design order (#7 FR1, FR2, AC5).
 
-Preflight resolves the ``.uproject``, the models directory, the framework sources, git, and (only
-when
-a model is missing) the platform and free disk. Every failure raises ``OnboardError`` before the
-first
-consumer write. The steps then run in this order: scripts, settings hooks, asset contract, design
-contract, design dir, agent instructions, UE plugin, VibeUE, ``.uproject`` plugins, MCP auto-start
-ini, Blender add-on, texture models, texture env.
+Preflight resolves the ``.uproject``, the models directory, the framework sources, git, git-lfs, and
+(only when a model is missing) the platform and free disk. Every failure raises ``OnboardError``
+before the first consumer write. The steps then run in this order: scripts, settings hooks, asset
+contract, design contract, design dir, agent instructions, UE plugin, VibeUE, ``.uproject`` plugins,
+MCP auto-start ini, Blender add-on, texture models, texture env, gitignore env, gitattributes LFS,
+git LFS hooks.
 """
 
 from __future__ import annotations
@@ -29,6 +28,7 @@ from nmg_game_dev.onboard.errors import OnboardError
 from nmg_game_dev.onboard.files import sync_file, sync_tree
 from nmg_game_dev.onboard.gitignore import ensure_gitignore_env
 from nmg_game_dev.onboard.instructions import upsert_block
+from nmg_game_dev.onboard.lfs import ensure_gitattributes_lfs, ensure_lfs_hooks
 from nmg_game_dev.onboard.report import StepResult
 from nmg_game_dev.onboard.settings import merge_env, merge_session_hooks
 from nmg_game_dev.onboard.textures import REQUIRED_FREE_BYTES, install_models, missing_models
@@ -134,6 +134,12 @@ def _check_prerequisites(
             "onboard.git_missing",
             "git is not on PATH; VibeUE cannot be cloned.",
             "Install git (xcode-select --install on macOS), then re-run onboarding.",
+        )
+    if which("git-lfs") is None:
+        raise OnboardError(
+            "onboard.git_lfs_missing",
+            "git-lfs is not on PATH; binary assets cannot be tracked in Git LFS.",
+            "Install Git LFS (brew install git-lfs), then re-run onboarding.",
         )
     if not missing_models(models_root):
         return
@@ -259,4 +265,8 @@ def run_onboard(
         )
     )
     results.append(ensure_gitignore_env("gitignore_env", target / ".gitignore"))
+    results.append(
+        ensure_gitattributes_lfs("gitattributes_lfs", target / ".gitattributes", refresh=refresh)
+    )
+    results.append(ensure_lfs_hooks("git_lfs_hooks", target, run=run))
     return results
