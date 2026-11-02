@@ -9,7 +9,9 @@ first, then follow the guides in order.
    scripts and SessionStart hooks, the asset contract and the design contract, the Unreal and Blender
    plugins, the two local texture models, a `.gitignore` entry for `.env`, and Git LFS tracking for
    binary assets (install Git LFS first; see below). It also creates `docs/design/` for your design
-   docs. See `skills/onboard-consumer/SKILL.md`.
+   docs. The `CLAUDE.md` block it writes routes Blender asset authoring and editing to `/model-asset`;
+   scene inspection and `/finalize-asset` runs are exempt (see [model-asset.md](../skills/model-asset.md)).
+   See `skills/onboard-consumer/SKILL.md`.
 2. **Make your first asset.** [first-asset.md](first-asset.md) covers prompting for an asset, the
    review loop, the contract checks, texture sources, budget overrides, and import into Unreal.
 3. **Ship it.** [first-ship.md](first-ship.md) walks through the `ship` skill on a fixture project.

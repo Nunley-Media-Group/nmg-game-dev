@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-02
+
+### Fixed
+
+- Blender asset work routes to `/model-asset` without being asked: the skill's description names its trigger, the nmg-game-dev block in `CLAUDE.md` and `AGENTS.md` tells the agent to run it for Blender asset authoring and editing (a re-run of `/onboard-consumer` refreshes the block in place), and the plugin's `PreToolUse` hook (`hooks/hooks.json`) reminds the agent once per session before the first `execute_blender_code` call. Scene inspection and `/finalize-asset` runs are exempt (#130)
+
 ## [0.21.0] - 2026-11-01
 
 ### Added

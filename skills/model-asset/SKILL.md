@@ -1,6 +1,6 @@
 ---
 name: model-asset
-description: Model an asset freeform in Blender through the Blender MCP with a plan, blockout, spatial inspection, multi-view review, and fix loop
+description: Use whenever you create or change an asset's geometry or materials in Blender. It models the asset freeform through the Blender MCP with a plan, blockout, spatial inspection, multi-view review, and fix loop
 required_mcp: [blender]
 required_env: []
 unattended_safe: true
