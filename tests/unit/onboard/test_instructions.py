@@ -26,6 +26,22 @@ def test_block_links_the_design_contract_and_design_dir() -> None:
     assert "](docs/design/)" in text
 
 
+def test_block_routes_blender_asset_work_to_model_asset() -> None:
+    """AC2 (#130): the block tells the agent to run /model-asset for Blender asset authoring and
+    editing, exempts scene inspection and /finalize-asset, and stays inside the markers."""
+    text = block_text()
+    assert text.startswith(f"{BEGIN}\n") and text.endswith(f"\n{END}")
+    assert "Run `/model-asset` for any asset authoring or editing in Blender" in text
+    assert "Scene inspection and `/finalize-asset` runs do not need it." in text
+
+
+def test_block_keeps_the_asset_contract_link_with_the_routing() -> None:
+    """AC5 (#130): the asset-contract and design-contract links remain beside the routing."""
+    text = block_text()
+    assert "](docs/nmg-game-dev/asset-contract.md)" in text
+    assert "](docs/nmg-game-dev/design-contract.md)" in text
+
+
 def test_claude_md_created_with_block_links_both_design_paths(tmp_path: Path) -> None:
     target = tmp_path / "CLAUDE.md"
     upsert_block("agent_instructions:CLAUDE.md", target, create=True)

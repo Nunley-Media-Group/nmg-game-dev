@@ -9,6 +9,22 @@ the way.
 The skill is asset-type agnostic. It has no per-asset recipe, and the rules that apply to every asset
 live in `docs/asset-contract.md`.
 
+## When it runs
+
+`/model-asset` runs for any request to create or change an asset's geometry or materials in Blender,
+whether or not the request names the skill. Three things route that work to it:
+
+- The skill's `description` in `skills/model-asset/SKILL.md` says it is used for that work.
+- The nmg-game-dev block that `/onboard-consumer` writes to `CLAUDE.md` (and `AGENTS.md` when present)
+  tells the agent to run `/model-asset` for Blender asset authoring and editing. A re-run replaces an
+  older block in place and reports `refreshed`.
+- The plugin's `PreToolUse` hook (`hooks/hooks.json`, `hooks/model_asset_reminder.py`) adds a reminder
+  the first time a session calls `execute_blender_code`, and stays silent for later calls in that
+  session. It only adds context. It never denies or blocks a call.
+
+Scene inspection and `/finalize-asset` runs are exempt. They do not need `/model-asset`, and the
+routing above does not apply to them.
+
 ## The loop
 
 1. Inspect the scene: `get_addon_status`, then `get_scene_info`.
