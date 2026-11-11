@@ -1,0 +1,59 @@
+**Issue**: #140
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/33-build-blender-cleanup-remesh-lod-and-variant-operators/
+
+# File: tests/blender/test_variants_clean.py
+# Generated from: specs/140-fix-finalize-export-failing-the-contract-on-mobile-lods-the-variants-step-decimated/requirements.md
+Feature: Variants step produces Mobile meshes that pass the contract
+
+  @SCN001 @regression
+  Scenario: Decimated LODs have no degenerate or loose geometry
+    Given a rigged asset whose Desktop mesh is above the Mobile budget and whose decimation produces a zero-area face
+    When the variants step builds "<Name>_Mobile"
+    Then contract validation reports no "geometry.zero_area" and no "geometry.loose" finding on any Mobile LOD
+
+  @SCN002 @regression
+  Scenario: Decimated LODs have stable normals
+    Given a Desktop mesh containing a tiny face on a non-manifold edge
+    When cleanup_desktop and then the variants step run
+    Then contract validation reports no "geometry.normals" finding on the Desktop mesh or on any Mobile LOD
+    And repeating the validation gives the same result
+
+  @SCN003 @regression
+  Scenario: The Mobile root is re-seated after decimation
+    Given an asset where decimation removes a bounding-box extreme vertex
+    When the variants step builds "<Name>_Mobile"
+    Then the Mobile variant's origin and bounding-box bottom centre are within the contract pivot tolerance of the world origin
+    And no "pivot.bottom_center" finding is reported
+
+  @SCN004 @regression
+  Scenario: Desktop cleanup removes non-manifold-edge faces and duplicate faces
+    Given a Desktop mesh with a face on a non-manifold edge and two faces that share an identical vertex set
+    When cleanup_desktop runs
+    Then the offending non-manifold face is removed
+    And one face remains for the shared vertex set
+    And the reported "tris_after" reflects the removals
+
+  @SCN005 @regression
+  Scenario: Re-import triangle counts match
+    Given the asset with a non-manifold-edge face and duplicate faces taken through variants, export, and reimport
+    When the reimport check compares each FBX with its report
+    Then no "reimport.tris" finding is reported for the Desktop or any Mobile mesh
+
+  @SCN006 @regression
+  Scenario: Budgets, skinning, and layout are preserved
+    Given rigged, unrigged single-mesh, and multi-part assets
+    When the variants step runs with the post-decimation clean
+    Then every LOD stays within its triangle target
+    And rigged LODs keep their Armature modifier and vertex groups
+    And the LOD layout is unchanged
+    And the "lod_tris" in the step result equal the cleaned meshes' counts
+
+  @SCN007 @regression
+  Scenario: Clean meshes are unchanged
+    Given an asset whose Desktop mesh and decimated LODs already satisfy the contract
+    When cleanup_desktop and the variants step run
+    Then triangle counts and pivots match the previous behavior
+    And identical input yields identical output
