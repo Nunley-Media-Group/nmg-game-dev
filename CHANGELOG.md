@@ -6,10 +6,13 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-11-11
+
 ### Fixed
 
 - Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
 - Fix import_ue importing static meshes at 1/100 scale on UE 5.8 (#145)
+- Fix import_ue failing the Mobile variant of static assets that export as an LOD group (#146)
 
 ## [0.21.2] - 2026-11-11
 
