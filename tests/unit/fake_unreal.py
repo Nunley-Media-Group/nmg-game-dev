@@ -18,6 +18,8 @@ The fake models the parts of UE 5.8 Interchange that the static import depends o
   correct today, so the fake does not model a scale for it.
 - ``combine_meshes`` is not modelled. The generated code always turns it off, and the fake refuses
   a run that turns it on.
+- A static LOD group (#146) is one FBX node whose ``lods`` is its LOD count. Interchange makes one
+  static mesh from it, and the fake reports that count as ``get_num_lods()``.
 """
 
 from __future__ import annotations
@@ -60,6 +62,8 @@ class FbxNode:
     """The node origin in metres, in Blender axes."""
     materials: tuple[str, ...] = ()
     """Material slot names, each of the form M_<Name>_<Part>."""
+    lods: int = 1
+    """The LOD count of the static mesh this node makes. A static LOD group has three (#146)."""
 
 
 def _ue_corners(node: FbxNode) -> tuple[list[float], list[float]]:
@@ -160,7 +164,7 @@ class StaticMesh(_Asset):
         return _Box(self.bounds["min"], self.bounds["max"])
 
     def get_num_lods(self) -> int:
-        return 1
+        return self.node.lods
 
     def set_material(self, index: int, material: Any) -> None:
         self.static_materials[index].material_interface = material
@@ -403,6 +407,7 @@ class FakeWorld:
         self.saved: dict[str, dict[str, list[float]] | None] = {}
         self.build_writes: list[tuple[str, int, Triple]] = []
         self.redirects: dict[str, str] = {}
+        self.imported_fbx: list[str] = []
 
     def add_fbx(self, path: str, nodes: list[FbxNode]) -> None:
         """Register the FBX scene that the import reads from ``path``. The file must exist too."""
@@ -439,6 +444,7 @@ class FakeWorld:
     def _import_fbx(self, task: AssetImportTask) -> None:
         if task.filename not in self.fbx:
             raise RuntimeError("the fake has no FBX scene at " + task.filename)
+        self.imported_fbx.append(task.filename)
         options = task.options
         nodes = self.fbx[task.filename]
         dest = task.destination_path

@@ -80,6 +80,11 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
   children are `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and `SM_<Name>_LOD2`. LOD1 and LOD2 are
   50% and 25% of LOD0's triangles. Assets with child parts keep the root mesh `SM_<Name>`
   and their parts, with LOD0 only.
+- In Unreal, a static Mobile LOD group is one Static Mesh `/Game/<Category>/<Name>/Mobile/SM_<Name>`
+  with three LODs: LOD 0, 1, and 2 are the exported `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and
+  `SM_<Name>_LOD2` meshes, and no separate asset is made for them. `import_ue` checks that the
+  Static Mesh's LOD count equals the snapshot's LOD object count, and it checks LOD 0's bounds
+  against `SM_<Name>_LOD0` (#146).
 - A rigged character (its armature `SK_<Name>` is in the collection; see §7) has no LOD
   group. Its Mobile variant is three skinned meshes, `SM_<Name>_Mobile`,
   `SM_<Name>_Mobile_LOD1`, and `SM_<Name>_Mobile_LOD2`, each parented to `SK_<Name>` with an
