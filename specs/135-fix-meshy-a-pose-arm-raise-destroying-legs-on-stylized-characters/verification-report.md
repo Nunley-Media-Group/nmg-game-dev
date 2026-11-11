@@ -4,7 +4,7 @@
 **Issue**: #135
 **Reviewer**: Claude Code (nmg-sdlc architecture-reviewer, execute verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 33583610b43f8a6aa052ad4f55655eeb29db090e
+**Verification head**: 1e39c819473e41ca473c593133265afcbdc0193c
 
 ---
 
@@ -23,7 +23,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 2 (both Low, neither blocks delivery)
 
-The fixed-proportion shoulder pivot and the angular selection window are gone. `scripts/blender/meshy_session.py` now finds each shoulder from horizontal slices of the mesh (armpit detection), tracks the arm down from the armpit, limits selection to the arm's length, and reports `detected`, `shoulder`, and `hand_tip` per side. An undetected side moves no vertex. `raise_arms` turns the raise off end to end, through `GenerateRequest`, the job runner, `MeshySession.import_glb`, the `generate_model` MCP tool, and the CLI flag `--no-arm-raise`. The work adds a stylized-character fixture and a fused-arm fixture. All 11 registered validations passed at the verification head, including 186 headless Blender tests and the UE compile.
+The fixed-proportion shoulder pivot and the angular selection window are gone. `scripts/blender/meshy_session.py` now finds each shoulder from horizontal slices of the mesh (armpit detection), tracks the arm down from the armpit, limits selection to the arm's length, and reports `detected`, `shoulder`, and `hand_tip` per side. An undetected side moves no vertex. `raise_arms` turns the raise off end to end, through `GenerateRequest`, the job runner, `MeshySession.import_glb`, the `generate_model` MCP tool, and the CLI flag `--no-arm-raise`. The work adds a stylized-character fixture and a fused-arm fixture. This report re-verifies the branch at merge commit `1e39c81`, which merged origin/main (`f9bdb45`, #172) into the #135 branch to make PR #174 mergeable. The merge brought in only main's changes. No #135 file changed between `3358361` and `1e39c81`, and the branch's diff against origin/main is exactly the #135 change plus its CHANGELOG entry under `[Unreleased]`. All 11 registered validations were recorded at `1e39c81`, and every applicable one passed, including 196 headless Blender tests and the UE compile.
 
 ---
 
@@ -47,10 +47,12 @@ The fixed-proportion shoulder pivot and the angular selection window are gone. `
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --project . --issue 135 --spec specs/135-… --base main --controller-run-id 9f900e13-fd2e-4f47-9fa4-23907d16759b`, exit 0
-- Artifact: `.nmg-sdlc/verification/135.json`. Its `ok` is `true` and `ceiling` is `null`.
+- Runner: `sdlc-verify-steering.mjs --project . --issue 135 --spec specs/135-… --base main --controller-run-id 19e2a512-9706-4211-a7c9-1364e8659be3`, exit 0 (generated 2026-11-11T21:43:50Z)
+- Artifact: `.nmg-sdlc/verification/135.json` (schema with `identity`, `coverage`, `results`). Its `ceiling` is `null`, and every applicable result has `effectiveStatus: passed` with `treeState: clean` at the head below.
 - Coverage: 11 declared, 11 recorded, `complete: true`, with no missing, duplicate, or unknown results.
-- Identity: head `33583610b43f8a6aa052ad4f55655eeb29db090e`, tree clean, spec hash `sha256:1cbeef8b…`, steering hash `sha256:119992c8…`
+- Identity: head `1e39c819473e41ca473c593133265afcbdc0193c`, tree clean, spec hash `sha256:1cbeef8b…`, steering hash `sha256:119992c8…`
+- Base drift: origin/main has since advanced to `12f12cf` (spec-approval docs for #138, #151, #155). It merges cleanly with `1e39c81` (`git merge-tree`), touches no #135 path, and delivery rechecks mergeability at the exact head.
+- First run at this head: `gate-ue-compile` failed with `clang++: error: no such file or directory: …/fixtures/Plugins/VibeUE/Intermediate/Build/…/Module.VibeUE.gen.cpp.o`. Diagnosis: the lane's `fixtures/Plugins` was a symlink into the main checkout, shared with other parallel lane worktrees. Their concurrent UE builds deleted and rebuilt VibeUE's `Intermediate/` and `Binaries/` while this build was linking. This is an environment race, not a code defect: the branch changes no UE source. Repair: `fixtures/Plugins` (gitignored) became a lane-local directory, and `scripts/install-vibeue.sh` cloned VibeUE there (branch 5-8, commit `42df27b`). The full gate was then rerun, and `gate-ue-compile` passed. The tracked tree stayed clean.
 
 ---
 
@@ -163,12 +165,12 @@ MCP and CLI pass the value to `GenerateRequest`, then to `jobs.start_generate`, 
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0 |
+| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q`: 985 passed, 9 skipped |
 | repository.lint | Pass | `uv run ruff check .`: All checks passed |
-| repository.format | Pass | `uv run ruff format --check .`: 309 files already formatted |
+| repository.format | Pass | `uv run ruff format --check .`: 310 files already formatted |
 | repository.types | Pass | `uv run mypy src tests`: no issues in 197 source files |
-| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 186 passed in 244 s |
-| gate-ue-compile | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8 compiled (427 s). It applies because of the `.uplugin` `VersionName` bump |
+| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 196 passed in 301 s (186 before the merge, plus #172's variants tests) |
+| gate-ue-compile | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8: `Result: Succeeded` (621 s, a clean build with the lane-local VibeUE). It applies because the diff against the local `main` ref includes plugin manifest paths |
 | gate-mcp-schema | Pass | `validate-mcp-tools.py`: MCP tools match tools.json for every server |
 | gate-shellcheck | Not applicable | No `scripts/**.sh` changed |
 | gate-ship-smoke | Not applicable | No ship paths changed |
@@ -183,7 +185,7 @@ MCP and CLI pass the value to `GenerateRequest`, then to `jobs.start_generate`, 
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| — | — | — | No fixes were needed | — | — |
+| — | Environment | `fixtures/Plugins` (gitignored, not tracked) | `gate-ue-compile` failed at `1e39c81` when VibeUE objects were deleted mid-link by other lanes' builds through the shared `fixtures/Plugins` symlink | Replaced the symlink with a lane-local clone from `scripts/install-vibeue.sh` and reran the full gate. No tracked file changed | `direct` |
 
 ## Remaining Issues
 
@@ -256,7 +258,7 @@ None.
 | `tests/meshy_fakes.py`, `tests/unit/meshy/*` | 0 | |
 | `tests/bdd/features/meshy.feature`, `tests/bdd/test_meshy_bdd.py` | 0 | |
 | `docs/mcp/meshy.md` | 0 | |
-| `VERSION`, `CHANGELOG.md`, plugin manifests | 0 | Patch bump to 0.21.2 (label `bug`) |
+| `CHANGELOG.md` | 0 | #135 entry under `[Unreleased]`. `VERSION` and the manifests equal origin/main (0.21.2), and delivery's prepare-version applies the patch bump |
 
 ---
 
@@ -264,4 +266,4 @@ None.
 
 **Ready for PR**
 
-All nine acceptance criteria and ten functional requirements are implemented and covered by passing Blender, unit, and BDD tests. Every applicable registered gate passed at `33583610b43f8a6aa052ad4f55655eeb29db090e`. The two remaining findings are Low and do not affect behavior.
+All nine acceptance criteria and ten functional requirements are implemented and covered by passing Blender, unit, and BDD tests. Every applicable registered gate passed at `1e39c819473e41ca473c593133265afcbdc0193c`, the merge commit that makes PR #174 mergeable. The two remaining findings are Low and do not affect behavior.
