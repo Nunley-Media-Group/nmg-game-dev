@@ -151,6 +151,17 @@ def test_build_import_code_lists_mobile_parts_by_their_export_name() -> None:
     assert _embedded_params(code)["expected_meshes"] == [["SM_Crate", "SM_Crate_Mobile"]]
 
 
+def test_build_import_code_expects_each_desktop_part_under_its_object_name() -> None:
+    """#142: the FBX mesh carries its object's export name, so import_ue looks up no _001 name."""
+    snapshot = {
+        "SM_Crate": {"variant": "desktop", "type": "MESH", "local_bounds": {}},
+        "SM_Crate_Seat": {"variant": "desktop", "type": "MESH", "local_bounds": {}},
+    }
+    code = build_import_code(VARIANT_DIR, DESKTOP_DEST, "Crate", _report("desktop", snapshot))
+
+    assert _embedded_params(code)["expected_meshes"] == [["SM_Crate"], ["SM_Crate_Seat"]]
+
+
 def test_build_import_code_rejects_a_destination_that_is_not_a_variant() -> None:
     with pytest.raises(ValueError, match="Desktop or Mobile"):
         build_import_code(VARIANT_DIR, "/Game/Props/Crate", "Crate", _report())

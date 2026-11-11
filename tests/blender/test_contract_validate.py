@@ -179,3 +179,22 @@ def test_ac7_operator_reports_a_failing_report_as_an_error(
     assert stored["passed"] is False
     assert any(item["rule"] == "uv.single_map" for item in stored["findings"])
     assert json.loads(report_path.read_text(encoding="utf-8")) == stored
+
+
+@pytest.mark.parametrize("authored", [True, False])
+def test_issue142_shared_mesh_data_is_one_naming_finding(core: Any, authored: bool) -> None:
+    """#142 AC5: two parts on one mesh datablock report one naming.mesh_data finding that targets
+    the datablock, names both objects, and tells the author to make the mesh data single-user."""
+    build_crate()
+    root = bpy.data.objects["SM_Crate"]
+    part = bpy.data.objects.new("SM_Crate_Seat", root.data)
+    bpy.data.collections["Crate"].objects.link(part)
+    part.parent = root
+
+    report = core.validate_asset("Crate", "standard_prop", authored=authored)
+
+    hits = [item for item in report["findings"] if item["rule"] == "naming.mesh_data"]
+    assert len(hits) == 1, report["findings"]
+    assert hits[0]["target"] == root.data.name
+    assert "shared by SM_Crate, SM_Crate_Seat;" in hits[0]["message"]
+    assert "Make Single User > Object & Data" in hits[0]["remediation"]

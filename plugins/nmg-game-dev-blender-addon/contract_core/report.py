@@ -16,6 +16,10 @@ RULES: Final[dict[str, str]] = {
     "scene.units": "Set Scene > Units to Metric with Unit Scale 1.0 (contract section 2).",
     "naming.root": "Name the root SM_<Name> (Mobile: SM_<Name>_Mobile), contract section 1.",
     "naming.part": "Name child parts SM_<Name>_<Part> and parent each one to the root (section 1).",
+    "naming.mesh_data": (
+        "Give each part its own mesh data: select the parts and run Object > Relations > Make "
+        "Single User > Object & Data (contract section 1)."
+    ),
     "naming.material": "Name each material M_<Name>_<Part> (contract section 4).",
     "naming.texture": "Name each image T_<Name>_<Part>_BC, _N, or _ORM (contract section 4).",
     "transform.root_applied": (
