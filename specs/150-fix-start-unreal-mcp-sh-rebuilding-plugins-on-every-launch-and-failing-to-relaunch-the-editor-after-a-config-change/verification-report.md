@@ -3,8 +3,8 @@
 **Date**: 2026-11-11
 **Issue**: #150
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
-**Scope**: Implementation verification against spec
-**Verification head**: 79fcaebe9332018a0209fab4bc1c1114803afba0
+**Scope**: Implementation verification against spec (re-verification after merging origin/main into the issue branch)
+**Verification head**: 95af2e2d50bbe36597e3963d28cfa7fa42883fd0
 
 ---
 
@@ -23,17 +23,20 @@
 ### Implementation Status: Pass
 **Total Issues**: 2 (both Low, non-blocking, test-harness and environment observations)
 
-The launcher now looks for the UE 5.8 `libUnrealEditor-<Module>.dylib` name, with the legacy name as a fallback. It judges staleness per module against that module's own source directory and runs `Build.sh` with the single `-TargetType=Editor` selector. When a build fails and every module binary exists, it still launches the editor with a warning. It stops when a binary is missing, and it reports UnrealBuildTool's `Result: Failed` line instead of a placeholder. All seven ACs pass, with unit and BDD evidence. The full registered gate passed at the verification head: 11 declared, 11 recorded, coverage complete, 9 passed, and 2 not applicable to this change.
+This is a re-verification at the merge commit `95af2e2` ("chore: merge origin/main into #150 branch"). The merge brought in other issues' changes from `origin/main` and kept main's version files. The issue's own files (`scripts/start-unreal-mcp.sh`, `tests/start_unreal_fakes.py`, `tests/unit/test_start_unreal_mcp.py`, the two launcher BDD features and their bindings, and `docs/mcp/unreal.md`) are byte-identical to the previously verified head `79fcaeb`. The CHANGELOG entry for #150 sits under `## [Unreleased]`.
+
+The launcher now looks for the UE 5.8 `libUnrealEditor-<Module>.dylib` name, with the legacy name as a fallback. It judges staleness per module against that module's own source directory and runs `Build.sh` with the single `-TargetType=Editor` selector. When a build fails and every module binary exists, it still launches the editor with a warning. It stops when a binary is missing, and it reports UnrealBuildTool's `Result: Failed` line instead of a placeholder. All seven ACs pass, with unit and BDD evidence. The full registered gate passed at the verification head: 11 declared, 11 recorded, coverage complete, 10 passed, and 1 not applicable to this change.
 
 ---
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --project . --issue 150 --spec specs/150-… --base main --controller-run-id 105d5000-3fb7-4ee3-a431-183f4768f3d9`, exit 0, `ok: true`
-- Artifact: `.nmg-sdlc/verification/150.json`, generated 2026-11-11T22:38:11Z
-- Identity: head `79fcaebe9332018a0209fab4bc1c1114803afba0`, tree clean, steering `sha256:119992c8…5096a9`, spec `sha256:b442ad94…6450b`
+- Runner: `sdlc-verify-steering.mjs --project . --issue 150 --spec specs/150-… --base main --controller-run-id a2539d7f-5f54-4132-b47d-687ac1d924c4`, exit 0, `ok: true`
+- Artifact: `.nmg-sdlc/verification/150.json`, generated 2026-11-11T23:02:32Z
+- Identity: head `95af2e2d50bbe36597e3963d28cfa7fa42883fd0`, tree clean, steering `sha256:119992c8…5096a9`, spec `sha256:b442ad94…6450b`
 - Ceiling: `null` (no Incomplete or Fail cap)
 - Coverage: declared 11, recorded 11, complete `true`, none missing, duplicated or unknown
+- Note: the local `main` ref is behind `origin/main`, so the runner's changed-path set (base `main`) includes the merged-in work from other issues. That made `gate-mcp-schema` applicable this run. It passed, so the wider set only adds evidence
 
 ---
 
@@ -63,7 +66,7 @@ The launcher now looks for the UE 5.8 `libUnrealEditor-<Module>.dylib` name, wit
 | AC2 | The build selects a single editor target | Pass | `scripts/start-unreal-mcp.sh:231` (`Build.sh Mac Development -Project=… -TargetType=Editor -NoEngineChanges`); `test_plugin_build_selects_a_single_editor_target[blueprint-only,code]`, BDD SCN002 (both examples) |
 | AC3 | Current UE 5.8 binaries skip the build | Pass | `scripts/start-unreal-mcp.sh:83` (`module_binary`, lib prefix first); `test_current_unreal_editor_lib_binaries_skip_the_build`, `test_legacy_unreal_editor_binary_name_is_accepted_without_the_lib_prefixed_file`, BDD SCN003 |
 | AC4 | A change to one module does not mark the plugin stale | Pass | `scripts/start-unreal-mcp.sh:96` (`module_source_dir` resolves the `<Module>.Build.cs` directory); `test_change_to_one_module_does_not_mark_the_plugin_stale`, BDD SCN004 |
-| AC5 | A failed rebuild with usable binaries still launches | Pass | `scripts/start-unreal-mcp.sh:128-150,236` (`all_plugin_binaries_present` then the warning and fall-through to launch); `test_failed_rebuild_with_usable_binaries_warns_and_launches` passed in the registered gate and in a separate verbose rerun; BDD SCN005 |
+| AC5 | A failed rebuild with usable binaries still launches | Pass | `scripts/start-unreal-mcp.sh:128-150,236` (`all_plugin_binaries_present` then the warning and fall-through to launch); `test_failed_rebuild_with_usable_binaries_warns_and_launches` passed in the registered gate; BDD SCN005 |
 | AC6 | A failed build with a missing binary still stops | Pass | `scripts/start-unreal-mcp.sh:238-241` (exit with Build.sh's status, log path on stderr); `test_failed_build_with_a_missing_binary_stops_without_launching` (exit 9, events `["build"]` only), BDD SCN006 |
 | AC7 | The failure report shows UnrealBuildTool's reason | Pass | `scripts/start-unreal-mcp.sh:154` (`build_failure_reason`: `error:` line, else `Result: Failed`, else the last non-empty line, else `build log is empty`); `test_failure_report_shows_the_unreal_build_tool_reason`, BDD SCN007 |
 
@@ -149,15 +152,14 @@ Failure is now classified: missing binaries stop the launch with Build.sh's own 
 - Feature files: `start_unreal_plugin_relaunch.feature` (7 scenarios, 8 cases) and the updated `start_unreal_plugin_build.feature` (5 scenarios)
 - Step definitions: Implemented
 - Unit tests: 16 in `tests/unit/test_start_unreal_mcp.py` (10 new for #150)
-- Full suite in the gate: `uv run pytest tests/unit tests/bdd -q`: 987 passed, 9 skipped, 0 failed
-- Supplementary verbose rerun of the three launcher suites: 29 passed, 0 failed
-- Flake watch: `test_failed_rebuild_with_usable_binaries_warns_and_launches` passed in the registered gate run and again in the verbose rerun. It did not flake during this verification.
+- Full suite in the gate: `uv run pytest tests/unit tests/bdd -q`: 1026 passed, 9 skipped, 0 failed
+- Flake watch: `test_failed_rebuild_with_usable_binaries_warns_and_launches` passed in the registered gate run at `95af2e2`. It did not flake during this verification.
 
 ---
 
 ## Exercise Test Results
 
-Not applicable. The change does not touch `workflows/`, `agents/` or any skill. The registered `plugin.validate` and `plugin.session-smoke` gates ran because the version bump touched `.claude-plugin/plugin.json`, and both passed.
+Not applicable. The change does not touch `workflows/`, `agents/` or any skill. The registered `plugin.validate` and `plugin.session-smoke` gates applied (the branch diff against the local `main` touches `.claude-plugin/plugin.json`) and both passed.
 
 ---
 
@@ -165,19 +167,19 @@ Not applicable. The change does not touch `workflows/`, `agents/` or any skill. 
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 987 passed, 9 skipped in 94.87 s |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1026 passed, 9 skipped in 74.47 s |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 310 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 198 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 179 passed in 138.91 s (applies because of the `blender_manifest.toml` version bump). No cross-lane symlink failure this run |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development -Project=…/lane-6/fixtures/dogfood.uproject`: `Result: Succeeded`, 299.24 s, using this lane's own copy of `fixtures/Plugins` |
-| `gate-mcp-schema` | N/A | Not applicable: no `mcp-servers/**` or schema-script change |
+| `repository.format` | Pass | `uv run ruff format --check .`: 315 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 201 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 211 passed in 124.09 s |
+| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development -Project=…/lane-6/fixtures/dogfood.uproject -WaitMutex`: `Result: Succeeded` against UE 5.8 |
+| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server under mcp-servers/ |
 | `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0 |
 | `gate-ship-smoke` | N/A | Not applicable: no ship-path change |
-| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed (with warnings that do not change the result) |
+| `plugin.validate` | Pass | `claude plugin validate .`: exited 0 (one warning about the untracked local `CLAUDE.local.md`, which does not change the result) |
 | `plugin.session-smoke` | Pass | Plugin loaded through `--plugin-dir` in an ephemeral Herdr project, and `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable; coverage 11/11 recorded)
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable; coverage 11/11 recorded)
 
 ---
 
@@ -253,7 +255,7 @@ None.
 | `tests/bdd/features/start_unreal_plugin_build.feature` | 0 | |
 | `tests/bdd/test_start_unreal_plugin_build_bdd.py` | 0 | |
 | `docs/mcp/unreal.md` | 0 | |
-| `VERSION`, `CHANGELOG.md`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin` | 0 | Version prep from commit 79fcaeb |
+| `CHANGELOG.md` | 0 | #150 entry under `## [Unreleased]`; version files carry main's values after merge commit 95af2e2 |
 
 ---
 
