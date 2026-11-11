@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-11
+
+### Fixed
+
+- Fix import_ue importing static meshes at 1/100 scale on UE 5.8 (#145)
+
 ## [0.21.1] - 2026-11-02
 
 ### Fixed
