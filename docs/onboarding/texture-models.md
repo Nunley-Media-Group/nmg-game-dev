@@ -61,6 +61,22 @@ With `--backend both`, each available model runs in turn, never at the same time
 available is listed under `skipped` with its reason. When both models produce images, a side-by-side
 comparison sheet `<name>_compare.png` labels each image with its backend, seed, and seconds.
 
+## Make a source texture seamless
+
+A texture from another source (a photo, a stock image, or an earlier export) often does not tile. The
+bake rejects such a texture with `not_seamless`. Make it tile with the `seamless` subcommand:
+
+```sh
+python -m nmg_game_dev.texture seamless SourceArt/Textures/Stone.png
+python -m nmg_game_dev.texture seamless SourceArt/Textures/Stone.png --out SourceArt/Textures/Stone_tile.png
+```
+
+It applies the same cross-fade the generator uses. Without `--out` it writes over the input; with
+`--out` it writes a new PNG and creates its folder, and the input is left unchanged. It prints JSON with
+the output `path` and `seamless`, the result of the same seam check the bake runs. A channel passes when
+its wrap differs from the opposite edge by at most 1.5 times the interior adjacent-pixel difference
+(minimum 2/255). A missing or unreadable input exits 1 with `texture.input_missing`.
+
 ## Output folder
 
 Images go to `<project>/SourceArt/Textures/Generated/<name>/`. The project is `CLAUDE_PROJECT_DIR`, or

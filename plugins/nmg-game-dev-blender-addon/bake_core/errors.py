@@ -18,7 +18,8 @@ REASONS: Final[dict[str, str]] = {
     "volume_or_displacement": "Unlink the Volume and Displacement outputs before baking.",
     "uv_missing": "Give every mesh at least one UV map before baking a tiling asset.",
     "uv_unwrap_failed": "Check that the mesh has faces with area, then rerun the bake.",
-    "not_seamless": "Make the tiling material periodic across 0 to 1 UV, then rerun the bake.",
+    "not_seamless": "Make the source texture tile: run python -m nmg_game_dev.texture seamless "
+    "<image.png>, or make the procedural material periodic across 0 to 1 UV, then rerun the bake.",
     "texel_density": "Increase the UV scale or the mesh area ratio until the density is met.",
     "material_limit": "Reduce the tiling materials to the class limit, then rerun the bake.",
     "proof_mismatch": "The baked render differs from the pre-bake render. Check the seams, color "

@@ -46,7 +46,11 @@ viewport or renderer is not done.
     all materials baked into a texture set for that asset.
   - **Tiling** (large environment pieces): UVs may overlap and extend past 0–1 so
     tiling materials and trim sheets repeat across the surface. Each tiling texture is
-    itself seamless.
+    itself seamless: on each axis, the mean absolute difference between the last and first
+    pixel (the wrap) is at most the larger of 1.5 times the mean absolute difference between
+    adjacent pixels and 2/255. Integer images are normalised by their maximum value first (#147).
+    A source texture that does not tile is made seamless with
+    `python -m nmg_game_dev.texture seamless <image.png>`.
 - Materials must survive FBX export. At export time each material is a Principled
   BSDF fed only by Image Texture nodes sampling `UVMap`, a Normal Map node, and a
   Separate Color node to split ORM. No procedural texture nodes, no
