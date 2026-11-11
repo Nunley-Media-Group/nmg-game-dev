@@ -1,0 +1,51 @@
+**Issue**: #153
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_contract_validate.py, tests/blender/test_inspect_spatial.py
+# Generated from: specs/153-report-sample-locations-in-geometry-contract-findings/requirements.md
+Feature: Report sample locations in geometry contract findings
+
+  @SCN001
+  Scenario: Duplicate-vertex finding locates the duplicates
+    Given a transformed mesh of two joined closed boxes that share one vertex position, each box in its own vertex group
+    When contract validation runs on the asset
+    Then the geometry.duplicates finding has a count of the duplicate vertices
+    And each sample gives the world-space position, the vertex index, the coincident vertex index, and both boxes' vertex groups
+
+  @SCN002
+  Scenario: Face findings locate the faces
+    Given a mesh with zero-area faces and a mesh with inward-flipped faces
+    When contract validation runs
+    Then geometry.zero_area and geometry.normals carry count and samples with face index, world-space face center, and vertex-group names
+
+  @SCN003
+  Scenario: Loose-vertex finding locates the vertices
+    Given a mesh with loose vertices
+    When contract validation runs
+    Then geometry.loose carries count and samples with each loose vertex's index, world-space position, and vertex-group names
+
+  @SCN004
+  Scenario: Samples are capped and deterministic
+    Given a mesh with more than 5 offending elements for a geometry rule
+    When contract validation runs twice on the unchanged asset
+    Then count is the full total, samples are exactly the first 5 by ascending index, and both runs match
+
+  @SCN005
+  Scenario: Elements outside any vertex group
+    Given a mesh with a geometry defect and no vertex groups
+    When contract validation runs
+    Then each sample's vertex-group list is empty and the finding is otherwise complete
+
+  @SCN006
+  Scenario: Spatial inspector carries the same detail
+    Given an asset part with a geometry defect
+    When the spatial inspector reports that part
+    Then its geometry entries carry the same count and samples as contract validation
+
+  @SCN007
+  Scenario: Clean meshes are unchanged
+    Given a mesh with no geometry defects
+    When contract validation and the spatial inspector run
+    Then no geometry findings are emitted and pass/fail results are unchanged

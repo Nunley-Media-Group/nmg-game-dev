@@ -72,6 +72,10 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
 - **Mobile**: within the mobile budget, by decimating the Desktop mesh or by rebuilding at
   lower detail. Textures re-baked or reduced to mobile resolution, materials merged to the
   mobile material limit. Silhouette must still read.
+- The `variants` step cleans every Mobile mesh it produces with the same routine Desktop cleanup
+  uses: degenerate, zero-area, non-manifold-edge, duplicate, and loose geometry are removed, and
+  normals are recalculated. It then re-seats the Mobile variant so its bottom centre is at the
+  world origin, because decimation can move it. The root's origin and the rig are not changed.
 - Mobile export is an LOD group: an Empty `SM_<Name>` with `fbx_type = "LodGroup"` whose
   children are `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and `SM_<Name>_LOD2`. LOD1 and LOD2 are
   50% and 25% of LOD0's triangles. Assets with child parts keep the root mesh `SM_<Name>`

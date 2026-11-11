@@ -124,6 +124,7 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
     return {
         "variant": variant,
         "type": obj.type,
+        "mesh": obj.data.name if is_mesh else None,
         "parent": obj.parent.name if obj.parent is not None else None,
         "tris": tris,
         "dimensions": _rounded(obj.dimensions),

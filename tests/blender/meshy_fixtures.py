@@ -1,9 +1,10 @@
-"""Blender fixture for the #106 A-pose tests: the box humanoid of ``tests/meshy_arm_geometry.py``.
+"""Blender fixtures for the #106 and #135 A-pose tests, built from ``tests/meshy_arm_geometry.py``.
 
-``build_humanoid`` writes that humanoid as one GLB mesh object, with its arms dropped ``drop_deg``.
-Each arm is a four-sided taper from its pivot to a hand tip on the drop line. The torso, neck, head,
-and legs are boxes. Their X and Y extents are symmetric, so the import's recentering moves nothing,
-and the returned landmarks hold in the session too.
+``build_humanoid`` writes the #106 box humanoid as one GLB mesh object, with its arms dropped
+``drop_deg``. ``build_stylized`` writes the #135 stylized character, optionally with its right arm
+fused to the body. Each arm is a four-sided taper from its pivot to a hand tip on the drop line. The
+torso, neck, head, legs, boots, and skirts are boxes. Their X and Y extents are symmetric, so the
+import's recentering moves nothing, and the returned landmarks hold in the session too.
 """
 
 from __future__ import annotations
@@ -19,10 +20,15 @@ from ..meshy_arm_geometry import (
     ARM_LENGTH,
     HEIGHT,
     HIP_Z,
+    STYLIZED_ARM_DROP_DEG,
+    STYLIZED_ARM_HALF_WIDTH,
+    STYLIZED_ARM_LENGTH,
     Point,
     arm_directions,
     landmarks,
     side_pivot,
+    stylized_parts,
+    stylized_shoulder,
 )
 
 # Torso, neck, head, and the two legs. Legs stand at |x| in [0.02, 0.15], under the hips.
@@ -56,21 +62,35 @@ def _add_box(bm: bmesh.types.BMesh, low: Point, high: Point) -> None:
         bm.faces.new([corners[index] for index in quad])
 
 
-def _add_arm(bm: bmesh.types.BMesh, sign: float, drop_deg: float) -> None:
-    """Add one arm: a square base at the pivot, tapering to a tip on the drop line."""
-    pivot = side_pivot(sign)
+def _add_arm(
+    bm: bmesh.types.BMesh,
+    pivot: Point,
+    sign: float,
+    drop_deg: float,
+    length: float = ARM_LENGTH,
+    half_width: float = ARM_HALF_WIDTH,
+) -> None:
+    """Add one arm: a square base at ``pivot``, tapering to a tip on the drop line."""
     along, across = arm_directions(sign, drop_deg)
     base = []
     for a, b in ((1.0, 1.0), (1.0, -1.0), (-1.0, -1.0), (-1.0, 1.0)):
         corner = tuple(
-            pivot[axis] + ARM_HALF_WIDTH * (a * across[axis] + b * _DEPTH[axis])
-            for axis in range(3)
+            pivot[axis] + half_width * (a * across[axis] + b * _DEPTH[axis]) for axis in range(3)
         )
         base.append(bm.verts.new(corner))
-    tip = bm.verts.new(tuple(pivot[axis] + ARM_LENGTH * along[axis] for axis in range(3)))
+    tip = bm.verts.new(tuple(pivot[axis] + length * along[axis] for axis in range(3)))
     bm.faces.new(base)
     for index in range(4):
         bm.faces.new((base[index], base[(index + 1) % 4], tip))
+
+
+def _export_and_clear(path: Path, mesh: bpy.types.Mesh) -> Path:
+    obj = bpy.data.objects.new(mesh.name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.ops.export_scene.gltf(filepath=str(path), export_format="GLB")
+    for item in list(bpy.data.objects):
+        bpy.data.objects.remove(item, do_unlink=True)
+    return path
 
 
 def build_humanoid(path: Path, drop_deg: float = 55.0) -> tuple[Path, dict[str, list[float]]]:
@@ -84,14 +104,38 @@ def build_humanoid(path: Path, drop_deg: float = 55.0) -> tuple[Path, dict[str, 
         for low, high in _BODY_BOXES:
             _add_box(bm, low, high)
         for sign in (1.0, -1.0):
-            _add_arm(bm, sign, drop_deg)
+            _add_arm(bm, side_pivot(sign), sign, drop_deg)
         bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
         bm.to_mesh(mesh)
     finally:
         bm.free()
-    obj = bpy.data.objects.new("Humanoid", mesh)
-    bpy.context.scene.collection.objects.link(obj)
-    bpy.ops.export_scene.gltf(filepath=str(path), export_format="GLB")
-    for item in list(bpy.data.objects):
-        bpy.data.objects.remove(item, do_unlink=True)
+    _export_and_clear(path, mesh)
     return path, landmarks(drop_deg)
+
+
+def build_stylized(path: Path, fused_right_arm: bool = False) -> Path:
+    """Export the #135 stylized character as one GLB, with its right arm fused when asked.
+
+    Every box comes from ``stylized_parts``, and both arms are dropped 55 degrees from their true
+    shoulders. The object is removed from the scene afterwards.
+    """
+    mesh = bpy.data.meshes.new("Stylized")
+    bm = bmesh.new()
+    try:
+        for part in stylized_parts(fused_right_arm=fused_right_arm):
+            _add_box(bm, part.low, part.high)
+        for sign in (1.0, -1.0):
+            _add_arm(
+                bm,
+                stylized_shoulder(sign),
+                sign,
+                STYLIZED_ARM_DROP_DEG,
+                STYLIZED_ARM_LENGTH,
+                STYLIZED_ARM_HALF_WIDTH,
+            )
+        bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    _export_and_clear(path, mesh)
+    return path
