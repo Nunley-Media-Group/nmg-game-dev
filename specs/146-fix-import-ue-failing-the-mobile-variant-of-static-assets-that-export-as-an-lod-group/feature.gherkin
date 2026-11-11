@@ -1,0 +1,72 @@
+**Issue**: #146
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/69-reshape-the-pipeline-to-finalize-an-authored-asset-instead-of-generating-from-a-prompt/
+
+# File: tests/unit/test_unreal_import.py, tests/e2e/test_finalize_e2e.py
+# Generated from: specs/146-fix-import-ue-failing-the-mobile-variant-of-static-assets-that-export-as-an-lod-group/requirements.md
+Feature: import_ue accepts a static Mobile LOD group as one Static Mesh with LODs
+
+  @SCN001 @regression
+  Scenario: A static Mobile LOD group imports as one Static Mesh with three LODs
+    Given a non-rigged Crate whose Mobile snapshot holds SM_Crate_Mobile_LOD0, SM_Crate_Mobile_LOD1, and SM_Crate_Mobile_LOD2
+    When import_ue builds the Mobile import code and UE reports one Static Mesh SM_Crate with lod_count 3
+    Then the code expects one static mesh matched by SM_Crate and no SM_Crate_LOD0, SM_Crate_LOD1, or SM_Crate_LOD2 mesh
+    And import_variant does not fail with "no static mesh for snapshot part"
+
+  @SCN002 @regression
+  Scenario: A LOD count mismatch fails the import
+    Given a static Mobile Crate whose snapshot holds 3 LOD objects
+    When the imported Static Mesh SM_Crate reports 1 LOD
+    Then import_ue fails with import_ue.failed
+    And the message names SM_Crate, the expected count 3, and the actual count 1
+
+  @SCN003 @regression
+  Scenario: The LOD0 pivot is checked against the LOD-group mesh
+    Given a static Mobile Crate with an LOD group
+    When check_pivots runs on the import result
+    Then the bounds of SM_Crate are compared with SM_Crate_Mobile_LOD0 within 0.01 cm
+    And bounds off by more than 0.01 cm raise import_ue.pivot_mismatch
+    And SM_Crate_Mobile_LOD1 and SM_Crate_Mobile_LOD2 are not looked up as meshes
+
+  @SCN004
+  Scenario: Static mesh results report their LOD count
+    Given a successful static import
+    When the UE code prints NMG_RESULT
+    Then each static_meshes entry carries lod_count
+    And it is 3 for the Mobile LOD group and 1 for any other static mesh
+
+  @SCN005
+  Scenario: Each LOD comes from the exported LOD group and carries the asset's materials
+    Given a static Mobile Crate with an LOD group
+    When import_ue builds the Mobile import code
+    Then the code imports SM_Crate.fbx once, with no separate LOD import and no engine LOD reduction
+    And M_Crate_Body is bound to MI_Crate_Body through the static material path
+
+  @SCN006
+  Scenario: Reimporting the Mobile variant gives the same result
+    Given a Mobile variant that was already imported, with import code that replaces existing assets
+    When import_variant runs again and UE again reports SM_Crate with lod_count 3
+    Then the LOD count and pivot checks pass again
+
+  @SCN007 @regression
+  Scenario: Desktop, multi-part, and rigged imports are unchanged
+    Given a static Desktop variant, a multi-part static Mobile variant, and a rigged character's Desktop and Mobile variants
+    When import_ue builds the import code and checks the result for each
+    Then the expected meshes, pivot checks, and error codes are the same as before the fix
+    And a multi-part static asset still expects one static mesh per part
+    And no LOD count check is applied to them
+
+  @SCN008
+  Scenario: An opt-in end-to-end test covers a static Mobile import
+    Given tests/e2e/test_finalize_e2e.py
+    When pytest collects it with --runslow
+    Then a slow-marked static Mobile test is collected that builds its fixture in headless Blender and asserts both variants import, SM_Crate has 3 LODs with the recorded triangle counts, no per-LOD assets exist, and a second Mobile import passes
+    And without --runslow the test is skipped
+
+  @SCN009
+  Scenario: Unit tests cover the static Mobile LOD group
+    Given the fake Unreal client in tests/unit/test_unreal_import.py
+    When the unit tests run
+    Then they cover the single-mesh success, the LOD count mismatch, and the LOD0 pivot comparison
