@@ -1,0 +1,75 @@
+**Issue**: #135
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/106-raise-meshy-a-pose-arms-to-within-the-rig-humanoid-arm-drop-limit-on-import/
+
+# File: tests/bdd/features/meshy.feature
+# Generated from: specs/135-fix-meshy-a-pose-arm-raise-destroying-legs-on-stylized-characters/requirements.md
+Feature: Meshy a-pose arm raise moves only the arms, from the detected shoulder
+
+  @SCN001 @regression
+  Scenario: Legs, boots, and skirt stay put on a stylized character
+    Given a GLB of a stylized character with shoulders at 0.6 H, arms dropped 55 degrees, and wide legs, boots, and a skirt
+    When import_glb imports it as "Hero" with pose a-pose
+    Then every leg, boot, skirt, torso, and head vertex is where normalization left it
+    And only arm vertices have moved
+
+  @SCN002 @regression
+  Scenario: The arm is raised from the detected shoulder
+    Given the stylized character GLB
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each side's drop_before_deg is 55 degrees within 3
+    And each side's drop_after_deg is 48 degrees within 0.5
+
+  @SCN003 @regression
+  Scenario: The shoulder is found at the armpit
+    Given the stylized character GLB with a gap between each arm and the torso
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each reported shoulder lies within 0.03 H of the fixture's true shoulder
+
+  @SCN004 @regression
+  Scenario: Unconnected or out-of-reach geometry does not move
+    Given the stylized character GLB with a detached box outboard of each arm below its hand
+    When import_glb imports it as "Hero" with pose a-pose
+    Then the detached boxes have not moved
+    And every moved vertex lies within the arm's length of its detected shoulder
+
+  @SCN005
+  Scenario: The detected landmarks are reported
+    Given the stylized character GLB
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each side of arm_raise holds detected true, shoulder, and hand_tip as world-space points after the raise
+    And the left points have x greater than 0 and the right points x less than 0, inside the mesh's bounding box
+
+  @SCN006 @regression
+  Scenario: A fused arm is left untouched
+    Given a GLB of the stylized character whose right arm is fused to the torso
+    When import_glb imports it as "Hero" with pose a-pose
+    Then the import succeeds
+    And the right side reports detected false with reason "no_armpit" and rotation_deg 0
+    And no right-side vertex has moved
+    And the left arm's drop is 48 degrees within 0.5
+
+  @SCN007
+  Scenario: The raise can be skipped
+    Given a generate_model request with pose "a-pose" and raise_arms false
+    When the job generates and imports the model
+    Then Meshy receives pose_mode "a-pose"
+    And the import normalizes the mesh and moves no vertex by an arm raise
+    And the job result's arm_raise is null
+
+  @SCN008 @regression
+  Scenario: Realistic humanoids still import correctly
+    Given a GLB of the 1.8 m box humanoid with both arms dropped 55 degrees
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each arm's drop is 48 degrees within 0.5
+    And a side already at 48 degrees or less keeps every vertex and still reports its shoulder
+    And vertex count, face count, connectivity, and face orientation are unchanged
+
+  @SCN009 @regression
+  Scenario: Other poses are unchanged
+    Given a GLB of the box humanoid
+    When import_glb imports it with pose t-pose or with no pose
+    Then no vertex moves
+    And arm_raise is null
