@@ -38,6 +38,7 @@ def generate_model(
     image_paths: list[str] | None = None,
     texture: bool = True,
     pose: str | None = None,
+    raise_arms: bool = True,
 ) -> dict[str, Any]:
     """Start a background Meshy generate job and return its job_id at once.
 
@@ -45,8 +46,9 @@ def generate_model(
     the text. With images, the images shape the model and the prompt steers only the texture.
     texture=False returns the untextured mesh, with no prompt and images together. pose is a-pose
     or t-pose and applies to characters and creatures with limbs only; set it only for those,
-    never for props. Poll get_meshy_job(job_id) until it succeeds; the result names the GLB and
-    the collection <name> it was imported into.
+    never for props. With pose a-pose, the import raises the arms to a 48 degree drop from each
+    detected shoulder; raise_arms=False skips that raise (default true). Poll get_meshy_job(job_id)
+    until it succeeds; the result names the GLB and the collection <name> it was imported into.
     """
     request = GenerateRequest(
         name=name,
@@ -54,6 +56,7 @@ def generate_model(
         image_paths=tuple(image_paths or ()),
         texture=texture,
         pose=pose,
+        raise_arms=raise_arms,
     )
     try:
         job_id = jobs.start_generate(request)

@@ -168,6 +168,7 @@ def start_generate(
         "image_paths": list(request.image_paths),
         "texture": request.texture,
         "pose": request.pose,
+        "raise_arms": request.raise_arms,
     }
     try:
         _queue(job_dir, job_id, "generate", fields, root)
@@ -427,6 +428,7 @@ def _run_generate(run: _Run, stored: Mapping[str, Any]) -> dict[str, Any]:
         image_paths=tuple(str(item) for item in stored.get("image_paths", [])),
         texture=bool(stored.get("texture", True)),
         pose=stored.get("pose"),
+        raise_arms=bool(stored.get("raise_arms", True)),
     )
     request.validate()
     shape = route(request)
@@ -447,7 +449,9 @@ def _run_generate(run: _Run, stored: Mapping[str, Any]) -> dict[str, Any]:
         "warnings": [],
     }
     try:
-        imported = run.session.import_glb(request.name, target, pose=request.pose)
+        imported = run.session.import_glb(
+            request.name, target, pose=request.pose, raise_arms=request.raise_arms
+        )
     except PipelineError as error:
         if error.code != UNREACHABLE:
             raise

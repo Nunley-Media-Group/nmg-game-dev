@@ -1,4 +1,5 @@
-"""pytest-bdd bindings for meshy.feature: SCN001–SCN014 (#98), SCN015 (#105), SCN016–SCN019 (#106).
+"""pytest-bdd bindings for meshy.feature: SCN001–SCN014 (#98), SCN015 (#105), SCN016–SCN019 (#106),
+and SCN020–SCN028 (#135).
 
 The Meshy transport, the Blender session, detached spawning, and time are the fakes in
 ``tests/meshy_fakes.py``. Session behavior, including the #105 normalization and the #106 arm raise,
@@ -36,7 +37,6 @@ from tests.meshy_arm_geometry import (
     drop_deg_from,
     landmarks,
     raise_arm_landmarks,
-    side_pivot,
 )
 from tests.meshy_fakes import (
     ENV,
@@ -701,6 +701,11 @@ def _rotations(arm_raise: dict[str, Any]) -> dict[str, float]:
     return {side: float(report["rotation_deg"]) for side, report in arm_raise.items()}
 
 
+def _shoulders(arm_raise: dict[str, Any]) -> dict[str, list[float]]:
+    """Return each detected side's reported shoulder, the pivot the raise turned the arm about."""
+    return {side: report["shoulder"] for side, report in arm_raise.items()}
+
+
 @given("a GLB of a 1.8 m box humanoid with both arms dropped 55 degrees")
 def _humanoid_55(ctx: dict[str, Any]) -> None:
     ctx.update(glb=str(ctx["project"] / "hero.glb"), drop_deg=55.0)
@@ -746,20 +751,23 @@ def _validate_raised(ctx: dict[str, Any]) -> None:
     # The control: unraised landmarks at 55 degrees must fail the check with the code under test.
     ctx["unraised_failure"] = validate("humanoid", landmarks(drop), bounding_box(drop))
     arm_raise = ctx["import"]["arm_raise"]
-    raised = raise_arm_landmarks(landmarks(drop), _rotations(arm_raise))
+    raised = raise_arm_landmarks(landmarks(drop), _rotations(arm_raise), _shoulders(arm_raise))
     raised_drop = float(arm_raise["left"]["drop_after_deg"])
     ctx["failure"] = validate("humanoid", raised, bounding_box(raised_drop))
 
 
 @then("each arm's drop is 48 degrees within 0.5")
 def _arms_drop_to_48(ctx: dict[str, Any]) -> None:
+    # #135 AC2: the drop is measured from the detected shoulder, so it is 55 within 3, not exactly.
     arm_raise = ctx["import"]["arm_raise"]
-    points = raise_arm_landmarks(landmarks(ctx["drop_deg"]), _rotations(arm_raise))
-    for suffix, sign, side in (("l", 1.0, "left"), ("r", -1.0, "right")):
+    points = raise_arm_landmarks(
+        landmarks(ctx["drop_deg"]), _rotations(arm_raise), _shoulders(arm_raise)
+    )
+    for suffix, side in (("l", "left"), ("r", "right")):
         report = arm_raise[side]
-        assert report["drop_before_deg"] == pytest.approx(ctx["drop_deg"], abs=0.05)
+        assert report["drop_before_deg"] == pytest.approx(ctx["drop_deg"], abs=3.0)
         assert report["drop_after_deg"] == pytest.approx(48.0, abs=0.5)
-        drop = drop_deg_from(side_pivot(sign), points[f"hand_tip_{suffix}"])
+        drop = drop_deg_from(report["shoulder"], points[f"hand_tip_{suffix}"])
         assert drop == pytest.approx(48.0, abs=0.5)
 
 
@@ -781,8 +789,8 @@ def _no_vertex_moves(ctx: dict[str, Any]) -> None:
 
 
 @then(
-    "the job result carries arm_raise with left and right drop_before_deg, drop_after_deg, "
-    "and rotation_deg"
+    "the job result carries arm_raise with left and right detected, shoulder, hand_tip, "
+    "drop_before_deg, drop_after_deg, and rotation_deg"
 )
 def _job_carries_arm_raise(ctx: dict[str, Any]) -> None:
     (imported,) = ctx["session"].ops_named("import_glb")
@@ -790,7 +798,14 @@ def _job_carries_arm_raise(ctx: dict[str, Any]) -> None:
     arm_raise = ctx["final"]["result"]["arm_raise"]
     assert set(arm_raise) == {"left", "right"}
     for report in arm_raise.values():
-        assert set(report) == {"drop_before_deg", "drop_after_deg", "rotation_deg"}
+        assert set(report) == {
+            "detected",
+            "shoulder",
+            "hand_tip",
+            "drop_before_deg",
+            "drop_after_deg",
+            "rotation_deg",
+        }
 
 
 @then("it does not report rig.pose_not_neutral")
@@ -798,3 +813,134 @@ def _not_pose_neutral(ctx: dict[str, Any]) -> None:
     control = ctx["unraised_failure"]
     assert control is not None and control["code"] == "rig.pose_not_neutral"
     assert ctx["failure"] is None, ctx["failure"]
+
+
+# --- #135: a stylized character's arms rise from their detected shoulders (SCN020–SCN028) -------
+# The geometry steps need bpy, so each one checks that the Blender suite defines the test that runs
+# it. The contract steps check the fakes: the detected flags, the points, the skipped raise.
+
+
+@given(
+    "a GLB of a stylized character with shoulders at 0.6 H, arms dropped 55 degrees, "
+    "and wide legs, boots, and a skirt"
+)
+@given("the stylized character GLB")
+@given("the stylized character GLB with a gap between each arm and the torso")
+@given("the stylized character GLB with a detached box outboard of each arm below its hand")
+def _stylized_glb(ctx: dict[str, Any]) -> None:
+    ctx.update(glb=str(ctx["project"] / "stylized.glb"), drop_deg=55.0)
+
+
+@given("a GLB of the stylized character whose right arm is fused to the torso")
+def _fused_glb(ctx: dict[str, Any]) -> None:
+    ctx.update(glb=str(ctx["project"] / "fused.glb"), drop_deg=55.0)
+
+
+@given('a generate_model request with pose "a-pose" and raise_arms false')
+def _skip_request(ctx: dict[str, Any]) -> None:
+    ctx.update(pose="a-pose", raise_arms=False)
+
+
+@when("the job generates and imports the model")
+def _skip_generate(ctx: dict[str, Any]) -> None:
+    _generate(ctx, GenerateRequest(name="Knight", prompt="knight", pose="a-pose", raise_arms=False))
+
+
+@when("import_glb imports it with pose t-pose or with no pose")
+def _import_t_or_none(ctx: dict[str, Any]) -> None:
+    ctx["imports"] = {
+        "t-pose": _import_hero(ctx, "t-pose"),
+        "no pose": _import_hero(ctx, None),
+    }
+
+
+@then("every leg, boot, skirt, torso, and head vertex is where normalization left it")
+@then("only arm vertices have moved")
+def _stylized_body_still() -> None:
+    _blender_covers("test_a_stylized_a_pose_moves_only_arm_vertices")
+
+
+@then("each side's drop_before_deg is 55 degrees within 3")
+@then("each side's drop_after_deg is 48 degrees within 0.5")
+def _stylized_drops() -> None:
+    _blender_covers("test_a_stylized_arm_drops_from_the_detected_shoulder")
+
+
+@then("each reported shoulder lies within 0.03 H of the fixture's true shoulder")
+def _stylized_shoulder() -> None:
+    _blender_covers("test_a_stylized_shoulder_is_found_at_the_armpit")
+
+
+@then("the detached boxes have not moved")
+@then("every moved vertex lies within the arm's length of its detected shoulder")
+def _stylized_detached() -> None:
+    _blender_covers("test_detached_boxes_stay_and_moved_vertices_lie_within_the_arm_length")
+
+
+@then(
+    "each side of arm_raise holds detected true, shoulder, and hand_tip "
+    "as world-space points after the raise"
+)
+def _landmarks_reported(ctx: dict[str, Any]) -> None:
+    arm_raise = ctx["import"]["arm_raise"]
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        report = arm_raise[side]
+        assert report["detected"] is True
+        for key in ("shoulder", "hand_tip"):
+            assert len(report[key]) == 3
+            assert sign * report[key][0] > 0
+    _blender_covers("test_the_detected_landmarks_are_reported")
+
+
+@then(
+    "the left points have x greater than 0 and the right points x less than 0, "
+    "inside the mesh's bounding box"
+)
+def _landmark_sides() -> None:
+    _blender_covers("test_the_detected_landmarks_are_reported")
+
+
+@then("the import succeeds")
+def _import_succeeds(ctx: dict[str, Any]) -> None:
+    assert ctx["import"]["ok"] is True
+
+
+@then('the right side reports detected false with reason "no_armpit" and rotation_deg 0')
+@then("no right-side vertex has moved")
+@then("the left arm's drop is 48 degrees within 0.5")
+def _fused_arm_untouched() -> None:
+    _blender_covers("test_a_fused_arm_is_left_untouched")
+
+
+@then('Meshy receives pose_mode "a-pose"')
+def _meshy_receives_pose(ctx: dict[str, Any]) -> None:
+    assert any(body.get("pose_mode") == "a-pose" for _path, body in ctx["meshy"].posts())
+
+
+@then("the import normalizes the mesh and moves no vertex by an arm raise")
+def _skip_import(ctx: dict[str, Any]) -> None:
+    (imported,) = ctx["session"].ops_named("import_glb")
+    assert imported["raise_arms"] is False
+    assert imported["pose"] == "a-pose"
+    _blender_covers("test_raise_arms_false_skips_the_raise")
+
+
+@then("arm_raise is null")
+def _arm_raise_null(ctx: dict[str, Any]) -> None:
+    for name, result in ctx["imports"].items():
+        assert result["arm_raise"] is None, name
+
+
+@then("the job result's arm_raise is null")
+def _skip_result_null(ctx: dict[str, Any]) -> None:
+    assert ctx["final"]["result"]["arm_raise"] is None
+
+
+@then("a side already at 48 degrees or less keeps every vertex and still reports its shoulder")
+def _compliant_side() -> None:
+    _blender_covers("test_compliant_or_non_a_pose_imports_move_no_vertex")
+
+
+@then("vertex count, face count, connectivity, and face orientation are unchanged")
+def _counts_and_orientation_kept() -> None:
+    _blender_covers("test_a_raise_keeps_counts_connectivity_and_normals")

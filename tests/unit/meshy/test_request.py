@@ -84,6 +84,12 @@ def test_unknown_pose_is_rejected() -> None:
     _invalid(GenerateRequest(name="Crate", prompt="x", pose="sitting").validate)
 
 
+def test_raise_arms_defaults_on_and_false_is_valid_for_an_a_pose() -> None:
+    """#135 AC7: the arm raise stays on by default, and a request may turn it off."""
+    assert GenerateRequest(name="Knight", prompt="x").raise_arms is True
+    GenerateRequest(name="Knight", prompt="x", pose="a-pose", raise_arms=False).validate()
+
+
 def test_retexture_needs_exactly_one_of_prompt_and_image(tmp_path: Path) -> None:
     image = str(make_png(tmp_path / "style.png"))
     RetextureRequest(name="Crate", prompt="mossy stone").validate()
