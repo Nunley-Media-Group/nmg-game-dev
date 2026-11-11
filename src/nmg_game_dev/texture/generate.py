@@ -2,8 +2,8 @@
 
 ``run`` validates the request, resolves and checks the backends (expanding ``both`` to the available
 ones in registry order), runs one worker per backend, applies the seamless post-process to every
-PNG, derives the optional maps, writes the ``both`` comparison sheet, and records ``textures.json``
-under ``<output_root>/<name>/``.
+PNG, derives the optional maps, writes the ``both`` comparison sheet, records ``textures.json``
+under ``<output_root>/<name>/``, and then refreshes the root contact sheet (#152).
 
 Every dependency is injected (``env``, ``facts``, ``spawn``, ``output_root``), so tests can run the
 whole flow with a fake worker and synthetic hardware facts.
@@ -16,7 +16,7 @@ import os
 import random
 import shutil
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,8 @@ import numpy as np
 from PIL import Image as PILImage
 
 from nmg_game_dev.texture.batch import Batch, ImageItem, Spawn, default_spawn, run_backend_batches
+from nmg_game_dev.texture.contact_sheet import MANIFEST_NAME, ContactSheet
+from nmg_game_dev.texture.contact_sheet import build as build_contact_sheet
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.hardware import (
     HardwareFacts,
@@ -47,7 +49,6 @@ BOTH = "both"
 DEFAULT_BACKEND = "flux2-klein-4b"
 MIN_RESOLUTION = 256
 MAX_RESOLUTION = 2048
-MANIFEST_NAME = "textures.json"
 BATCH_DIR_NAME = ".batch"
 
 
@@ -109,6 +110,7 @@ class TextureResult:
     skipped: tuple[dict[str, str], ...]
     manifest: Path
     compare: Path | None
+    contact_sheet: ContactSheet = field(default_factory=ContactSheet)
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -120,6 +122,7 @@ class TextureResult:
             "skipped": [dict(entry) for entry in self.skipped],
             "manifest": str(self.manifest),
             "compare": str(self.compare) if self.compare is not None else None,
+            "contact_sheet": self.contact_sheet.as_json(),
         }
 
 
@@ -311,7 +314,18 @@ def run(
     result.manifest.write_text(
         json.dumps(_manifest(result), indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    return result
+    return replace(result, contact_sheet=_refresh_contact_sheet(base))
+
+
+def _refresh_contact_sheet(base: Path) -> ContactSheet:
+    """Rebuild the root contact sheet after the manifest is written. An OSError is reported in
+    ``skipped`` instead of failing the run (#152 AC6)."""
+    try:
+        return build_contact_sheet(base, require_sets=False)
+    except OSError as error:
+        return ContactSheet(
+            skipped=({"path": str(base), "reason": f"{type(error).__name__}: {error}"},),
+        )
 
 
 def _make_seamless_png(path: Path) -> None:
