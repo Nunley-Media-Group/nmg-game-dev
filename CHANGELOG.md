@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
+
 ## [0.21.2] - 2026-11-11
 
 ### Fixed
