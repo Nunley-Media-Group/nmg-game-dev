@@ -4,10 +4,10 @@ Feature: start-unreal-mcp.sh builds missing project plugin binaries before launc
 
   @SCN001
   Scenario: Missing plugin binaries are built before the editor launches
-    Given a project whose plugin "Fake" has Source/ but no Binaries/Mac/UnrealEditor-FakeEditor.dylib
+    Given a project whose plugin "Fake" has Source/ but no Binaries/Mac/libUnrealEditor-FakeEditor.dylib
     When start-unreal-mcp.sh runs
     Then it logs that it is building project plugins (Fake)
-    And Build.sh runs with UnrealEditor Mac Development -Project=<uproject> -TargetType=Editor -NoEngineChanges
+    And Build.sh runs with Mac Development -Project=<uproject> -TargetType=Editor -NoEngineChanges
     And the editor launches after the build succeeds
 
   @SCN002

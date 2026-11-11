@@ -13,7 +13,7 @@ from typing import Any
 import bpy
 from mathutils import Vector
 
-from ..utils.budgets import CONTRACT_BUDGETS, BudgetOverrideError, resolve_budget
+from ..utils.budgets import BudgetOverrideError, resolve_budget
 from .geometry import geometry_findings
 from .report import ContractError, build_report, finding
 from .uv import uv_findings
@@ -142,11 +142,13 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
 
 
 def _budgets(asset_class: str, budgets_path: str | None) -> dict[str, dict[str, int]]:
+    path = budgets_path or None
     try:
-        mobile = resolve_budget(asset_class, budgets_path or None)
+        desktop = resolve_budget(asset_class, path, "desktop")
+        mobile = resolve_budget(asset_class, path, "mobile")
     except BudgetOverrideError as error:
         raise ContractError(error.code, error.message, error.remediation) from error
-    return {"desktop": dict(CONTRACT_BUDGETS[asset_class]["desktop"]), "mobile": mobile}
+    return {"desktop": desktop, "mobile": mobile}
 
 
 def _root_name(collection: str, variant: str) -> str:
