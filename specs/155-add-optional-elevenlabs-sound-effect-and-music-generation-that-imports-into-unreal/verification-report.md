@@ -4,11 +4,16 @@
 **Issue**: #155
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: c8d1987acc628b59edabcc7dc2a2c5540ff29350
+
+**Verification head**: 60d459b47f53ee2aca6f18639e9ddb1772390a6e
 
 ---
 
 ## Executive Summary
+
+The branch adds `nmg_game_dev.audio`, a synchronous `import_audio` that validates the request, stores a 16-bit PCM WAV under `SourceArt/Audio/<SFX|Music>/`, and imports it through the Unreal MCP as `SW_<Name>`. The same function backs `python -m nmg_game_dev.audio import` and a fourth `import_audio` tool on the existing `finalize` MCP server. `.mcp.json` is unchanged, and guard tests keep any ElevenLabs entry and API use out of the repository. All nine acceptance criteria, nine functional requirements, five tasks and eight scenarios are met. Fakes and committed fixtures exercise all of them, with no live editor and no ElevenLabs call.
+
+This run re-verifies the branch after the `chore: merge origin/main into #155 branch` commit (`60d459b`). The registered gate ran on that exact head with a clean tree. Coverage is complete: 11 declared, 11 recorded. All 9 applicable required validations passed, and the 2 validations that did not apply (`gate-shellcheck`, `gate-ship-smoke`) were recorded as not applicable.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -21,9 +26,20 @@
 | **Overall** | 4.7 |
 
 ### Implementation Status: Pass
-**Total Issues**: 4 (all Low, none blocking)
+**Total Issues**: 3 (all Low; none block delivery)
 
-All 9 acceptance criteria, 9 functional requirements, 5 tasks and 8 BDD scenarios are implemented and covered by passing tests. The deterministic steering artifact `.nmg-sdlc/verification/155.json` has complete coverage (11 declared, 11 recorded) with no ceiling. Every applicable required validation passed at the verification head. `gate-shellcheck` and `gate-ship-smoke` do not apply to this change.
+---
+
+## Deterministic Steering Artifact and Ceiling
+
+- Artifact: `.nmg-sdlc/verification/155.json` (generated 2026-11-11T23:07:20Z, controller run `db74e7cd-e46e-4fce-b074-59caec52a908`)
+- Base ref: `main`; head `60d459b47f53ee2aca6f18639e9ddb1772390a6e`; tree `clean`
+- Steering hash: `sha256:9535f1e6bdc28ee7d9c80879808858197eb6c251fbbe804e39a145355cfe9a89`
+- Spec hash: `sha256:94a64e6c6a3a124867bfc99c9c5fc8eb9f4167815ed054cc466fd11747aeeef5`
+- Coverage: declared 11, recorded 11, complete `true`; missing, duplicate and unknown are all empty
+- Ceiling: none
+
+The local `main` ref is behind `origin/main`, because `main` is checked out in another worktree and this worker does not move it. Diffing against local `main` therefore marks extra paths as changed, which made `gate-blender-headless` and `gate-ue-compile` applicable. Both ran on this head and passed, so the result is stricter than a diff against `origin/main` would require.
 
 ---
 
@@ -31,7 +47,7 @@ All 9 acceptance criteria, 9 functional requirements, 5 tasks and 8 BDD scenario
 
 - Active issue: #155
 - Spec: `specs/155-add-optional-elevenlabs-sound-effect-and-music-generation-that-imports-into-unreal`
-- Manifest: implicit single issue
+- Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
 - Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC8, AC9]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9]; tasks [T001, T002, T003, T004, T005]; scenarios [SCN001, SCN002, SCN003, SCN004, SCN005, SCN006, SCN007, SCN008]
 - Regression: AC []; FR []; scenarios []
@@ -45,31 +61,33 @@ All 9 acceptance criteria, 9 functional requirements, 5 tasks and 8 BDD scenario
 
 ---
 
-## Deterministic Steering Artifact and Ceiling
-
-- Runner: `sdlc-verify-steering.mjs --project . --issue 155 --spec specs/155-… --base main --controller-run-id aafc442a-4c0d-4aa3-93fe-96d08d8bb6f4`
-- Artifact: `.nmg-sdlc/verification/155.json`
-- Identity: head `c8d1987acc628b59edabcc7dc2a2c5540ff29350`, tree clean, spec `sha256:94a64e6c…`, steering `sha256:9535f1e6…`
-- Coverage: declared 11, recorded 11, complete true, no missing, duplicate or unknown ids
-- Ceiling: none
-
-Note: the local `main` ref (41c5b31) lags `origin/main` (b00da1b), so the runner's changed-path set held 163 paths instead of the 45 this branch changes against `origin/main`. As a result, `gate-blender-headless` and `gate-ue-compile` were applicable. Both ran and passed, so the stale ref broadened the gate and did not weaken it.
-
----
-
 ## Acceptance Criteria Verification
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | WAV sound effect is stored and imported | Pass | `src/nmg_game_dev/audio/convert.py` `_copy_wav` (byte copy via atomic `.tmp`), `paths.py` (`SourceArt/Audio/SFX/<Name>.wav`, `/Game/Audio/SFX/SW_<Name>`), `core.py` result shape; `tests/unit/audio/test_core.py::test_a_wav_sound_effect_is_stored_and_imported` asserts the full result dict, byte equality and `looping` false |
-| AC2 | MP3/OGG/FLAC converted to 16-bit PCM WAV at the source rate and channels | Pass | `convert.py` `_convert` passes `nchannels`/`sample_rate` from `miniaudio.get_file_info` to `decode_file(SIGNED16)`; `test_compressed_music_is_converted_and_imported[mp3,ogg,flac]` uses fixtures at 22050 mono, 32000 stereo and 48000 stereo, so a 44100 Hz stereo default would fail |
-| AC3 | Looping on request, off by default | Pass | `unreal_import.py` UE template `set_editor_property("looping", PARAMS["loop"])`; `test_loop_true_makes_the_soundwave_loop`, `test_loop_defaults_to_off`, SCN003 |
-| AC4 | Unreal unreachable keeps the file and warns | Pass | `core.py` catches `PipelineError` with code `mcp.unreal.unreachable`, sets `imported_to_unreal: false` and `warning {code, message, remediation}`; `test_an_unreachable_editor_keeps_the_file_and_warns`, CLI `test_an_unreachable_editor_still_exits_zero_with_a_warning` |
-| AC5 | Invalid requests rejected before any write | Pass | `request.py` `AudioRequest.validate` (kind, reserved prefix, `NAME_RE.fullmatch`, file exists, extension), `core.py` `audio.asset_exists` check before `store_wav`; `test_invalid_requests_write_nothing_and_call_nothing` (5 cases) and `test_an_existing_target_is_rejected_and_left_alone` assert no `SourceArt` and `client.codes == []` |
-| AC6 | Undecodable audio fails cleanly | Pass | `convert.py` decodes fully before writing and maps `miniaudio.DecodeError`/`wave.Error`/`EOFError` to `audio.decode_failed`; `_write_atomic` unlinks the `.tmp` on any failure; `test_a_corrupt_mp3_fails_cleanly_with_no_unreal_call` checks no `.wav` or `.wav.tmp` |
-| AC7 | One implementation through the CLI and the finalize MCP tool | Pass | `audio/__main__.py` and `finalize/mcp_tools.py::import_audio` both call `nmg_game_dev.audio.import_audio`; server registers `@mcp.tool(name="import_audio")`; `tools.json` declares it; `test_import_audio_tool_and_cli_return_the_same_json`, `test_import_audio_tool_returns_errors_as_an_error_object`, CLI exit-code tests (0/1/2) |
-| AC8 | No ElevenLabs integration ships | Pass | `.mcp.json` unchanged; `tests/unit/test_scaffold_guards.py::test_mcp_json_has_no_elevenlabs_entry` and `test_no_nmg_module_or_server_calls_elevenlabs` (scans `src/nmg_game_dev` and `mcp-servers` for `api.elevenlabs.io` and `ELEVENLABS_API_KEY`) |
-| AC9 | Docs teach the official-MCP-then-import flow | Pass | `docs/mcp/elevenlabs.md` (generate → save → `import_audio`; formats; result fields; error codes; install official server at latest with own key); `docs/mcp/finalize.md` `import_audio` section; "Optional: generated audio" notes in `docs/onboarding/index.md` and `docs/onboarding/first-asset.md` stating onboarding asks for no key and installs no ElevenLabs server |
+| AC1 | A WAV sound effect is stored and imported | Pass | `src/nmg_game_dev/audio/convert.py:44-53` copies the file after a `wave` header check. `src/nmg_game_dev/audio/core.py:51-80` returns `source_art`, `unreal_asset`, `converted`, `looping` and `imported_to_unreal`. `src/nmg_game_dev/audio/paths.py:23-36` builds `/Game/Audio/SFX/SW_<Name>`. Tests: `tests/unit/audio/test_core.py::test_a_wav_sound_effect_is_stored_and_imported`, `test_convert.py::test_wav_input_is_copied_byte_for_byte`, SCN001 |
+| AC2 | MP3, OGG and FLAC are converted to WAV | Pass | `convert.py:56-83` decodes with `miniaudio.decode_file(SIGNED16, nchannels=info.nchannels, sample_rate=info.sample_rate)` and writes 16-bit PCM with `wave`. Tests: `test_convert.py::test_compressed_input_becomes_a_16_bit_wav_at_the_source_rate`, `test_core.py::test_compressed_music_is_converted_and_imported` (both parametrized over the three formats), SCN002 |
+| AC3 | Looping on request | Pass | `unreal_import.py:54` calls `set_editor_property("looping", PARAMS["loop"])`, and `core.py:58` reports it. Tests: `test_core.py::test_loop_true_makes_the_soundwave_loop`, `test_loop_defaults_to_off`, `test_unreal_import.py::test_loop_true_sets_looping_on_the_soundwave`, SCN003 |
+| AC4 | An unreachable Unreal MCP keeps the file | Pass | `unreal_import.py:92-94` passes `mcp.unreal.unreachable` through, and `core.py:70-78` turns it into `imported_to_unreal: false` plus a `warning` with its code, message and remediation. Tests: `test_core.py::test_an_unreachable_editor_keeps_the_file_and_warns`, `test_cli.py::test_an_unreachable_editor_still_exits_zero_with_a_warning`, SCN004 |
+| AC5 | Invalid requests are rejected before any write | Pass | `request.py:41-56` checks kind, reserved prefix, PascalCase name, file existence and extension. `core.py:43-49` checks the target before `store_wav`. Tests: `test_request.py` (names, prefixes, kinds, missing file, extensions), `test_core.py::test_invalid_requests_write_nothing_and_call_nothing`, `test_an_existing_target_is_rejected_and_left_alone`, SCN005 |
+| AC6 | Undecodable audio fails cleanly | Pass | `convert.py:66-67` maps `DecodeError`, `wave.Error` and `EOFError` to `audio.decode_failed` before any write. `_write_atomic` (`convert.py:86-95`) unlinks the `.tmp` file on any failure. Tests: `test_convert.py::test_a_corrupt_mp3_fails_with_decode_failed_and_leaves_nothing`, `test_a_wav_that_is_not_riff_fails_with_decode_failed`, `test_core.py::test_a_corrupt_mp3_fails_cleanly_with_no_unreal_call`, SCN006 |
+| AC7 | One implementation through the CLI and the finalize MCP server | Pass | `src/nmg_game_dev/audio/__main__.py:39-57` and `src/nmg_game_dev/finalize/mcp_tools.py` `import_audio` both call `nmg_game_dev.audio.import_audio`. `mcp-servers/finalize/src/finalize_mcp/server.py` registers `import_audio`, and `mcp-servers/finalize/tools.json` declares it. The CLI prints `ERROR [code]` and exits 1, or exits 2 on argument errors; the tool returns `{"error": error_dict(e)}`. Tests: `tests/unit/test_finalize_mcp.py::test_import_audio_tool_and_cli_return_the_same_json`, `test_import_audio_tool_returns_errors_as_an_error_object`, `test_cli.py` exit-code tests, SCN007 |
+| AC8 | No ElevenLabs integration ships | Pass | `.mcp.json` has no `elevenlabs` entry and no `ELEVENLABS` text (grep returns nothing). `tests/unit/test_scaffold_guards.py::test_mcp_json_has_no_elevenlabs_entry` and `test_no_nmg_module_or_server_calls_elevenlabs` (which scans `src/nmg_game_dev` and `mcp-servers` for `api.elevenlabs.io` and `ELEVENLABS_API_KEY`). SCN008 |
+| AC9 | Docs teach the official-MCP-then-import flow | Pass | `docs/mcp/elevenlabs.md` covers the generate, save and import steps, setup at the latest version with your own key, the formats, the result fields, the error codes and the unreachable behaviour. `docs/mcp/finalize.md` has an `import_audio` row and section. `docs/onboarding/index.md` and `docs/onboarding/first-asset.md` have "Optional: generated audio" notes saying onboarding asks for no key and installs no ElevenLabs server. No onboarding code changed |
+
+### Functional Requirements
+
+| FR | Status | Evidence |
+|----|--------|----------|
+| FR1 | Pass | `core.py:24-32` matches the signature and result shape in the design |
+| FR2 | Pass | `request.py:41-56`, `core.py:43-49`; validation runs before `store_wav` |
+| FR3 | Pass | `convert.py`: WAV is copied, other formats are decoded with miniaudio, and writes go to a `.tmp` file before `os.replace` |
+| FR4 | Pass | `unreal_import.py`: `AssetImportTask` with `replace_existing=False`, a `SoundWave` type check, `looping`, `save_loaded_asset`, and a single `NMG_RESULT` line |
+| FR5 | Pass | The CLI and the `finalize` tool share one function, and `gate-mcp-schema` passed |
+| FR6 | Pass | `pyproject.toml` declares `miniaudio>=1.59` as a floor. The root and `mcp-servers/*/uv.lock` files were regenerated, and `tests/unit/test_lockfiles.py` passes within `repository.tests` |
+| FR7 | Pass | Guard tests in `tests/unit/test_scaffold_guards.py` |
+| FR8 | Pass | The four docs listed under AC9 |
+| FR9 | Pass | `tests/unit/fake_unreal_audio.py` and `tests/unit/audio/conftest.py` provide the fakes. `tests/fixtures/audio/` holds WAV, MP3, OGG, FLAC and corrupt-MP3 fixtures, each under 50 KB, with a README |
 
 ---
 
@@ -77,11 +95,11 @@ Note: the local `main` ref (41c5b31) lags `origin/main` (b00da1b), so the runner
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | miniaudio dependency | Complete | `miniaudio>=1.59` floor in `pyproject.toml` with mypy override; `uv.lock` and the finalize, meshy and texture-gen server locks resolve `miniaudio 1.73`; lockfile sync test passes in `repository.tests` |
-| T002 | Audio package core | Complete | `errors.py`, `request.py`, `paths.py`, `convert.py`, `unreal_import.py`, `core.py`, `__init__.py` match the design |
-| T003 | CLI and finalize MCP tool | Complete | `__main__.py`, `finalize/mcp_tools.py`, `finalize/__init__.py`, `finalize_mcp/server.py`, `tools.json`; `gate-mcp-schema` passed |
-| T004 | Guards, steering and docs | Complete | Guard tests, `steering/snippets/project-product.md` Must Have and Won't Have lines, four docs files |
-| T005 | Tests | Complete | Five fixtures (each under 12 KB) with a regeneration README; `tests/unit/fake_unreal.py` executes the generated UE code against a fake `unreal` module; unit tests for request, convert, unreal_import, core and CLI; finalize MCP tests; BDD SCN001–SCN008 |
+| T001 | miniaudio dependency | Complete | Floor dependency, mypy override, lockfiles regenerated |
+| T002 | Audio package core | Complete | `errors`, `request`, `paths`, `convert`, `unreal_import` and `core` all present |
+| T003 | CLI and finalize MCP tool | Complete | `__main__.py`, `mcp_tools.import_audio`, server registration, `tools.json` |
+| T004 | Guards, steering and docs | Complete | Guard tests, two `project-product.md` lines, four docs |
+| T005 | Tests | Complete | 6 unit test modules, fakes, fixtures, BDD feature and steps (SCN001–SCN008) |
 
 ---
 
@@ -91,43 +109,48 @@ Note: the local `main` ref (41c5b31) lags `origin/main` (b00da1b), so the runner
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 5 | One concern per module: validation, paths, conversion, UE code generation and execution, orchestration, CLI |
-| Open/Closed | 5 | Added as a new package plus one tool on the existing finalize server; existing finalize tools untouched |
-| Liskov Substitution | 5 | `FakeUnrealPythonClient` substitutes for `UnrealMcpClient` through the existing `UnrealPythonClient` protocol |
-| Interface Segregation | 5 | The import depends only on `execute_python_code` |
-| Dependency Inversion | 5 | `import_audio` accepts `unreal_client` and `project_root`; the concrete client is built only when none is injected |
+| Single Responsibility | 5 | Each module does one job (request, paths, convert, Unreal import, orchestration, CLI), and none is over 120 lines |
+| Open/Closed | 5 | The feature arrives as a new package. The finalize server only gains one tool registration |
+| Liskov Substitution | 5 | `import_audio` accepts any `UnrealPythonClient`, and the fake and `UnrealMcpClient` are interchangeable |
+| Interface Segregation | 5 | It depends only on `execute_python_code` and `parse_nmg_result` |
+| Dependency Inversion | 5 | `project_root` and `unreal_client` are injectable, and the defaults are built only when none is passed |
 
 ### Layer Separation
 
-The MCP server is a thin registration over `nmg_game_dev.finalize.mcp_tools`, which wraps `nmg_game_dev.audio.import_audio` and converts `PipelineError` to `{"error": …}`. The CLI uses the same function. This follows the structure steering: servers expose endpoints without adding logic.
+The structure steering is respected. The MCP server is a thin wrapper over `nmg_game_dev.finalize.import_audio`, which delegates to `nmg_game_dev.audio`. UE-side logic is UE Python sent through the existing Unreal MCP client, so the repository authors no UE bridge. No skill opens sockets.
 
 ### Dependency Flow
 
-`audio` depends on `pipeline.errors`, `pipeline.clients.unreal_mcp`, `unreal.parse_nmg_result`/`UnrealPythonClient`, and `meshy.config.project_root`. The last is a cross-feature reuse; it is small and stable, but a shared helper outside `meshy` would be a cleaner home in a later refactor.
+`finalize.mcp_tools` → `audio.core` → (`request`, `paths`, `convert`, `unreal_import`) → `pipeline.errors`, `unreal.parse_nmg_result`, `meshy.config.project_root`. The reuse of `meshy.config.project_root` was specified in the design. There are no cycles.
 
 ---
 
 ## Security Assessment
 
-- [x] Authentication: not applicable. No ElevenLabs key is read and no external API is called (AC8 guards enforce this).
-- [x] Authorization: not applicable (local tool).
-- [x] Input validation: name, kind, file existence and extension are validated before any write; `NAME_RE` rejects path separators and `..`, so the target path cannot escape `SourceArt/Audio/<Kind>/`.
-- [x] Injection prevention: UE Python receives parameters as a double-encoded JSON string literal (`json.dumps(json.dumps(params))`), so file paths with quotes or newlines cannot inject code.
-- [x] Data protection: no secrets handled; no credentials logged.
+- [x] Authentication: no credentials are handled. No ElevenLabs key is read, and a guard test enforces this
+- [x] Authorization: N/A (local developer tool)
+- [x] Input validation: `name` is anchored PascalCase (`fullmatch`), which blocks path traversal into `SourceArt`. `kind` is an enum, and the extension is allowlisted. `tools.json` declares the schema pattern and enum
+- [x] Injection prevention: UE parameters are embedded as a double-encoded JSON string literal and parsed with `json.loads` inside UE, so no request text is spliced into code
+- [x] Data protection: no secrets in source or logs, and the root `.mcp.json` is unchanged
+- [x] Dependency security: one new dependency (`miniaudio`), declared as a floor per steering, with lockfiles committed
+
+---
 
 ## Performance Assessment
 
-- [x] Async patterns: synchronous by design; one local decode plus one UE import fits a single MCP call, as the design states.
-- [x] Caching: not needed.
-- [~] Resource management: decoded PCM is held in memory in full. That is fine for sound effects and music tracks of typical length, but a very long track uses memory proportional to its length. No streaming decode. Score 4.
-- [x] File handles: all `wave.open` uses are context managers; temporary files are always unlinked on failure.
+- [x] Async patterns: the import runs synchronously, as the design specifies (a local copy plus one UE call fits in one MCP call)
+- [x] Caching: N/A
+- [~] Resource management: `miniaudio.decode_file` decodes the whole track into memory before writing. A few minutes of 44.1 kHz stereo music is tens of MB, which is acceptable for authoring-time use. A streaming encode would bound memory for very long tracks (Low)
+- [x] Query optimization: N/A
+
+---
 
 ## Error Handling Assessment
 
-- Domain error `AudioError(PipelineError)` with stable codes, messages and remediations; cause preserved with `raise … from error`.
-- The unreachable-editor path becomes a warning; every other UE failure becomes `audio.import_failed`, and the stored WAV is kept as the design requires.
-- The UE template always prints one `NMG_RESULT` line, including on exceptions.
-- Score 4: OS-level failures (for example a permission error or a full disk while writing under `SourceArt/`) are not mapped to an `audio.*` code, so the MCP tool raises rather than returning `{"error": …}`, and the CLI prints a traceback. See Remaining Issues.
+- `AudioError(PipelineError)` with stable `audio.*` codes and actionable remediations. The cause is kept with `raise … from error`
+- `mcp.unreal.unreachable` becomes a warning, every other client or parse failure becomes `audio.import_failed`, and the stored WAV is kept as the spec requires
+- The CLI turns `PipelineError` into `ERROR [code]` plus `Remediation:` and exit 1, and the MCP tool returns a structured `{"error": …}`
+- Gap (Low): an `OSError` raised while writing under `SourceArt` (permission denied, disk full) is not wrapped in an `AudioError`. It surfaces as a raw exception from the CLI and the tool, although `_write_atomic` still removes the `.tmp` file
 
 ---
 
@@ -138,23 +161,21 @@ The MCP server is a thin registration over `nmg_game_dev.finalize.mcp_tools`, wh
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
 | AC1 | Yes (SCN001) | Yes | Yes |
-| AC2 | Yes (SCN002 ×3) | Yes | Yes |
+| AC2 | Yes (SCN002 × MP3/OGG/FLAC) | Yes | Yes |
 | AC3 | Yes (SCN003) | Yes | Yes |
 | AC4 | Yes (SCN004) | Yes | Yes |
 | AC5 | Yes (SCN005) | Yes | Yes |
 | AC6 | Yes (SCN006) | Yes | Yes |
 | AC7 | Yes (SCN007) | Yes | Yes |
 | AC8 | Yes (SCN008) | Yes | Yes |
-| AC9 | Docs criterion; checked by review of the four docs files | N/A | N/A |
+| AC9 | Docs criterion, checked by review | — | Reviewed |
 
 ### Coverage Summary
 
-- Feature files: `tests/bdd/features/audio_import.feature`, 8 scenarios (10 with outline examples), bound in `tests/bdd/test_audio_import_bdd.py`
+- Feature file: `tests/bdd/features/audio_import.feature`, 8 scenarios (10 with outline examples), bound in `tests/bdd/test_audio_import_bdd.py`
 - Step definitions: Implemented
-- Unit tests: `tests/unit/audio/` (request, convert, unreal_import, core, CLI), `tests/unit/test_finalize_mcp.py` (3 new), `tests/unit/test_scaffold_guards.py` (3 new)
-- Full suite (`repository.tests`): 1070 passed, 9 skipped
-- Targeted rerun of the audio, finalize MCP, guard and BDD audio tests: 187 passed
-- No live editor and no ElevenLabs call: an autouse fixture replaces `UnrealMcpClient` with a function that fails the test if called
+- Unit tests: `tests/unit/audio/` (request, convert, Unreal import, core, CLI), plus `tests/unit/test_finalize_mcp.py` and `tests/unit/test_scaffold_guards.py` additions
+- Full suite: `uv run pytest tests/unit tests/bdd -q` gave 1093 passed and 9 skipped in 107.96 s on head `60d459b`
 
 ---
 
@@ -162,7 +183,7 @@ The MCP server is a thin registration over `nmg_game_dev.finalize.mcp_tools`, wh
 
 | Field | Value |
 |-------|-------|
-| **Reason** | Not applicable: the change touches no nmg-sdlc `workflows/` or `agents/` files, so no skill exercise is required. Plugin loading is covered by `plugin.validate` and `plugin.session-smoke` below. |
+| **Reason** | Not applicable. The change touches no nmg-sdlc `workflows/` or `agents/` files. Plugin manifests changed only for the version bump, and `plugin.validate` and `plugin.session-smoke` cover them |
 | **Recommendation** | None |
 
 ---
@@ -171,25 +192,29 @@ The MCP server is a thin registration over `nmg_game_dev.finalize.mcp_tools`, wh
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0: 1070 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0: 1093 passed, 9 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 327 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 214 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0: 196 passed (applicable because of the stale local `main` base) |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8 compiled (applicable because of the stale local `main` base) |
+| `repository.format` | Pass | `uv run ruff format --check .`: 331 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 217 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 211 passed |
+| `gate-ue-compile` | Pass | DogfoodEditor Mac Development against UE 5.8: Result Succeeded |
 | `gate-mcp-schema` | Pass | `validate-mcp-tools.py`: MCP tools match tools.json for every server |
 | `gate-shellcheck` | Not applicable | No `scripts/**.sh` changed |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
-| `plugin.validate` | Pass | `claude plugin validate .` exited 0 (one warning about the untracked `CLAUDE.local.md`, a local file outside the change) |
-| `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
+| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed (with warnings) |
+| `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir` in an ephemeral project; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable)
+**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable). Coverage 11/11 complete.
+
+No `repository.nmg-sdlc-smoke` or `project.nmg-sdlc-smoke` validation is declared in `steering/manifest.json`, so no real smoke lifecycle evidence is required.
 
 ---
 
 ## Fixes Applied
 
-None. The verify publication scope allows only this report, and no finding was severe enough to block delivery.
+| Severity | Category | Location | Original Issue | Fix Applied | Routing |
+|----------|----------|----------|----------------|-------------|---------|
+| — | — | — | No fixes were needed. This verify run may write only this report | — | — |
 
 ## Remaining Issues
 
@@ -208,61 +233,52 @@ None.
 |-------|-------|
 | **Severity** | Low |
 | **Category** | Error Handling |
-| **Location** | `src/nmg_game_dev/audio/convert.py` (`_copy_wav`, `_write_atomic`), `src/nmg_game_dev/finalize/mcp_tools.py::import_audio` |
-| **Issue** | An `OSError` while reading the source or writing under `SourceArt/` (permission denied, disk full) is not mapped to an `audio.*` code |
-| **Impact** | The MCP tool raises instead of returning `{"error": …}` (FastMCP still reports a tool error), and the CLI prints a traceback instead of `ERROR [code]` |
-| **Reason Not Fixed** | Outside the spec's error codes; verify scope is report-only |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Low |
-| **Category** | Architecture |
-| **Location** | `src/nmg_game_dev/audio/core.py` (`root = project_root …`) |
-| **Issue** | A relative `--project` (or `project_root`) is not resolved, so `source_art` is relative and the relative path is sent to the UE import, which resolves it against the editor's working directory |
-| **Impact** | The import can fail with `audio.import_failed` when `--project` is relative; the default (`CLAUDE_PROJECT_DIR` or CWD) is absolute and unaffected |
-| **Reason Not Fixed** | Edge case outside the ACs; verify scope is report-only. Suggested follow-up: `root = Path(root).resolve()` |
+| **Location** | `src/nmg_game_dev/audio/convert.py:86-95` |
+| **Issue** | An `OSError` while creating `SourceArt/Audio/...` or writing the WAV is not wrapped in a structured `AudioError` |
+| **Impact** | A full disk or a permissions failure shows a raw exception instead of an `audio.*` code with a remediation. No partial file is left |
+| **Reason Not Fixed** | Outside the spec's error-code set, and the verify publication scope allows only this report |
 
 | Field | Value |
 |-------|-------|
 | **Severity** | Low |
 | **Category** | Error Handling |
-| **Location** | `src/nmg_game_dev/audio/core.py` (exists check), `convert.py` (`os.replace`) |
-| **Issue** | The `audio.asset_exists` check and the final `os.replace` are not atomic together, so a WAV created between them by another process would be overwritten |
-| **Impact** | Only under concurrent imports of the same name |
-| **Reason Not Fixed** | Negligible in a single-developer authoring flow |
+| **Location** | `src/nmg_game_dev/audio/core.py:43-51` |
+| **Issue** | A file that appears between the `target.exists()` check and `os.replace` is overwritten |
+| **Impact** | Only under concurrent imports with the same name, which is not a supported workflow |
+| **Reason Not Fixed** | Theoretical for a single-developer authoring tool, and outside the writable scope |
 
 | Field | Value |
 |-------|-------|
 | **Severity** | Low |
-| **Category** | Docs |
-| **Location** | `docs/onboarding/first-asset.md` |
-| **Issue** | The "Optional: generated audio" section sits between numbered steps 4 and 5, following the existing Meshy note's placement |
-| **Impact** | Slight interruption of the numbered flow |
-| **Reason Not Fixed** | Consistent with the existing optional-source note |
+| **Category** | Performance |
+| **Location** | `src/nmg_game_dev/audio/convert.py:60-80` |
+| **Issue** | The whole compressed track is decoded into memory before the WAV is written |
+| **Impact** | Memory grows with track length. That is fine for game SFX and music loops, but not ideal for very long tracks |
+| **Reason Not Fixed** | Acceptable at authoring scale, and the design selected this approach |
 
 ---
 
 ## Positive Observations
 
-- The fake `unreal` module runs the generated UE Python itself, so the tests cover the real editor-side script rather than a stub of its result.
-- Fixtures use different sample rates and channel counts on purpose, which catches the `miniaudio` 44100 Hz stereo default.
-- Decode-then-write plus a `.tmp` file moved into place with `os.replace` means a failed import never leaves a partial WAV.
-- The guard tests check both `.mcp.json` and every module and server source for ElevenLabs API or key usage.
-- The UE parameters are JSON-encoded, so file paths cannot inject UE Python.
+- Atomic `.tmp` and `os.replace` writes, with cleanup on any exception, so failures leave no partial WAV
+- The decode passes the source rate and channel count explicitly, which avoids miniaudio's 2-channel, 44.1 kHz default (commented at `convert.py:59`)
+- The import is safe on big-endian hosts (it byte-swaps before writing little-endian WAV)
+- UE parameters are passed as JSON data, not spliced into code, and the UE script always prints exactly one `NMG_RESULT` line
+- `replace_existing=False` plus a `does_asset_exist` pre-check means an existing SoundWave is never overwritten
+- Guards cover both the `.mcp.json` shape and API or key usage in the source
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- None.
+- None
 
 ### Short Term (Should)
-- [ ] Map `OSError` during store to an `audio.*` error with a remediation.
-- [ ] Resolve `project_root` to an absolute path.
+- [ ] Consider wrapping `OSError` from the SourceArt write in a structured `audio.*` error in a follow-up
 
 ### Long Term (Could)
-- [ ] Move `project_root` out of `nmg_game_dev.meshy.config` into a shared helper.
+- [ ] Stream the decoded output to the WAV for very long tracks
 
 ---
 
@@ -270,21 +286,20 @@ None.
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `src/nmg_game_dev/audio/core.py` | 2 | Low: relative root, check-then-replace |
-| `src/nmg_game_dev/audio/convert.py` | 1 | Low: unmapped OSError |
-| `src/nmg_game_dev/audio/request.py` | 0 | |
-| `src/nmg_game_dev/audio/paths.py` | 0 | |
-| `src/nmg_game_dev/audio/unreal_import.py` | 0 | |
-| `src/nmg_game_dev/audio/errors.py` | 0 | |
+| `src/nmg_game_dev/audio/__init__.py` | 0 | |
 | `src/nmg_game_dev/audio/__main__.py` | 0 | |
-| `src/nmg_game_dev/finalize/mcp_tools.py` | 0 | |
-| `mcp-servers/finalize/src/finalize_mcp/server.py` | 0 | |
-| `mcp-servers/finalize/tools.json` | 0 | |
+| `src/nmg_game_dev/audio/convert.py` | 2 | Low: OSError wrapping, memory |
+| `src/nmg_game_dev/audio/core.py` | 1 | Low: exists/replace race |
+| `src/nmg_game_dev/audio/errors.py` | 0 | |
+| `src/nmg_game_dev/audio/paths.py` | 0 | |
+| `src/nmg_game_dev/audio/request.py` | 0 | |
+| `src/nmg_game_dev/audio/unreal_import.py` | 0 | |
+| `src/nmg_game_dev/finalize/__init__.py`, `mcp_tools.py` | 0 | |
+| `mcp-servers/finalize/src/finalize_mcp/server.py`, `tools.json` | 0 | |
 | `pyproject.toml`, `uv.lock`, `mcp-servers/*/uv.lock` | 0 | |
 | `steering/snippets/project-product.md` | 0 | |
-| `docs/mcp/elevenlabs.md`, `docs/mcp/finalize.md`, `docs/onboarding/index.md` | 0 | |
-| `docs/onboarding/first-asset.md` | 1 | Low: section placement |
-| `tests/unit/audio/*`, `tests/unit/fake_unreal.py`, `tests/unit/test_finalize_mcp.py`, `tests/unit/test_scaffold_guards.py`, `tests/bdd/*audio*`, `tests/fixtures/audio/*` | 0 | |
+| `docs/mcp/elevenlabs.md`, `docs/mcp/finalize.md`, `docs/onboarding/index.md`, `docs/onboarding/first-asset.md` | 0 | |
+| `tests/unit/audio/*`, `tests/unit/fake_unreal_audio.py`, `tests/unit/test_finalize_mcp.py`, `tests/unit/test_scaffold_guards.py`, `tests/bdd/*audio*`, `tests/fixtures/audio/*` | 0 | |
 
 ---
 
@@ -292,4 +307,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion and task is implemented with direct test evidence. The registered steering gate is complete with every applicable required validation passing at `c8d1987acc628b59edabcc7dc2a2c5540ff29350`. The four remaining findings are Low and do not affect any approved behavior.
+Every delivery AC, FR, task and scenario passes. The registered gate is complete and green on head `60d459b47f53ee2aca6f18639e9ddb1772390a6e`. The three remaining findings are Low and do not affect the approved behaviour.
