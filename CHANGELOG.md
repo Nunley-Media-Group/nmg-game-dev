@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-11
+
+### Fixed
+
+- Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
+
 ## [0.21.1] - 2026-11-02
 
 ### Fixed
