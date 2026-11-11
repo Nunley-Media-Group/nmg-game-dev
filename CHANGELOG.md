@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-11
+
+### Changed
+
+- Let one finalized asset declare several material variants (#148)
+
 ## [0.21.2] - 2026-11-11
 
 ### Fixed
