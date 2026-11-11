@@ -46,7 +46,11 @@ viewport or renderer is not done.
     all materials baked into a texture set for that asset.
   - **Tiling** (large environment pieces): UVs may overlap and extend past 0–1 so
     tiling materials and trim sheets repeat across the surface. Each tiling texture is
-    itself seamless.
+    itself seamless: on each axis, the mean absolute difference between the last and first
+    pixel (the wrap) is at most the larger of 1.5 times the mean absolute difference between
+    adjacent pixels and 2/255. Integer images are normalised by their maximum value first (#147).
+    A source texture that does not tile is made seamless with
+    `python -m nmg_game_dev.texture seamless <image.png>`.
 - Materials must survive FBX export. At export time each material is a Principled
   BSDF fed only by Image Texture nodes sampling `UVMap`, a Normal Map node, and a
   Separate Color node to split ORM. No procedural texture nodes, no
@@ -142,6 +146,11 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
   children are `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and `SM_<Name>_LOD2`. LOD1 and LOD2 are
   50% and 25% of LOD0's triangles. Assets with child parts keep the root mesh `SM_<Name>`
   and their parts, with LOD0 only.
+- In Unreal, a static Mobile LOD group is one Static Mesh `/Game/<Category>/<Name>/Mobile/SM_<Name>`
+  with three LODs: LOD 0, 1, and 2 are the exported `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and
+  `SM_<Name>_LOD2` meshes, and no separate asset is made for them. `import_ue` checks that the
+  Static Mesh's LOD count equals the snapshot's LOD object count, and it checks LOD 0's bounds
+  against `SM_<Name>_LOD0` (#146).
 - A rigged character (its armature `SK_<Name>` is in the collection; see §7) has no LOD
   group. Its Mobile variant is three skinned meshes, `SM_<Name>_Mobile`,
   `SM_<Name>_Mobile_LOD1`, and `SM_<Name>_Mobile_LOD2`, each parented to `SK_<Name>` with an
@@ -165,6 +174,20 @@ Texture sizes are maximums.
 
 Environment pieces use the tiling mode and target a texel density of at least
 256 px/m on Desktop and 128 px/m on Mobile instead of a single texture set.
+
+A project-root `nmg-budgets.json` overrides these defaults. It is keyed by asset class. Top-level
+metrics (`tris`, `max_texture_px`, `materials`) override the Mobile budget. A nested `desktop`
+object overrides the Desktop budget that validation uses, so a class can allow a larger Desktop
+variant:
+
+```json
+{
+  "hero_prop": {
+    "tris": 10000,
+    "desktop": { "tris": 300000 }
+  }
+}
+```
 
 ## 7. Export
 

@@ -1,24 +1,20 @@
 """Host tests for material variants: the request, cache keys, UE import, listing, and CLI (#148).
 
-The UE code never reaches an editor. A dict-backed fake ``unreal`` module runs the import and
-listing templates in-process, so the stale-deletion and tag logic is exercised as written. The
-fake keeps assets by object path, records the tags, parameters, and bindings each call sets, and
-records deletions and creations. Tests that need no UE code stay plain.
+The UE code never reaches an editor. The shared in-memory editor in ``tests/unit/fake_unreal.py``
+runs the import and listing templates in-process, so the stale-deletion and tag logic is exercised
+as written. It keeps assets by path with their tags, parameters, and bindings, and records
+creations and deletions. Tests that need no UE code stay plain.
 """
 
 from __future__ import annotations
 
 import ast
-import contextlib
 import io
 import json
 import struct
-import sys
 import zlib
 from pathlib import Path
-from types import ModuleType
 from typing import Any
-from unittest import mock
 
 import pytest
 
@@ -30,6 +26,7 @@ from nmg_game_dev.pipeline.steps import _STEP_VERSION, STEP_ORDER, settings_hash
 from nmg_game_dev.unreal import build_import_code, import_variant
 from nmg_game_dev.unreal import list_material_variants as list_rows
 from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from tests.unit.fake_unreal import FakeWorld, FbxNode, MaterialInstanceConstant
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DESKTOP = "/Game/Props/Crate/Desktop"
@@ -38,6 +35,9 @@ MASTER = "/nmg-game-dev/Materials/M_NmgORM"
 RED = {"name": "Red", "material": "M_Crate_Body", "base_color": "Red.png"}
 BLUE_TINT = {"name": "Blue", "material": "M_Crate_Body", "parameters": {"Tint": [0.5, 0.25, 1.0]}}
 BLUE_TEXTURE = {"name": "Blue", "material": "M_Crate_Body", "base_color": "Blue.png"}
+# The one part's local bounds in Blender metres (Z-up), as the report and the FBX carry them.
+_LOW = (-0.5, 0.1, 0.0)
+_HIGH = (0.5, 0.4, 1.0)
 
 
 # --- fixtures and small helpers ---------------------------------------------------------------
@@ -125,244 +125,49 @@ def _report(variant: str = "desktop") -> dict[str, Any]:
     }
 
 
-def _variant_dir(root: Path, variant: str, textures: list[str]) -> Path:
-    """A variant folder with the FBX, the main textures, and the named variant textures."""
+def _world() -> FakeWorld:
+    """A fresh in-memory editor holding the master material the import binds to."""
+    world = FakeWorld()
+    world.seed_asset(MASTER)
+    return world
+
+
+def _variant_dir(world: FakeWorld, root: Path, variant: str, textures: list[str]) -> Path:
+    """A variant folder with the FBX, the main textures, and the named variant textures.
+
+    The FBX scene, one SM_Crate part with the M_Crate_Body slot, is registered with ``world``.
+    """
     directory = root / variant
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "SM_Crate.fbx").write_bytes(b"fbx")
+    fbx = directory / "SM_Crate.fbx"
+    fbx.write_bytes(b"fbx")
     for name in ("T_Crate_Body_BC", "T_Crate_Body_N", "T_Crate_Body_ORM", *textures):
         (directory / f"{name}.png").write_bytes(b"png")
+    node = FbxNode("SM_Crate", "SM_Crate", _LOW, _HIGH, materials=("M_Crate_Body",))
+    world.add_fbx(str(fbx), [node])
     return directory
 
 
-# --- a dict-backed fake unreal module ---------------------------------------------------------
-
-
-class _Obj:
-    def __init__(self, **fields: Any) -> None:
-        self.__dict__.update(fields)
-
-
-class _Asset:
-    def __init__(self, path: str) -> None:
-        self.path = path
-        self.dir, self.name = path.rsplit("/", 1)
-        self.tags: dict[str, str] = {}
-        self.props: dict[str, Any] = {}
-        self.textures: dict[str, Any] = {}
-        self.vectors: dict[str, Any] = {}
-        self.parent: Any = None
-        self.static_materials: list[_Obj] = []
-        self.bound: dict[int, str] = {}
-
-    def set_editor_property(self, name: str, value: Any) -> None:
-        self.props[name] = value
-
-    def get_bounding_box(self) -> _Obj:
-        return _Obj(min=_Obj(x=-50.0, y=-40.0, z=0.0), max=_Obj(x=50.0, y=-10.0, z=100.0))
-
-    def set_material(self, index: int, instance: _Asset) -> None:
-        self.bound[index] = instance.path
-
-
-class StaticMesh(_Asset):
-    pass
-
-
-class SkeletalMesh(_Asset):
-    pass
-
-
-class MaterialInstanceConstant(_Asset):
-    pass
-
-
-class Material(_Asset):
-    pass
-
-
-class Texture2D(_Asset):
-    pass
-
-
-class _Store:
-    """UE assets by object path, and what the code created and deleted."""
-
-    def __init__(self) -> None:
-        self.assets: dict[str, _Asset] = {}
-        self.created: list[str] = []
-        self.deleted: list[str] = []
-        self.missing_vectors: set[str] = set()
-        self.assets[MASTER] = Material(MASTER)
-
-
-def _fake_unreal(store: _Store) -> ModuleType:
-    module = ModuleType("unreal")
-
-    class EditorAssetLibrary:
-        @staticmethod
-        def load_asset(path: str) -> _Asset | None:
-            return store.assets.get(path)
-
-        @staticmethod
-        def does_asset_exist(path: str) -> bool:
-            return path in store.assets
-
-        @staticmethod
-        def does_directory_exist(path: str) -> bool:
-            return any(asset.dir == path for asset in store.assets.values())
-
-        @staticmethod
-        def list_assets(
-            directory: str, recursive: bool = False, include_folder: bool = False
-        ) -> list[str]:
-            _ = (recursive, include_folder)
-            return sorted(
-                f"{asset.path}.{asset.name}"
-                for asset in store.assets.values()
-                if asset.dir == directory
-            )
-
-        @staticmethod
-        def save_loaded_asset(asset: _Asset) -> bool:
-            _ = asset
-            return True
-
-        @staticmethod
-        def get_metadata_tag(asset: _Asset, key: str) -> str:
-            return asset.tags.get(key, "")
-
-        @staticmethod
-        def set_metadata_tag(asset: _Asset, key: str, value: str) -> None:
-            asset.tags[key] = value
-
-        @staticmethod
-        def delete_asset(path: str) -> bool:
-            store.deleted.append(path)
-            store.assets.pop(path, None)
-            return True
-
-    class _AssetTools:
-        @staticmethod
-        def import_asset_tasks(tasks: list[Any]) -> None:
-            for task in tasks:
-                if task.filename.endswith(".png"):
-                    path = f"{task.destination_path}/{task.destination_name}"
-                    store.assets[path] = Texture2D(path)
-                else:
-                    path = f"{task.destination_path}/SM_Crate"
-                    mesh = StaticMesh(path)
-                    mesh.static_materials = [_Obj(material_slot_name="M_Crate_Body")]
-                    store.assets[path] = mesh
-                    task.imported_object_paths = [f"{path}.SM_Crate"]
-
-        @staticmethod
-        def create_asset(name: str, dest: str, kind: Any, factory: Any) -> _Asset:
-            _ = factory
-            path = f"{dest}/{name}"
-            asset: _Asset = kind(path)
-            store.assets[path] = asset
-            store.created.append(path)
-            return asset
-
-    class AssetToolsHelpers:
-        @staticmethod
-        def get_asset_tools() -> _AssetTools:
-            return _AssetTools()
-
-    class AssetImportTask:
-        def __init__(self) -> None:
-            self.imported_object_paths: list[str] = []
-
-    class FbxImportUI:
-        def __init__(self) -> None:
-            self.static_mesh_import_data = _Obj()
-
-    class LinearColor:
-        def __init__(self, r: float, g: float, b: float, a: float) -> None:
-            self.values = (r, g, b, a)
-
-    class MaterialEditingLibrary:
-        @staticmethod
-        def set_material_instance_parent(instance: _Asset, parent: Any) -> None:
-            instance.parent = parent
-
-        @staticmethod
-        def set_material_instance_texture_parameter_value(
-            instance: _Asset, name: str, texture: Any
-        ) -> None:
-            instance.textures[name] = texture
-
-        @staticmethod
-        def set_material_instance_vector_parameter_value(
-            instance: _Asset, name: str, value: Any
-        ) -> bool:
-            # UE returns False when the parent material has no such parameter.
-            if name in store.missing_vectors:
-                return False
-            instance.vectors[name] = value
-            return True
-
-    module.EditorAssetLibrary = EditorAssetLibrary  # type: ignore[attr-defined]
-    module.AssetToolsHelpers = AssetToolsHelpers  # type: ignore[attr-defined]
-    module.AssetImportTask = AssetImportTask  # type: ignore[attr-defined]
-    module.FbxImportUI = FbxImportUI  # type: ignore[attr-defined]
-    module.FBXImportType = _Obj(FBXIT_SKELETAL_MESH="skeletal")  # type: ignore[attr-defined]
-    module.TextureCompressionSettings = _Obj(TC_NORMALMAP="normal", TC_MASKS="masks")  # type: ignore[attr-defined]
-    module.MaterialEditingLibrary = MaterialEditingLibrary  # type: ignore[attr-defined]
-    module.LinearColor = LinearColor  # type: ignore[attr-defined]
-    module.StaticMesh = StaticMesh  # type: ignore[attr-defined]
-    module.SkeletalMesh = SkeletalMesh  # type: ignore[attr-defined]
-    module.MaterialInstanceConstant = MaterialInstanceConstant  # type: ignore[attr-defined]
-    module.MaterialInstanceConstantFactoryNew = lambda: "factory"  # type: ignore[attr-defined]
-    module.Material = Material  # type: ignore[attr-defined]
-    module.Texture2D = Texture2D  # type: ignore[attr-defined]
-    return module
-
-
-def run_ue_text(code: str, store: _Store) -> str:
-    """Run UE Python against the fake module and return what it printed."""
-    buffer = io.StringIO()
-    with (
-        mock.patch.dict(sys.modules, {"unreal": _fake_unreal(store)}),
-        contextlib.redirect_stdout(buffer),
-    ):
-        exec(compile(code, "<ue>", "exec"), {"__name__": "ue_code"})  # noqa: S102
-    return buffer.getvalue()
-
-
-class FakeEditor:
-    """Satisfies UnrealPythonClient: each call runs the code against the shared store."""
-
-    def __init__(self, store: _Store) -> None:
-        self.store = store
-        self.codes: list[str] = []
-
-    def execute_python_code(self, code: str) -> str:
-        self.codes.append(code)
-        return run_ue_text(code, self.store)
-
-
-def _result_of(output: str) -> dict[str, Any]:
-    line = next(line for line in output.splitlines() if line.startswith("NMG_RESULT "))
-    result: dict[str, Any] = json.loads(line[len("NMG_RESULT ") :])
-    return result
-
-
 def _import(
-    store: _Store,
+    world: FakeWorld,
     variant_dir: Path,
     dest: str,
     entries: list[dict[str, Any]] | None,
 ) -> dict[str, Any]:
+    """Run the import step's UE code against ``world`` (tests/unit/fake_unreal.py)."""
     return import_variant(
-        FakeEditor(store),
+        world,
         variant_dir=str(variant_dir),
         dest=dest,
         name="Crate",
         report=_report("mobile" if dest.endswith("Mobile") else "desktop"),
         material_variants=entries,
     )
+
+
+def _bound(world: FakeWorld, mesh_path: str) -> list[str]:
+    """The material instance path bound to each slot of the static mesh at ``mesh_path``."""
+    return [slot.material_interface.path for slot in world.static_mesh(mesh_path).static_materials]
 
 
 # --- AC1 and FR1: the request finds the declaration -------------------------------------------
@@ -462,8 +267,8 @@ def test_no_declaration_keys_match_each_other_across_runs(tmp_path: Path) -> Non
 
 
 def test_a_texture_variant_is_created_beside_the_main_set_with_its_textures(tmp_path: Path) -> None:
-    store = _Store()
-    desktop = _variant_dir(tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
+    world = _world()
+    desktop = _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
 
     entry = {
         "name": "Red",
@@ -473,15 +278,15 @@ def test_a_texture_variant_is_created_beside_the_main_set_with_its_textures(tmp_
         "material_instance": "MI_Crate_Body_Red",
     }
 
-    result = _import(store, desktop, DESKTOP, [entry])
+    result = _import(world, desktop, DESKTOP, [entry])
 
-    instance = store.assets[f"{DESKTOP}/MI_Crate_Body_Red"]
+    instance = world.assets[f"{DESKTOP}/MI_Crate_Body_Red"]
     assert isinstance(instance, MaterialInstanceConstant)
     assert instance.parent.path == MASTER
-    assert instance.textures["BaseColor"].path == f"{DESKTOP}/T_Crate_Body_BC_Red"
-    assert instance.textures["Normal"].path == f"{DESKTOP}/T_Crate_Body_N"
-    assert instance.textures["ORM"].path == f"{DESKTOP}/T_Crate_Body_ORM"
-    assert store.assets[f"{DESKTOP}/T_Crate_Body_BC_Red"].props["srgb"] is True
+    assert instance.texture_params["BaseColor"] == f"{DESKTOP}/T_Crate_Body_BC_Red"
+    assert instance.texture_params["Normal"] == f"{DESKTOP}/T_Crate_Body_N"
+    assert instance.texture_params["ORM"] == f"{DESKTOP}/T_Crate_Body_ORM"
+    assert world.assets[f"{DESKTOP}/T_Crate_Body_BC_Red"].properties["srgb"] is True
     assert result["material_variants"] == [
         {
             "name": "Red",
@@ -493,8 +298,9 @@ def test_a_texture_variant_is_created_beside_the_main_set_with_its_textures(tmp_
 
 
 def test_one_variant_name_on_two_materials_lists_both_instances(tmp_path: Path) -> None:
-    store = _Store()
+    world = _world()
     desktop = _variant_dir(
+        world,
         tmp_path,
         "Desktop",
         [
@@ -516,7 +322,7 @@ def test_one_variant_name_on_two_materials_lists_both_instances(tmp_path: Path) 
         for part, material in (("Body", "M_Crate_Body"), ("Lid", "M_Crate_Lid"))
     ]
 
-    result = _import(store, desktop, DESKTOP, entries)
+    result = _import(world, desktop, DESKTOP, entries)
 
     assert result["material_variants"] == [
         {
@@ -527,13 +333,13 @@ def test_one_variant_name_on_two_materials_lists_both_instances(tmp_path: Path) 
         }
         for part in ("Body", "Lid")
     ]
-    assert f"{DESKTOP}/MI_Crate_Body_Red" in store.assets
-    assert f"{DESKTOP}/MI_Crate_Lid_Red" in store.assets
+    assert f"{DESKTOP}/MI_Crate_Body_Red" in world.assets
+    assert f"{DESKTOP}/MI_Crate_Lid_Red" in world.assets
 
 
 def test_variant_instances_are_tagged_and_never_bound_to_the_mesh_slot(tmp_path: Path) -> None:
-    store = _Store()
-    desktop = _variant_dir(tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
+    world = _world()
+    desktop = _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
     entry = {
         "name": "Red",
         "material": "M_Crate_Body",
@@ -542,21 +348,20 @@ def test_variant_instances_are_tagged_and_never_bound_to_the_mesh_slot(tmp_path:
         "material_instance": "MI_Crate_Body_Red",
     }
 
-    _import(store, desktop, DESKTOP, [entry])
+    _import(world, desktop, DESKTOP, [entry])
 
-    instance = store.assets[f"{DESKTOP}/MI_Crate_Body_Red"]
+    instance = world.assets[f"{DESKTOP}/MI_Crate_Body_Red"]
     assert instance.tags == {
         "nmg.asset": "Crate",
         "nmg.material_variant": "Red",
         "nmg.material_slot": "M_Crate_Body",
     }
-    mesh = store.assets[f"{DESKTOP}/SM_Crate"]
-    assert mesh.bound == {0: f"{DESKTOP}/MI_Crate_Body"}
+    assert _bound(world, f"{DESKTOP}/SM_Crate") == [f"{DESKTOP}/MI_Crate_Body"]
 
 
 def test_a_parameter_variant_sets_tint_and_keeps_the_main_textures(tmp_path: Path) -> None:
-    store = _Store()
-    desktop = _variant_dir(tmp_path, "Desktop", [])
+    world = _world()
+    desktop = _variant_dir(world, tmp_path, "Desktop", [])
     entry = {
         "name": "Blue",
         "material": "M_Crate_Body",
@@ -565,20 +370,21 @@ def test_a_parameter_variant_sets_tint_and_keeps_the_main_textures(tmp_path: Pat
         "material_instance": "MI_Crate_Body_Blue",
     }
 
-    result = _import(store, desktop, DESKTOP, [entry])
+    result = _import(world, desktop, DESKTOP, [entry])
 
-    instance = store.assets[f"{DESKTOP}/MI_Crate_Body_Blue"]
-    assert instance.vectors["Tint"].values == (0.5, 0.25, 1.0, 1.0)
-    assert instance.textures["BaseColor"].path == f"{DESKTOP}/T_Crate_Body_BC"
-    assert not any(path.endswith("_BC_Blue") for path in store.assets)
+    instance = world.assets[f"{DESKTOP}/MI_Crate_Body_Blue"]
+    assert isinstance(instance, MaterialInstanceConstant)
+    assert instance.vector_params["Tint"] == (0.5, 0.25, 1.0, 1.0)
+    assert instance.texture_params["BaseColor"] == f"{DESKTOP}/T_Crate_Body_BC"
+    assert not any(path.endswith("_BC_Blue") for path in world.assets)
     assert [entry["texture"] for entry in result["material_variants"]] == [None]
     assert result["warnings"] == []
 
 
 def test_a_parameter_the_master_lacks_is_reported_as_a_warning(tmp_path: Path) -> None:
-    store = _Store()
-    store.missing_vectors.add("Tint")
-    desktop = _variant_dir(tmp_path, "Desktop", [])
+    world = _world()
+    world.missing_vectors.add("Tint")
+    desktop = _variant_dir(world, tmp_path, "Desktop", [])
     entry = {
         "name": "Blue",
         "material": "M_Crate_Body",
@@ -587,7 +393,7 @@ def test_a_parameter_the_master_lacks_is_reported_as_a_warning(tmp_path: Path) -
         "material_instance": "MI_Crate_Body_Blue",
     }
 
-    result = _import(store, desktop, DESKTOP, [entry])
+    result = _import(world, desktop, DESKTOP, [entry])
 
     assert result["ok"] is True
     assert len(result["warnings"]) == 1
@@ -599,7 +405,7 @@ def test_a_parameter_the_master_lacks_is_reported_as_a_warning(tmp_path: Path) -
 def test_the_variant_texture_is_imported_in_both_folders_with_the_same_names(
     tmp_path: Path,
 ) -> None:
-    store = _Store()
+    world = _world()
     entry = {
         "name": "Red",
         "material": "M_Crate_Body",
@@ -607,16 +413,20 @@ def test_the_variant_texture_is_imported_in_both_folders_with_the_same_names(
         "parameters": {},
         "material_instance": "MI_Crate_Body_Red",
     }
-    _import(store, _variant_dir(tmp_path, "Desktop", ["T_Crate_Body_BC_Red"]), DESKTOP, [entry])
-    _import(store, _variant_dir(tmp_path, "Mobile", ["T_Crate_Body_BC_Red"]), MOBILE, [entry])
+    _import(
+        world, _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"]), DESKTOP, [entry]
+    )
+    _import(
+        world, _variant_dir(world, tmp_path, "Mobile", ["T_Crate_Body_BC_Red"]), MOBILE, [entry]
+    )
 
-    assert f"{DESKTOP}/MI_Crate_Body_Red" in store.assets
-    assert f"{MOBILE}/MI_Crate_Body_Red" in store.assets
-    assert store.assets[f"{MOBILE}/T_Crate_Body_BC_Red"].props["srgb"] is True
+    assert f"{DESKTOP}/MI_Crate_Body_Red" in world.assets
+    assert f"{MOBILE}/MI_Crate_Body_Red" in world.assets
+    assert world.assets[f"{MOBILE}/T_Crate_Body_BC_Red"].properties["srgb"] is True
 
 
 def test_removing_a_variant_deletes_its_tagged_assets_and_reports_them(tmp_path: Path) -> None:
-    store = _Store()
+    world = _world()
     red = {
         "name": "Red",
         "material": "M_Crate_Body",
@@ -632,29 +442,29 @@ def test_removing_a_variant_deletes_its_tagged_assets_and_reports_them(tmp_path:
         "material_instance": "MI_Crate_Body_Blue",
     }
     _import(
-        store,
-        _variant_dir(tmp_path, "Desktop", ["T_Crate_Body_BC_Red", "T_Crate_Body_BC_Blue"]),
+        world,
+        _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red", "T_Crate_Body_BC_Blue"]),
         DESKTOP,
         [red, blue],
     )
-    red_created = store.created.count(f"{DESKTOP}/MI_Crate_Body_Red")
+    red_created = world.created.count(f"{DESKTOP}/MI_Crate_Body_Red")
 
     # The author removed Blue, and the export deleted its texture from the folder.
     (tmp_path / "Desktop" / "T_Crate_Body_BC_Blue.png").unlink()
-    result = _import(store, tmp_path / "Desktop", DESKTOP, [red])
+    result = _import(world, tmp_path / "Desktop", DESKTOP, [red])
 
     assert result["removed"] == [
         f"{DESKTOP}/MI_Crate_Body_Blue",
         f"{DESKTOP}/T_Crate_Body_BC_Blue",
     ]
-    assert f"{DESKTOP}/MI_Crate_Body_Blue" not in store.assets
-    assert f"{DESKTOP}/T_Crate_Body_BC_Blue" not in store.assets
-    assert f"{DESKTOP}/T_Crate_Body_BC_Red" in store.assets
-    assert store.created.count(f"{DESKTOP}/MI_Crate_Body_Red") == red_created == 1
+    assert f"{DESKTOP}/MI_Crate_Body_Blue" not in world.assets
+    assert f"{DESKTOP}/T_Crate_Body_BC_Blue" not in world.assets
+    assert f"{DESKTOP}/T_Crate_Body_BC_Red" in world.assets
+    assert world.created.count(f"{DESKTOP}/MI_Crate_Body_Red") == red_created == 1
 
 
 def test_reimporting_the_same_declaration_reuses_every_variant_asset(tmp_path: Path) -> None:
-    store = _Store()
+    world = _world()
     entry = {
         "name": "Red",
         "material": "M_Crate_Body",
@@ -662,26 +472,26 @@ def test_reimporting_the_same_declaration_reuses_every_variant_asset(tmp_path: P
         "parameters": {},
         "material_instance": "MI_Crate_Body_Red",
     }
-    desktop = _variant_dir(tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
-    _import(store, desktop, DESKTOP, [entry])
+    desktop = _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
+    _import(world, desktop, DESKTOP, [entry])
 
-    result = _import(store, desktop, DESKTOP, [entry])
+    result = _import(world, desktop, DESKTOP, [entry])
 
     assert result["removed"] == []
-    assert store.created.count(f"{DESKTOP}/MI_Crate_Body_Red") == 1
+    assert world.created.count(f"{DESKTOP}/MI_Crate_Body_Red") == 1
 
 
 def test_without_material_variants_the_bindings_are_unchanged(tmp_path: Path) -> None:
-    store = _Store()
-    desktop = _variant_dir(tmp_path, "Desktop", [])
+    world = _world()
+    desktop = _variant_dir(world, tmp_path, "Desktop", [])
 
-    result = _import(store, desktop, DESKTOP, None)
+    result = _import(world, desktop, DESKTOP, None)
 
     assert result["ok"] is True
     assert result["materials"] == {"M_Crate_Body": f"{DESKTOP}/MI_Crate_Body"}
     assert result["material_variants"] == []
     assert result["removed"] == []
-    assert store.assets[f"{DESKTOP}/SM_Crate"].bound == {0: f"{DESKTOP}/MI_Crate_Body"}
+    assert _bound(world, f"{DESKTOP}/SM_Crate") == [f"{DESKTOP}/MI_Crate_Body"]
 
 
 def test_build_import_code_embeds_each_declared_entry_for_the_template() -> None:
@@ -773,7 +583,7 @@ def test_a_sidecar_without_material_variants_imports_with_none(tmp_path: Path) -
 # --- AC8 and FR8: listing from the tags -----------------------------------------------------
 
 
-def _import_both_folders(store: _Store, tmp_path: Path) -> None:
+def _import_both_folders(world: FakeWorld, tmp_path: Path) -> None:
     red = {
         "name": "Red",
         "material": "M_Crate_Body",
@@ -788,15 +598,22 @@ def _import_both_folders(store: _Store, tmp_path: Path) -> None:
         "parameters": {"Tint": [0.5, 0.25, 1.0, 1.0]},
         "material_instance": "MI_Crate_Body_Blue",
     }
-    _import(store, _variant_dir(tmp_path, "Desktop", ["T_Crate_Body_BC_Red"]), DESKTOP, [red, blue])
-    _import(store, _variant_dir(tmp_path, "Mobile", ["T_Crate_Body_BC_Red"]), MOBILE, [red, blue])
+    _import(
+        world,
+        _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"]),
+        DESKTOP,
+        [red, blue],
+    )
+    _import(
+        world, _variant_dir(world, tmp_path, "Mobile", ["T_Crate_Body_BC_Red"]), MOBILE, [red, blue]
+    )
 
 
 def test_listing_returns_each_variant_with_its_instance_in_both_folders(tmp_path: Path) -> None:
-    store = _Store()
-    _import_both_folders(store, tmp_path)
+    world = _world()
+    _import_both_folders(world, tmp_path)
 
-    rows = list_rows(FakeEditor(store), "Props", "Crate")
+    rows = list_rows(world, "Props", "Crate")
 
     assert rows == [
         {
@@ -815,16 +632,16 @@ def test_listing_returns_each_variant_with_its_instance_in_both_folders(tmp_path
 
 
 def test_listing_returns_an_empty_list_when_nothing_is_tagged_or_the_folders_are_missing() -> None:
-    assert list_rows(FakeEditor(_Store()), "Props", "Crate") == []
+    assert list_rows(_world(), "Props", "Crate") == []
 
 
 def test_listing_ignores_untagged_instances_of_other_assets(tmp_path: Path) -> None:
-    store = _Store()
+    world = _world()
     other = MaterialInstanceConstant(f"{DESKTOP}/MI_Crate_Body")
     other.tags = {"nmg.asset": "Chest"}
-    store.assets[other.path] = other
+    world.assets[other.path] = other
 
-    assert list_rows(FakeEditor(store), "Props", "Crate") == []
+    assert list_rows(world, "Props", "Crate") == []
 
 
 def test_listing_reports_a_ue_failure_with_the_finalize_code() -> None:
@@ -840,13 +657,13 @@ def test_listing_reports_a_ue_failure_with_the_finalize_code() -> None:
 
 
 def test_the_mcp_tool_returns_the_same_rows_as_the_listing(tmp_path: Path) -> None:
-    store = _Store()
-    _import_both_folders(store, tmp_path)
+    world = _world()
+    _import_both_folders(world, tmp_path)
 
-    rows = list_material_variants(category="Props", collection="Crate", client=FakeEditor(store))
+    rows = list_material_variants(category="Props", collection="Crate", client=world)
 
-    assert rows == list_rows(FakeEditor(store), "Props", "Crate")
-    assert list_for_mcp(category="Props", collection="Crate", client=FakeEditor(_Store())) == []
+    assert rows == list_rows(world, "Props", "Crate")
+    assert list_for_mcp(category="Props", collection="Crate", client=_world()) == []
 
 
 def test_the_mcp_tool_returns_the_unreachable_error_structured() -> None:
@@ -873,22 +690,22 @@ def test_the_mcp_tool_returns_the_unreachable_error_structured() -> None:
 
 
 def test_the_mcp_tool_refuses_a_name_that_is_not_pascal_case() -> None:
-    result = list_for_mcp(category="props", collection="Crate", client=FakeEditor(_Store()))
+    result = list_for_mcp(category="props", collection="Crate", client=_world())
 
     assert isinstance(result, dict)
     assert result["error"]["code"] == "finalize.invalid_request"
 
 
 def test_the_cli_lists_the_rows_as_json(tmp_path: Path) -> None:
-    store = _Store()
-    _import_both_folders(store, tmp_path)
+    world = _world()
+    _import_both_folders(world, tmp_path)
     stdout, stderr = io.StringIO(), io.StringIO()
 
     code = main(
         ["material-variants", "--category", "Props", "--collection", "Crate", "--json"],
         stdout=stdout,
         stderr=stderr,
-        unreal_client=FakeEditor(store),
+        unreal_client=world,
     )
 
     assert code == EXIT_OK
@@ -901,7 +718,7 @@ def test_the_cli_prints_one_line_per_variant_and_says_when_there_are_none() -> N
         ["material-variants", "--category", "Props", "--collection", "Crate"],
         stdout=stdout,
         stderr=io.StringIO(),
-        unreal_client=FakeEditor(_Store()),
+        unreal_client=_world(),
     )
 
     assert stdout.getvalue() == "Crate has no material variants in Unreal.\n"

@@ -15,7 +15,7 @@ import bpy
 from mathutils import Vector
 
 from ..bake_core.rewire import part_names
-from ..utils.budgets import CONTRACT_BUDGETS, BudgetOverrideError, resolve_budget
+from ..utils.budgets import BudgetOverrideError, resolve_budget
 from .geometry import geometry_findings
 from .material_variants import check_declaration, load_declaration
 from .report import ContractError, build_report, finding
@@ -194,6 +194,7 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
     return {
         "variant": variant,
         "type": obj.type,
+        "mesh": obj.data.name if is_mesh else None,
         "parent": obj.parent.name if obj.parent is not None else None,
         "tris": tris,
         "dimensions": _rounded(obj.dimensions),
@@ -211,11 +212,13 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
 
 
 def _budgets(asset_class: str, budgets_path: str | None) -> dict[str, dict[str, int]]:
+    path = budgets_path or None
     try:
-        mobile = resolve_budget(asset_class, budgets_path or None)
+        desktop = resolve_budget(asset_class, path, "desktop")
+        mobile = resolve_budget(asset_class, path, "mobile")
     except BudgetOverrideError as error:
         raise ContractError(error.code, error.message, error.remediation) from error
-    return {"desktop": dict(CONTRACT_BUDGETS[asset_class]["desktop"]), "mobile": mobile}
+    return {"desktop": desktop, "mobile": mobile}
 
 
 def _root_name(collection: str, variant: str) -> str:

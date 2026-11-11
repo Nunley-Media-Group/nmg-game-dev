@@ -10,13 +10,37 @@ Import order for one variant, run inside the editor:
    replace_existing=True, save=True)``). ``_BC`` is sRGB. ``_N`` has flip green channel, normal
    compression, and linear color. ``_ORM`` is linear with masks compression.
 2. Import ``SM_<Name>.fbx``. A static asset imports with materials, textures, and skeletal import
-   off, and with ``combine_meshes``, ``transform_vertex_to_absolute``, and
-   ``bake_pivot_in_vertex`` all off. Each mesh node becomes its own static mesh.
-   A rigged asset (its snapshot holds the armature ``SK_<Name>``) imports as a Skeletal Mesh.
+   off, and with ``combine_meshes`` and ``bake_pivot_in_vertex`` off. Each mesh node becomes its
+   own static mesh. The static import splits on the part count (#145):
+
+   - Single-part: ``transform_vertex_to_absolute`` is on. The one part sits at the asset origin,
+     so baking the node transform applies the FBX unit conversion without moving a pivot, and UE
+     names the mesh after the node (the Blender object).
+   - Multi-part: ``transform_vertex_to_absolute`` is off, so every part keeps its own pivot. Under
+     Interchange the unit conversion sits on the node transform, not the vertices, so each mesh
+     would stay at 1/100 of its authored size. Every LOD of every static mesh then gets
+     ``build_scale3d`` 100 through ``StaticMeshEditorSubsystem`` and is saved, which rebuilds its
+     bounds in centimetres. A mesh is named after its datablock, so each one whose datablock is
+     mapped to a part is renamed to that part's export name, consolidating an existing asset at
+     that name first so references follow the new mesh.
+
+   This replaces the ghost1 ``sitecustomize.py`` workaround (its ``_IMPORT_TEMPLATE`` patch in
+   ``Tools/nmgpatch``), which applied the same two steps in process. The workaround wrote the
+   scale only while it was still 1.0, so a reimport over a mesh already at scale 100 kept stale
+   bounds. The write here is absolute and always rebuilds.
+
+   A rigged asset (its snapshot holds the armature ``SK_<Name>``) imports as a Skeletal Mesh and
+   runs neither the build-scale nor the rename step.
    The Desktop variant creates ``SM_<Name>_Skeleton`` and ``SM_<Name>_PhysicsAsset`` in ``dest``.
    The Mobile variant reuses those two from ``skeleton_dest`` and imports
    ``SM_<Name>_LOD1.fbx`` and ``SM_<Name>_LOD2.fbx`` as LOD 1 and 2 with
    ``SkeletalMeshEditorSubsystem.import_lod``.
+
+   A static LOD group (a non-rigged variant whose snapshot holds ``SM_<Name>_Mobile_LOD0``,
+   ``_LOD1``, and ``_LOD2``, #146) imports as one Static Mesh ``SM_<Name>``. Interchange builds it
+   from the LOD-group FBX, with the exported LOD meshes as its LODs, so the code reads no LOD
+   import option and makes no separate LOD import. The group is single-part, so the single-part
+   options above apply, and the build-scale and rename steps do not run.
 3. For each mesh material slot named ``M_<Name>_<Part>``, create or reuse
    ``MI_<Name>_<Part>`` in ``dest``. Parent it to ``/nmg-game-dev/Materials/M_NmgORM`` and set
    ``BaseColor``, ``Normal``, and ``ORM`` from ``T_<Name>_<Part>_{BC,N,ORM}``. Assign it to the
@@ -35,7 +59,8 @@ printed, even on failure::
       "materials": {"M_Crate_Body": "/Game/.../MI_Crate_Body"},
       "static_meshes": {
         "SM_Crate_Body": {"path": "/Game/.../SM_Crate_Body",
-                          "bounds": {"min": [x, y, z], "max": [x, y, z]}}   # cm, UE axes, local
+                          "bounds": {"min": [x, y, z], "max": [x, y, z]},   # cm, UE axes, local
+                          "lod_count": 1}                                    # get_num_lods()
       },
       "skeletal_meshes": {                                       # rigged variants only
         "SM_Hero": {"path": "/Game/.../SM_Hero",
@@ -50,11 +75,17 @@ printed, even on failure::
 Pivot check. ``check_pivots`` compares each snapshot ``MESH`` entry of the variant with its UE
 mesh, static or skeletal. The snapshot key is the Blender object name. The UE mesh is matched by
 the same key, or by the key with ``_Mobile`` removed (the export name). A rigged asset's
-``_LOD1``/``_LOD2`` entries are not compared, because they are LODs of the root Skeletal Mesh.
-Blender meters are converted to centimeters, and Y is negated, which swaps the Y extremes. Each
-component must match within 0.01 cm. The snapshot entry must carry ``local_bounds``:
-``{"min": [x, y, z], "max": [x, y, z]}`` in Blender meters, object-local space. Without it the
-check cannot run, so it fails closed with ``import_ue.pivot_mismatch``.
+``_LOD1``/``_LOD2`` entries are not compared, because they are LODs of the root Skeletal Mesh. A
+static LOD group's ``_LOD0`` entry is compared with the Static Mesh ``SM_<Name>``, and its
+``_LOD1``/``_LOD2`` entries are not compared either. Blender meters are converted to centimeters,
+and Y is negated, which swaps the Y extremes. Each component must match within 0.01 cm. The
+snapshot entry must carry ``local_bounds``: ``{"min": [x, y, z], "max": [x, y, z]}`` in Blender
+meters, object-local space. Without it the check cannot run, so it fails closed with
+``import_ue.pivot_mismatch``.
+
+LOD count check. ``check_lod_counts`` runs before the pivot check. For each static LOD group it
+requires the Static Mesh's ``lod_count`` to equal the group's number of LOD objects. A mismatch,
+or a missing count, fails with ``import_ue.failed`` that names the mesh and both counts.
 """
 
 from __future__ import annotations
@@ -62,6 +93,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections import Counter
 from typing import Any, Final, NoReturn, Protocol, cast
 
 from nmg_game_dev.pipeline.errors import PipelineError
@@ -70,8 +102,13 @@ _STAGE: Final = "import_ue"
 _RESULT_PREFIX: Final = "NMG_RESULT "
 #: Matches ``contract_core.validate.MOBILE_SUFFIX``; the Mobile export name drops it.
 _MOBILE_SUFFIX: Final = "_Mobile"
-#: Matches ``contract_core.validate._LOD_EXTRA``: LOD1 and LOD2 objects of a rigged Mobile variant.
+#: Matches ``contract_core.validate._LOD_EXTRA``: LOD1 and LOD2 objects of a rigged Mobile variant
+#: or of a static LOD group, which UE gives no mesh of their own (#146).
 _LOD_EXTRA: Final = re.compile(r"_LOD[1-9]$")
+_LOD0_SUFFIX: Final = "_LOD0"
+#: Any LOD suffix, with its level captured. A multi-part count treats ``SM_Crate_LOD0`` and
+#: ``SM_Crate`` as one part.
+_LOD_ANY: Final = re.compile(r"_LOD([0-9]+)$")
 PIVOT_TOLERANCE_CM: Final = 0.01
 _CM_PER_METER: Final = 100.0
 _MASTER_PATH: Final = "/nmg-game-dev/Materials/M_NmgORM"
@@ -95,6 +132,8 @@ import unreal
 
 PARAMS = json.loads(__PARAMS__)
 MASTER_PATH = "/nmg-game-dev/Materials/M_NmgORM"
+CM_PER_METER = 100.0
+ASSET_NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 RESULT = {
     "ok": False,
     "variant": PARAMS["variant"],
@@ -167,7 +206,7 @@ def _static_options():
     options.import_textures = False
     options.import_as_skeletal = False
     options.static_mesh_import_data.combine_meshes = False
-    options.static_mesh_import_data.transform_vertex_to_absolute = False
+    options.static_mesh_import_data.transform_vertex_to_absolute = not PARAMS["multi_part"]
     options.static_mesh_import_data.bake_pivot_in_vertex = False
     return options
 
@@ -256,6 +295,44 @@ def _import_skeletal(tools, fbx):
     return meshes
 
 
+def _asset_name(text):
+    # UE replaces every character outside [A-Za-z0-9_] in an asset name with an underscore.
+    return "".join(char if char in ASSET_NAME_CHARS else "_" for char in text)
+
+
+def _set_build_scale(meshes):
+    # Written on every run, not only while the scale is 1.0: the write is absolute, so it never
+    # compounds, and it rebuilds the mesh, so the bounds are those of the new geometry even when
+    # an earlier import left the mesh at scale 100.
+    subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    for _, mesh in meshes:
+        for lod in range(mesh.get_num_lods()):
+            settings = subsystem.get_lod_build_settings(mesh, lod)
+            settings.build_scale3d = unreal.Vector(CM_PER_METER, CM_PER_METER, CM_PER_METER)
+            subsystem.set_lod_build_settings(mesh, lod, settings)
+        unreal.EditorAssetLibrary.save_loaded_asset(mesh)
+
+
+def _rename_to_parts(meshes):
+    dest = PARAMS["dest"]
+    export_names = {
+        _asset_name(datablock): export for datablock, export in PARAMS["mesh_names"].items()
+    }
+    renamed = []
+    for object_path, mesh in meshes:
+        asset_name = object_path.rsplit("/", 1)[-1]
+        export = export_names.get(asset_name)
+        if export is None or export == asset_name:
+            renamed.append((object_path, mesh))
+            continue
+        target = dest + "/" + export
+        if unreal.EditorAssetLibrary.does_asset_exist(target):
+            unreal.EditorAssetLibrary.consolidate_assets(mesh, [_load(target)])
+        unreal.EditorAssetLibrary.rename_asset(object_path, target)
+        renamed.append((target, mesh))
+    return renamed
+
+
 def _bounds(mesh):
     box = mesh.get_bounding_box()
     return {
@@ -315,7 +392,11 @@ def _bind_materials(tools, meshes):
             }
             slots = mesh.get_editor_property("materials")
         else:
-            RESULT["static_meshes"][mesh_name] = {"path": object_path, "bounds": _bounds(mesh)}
+            RESULT["static_meshes"][mesh_name] = {
+                "path": object_path,
+                "bounds": _bounds(mesh),
+                "lod_count": mesh.get_num_lods(),
+            }
             slots = mesh.static_materials
         for index, slot in enumerate(slots):
             slot_name = str(slot.material_slot_name)
@@ -442,6 +523,9 @@ def _run():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     _import_textures(tools)
     meshes = _import_meshes(tools)
+    if PARAMS["multi_part"] and not PARAMS["rigged"]:
+        _set_build_scale(meshes)
+        meshes = _rename_to_parts(meshes)
     _check_expected(meshes)
     _bind_materials(tools, meshes)
     _bind_material_variants(tools)
@@ -497,6 +581,8 @@ def build_import_code(
         "skeleton_dest": skeleton_dest if skeleton_dest is not None else dest,
         "expected_meshes": _expected_mesh_candidates(report, variant, rigged),
         "material_variants": [dict(entry) for entry in material_variants or []],
+        "multi_part": _multi_part(report, variant, rigged),
+        "mesh_names": _mesh_names(report, variant, rigged),
     }
     return _IMPORT_TEMPLATE.replace("__PARAMS__", json.dumps(json.dumps(params, sort_keys=True)))
 
@@ -528,8 +614,8 @@ def check_pivots(report: dict[str, Any], result: dict[str, Any]) -> None:
     """Compare each child part's local bounds with the pre-export snapshot, within 0.01 cm.
 
     Static and skeletal meshes are both measured. A rigged asset's LOD1 and LOD2 entries are
-    skipped. Raises ``import_ue.pivot_mismatch`` on any mismatch, on a part with no mesh, or on a
-    snapshot part that has no ``local_bounds``.
+    skipped, and so are a static LOD group's (#146). Raises ``import_ue.pivot_mismatch`` on any
+    mismatch, on a part with no mesh, or on a snapshot part that has no ``local_bounds``.
     """
     variant = str(result.get("variant", ""))
     snapshot = report.get("snapshot")
@@ -543,13 +629,14 @@ def check_pivots(report: dict[str, Any], result: dict[str, Any]) -> None:
         _fail_pivot("the report or the UE result has no snapshot or static_meshes")
     measured: dict[str, Any] = {**static, **skeletal}
     rigged = _is_rigged(report, str(result.get("name", "")))
+    groups = _lod_groups(report, variant, rigged)
     for key in sorted(snapshot):
         entry = snapshot[key]
         if not isinstance(entry, dict) or entry.get("type") != "MESH":
             continue
         if entry.get("variant") != variant:
             continue
-        if rigged and _LOD_EXTRA.search(key):
+        if _skipped_lod(key, rigged, groups):
             continue
         mesh_name = _matching_mesh(key, measured)
         if mesh_name is None:
@@ -561,6 +648,33 @@ def check_pivots(report: dict[str, Any], result: dict[str, Any]) -> None:
             _fail_pivot(f"static mesh {mesh_name} reported no bounds")
         for corner in ("min", "max"):
             _compare_corner(key, mesh_name, corner, expected[corner], actual.get(corner))
+
+
+def check_lod_counts(report: dict[str, Any], result: dict[str, Any]) -> None:
+    """Check that each static LOD group imported as one Static Mesh with its snapshot's LOD count.
+
+    A static LOD group is a non-rigged variant whose snapshot holds ``<base>_LOD0`` and its LOD
+    objects (#146). UE builds one Static Mesh for it, matched here by the LOD0 key. Its
+    ``lod_count`` must equal the number of LOD objects. Raises ``import_ue.failed``, naming the mesh
+    and both counts, when the count differs or is missing. A variant with no static LOD group,
+    including every rigged asset, passes without a check.
+    """
+    variant = str(result.get("variant", ""))
+    rigged = _is_rigged(report, str(result.get("name", "")))
+    static = result.get("static_meshes")
+    measured: dict[str, Any] = static if isinstance(static, dict) else {}
+    for base, keys in _lod_groups(report, variant, rigged).items():
+        found = _matching_mesh(f"{base}{_LOD0_SUFFIX}", measured)
+        entry = measured[found] if found is not None else None
+        actual = entry.get("lod_count") if isinstance(entry, dict) else None
+        if isinstance(actual, int) and not isinstance(actual, bool) and actual == len(keys):
+            continue
+        mesh_name = found if found is not None else _export_name(base)
+        shown = "missing" if actual is None else str(actual)
+        _fail_import(
+            f"{mesh_name} has {shown} LODs in Unreal; the snapshot has {len(keys)} LOD objects "
+            f"({keys[0]}..{keys[-1]})"
+        )
 
 
 def import_variant(
@@ -597,6 +711,7 @@ def import_variant(
             remediation=_IMPORT_REMEDIATION,
             stage=_STAGE,
         )
+    check_lod_counts(report, result)
     check_pivots(report, result)
     return result
 
@@ -624,29 +739,114 @@ def _is_rigged(report: dict[str, Any], name: str) -> bool:
     return isinstance(entry, dict) and entry.get("type") == "ARMATURE"
 
 
-def _expected_mesh_candidates(
-    report: dict[str, Any], variant: str, rigged: bool
-) -> list[list[str]]:
+def _snapshot_meshes(report: dict[str, Any], variant: str) -> list[tuple[str, Any]]:
+    """Every snapshot ``MESH`` entry of one variant, sorted by key, with no skipping."""
     snapshot = report.get("snapshot")
     if not isinstance(snapshot, dict):
         return []
-    candidates: list[list[str]] = []
+    meshes: list[tuple[str, Any]] = []
     for key in sorted(snapshot):
         entry = snapshot[key]
-        if not (
+        if (
             isinstance(entry, dict)
             and entry.get("type") == "MESH"
             and entry.get("variant") == variant
         ):
-            continue
-        if rigged and _LOD_EXTRA.search(key):
-            continue
-        candidates.append(sorted({key, _export_name(key)}))
-    return candidates
+            meshes.append((key, entry))
+    return meshes
+
+
+def _lod_groups(report: dict[str, Any], variant: str, rigged: bool) -> dict[str, list[str]]:
+    """Each static LOD group's base, mapped to its LOD object keys, LOD0 first (#146).
+
+    A base is a group when its snapshot holds ``<base>_LOD0``. A rigged asset has no static LOD
+    group, so it gets none.
+    """
+    if rigged:
+        return {}
+    levels: dict[str, list[tuple[int, str]]] = {}
+    for key, _ in _snapshot_meshes(report, variant):
+        match = _LOD_ANY.search(key)
+        if match is not None:
+            levels.setdefault(key[: match.start()], []).append((int(match.group(1)), key))
+    return {
+        base: [key for _, key in sorted(members)]
+        for base, members in levels.items()
+        if any(level == 0 for level, _ in members)
+    }
+
+
+def _skipped_lod(key: str, rigged: bool, groups: dict[str, list[str]]) -> bool:
+    """True for a LOD1 or LOD2 object that UE gives no mesh of its own.
+
+    A rigged asset's LODs are LODs of its Skeletal Mesh. A static LOD group's are LODs of its
+    Static Mesh, so neither gets a mesh of its own.
+    """
+    if _LOD_EXTRA.search(key) is None:
+        return False
+    return rigged or _LOD_ANY.sub("", key) in groups
+
+
+def _variant_meshes(report: dict[str, Any], variant: str, rigged: bool) -> list[tuple[str, Any]]:
+    """The snapshot ``MESH`` entries of one variant that UE gives a mesh each, sorted by key."""
+    groups = _lod_groups(report, variant, rigged)
+    return [
+        (key, entry)
+        for key, entry in _snapshot_meshes(report, variant)
+        if not _skipped_lod(key, rigged, groups)
+    ]
+
+
+def _expected_mesh_candidates(
+    report: dict[str, Any], variant: str, rigged: bool
+) -> list[list[str]]:
+    return [
+        sorted(_mesh_name_candidates(key)) for key, _ in _variant_meshes(report, variant, rigged)
+    ]
+
+
+def _multi_part(report: dict[str, Any], variant: str, rigged: bool) -> bool:
+    """True when the variant has more than one base part, so its parts need their own pivots.
+
+    Counts export names with any ``_LOD<n>`` suffix removed, as ghost1's ``_multi_part`` does.
+    """
+    bases = {
+        _LOD_ANY.sub("", _export_name(key)) for key, _ in _variant_meshes(report, variant, rigged)
+    }
+    return len(bases) > 1
+
+
+def _mesh_names(report: dict[str, Any], variant: str, rigged: bool) -> dict[str, str]:
+    """Map each part's mesh datablock to its export name for this variant.
+
+    A datablock shared by several parts is left out: UE names the mesh after that datablock, so
+    no single export name can be given to it. Snapshot entries from before #145 have no ``mesh``
+    key and are left out too.
+    """
+    parts = [
+        (entry.get("mesh"), _export_name(key))
+        for key, entry in _variant_meshes(report, variant, rigged)
+        if isinstance(entry.get("mesh"), str)
+    ]
+    counts = Counter(datablock for datablock, _ in parts)
+    return {datablock: export for datablock, export in parts if counts[datablock] == 1}
+
+
+def _mesh_name_candidates(key: str) -> list[str]:
+    """The names a snapshot key may carry in UE, in match order, without duplicates.
+
+    The key, then its export name. A ``_LOD0`` key also gives both without ``_LOD0``, because UE
+    names a static LOD group after its Empty, ``SM_<Name>``, and not after LOD0 (#146).
+    """
+    export = _export_name(key)
+    names = [key, export]
+    if key.endswith(_LOD0_SUFFIX):
+        names += [key[: -len(_LOD0_SUFFIX)], export[: -len(_LOD0_SUFFIX)]]
+    return list(dict.fromkeys(names))
 
 
 def _matching_mesh(key: str, measured: dict[str, Any]) -> str | None:
-    for candidate in (key, _export_name(key)):
+    for candidate in _mesh_name_candidates(key):
         if candidate in measured:
             return candidate
     return None
@@ -758,6 +958,7 @@ __all__ = [
     "PIVOT_TOLERANCE_CM",
     "UnrealPythonClient",
     "build_import_code",
+    "check_lod_counts",
     "check_pivots",
     "import_variant",
     "parse_nmg_result",

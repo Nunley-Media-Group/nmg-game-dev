@@ -7,8 +7,8 @@ same contract as scripts/blender/finalize_session.py:
     NMG_PAYLOAD = {...}
 
     collection_state: {"name"}                        -> {"ok", "state": missing|exists|no_mesh}
-    import_glb:       {"name", "path", "pose"?}       -> {"ok", "collection", "mesh", "material",
-                                                          "merged_vertices", "origin_offset",
+    import_glb:       {"name", "path", "pose"?,       -> {"ok", "collection", "mesh", "material",
+                       "raise_arms"?}                      "merged_vertices", "origin_offset",
                                                           "arm_raise"}
     export_glb:       {"name", "path"}                -> {"ok", "path", "meshes"}
     apply_maps:       {"name", "maps": {kind: path}}  -> {"ok", "material", "maps"}
@@ -17,10 +17,14 @@ same contract as scripts/blender/finalize_session.py:
 ``import_glb`` also welds the mesh, bakes its transform, moves its origin to the bottom center at
 the world origin, and smooths its normals. ``merged_vertices`` counts the vertices the weld removed,
 and ``origin_offset`` is the [x, y, z] translation it applied to the geometry, in meters.
-When ``pose`` is ``a-pose``, ``import_glb`` also raises each arm about its shoulder to a 48 degree
-drop, so ``rig_humanoid`` accepts it (#106). ``arm_raise`` holds ``{"left", "right"}``, each with
+When ``pose`` is ``a-pose`` and ``raise_arms`` is not false, ``import_glb`` also raises each arm
+about its detected shoulder to a 48 degree drop, so ``rig_humanoid`` accepts it (#106, #135).
+``arm_raise`` holds ``{"left", "right"}``, and each side reports ``detected``. A detected side also
+reports ``shoulder`` and ``hand_tip`` as world-space [x, y, z] in meters after the raise,
 ``drop_before_deg``, ``drop_after_deg``, and ``rotation_deg`` (0 when that side is already
-compliant), and it is ``null`` for any other pose or for none.
+compliant). An undetected side reports ``detected`` false, ``reason`` ``no_armpit``, null points and
+drops, and ``rotation_deg`` 0; it moves no vertex. ``arm_raise`` is ``null`` for any other pose, for
+none, or when ``raise_arms`` is false.
 Each run prints exactly one line, NMG_RESULT <json>. Failures come back as
 {"ok": false, "error": {"code", "message", "remediation"}} and never raise into the session.
 Nodes are created here, and every lookup goes by data type or by the datablock name this script set,
@@ -39,13 +43,17 @@ EXISTS = "meshy.collection_exists"
 SESSION_FAILED = "meshy.session_failed"
 WELD_DISTANCE = 1e-5
 SMOOTH_ANGLE_DEG = 30
-# A-pose arm raise (#106). The shoulder pivot sits at (x_c ± 0.10·H, y_c, z_min + 0.81·H).
+# A-pose arm raise (#106, #135). Each shoulder is found from the mesh's horizontal slices, the arm
+# is tracked down from its armpit, and the arm rotates about its shoulder to a 48 degree drop.
+# Lengths in the slice rules are fractions of the height H.
 TARGET_DROP_DEG = 48.0
-SHOULDER_HEIGHT = 0.81
-SHOULDER_HALF_WIDTH = 0.10
+SLICE_STEP = 0.005
+SLICE_GAP = 0.002
+ARMPIT_RUN = 0.05
+ARM_GROWTH = 2.0
 BLEND_WIDTH = 0.04
-ARM_CONE_EXTRA_DEG = 20.0
 ARM_SIDES = (("left", 1.0), ("right", -1.0))
+NO_ARMPIT = "no_armpit"
 MAP_INPUTS = {
     "base_color": ("Base Color", "sRGB"),
     "roughness": ("Roughness", "Non-Color"),
@@ -176,64 +184,274 @@ def _raise_point(point, pivot, angle):
     )
 
 
-def _hand_tip(points, sign, x_c):
-    """Return the index of the vertex farthest on side ``sign`` of the midline ``x_c``."""
-    return max(range(len(points)), key=lambda index: sign * (points[index][0] - x_c))
+def _undetected():
+    return {
+        "detected": False,
+        "reason": NO_ARMPIT,
+        "shoulder": None,
+        "hand_tip": None,
+        "drop_before_deg": None,
+        "drop_after_deg": None,
+        "rotation_deg": 0.0,
+    }
+
+
+def _slice_z(z_top, step, index):
+    """Return the height of slice ``index``, which sits half a step below its grid line."""
+    return z_top - (index + 0.5) * step
+
+
+class _Slices:
+    """The mesh's horizontal silhouettes, one per slice from the top down, with their X intervals.
+
+    ``intervals[index]`` is slice ``index``'s sorted, non-overlapping list of (low, high) X ranges.
+    """
+
+    def __init__(self, z_top, step, intervals):
+        self.z_top = z_top
+        self.step = step
+        self.intervals = intervals
+
+    def z(self, index):
+        return _slice_z(self.z_top, self.step, index)
+
+    def nearest(self, z):
+        return round((self.z_top - z) / self.step - 0.5)
+
+
+def _triangles(points, mesh):
+    """Return the mesh's faces as world-space fan triangles."""
+    triangles = []
+    for poly in mesh.polygons:
+        indices = poly.vertices
+        first = points[indices[0]]
+        for index in range(1, len(indices) - 1):
+            triangles.append((first, points[indices[index]], points[indices[index + 1]]))
+    return triangles
+
+
+def _chords(triangles, z):
+    """Return each triangle's X range where the plane at height ``z`` cuts it.
+
+    A triangle counts for the planes with its lowest z <= ``z`` < its highest z, so each cut has
+    exactly two edge crossings and no vertex on the plane is counted twice.
+    """
+    chords = []
+    for tri in triangles:
+        crossings = []
+        for start, end in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            if min(start[2], end[2]) <= z < max(start[2], end[2]):
+                t = (z - start[2]) / (end[2] - start[2])
+                crossings.append(start[0] + t * (end[0] - start[0]))
+        if len(crossings) == 2:
+            chords.append((min(crossings), max(crossings)))
+    return chords
+
+
+def _union(chords, gap):
+    """Return the sorted intervals of ``chords``, merging ranges that overlap or sit within gap."""
+    merged = []
+    for low, high in sorted(chords):
+        if merged and low - merged[-1][1] < gap:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], high))
+        else:
+            merged.append((low, high))
+    return merged
+
+
+def _slice_mesh(points, mesh, height):
+    """Slice the mesh from its top down to its bottom in steps of SLICE_STEP·H."""
+    zs = [point[2] for point in points]
+    z_top = max(zs)
+    step = SLICE_STEP * height
+    count = max(0, math.floor((z_top - min(zs)) / step - 0.5) + 1)
+    buckets = [[] for _ in range(count)]
+    for tri in _triangles(points, mesh):
+        low = min(tri[0][2], tri[1][2], tri[2][2])
+        high = max(tri[0][2], tri[1][2], tri[2][2])
+        if high <= low:
+            continue
+        first = max(0, math.floor((z_top - high) / step - 0.5) + 1)
+        last = min(count - 1, math.floor((z_top - low) / step - 0.5))
+        for index in range(first, last + 1):
+            buckets[index].append(tri)
+    intervals = []
+    for index, bucket in enumerate(buckets):
+        z = _slice_z(z_top, step, index)
+        intervals.append(_union(_chords(bucket, z), SLICE_GAP * height))
+    return _Slices(z_top, step, intervals)
+
+
+def _containing(intervals, x_c):
+    """Return the interval that holds the midline ``x_c``, or None."""
+    return next((interval for interval in intervals if interval[0] <= x_c <= interval[1]), None)
+
+
+def _outermost(intervals, x_c, sign):
+    """Return the interval on side ``sign`` that does not hold ``x_c`` and lies farthest out."""
+    if sign > 0:
+        sides = [interval for interval in intervals if interval[0] > x_c]
+        return max(sides, key=lambda interval: interval[1], default=None)
+    sides = [interval for interval in intervals if interval[1] < x_c]
+    return min(sides, key=lambda interval: interval[0], default=None)
+
+
+def _find_armpit(intervals, x_c, sign, run):
+    """Return the index of the highest slice where the torso and a separate arm both exist.
+
+    The torso and the arm must stay separate for ``run`` slices below that slice. Returns None when
+    no such slice exists on side ``sign``.
+    """
+    present = [
+        _containing(slice_intervals, x_c) is not None
+        and _outermost(slice_intervals, x_c, sign) is not None
+        for slice_intervals in intervals
+    ]
+    for index in range(len(intervals) - run):
+        if all(present[index : index + run + 1]):
+            return index
+    return None
+
+
+def _track_arm(intervals, x_c, sign, armpit):
+    """Walk the arm down from the armpit slice; return its (slice, low, high) list and drift.
+
+    Each slice's arm interval must be the one that overlaps the previous arm interval, carried along
+    the arm's drift from the slice before. Tracking stops when no interval overlaps, when more than
+    one overlaps, or when the overlapping interval is wider than ARM_GROWTH times the previous one.
+    The drift is the change in the arm's midpoint over the last slice. A tapering arm narrows below
+    the drift per slice near its tip, so the carried overlap is what lets tracking reach the tip.
+    """
+    first = _outermost(intervals[armpit], x_c, sign)
+    tracked = [(armpit, first[0], first[1])]
+    drift = 0.0
+    for index in range(armpit + 1, len(intervals)):
+        _, prev_low, prev_high = tracked[-1]
+        found = [
+            (low, high)
+            for low, high in intervals[index]
+            if not (low <= x_c <= high) and low <= prev_high + drift and high >= prev_low + drift
+        ]
+        if len(found) != 1:
+            break
+        low, high = found[0]
+        if high - low > ARM_GROWTH * (prev_high - prev_low):
+            break
+        drift = (low + high) / 2 - (prev_low + prev_high) / 2
+        tracked.append((index, low, high))
+    return tracked, drift
+
+
+def _raise_side(points, slices, x_c, sign, height):
+    """Detect and raise one arm; return its report and the moved vertices (index to new point).
+
+    The arm is the vertices below the armpit whose X lies in the tracked interval of their nearest
+    slice, plus the shoulder cap: the vertices at or above the armpit, outboard of the torso's edge,
+    within the armpit interval's width of the shoulder. The shoulder is where the line fitted
+    through the tracked midpoints meets the torso's edge. The hand tip is the arm vertex farthest
+    from it.
+    """
+    run = round(ARMPIT_RUN / SLICE_STEP)
+    armpit = _find_armpit(slices.intervals, x_c, sign, run)
+    if armpit is None:
+        return _undetected(), {}
+    torso = _containing(slices.intervals[armpit], x_c)
+    x_edge = torso[1] if sign > 0 else torso[0]
+    tracked, drift = _track_arm(slices.intervals, x_c, sign, armpit)
+    armpit_z = slices.z(armpit)
+    last = armpit + len(tracked) - 1
+    tolerance = SLICE_GAP * height + abs(drift)
+    below = []
+    for index, point in enumerate(points):
+        if not (slices.z(last) - slices.step <= point[2] < armpit_z):
+            continue
+        _, low, high = tracked[min(max(slices.nearest(point[2]), armpit), last) - armpit]
+        if low - tolerance <= point[0] <= high + tolerance:
+            below.append(index)
+
+    count = len(tracked)
+    samples = [(slices.z(index), (low + high) / 2) for index, low, high in tracked]
+    mean_z = sum(z for z, _ in samples) / count
+    mean_x = sum(x for _, x in samples) / count
+    spread = sum((z - mean_z) ** 2 for z, _ in samples)
+    slope = sum((z - mean_z) * (x - mean_x) for z, x in samples) / spread if spread > 0 else 0.0
+    intercept = mean_x - slope * mean_z
+    if abs(slope) < 1e-6:
+        shoulder_z = armpit_z
+    else:
+        shoulder_z = (x_edge - intercept) / slope
+    ys = [points[index][1] for index in below]
+    shoulder_y = (min(ys) + max(ys)) / 2 if ys else 0.0
+    shoulder = (x_edge, shoulder_y, shoulder_z)
+
+    reach = tracked[0][2] - tracked[0][1]
+    cap = [
+        index
+        for index, point in enumerate(points)
+        if point[2] >= armpit_z
+        and sign * (point[0] - x_edge) > 0
+        and math.dist(point, shoulder) <= reach
+    ]
+    selected = below + cap
+    if not selected:
+        return _undetected(), {}
+    tip = max(selected, key=lambda index: math.dist(points[index], shoulder))
+    length = math.dist(points[tip], shoulder)
+    selected = [index for index in selected if math.dist(points[index], shoulder) <= length]
+
+    drop = _drop_deg(shoulder, points[tip])
+    excess = drop - TARGET_DROP_DEG
+    blend = BLEND_WIDTH * height
+    moved = {}
+    if excess > 0:
+        for index in selected:
+            weight = min(1.0, sign * (points[index][0] - x_edge) / blend)
+            if weight > 0:
+                angle = math.radians(-sign * weight * excess)
+                moved[index] = _raise_point(points[index], shoulder, angle)
+    tip_after = moved.get(tip, points[tip])
+    report = {
+        "detected": True,
+        "shoulder": [round(value, 6) for value in shoulder],
+        "hand_tip": [round(value, 6) for value in tip_after],
+        "drop_before_deg": round(drop, 2),
+        "drop_after_deg": round(_drop_deg(shoulder, tip_after), 2),
+        "rotation_deg": round(excess, 2) if excess > 0 else 0.0,
+    }
+    return report, moved
 
 
 def _raise_arms(obj):
-    """Raise each arm of the A-pose ``obj`` about its shoulder until its drop is 48 degrees (#106).
+    """Raise each arm of the A-pose ``obj`` about its detected shoulder to a 48 degree drop (#135).
 
-    The pivot and hand tip come from the world bounding box and the farthest vertex on each side.
-    A side at or under the target keeps every vertex. Otherwise each vertex outboard of the pivot,
-    and no more than ARM_CONE_EXTRA_DEG below the hand tip, rotates about the pivot by the excess
-    drop, weighted linearly over BLEND_WIDTH·H so the midline and legs stay put. This is vertex math
-    only: no modifier and no armature. Returns each side's drops and rotation, in degrees.
+    Each side's shoulder is found from the mesh's horizontal slices, not from fixed proportions, and
+    only the arm is moved: the vertices of the arm's tracked slices below the armpit and of its cap.
+    No vertex farther from the shoulder than the arm's length moves. A side with no armpit moves no
+    vertex and reports ``detected`` false. A side at or under the target keeps every vertex. This is
+    vertex math only: no modifier and no armature, so counts, connectivity, and winding are kept.
+    Returns each side's report, in degrees and meters.
     """
     mesh = obj.data
     to_world = obj.matrix_world
     to_local = to_world.inverted()
     points = [tuple(to_world @ vertex.co) for vertex in mesh.vertices]
     xs = [point[0] for point in points]
-    ys = [point[1] for point in points]
     zs = [point[2] for point in points]
-    z_min = min(zs)
-    height = max(zs) - z_min
+    height = max(zs) - min(zs)
+    if not points or height <= 0:
+        return {"left": _undetected(), "right": _undetected()}
     x_c = (min(xs) + max(xs)) / 2
-    y_c = (min(ys) + max(ys)) / 2
-    limit = SHOULDER_HALF_WIDTH * height
-    blend = BLEND_WIDTH * height
-    moved = {}
+    slices = _slice_mesh(points, mesh, height)
     report = {}
+    moved = {}
     for side, sign in ARM_SIDES:
-        pivot = (x_c + sign * limit, y_c, z_min + SHOULDER_HEIGHT * height)
-        tip = _hand_tip(points, sign, x_c)
-        drop = _drop_deg(pivot, points[tip])
-        if drop <= TARGET_DROP_DEG:
-            report[side] = {
-                "drop_before_deg": round(drop, 2),
-                "drop_after_deg": round(drop, 2),
-                "rotation_deg": 0.0,
-            }
-            continue
-        excess = drop - TARGET_DROP_DEG
-        for index, point in enumerate(points):
-            lateral = sign * (point[0] - x_c) - limit
-            if lateral <= 0 or _drop_deg(pivot, point) > drop + ARM_CONE_EXTRA_DEG:
-                continue
-            weight = min(1.0, lateral / blend)
-            points[index] = _raise_point(point, pivot, math.radians(-sign * weight * excess))
-            moved[index] = points[index]
-        report[side] = {
-            "drop_before_deg": round(drop, 2),
-            "drop_after_deg": round(_drop_deg(pivot, points[tip]), 2),
-            "rotation_deg": round(excess, 2),
-        }
+        report[side], side_moved = _raise_side(points, slices, x_c, sign, height)
+        moved.update(side_moved)
     for index, point in moved.items():
         mesh.vertices[index].co = to_local @ Vector(point)
     if moved:
         mesh.update()
-    return {"left": report["left"], "right": report["right"]}
+    return report
 
 
 def _import_glb(payload):
@@ -296,7 +514,8 @@ def _import_glb(payload):
             f"{error} The {name} collection stays in the open file.",
             f"Delete the {name} collection in Blender, then retry.",
         )
-    arm_raise = _raise_arms(target) if payload.get("pose") == "a-pose" else None
+    raise_arms = payload.get("pose") == "a-pose" and payload.get("raise_arms", True)
+    arm_raise = _raise_arms(target) if raise_arms else None
     return {
         "ok": True,
         "collection": collection.name,

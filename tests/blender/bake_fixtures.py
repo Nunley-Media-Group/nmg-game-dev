@@ -26,7 +26,11 @@ __all__ = [
     "clear_scene",
     "image_material",
     "new_crate",
+    "noise_image",
 ]
+
+# Cycles per pixel for the periodic fine noise: the adjacent-pixel step is above 0.04 at 256 px.
+_NOISE_CUTOFF = 0.25
 
 _MARGIN = 0.05
 
@@ -212,6 +216,38 @@ def checker_image(name: str, size: int = 64, periodic: bool = True) -> bpy.types
     else:
         value = u
     rgba = np.stack([value, 0.6 * value, 0.3 + 0.2 * value, np.ones_like(value)], axis=-1)
+    image.pixels.foreach_set(rgba.astype(np.float32).ravel())
+    return image
+
+
+def noise_image(
+    name: str,
+    size: int = 256,
+    periodic: bool = True,
+    seed: int = 0,
+    array: np.ndarray | None = None,
+) -> bpy.types.Image:
+    """A color image of fine noise for the seam tests (#147).
+
+    Periodic (default): seeded white noise low-passed in the Fourier domain, so opposite edges are
+    neighbours and the adjacent-pixel step is above 0.04. Non-periodic: a size x size crop of a
+    2 x size field, so the edges differ. With array (H x W x 3, uint8), the pixels are that array
+    divided by 255 and size is taken from it.
+    """
+    if array is not None:
+        rgb = np.asarray(array, dtype=np.float32) / 255.0
+        size = int(rgb.shape[0])
+    else:
+        span = size if periodic else 2 * size
+        white = np.random.default_rng(seed).standard_normal((span, span, 3))
+        freq = np.fft.fftfreq(span)
+        radius = np.hypot(freq[:, None], freq[None, :])
+        spectrum = np.fft.fft2(white, axes=(0, 1)) * (radius <= _NOISE_CUTOFF)[..., None]
+        field = np.fft.ifft2(spectrum, axes=(0, 1)).real[:size, :size]
+        rgb = ((field - field.min()) / (field.max() - field.min())).astype(np.float32)
+    image = bpy.data.images.new(name, size, size, alpha=True, float_buffer=True)
+    image.colorspace_settings.name = "sRGB"
+    rgba = np.concatenate([rgb, np.ones((size, size, 1), dtype=np.float32)], axis=-1)
     image.pixels.foreach_set(rgba.astype(np.float32).ravel())
     return image
 

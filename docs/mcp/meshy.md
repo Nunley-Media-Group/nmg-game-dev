@@ -22,7 +22,7 @@ key. A missing key fails with `meshy.api_key_missing` before any Meshy request, 
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `generate_model` | `name`, `prompt?`, `image_paths?` (1–4), `texture=true`, `pose?` | `{"job_id"}` |
+| `generate_model` | `name`, `prompt?`, `image_paths?` (1–4), `texture=true`, `pose?`, `raise_arms=true` | `{"job_id"}` |
 | `retexture_model` | `name`, `prompt?` or `image_path?` (exactly one) | `{"job_id"}` |
 | `get_meshy_job` | `job_id` | The status document |
 
@@ -48,6 +48,8 @@ be combined with `texture=false`, because the prompt would go unused.
 
 `pose` is `a-pose` or `t-pose`. It is sent as `pose_mode` on the geometry request only when given.
 Set it only for characters and creatures with limbs. Never set it for props, which it distorts.
+With `a-pose`, the import raises the arms unless `raise_arms` is `false`; see [Arm raise](#arm-raise).
+`raise_arms` is `true` by default. Setting it `false` still sends `pose_mode` `a-pose` to Meshy.
 
 Meshy's `a-pose` drops the arms about 55° below horizontal, and `rig_humanoid` rejects arms dropped
 more than 50°. So an `a-pose` import raises each arm about its shoulder until its drop is 48°,
@@ -88,25 +90,52 @@ of at least 0) and `origin_offset` (the `[x, y, z]` translation applied to the g
 
 ## Arm raise
 
-After the normalization, an `a-pose` import raises the arms. It finds each shoulder pivot from the
-mesh's world bounding box, at `(x_c ± 0.10·H, y_c, z_min + 0.81·H)`, where `H` is the height. The
-hand tip is the vertex farthest on that side. The arm's drop is the angle below horizontal of the
-line from the pivot to the hand tip. A side whose drop is 48° or less keeps every vertex. Otherwise
-each vertex outboard of the pivot, and no more than 20° below the hand tip, rotates about the pivot
-around the front-to-back axis by the excess. The rotation blends linearly over `0.04·H` outward from
-the pivot, so the midline and the legs do not move. Vertex and face counts, connectivity, and face
-orientation are unchanged. This is vertex math only, with no modifier and no armature.
+After the normalization, an `a-pose` import raises the arms, unless `raise_arms` is `false`
+(`generate_model(raise_arms=False)` or `generate --no-arm-raise`). The raise finds each shoulder from
+the mesh, not from fixed proportions, so a stylized character whose shoulders sit low under a large
+head is raised as well as a realistic one.
+
+1. **Armpit.** The mesh is cut into horizontal slices, `0.005·H` apart, from its top down. Each
+   slice's X extent is a set of intervals. The torso is the interval that holds the midline. On a
+   side, the arm is the outermost interval that does not hold the midline. The armpit is the highest
+   slice where the torso and that arm are both present and stay separate for `0.05·H` below it. A
+   side with no armpit is undetected.
+2. **Shoulder.** The arm is tracked down from its armpit slice. Each slice's arm interval is the one
+   that overlaps the previous arm interval, carried along the arm's drift. Tracking stops when no
+   interval overlaps, when more than one does, or when one is wider than twice the previous. A line
+   through the midpoints of the tracked intervals, taken where it meets the torso's outboard edge at
+   the armpit, is the shoulder. Because the midpoints of a tapering arm are not exactly on its axis,
+   the measured drop before the raise can differ from the mesh's true angle by a few degrees.
+3. **Selection.** The arm is the vertices below the armpit inside their nearest tracked interval,
+   plus the shoulder cap: vertices at or above the armpit, outboard of the torso's edge, and within
+   the armpit interval's width of the shoulder. Legs, boots, skirts, the torso, and the head move
+   only if they sit inside the arm's tracked intervals. No vertex farther from the shoulder than the
+   arm's length, which is the distance to the hand tip, moves.
+4. **Raise.** The drop is the angle below horizontal from the detected shoulder to the hand tip,
+   the arm's farthest vertex. A side at or under 48° keeps every vertex. Otherwise each selected
+   vertex rotates about the shoulder, around the front-to-back axis, by the excess over 48°. The
+   rotation fades in linearly over `0.04·H` outward from the torso's edge, so the midline does not
+   move. Vertex and face counts, connectivity, and face orientation are unchanged. This is vertex math
+   only, with no modifier and no armature.
+
+A side with no armpit, such as an arm fused to the torso, moves no vertex, and the import still
+succeeds. The `a-pose` import's other sides are raised as usual.
 
 The import reports this as `arm_raise`, with `left` and `right` each holding:
 
 | Field | Meaning |
 |-------|---------|
-| `drop_before_deg` | The arm's drop below horizontal before the raise |
-| `drop_after_deg` | The drop after the raise, 48° within 0.5° when the raise applied |
-| `rotation_deg` | The degrees the hand tip rotated; 0 when that side was already at 48° or less |
+| `detected` | `true` when the side's shoulder was found from its armpit, `false` otherwise |
+| `shoulder` | The detected shoulder, `[x, y, z]` in meters after the raise (the pivot, so it does not move); `null` when undetected |
+| `hand_tip` | The hand tip, `[x, y, z]` in meters after the raise; `null` when undetected |
+| `reason` | Present only when `detected` is `false`: `no_armpit` |
+| `drop_before_deg` | The drop from the shoulder to the hand tip before the raise; `null` when undetected |
+| `drop_after_deg` | The drop after the raise, 48° within 0.5° when the raise applied; `null` when undetected |
+| `rotation_deg` | The degrees the hand tip rotated; 0 when that side was already at 48° or less, and 0 when undetected |
 
-`arm_raise` is `null` for any pose other than `a-pose`, and for an import with no pose. A generate
-job's `result` carries `arm_raise` only when `loaded_into_session` is `true`.
+`arm_raise` is `null` for any pose other than `a-pose`, for an import with no pose, and for an
+`a-pose` import with `raise_arms` set to `false`. A generate job's `result` carries `arm_raise` only
+when `loaded_into_session` is `true`.
 
 ## Status document
 
@@ -118,14 +147,15 @@ job's `result` carries `arm_raise` only when `loaded_into_session` is `true`.
 `name`, `route` (`text`, `image`, or `multi_image`), `glb_path`, `loaded_into_session`,
 `collection`, `mesh`, `material`, `merged_vertices`, `origin_offset`, `arm_raise`, and `warnings`.
 `collection`, `mesh`, `material`, `merged_vertices`, `origin_offset`, and `arm_raise` are set only
-when `loaded_into_session` is `true`; they carry the import's values. A succeeded retexture job's `result` holds `name`,
-`maps`, `applied_to_session`, and `warnings`. A failed job carries `error` with `code`, `message`,
+when `loaded_into_session` is `true`; they carry the import's values. `arm_raise` is `null` when
+the raise is skipped with `raise_arms` set to `false`. A succeeded retexture job's `result` holds
+`name`, `maps`, `applied_to_session`, and `warnings`. A failed job carries `error` with `code`, `message`,
 and `remediation`.
 
 ## CLI
 
 ```
-python -m nmg_game_dev.meshy generate --name Crate --prompt "weathered wooden crate" [--image PATH ...] [--no-texture] [--pose a-pose] [--wait]
+python -m nmg_game_dev.meshy generate --name Crate --prompt "weathered wooden crate" [--image PATH ...] [--no-texture] [--pose a-pose] [--no-arm-raise] [--wait]
 python -m nmg_game_dev.meshy retexture --name Crate (--prompt "mossy stone" | --image PATH) [--wait]
 python -m nmg_game_dev.meshy status JOB_ID
 ```
