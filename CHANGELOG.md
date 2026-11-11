@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-11
+
+### Fixed
+
+- The `variants` step cleans every Mobile mesh it produces with the same routine Desktop cleanup uses, so decimated LODs no longer fail the contract's zero-area, loose, normals, and pivot rules or the re-import triangle count. Desktop cleanup also removes non-manifold-edge and duplicate faces, and the Mobile variant is re-seated on the world origin after decimation (#140)
+
 ## [0.21.1] - 2026-11-02
 
 ### Fixed
