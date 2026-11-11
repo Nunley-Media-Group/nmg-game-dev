@@ -1,5 +1,5 @@
 """Headless Blender tests for scripts/blender/meshy_session.py (#98 AC1, AC7, AC11; #105 AC1–AC4;
-#106 AC1–AC4).
+#106 AC1–AC4; #135 AC1–AC9).
 
 Run with ``scripts/run-blender-tests.sh tests/blender/test_meshy_session.py``. Outside Blender the
 module skips, because ``bpy`` is only importable inside Blender's bundled Python.
@@ -21,8 +21,18 @@ bpy = pytest.importorskip("bpy")
 bmesh = pytest.importorskip("bmesh")
 mathutils = pytest.importorskip("mathutils")
 
-from ..meshy_arm_geometry import HIP_Z, PIVOT_X, raise_arm_landmarks  # noqa: E402
-from .meshy_fixtures import build_humanoid  # noqa: E402
+from ..meshy_arm_geometry import (  # noqa: E402
+    HEIGHT,
+    HIP_Z,
+    PIVOT_X,
+    STYLIZED_DETACHED_PARTS,
+    box_corners,
+    raise_arm_landmarks,
+    stylized_body_points,
+    stylized_parts,
+    stylized_shoulder,
+)
+from .meshy_fixtures import build_humanoid, build_stylized  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SESSION = REPO_ROOT / "scripts" / "blender" / "meshy_session.py"
@@ -399,16 +409,28 @@ def _import_and_snapshot(glb: Path, pose: str | None) -> tuple[dict[str, Any], d
 
 
 def test_a_steep_a_pose_arm_drops_to_48_degrees(tmp_path: Path, empty_scene: None) -> None:
-    """#106 AC1, AC3: a 55 degree A-pose drops to 48 degrees on both sides and reports it."""
+    """#106 AC1, AC3, #135 AC2, AC5: a 55 degree A-pose drops to 48 degrees on both sides.
+
+    The drop is measured from the detected shoulder, which the taper of the box's arms puts about
+    5 mm below the arm axis, so the measured drop is within 3 degrees of 55 and not exactly 55.
+    """
     glb, _ = build_humanoid(tmp_path / "hero.glb", drop_deg=55.0)
     result, _ = _import_and_snapshot(glb, "a-pose")
     assert set(result["arm_raise"]) == {"left", "right"}
     for side in ("left", "right"):
         report = result["arm_raise"][side]
-        assert set(report) == {"drop_before_deg", "drop_after_deg", "rotation_deg"}
-        assert report["drop_before_deg"] == pytest.approx(55.0, abs=0.05)
+        assert set(report) == {
+            "detected",
+            "shoulder",
+            "hand_tip",
+            "drop_before_deg",
+            "drop_after_deg",
+            "rotation_deg",
+        }
+        assert report["detected"] is True
+        assert report["drop_before_deg"] == pytest.approx(55.0, abs=3.0)
         assert report["drop_after_deg"] == pytest.approx(48.0, abs=0.5)
-        assert report["rotation_deg"] == pytest.approx(7.0, abs=0.05)
+        assert report["rotation_deg"] == pytest.approx(report["drop_before_deg"] - 48.0, abs=0.05)
 
 
 def test_a_raise_keeps_the_torso_midline_and_legs_still(tmp_path: Path, empty_scene: None) -> None:
@@ -454,7 +476,11 @@ def test_compliant_or_non_a_pose_imports_move_no_vertex(
     if pose == "a-pose":
         for side in ("left", "right"):
             report = result["arm_raise"][side]
-            assert report["drop_before_deg"] == pytest.approx(45.0, abs=0.05)
+            # #135 AC8: a side already at 48 degrees or less keeps every vertex and reports its
+            # shoulder. The measured drop is near 45, within the taper's shoulder error.
+            assert report["detected"] is True
+            assert report["shoulder"] is not None
+            assert report["drop_before_deg"] == pytest.approx(45.0, abs=1.0)
             assert report["drop_after_deg"] == report["drop_before_deg"]
             assert report["rotation_deg"] == 0.0
     else:
@@ -473,5 +499,142 @@ def test_the_raised_humanoid_passes_the_neutral_pose_check(
 
     result, raised = _import_and_snapshot(glb, "a-pose")
     rotations = {side: report["rotation_deg"] for side, report in result["arm_raise"].items()}
-    raised_landmarks = raise_arm_landmarks(landmarks, rotations)
+    pivots = {side: report["shoulder"] for side, report in result["arm_raise"].items()}
+    raised_landmarks = raise_arm_landmarks(landmarks, rotations, pivots)
     assert validate("humanoid", raised_landmarks, raised["bbox"]) is None
+
+
+# --- #135: a stylized character's arms rise from their detected shoulders -----------------------
+
+
+def _is_moved(old: tuple[float, ...], new: tuple[float, ...]) -> bool:
+    return max(abs(a - b) for a, b in zip(old, new, strict=True)) > 1e-6
+
+
+def _nearest(point: tuple[float, ...], positions: list[Any]) -> float:
+    return min(math.dist(point, tuple(position)) for position in positions)
+
+
+def _stylized_glb(tmp_path: Path, fused: bool = False) -> Path:
+    name = "fused.glb" if fused else "stylized.glb"
+    return build_stylized(tmp_path / name, fused_right_arm=fused)
+
+
+def _sides() -> tuple[tuple[str, float], ...]:
+    return (("left", 1.0), ("right", -1.0))
+
+
+def test_a_stylized_a_pose_moves_only_arm_vertices(tmp_path: Path, empty_scene: None) -> None:
+    """#135 AC1: every leg, boot, skirt, torso, and head vertex stays put, and some arm moves."""
+    glb = _stylized_glb(tmp_path)
+    _, before = _import_and_snapshot(glb, None)
+    _, after = _import_and_snapshot(glb, "a-pose")
+    body = stylized_body_points()
+    for point in body:
+        assert _nearest(point, before["positions"]) < 1e-6
+    arm_moves = 0
+    for old, new in zip(before["positions"], after["positions"], strict=True):
+        if _nearest(old, body) < 1e-6:
+            assert new == pytest.approx(old, abs=1e-6)
+        elif _is_moved(old, new):
+            arm_moves += 1
+    assert arm_moves > 0
+
+
+def test_a_stylized_arm_drops_from_the_detected_shoulder(tmp_path: Path, empty_scene: None) -> None:
+    """#135 AC2: each drop before is 55 within 3, each drop after is 48 within 0.5, none above."""
+    glb = _stylized_glb(tmp_path)
+    result, _ = _import_and_snapshot(glb, "a-pose")
+    for side, _sign in _sides():
+        report = result["arm_raise"][side]
+        assert report["drop_before_deg"] == pytest.approx(55.0, abs=3.0)
+        assert report["drop_after_deg"] == pytest.approx(48.0, abs=0.5)
+        assert report["drop_after_deg"] >= 47.5
+
+
+def test_a_stylized_shoulder_is_found_at_the_armpit(tmp_path: Path, empty_scene: None) -> None:
+    """#135 AC3: each reported shoulder lies within 0.03·H of the fixture's true shoulder."""
+    glb = _stylized_glb(tmp_path)
+    result, _ = _import_and_snapshot(glb, "a-pose")
+    for side, sign in _sides():
+        shoulder = result["arm_raise"][side]["shoulder"]
+        assert math.dist(shoulder, stylized_shoulder(sign)) <= 0.03 * HEIGHT
+
+
+def test_detached_boxes_stay_and_moved_vertices_lie_within_the_arm_length(
+    tmp_path: Path, empty_scene: None
+) -> None:
+    """#135 AC4: the detached boxes do not move, and every moved vertex is within the arm length."""
+    glb = _stylized_glb(tmp_path)
+    _, before = _import_and_snapshot(glb, None)
+    result, after = _import_and_snapshot(glb, "a-pose")
+    detached = [
+        corner
+        for part in stylized_parts()
+        if part.name in STYLIZED_DETACHED_PARTS
+        for corner in box_corners(part)
+    ]
+    for old, new in zip(before["positions"], after["positions"], strict=True):
+        if _nearest(old, detached) < 1e-6:
+            assert new == pytest.approx(old, abs=1e-6)
+    for side, sign in _sides():
+        report = result["arm_raise"][side]
+        length = math.dist(report["hand_tip"], report["shoulder"])
+        for old, new in zip(before["positions"], after["positions"], strict=True):
+            if _is_moved(old, new) and sign * new[0] > 0:
+                assert math.dist(new, report["shoulder"]) <= length + 1e-6
+
+
+def test_the_detected_landmarks_are_reported(tmp_path: Path, empty_scene: None) -> None:
+    """#135 AC5: a detected side reports its shoulder and hand tip inside the mesh's bounds."""
+    glb = _stylized_glb(tmp_path)
+    result, snapshot = _import_and_snapshot(glb, "a-pose")
+    low, high = snapshot["bbox"]
+    for side, sign in _sides():
+        report = result["arm_raise"][side]
+        assert set(report) == {
+            "detected",
+            "shoulder",
+            "hand_tip",
+            "drop_before_deg",
+            "drop_after_deg",
+            "rotation_deg",
+        }
+        assert report["detected"] is True
+        for key in ("shoulder", "hand_tip"):
+            point = report[key]
+            assert len(point) == 3
+            assert all(isinstance(value, float) for value in point)
+            assert sign * point[0] > 0
+            assert all(low[axis] <= point[axis] <= high[axis] for axis in range(3))
+
+
+def test_a_fused_arm_is_left_untouched(tmp_path: Path, empty_scene: None) -> None:
+    """#135 AC6: a fused right arm has no armpit, moves no vertex, and the left arm still drops."""
+    glb = _stylized_glb(tmp_path, fused=True)
+    _, before = _import_and_snapshot(glb, None)
+    result, after = _import_and_snapshot(glb, "a-pose")
+    right = result["arm_raise"]["right"]
+    assert right["detected"] is False
+    assert right["reason"] == "no_armpit"
+    assert right["rotation_deg"] == 0.0
+    for old, new in zip(before["positions"], after["positions"], strict=True):
+        if old[0] < 0:
+            assert new == pytest.approx(old, abs=1e-6)
+    assert result["arm_raise"]["left"]["drop_after_deg"] == pytest.approx(48.0, abs=0.5)
+
+
+def test_raise_arms_false_skips_the_raise(tmp_path: Path, empty_scene: None) -> None:
+    """#135 AC7 (session): ``raise_arms`` false keeps the normalized positions and reports null."""
+    glb = _stylized_glb(tmp_path)
+    _, before = _import_and_snapshot(glb, None)
+    result = _run(
+        "import_glb",
+        {"name": HERO, "path": str(glb), "pose": "a-pose", "raise_arms": False},
+    )
+    assert result["ok"] is True
+    assert result["arm_raise"] is None
+    after = _snapshot()
+    _clear_scene()
+    for old, new in zip(before["positions"], after["positions"], strict=True):
+        assert new == pytest.approx(old, abs=1e-6)
