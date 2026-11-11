@@ -1,4 +1,4 @@
-"""Fakes for the start-unreal-mcp.sh plugin-build tests (#103).
+"""Fakes for the start-unreal-mcp.sh plugin-build tests (#103, #150).
 
 Each sandbox is a temporary consumer project with one source-only plugin, ``Plugins/Fake``, plus a
 fake ``UE_ROOT``. The fake UnrealEditor and Build.sh append one tab-separated line per invocation to
@@ -20,10 +20,27 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = REPO_ROOT / "scripts" / "start-unreal-mcp.sh"
 BUILD_LOG = Path("/tmp/unreal-mcp-build.log")
 MODULE = "FakeEditor"
+SECOND_MODULE = "FakeExtras"
+
+# Ages in seconds before the test runs. A "current" binary is newer than the first module's sources,
+# a "stale" one older. The second module's sources are newer than the first module's binary, and its
+# binary is newer than its sources (#150 AC4).
 SOURCE_AGE_SECONDS = 100
+CURRENT_BINARY_AGE_SECONDS = 50
+STALE_BINARY_AGE_SECONDS = 200
+SECOND_SOURCE_AGE_SECONDS = 20
+SECOND_BINARY_AGE_SECONDS = 10
+ENGINE_INI_AGE_SECONDS = 0
 
 # Build.sh body that compiles nothing: the fake build exits 0 with no output.
 BUILD_OK = "exit 0"
+# Build.sh bodies that fail as UnrealBuildTool does on UE 5.8 with an invalid action graph (#150): a
+# Result line with no error: line, optionally after UBT's planning message.
+BUILD_ACTION_GRAPH_INVALID = 'printf "Result: Failed (ActionGraphInvalid)\\n"\nexit 9'
+BUILD_ACTION_GRAPH_REASON = (
+    'printf "Action graph is invalid; unable to continue\\n"\n'
+    'printf "Result: Failed (ActionGraphInvalid)\\n"\nexit 9'
+)
 
 
 @dataclass
@@ -39,11 +56,20 @@ class Sandbox:
     def build_sh(self) -> Path:
         return self.ue_root / "Engine" / "Build" / "BatchFiles" / "Mac" / "Build.sh"
 
+    def module_dylib(self, module: str) -> Path:
+        """The UE 5.8 editor dylib of ``module`` in the Fake plugin."""
+        return (
+            self.project
+            / "Plugins"
+            / "Fake"
+            / "Binaries"
+            / "Mac"
+            / f"libUnrealEditor-{module}.dylib"
+        )
+
     @property
     def dylib(self) -> Path:
-        return (
-            self.project / "Plugins" / "Fake" / "Binaries" / "Mac" / f"UnrealEditor-{MODULE}.dylib"
-        )
+        return self.module_dylib(MODULE)
 
 
 def free_port() -> int:
@@ -69,24 +95,58 @@ def write_build_sh(sandbox: Sandbox, body: str = BUILD_OK) -> None:
     _executable(sandbox.build_sh, "#!/usr/bin/env bash\n" + _record("build") + body + "\n")
 
 
+def _write_text(path: Path, text: str = "// fake\n") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _age(path: Path, seconds: float) -> None:
+    """Set ``path``'s mtime to ``seconds`` before now."""
+    when = time.time() - seconds
+    os.utime(path, (when, when))
+
+
+def _age_tree(root: Path, seconds: float) -> None:
+    """Age ``root``, its directories and its files alike.
+
+    The launcher's ``find -newer`` also sees directory mtimes, so a directory created just now would
+    otherwise look newer than every binary.
+    """
+    _age(root, seconds)
+    for path in root.rglob("*"):
+        _age(path, seconds)
+
+
 def make_sandbox(
     tmp_path: Path,
     *,
     dylib: str = "missing",
     build_sh: bool = True,
     build_body: str = BUILD_OK,
+    code_project: bool = False,
+    second_module: bool = False,
+    engine_ini_newer: bool = False,
 ) -> Sandbox:
-    """Build a project whose plugin Fake needs a build unless ``dylib`` is ``"current"``.
+    """Build a project whose plugin Fake has one editor module, ``MODULE``.
 
-    ``dylib="current"`` writes the editor dylib with a newer mtime than the plugin sources, so the
-    launcher must skip the build. ``build_sh=False`` leaves the engine without Build.sh.
+    ``dylib`` sets that module's binary: ``"missing"`` writes none, ``"current"`` writes a binary
+    newer than its sources (the launcher must skip the build), and ``"stale"`` writes one older than
+    them. ``build_sh=False`` leaves the engine without Build.sh. ``code_project=True`` adds the
+    project's own ``<Project>Editor.Target.cs``. ``second_module=True`` adds ``SECOND_MODULE`` with
+    its own ``<Module>.Build.cs``, a current binary, and sources newer than ``MODULE``'s binary. The
+    engine ``Config/DefaultEngine.ini`` is written newer than every binary when
+    ``engine_ini_newer=True``.
     """
     project = tmp_path / "Game"
-    uplugin = project / "Plugins" / "Fake" / "Fake.uplugin"
-    source = project / "Plugins" / "Fake" / "Source" / "Fake.cpp"
+    plugin = project / "Plugins" / "Fake"
+    uplugin = plugin / "Fake.uplugin"
+    source = plugin / "Source" / "Fake.cpp"
     uproject = project / "Game.uproject"
-    uproject.parent.mkdir(parents=True, exist_ok=True)
-    uproject.write_text(
+    modules = [{"Name": MODULE, "Type": "Editor"}]
+    if second_module:
+        modules.append({"Name": SECOND_MODULE, "Type": "Editor"})
+    _write_text(
+        uproject,
         json.dumps(
             {
                 "FileVersion": 3,
@@ -94,15 +154,19 @@ def make_sandbox(
                 "Plugins": [{"Name": "Fake", "Enabled": True}],
             }
         ),
-        encoding="utf-8",
     )
-    uplugin.parent.mkdir(parents=True, exist_ok=True)
-    uplugin.write_text(
-        json.dumps({"FileVersion": 3, "Modules": [{"Name": MODULE, "Type": "Editor"}]}),
-        encoding="utf-8",
-    )
-    source.parent.mkdir(parents=True, exist_ok=True)
-    source.write_text("// fake\n", encoding="utf-8")
+    _write_text(uplugin, json.dumps({"FileVersion": 3, "Modules": modules}))
+    _write_text(source)
+    if code_project:
+        _write_text(project / "Source" / f"{uproject.stem}Editor.Target.cs")
+    if second_module:
+        for module in (MODULE, SECOND_MODULE):
+            _write_text(plugin / "Source" / module / f"{module}.Build.cs")
+            _write_text(plugin / "Source" / module / f"{module}.cpp")
+    _age_tree(plugin / "Source", SOURCE_AGE_SECONDS)
+    _age(uplugin, SOURCE_AGE_SECONDS)
+    if second_module:
+        _age_tree(plugin / "Source" / SECOND_MODULE, SECOND_SOURCE_AGE_SECONDS)
 
     sandbox = Sandbox(
         project=project,
@@ -117,14 +181,19 @@ def make_sandbox(
     if build_sh:
         write_build_sh(sandbox, build_body)
 
-    old = time.time() - SOURCE_AGE_SECONDS
-    os.utime(uplugin, (old, old))
-    os.utime(source, (old, old))
-    if dylib == "current":
-        sandbox.dylib.parent.mkdir(parents=True, exist_ok=True)
-        sandbox.dylib.write_bytes(b"")
-        now = time.time()
-        os.utime(sandbox.dylib, (now, now))
+    if second_module:
+        _write_text(sandbox.module_dylib(SECOND_MODULE), "")
+        _age(sandbox.module_dylib(SECOND_MODULE), SECOND_BINARY_AGE_SECONDS)
+    if dylib != "missing":
+        _write_text(sandbox.dylib, "")
+        _age(
+            sandbox.dylib,
+            STALE_BINARY_AGE_SECONDS if dylib == "stale" else CURRENT_BINARY_AGE_SECONDS,
+        )
+    if engine_ini_newer:
+        ini = project / "Config" / "DefaultEngine.ini"
+        _write_text(ini, "[/Script/EngineSettings.GameMapsSettings]\n")
+        _age(ini, ENGINE_INI_AGE_SECONDS)
     return sandbox
 
 
@@ -149,8 +218,12 @@ def read_events(events: Path) -> list[list[str]]:
     return [line.split("\t") for line in events.read_text(encoding="utf-8").splitlines() if line]
 
 
-def wait_for_editor(events: Path, timeout: float = 5.0) -> list[list[str]]:
-    """Wait for the detached fake editor to record its launch, then return every event."""
+def wait_for_editor(events: Path, timeout: float = 15.0) -> list[list[str]]:
+    """Wait for the detached fake editor to record its launch, then return every event.
+
+    The deadline only bounds this positive wait, so a slow loaded machine can start the detached
+    fake late without failing the test. Negative checks never wait.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         found = read_events(events)
@@ -161,9 +234,9 @@ def wait_for_editor(events: Path, timeout: float = 5.0) -> list[list[str]]:
 
 
 def expected_build_argv(sandbox: Sandbox) -> list[str]:
+    """The single-target Build.sh argv: no positional target name (#150 FR1)."""
     return [
         "build",
-        "UnrealEditor",
         "Mac",
         "Development",
         f"-Project={sandbox.uproject}",

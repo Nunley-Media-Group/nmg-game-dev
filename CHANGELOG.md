@@ -11,6 +11,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
 - Fix import_ue importing static meshes at 1/100 scale on UE 5.8 (#145)
 - Honour nmg-budgets.json Desktop overrides in contract validation (#134)
+- Fix start-unreal-mcp.sh rebuilding plugins on every launch and failing to relaunch the editor after a config change (#150)
 
 ## [0.21.2] - 2026-11-11
 
