@@ -4,7 +4,7 @@
 **Issue**: #146
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: d9b7bd37ebf300a4899a8435c60634bbc6a50405
+**Verification head**: 3689c52792e4f98868b7543be80655d6339c1b12
 
 ---
 
@@ -23,7 +23,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 1 (Low, informational; no blocking findings)
 
-The fix teaches the host side of `import_ue` that UE 5.8 Interchange imports a static Mobile LOD group as one Static Mesh `SM_<Name>`. A new `_lod_groups` helper finds the group from the snapshot. `_mesh_name_candidates` maps the `_LOD0` key to `SM_<Name>`. A shared `_skipped_lod` rule drops `_LOD1`/`_LOD2` entries for rigged assets and static LOD groups. The UE template now reports `lod_count` for every static mesh, and a new public `check_lod_counts` fails with `import_ue.failed` when the count differs or is missing. The export, the FBX import options, the rigged path and the error codes are unchanged. All 11 registered validations have results, and every applicable one passed at the verification head.
+The fix teaches the host side of `import_ue` that UE 5.8 Interchange imports a static Mobile LOD group as one Static Mesh `SM_<Name>`. A new `_lod_groups` helper finds the group from the snapshot. `_mesh_name_candidates` maps the `_LOD0` key to `SM_<Name>`. A shared `_skipped_lod` rule drops `_LOD1`/`_LOD2` entries for rigged assets and static LOD groups. The UE template now reports `lod_count` for every static mesh, and a new public `check_lod_counts` fails with `import_ue.failed` when the count differs or is missing. The export, the FBX import options, the rigged path and the error codes are unchanged. All 11 registered validations have results, and every applicable one passed at the verification head. This is a re-verification after `3689c52` merged `origin/main` (#184, the `start-unreal-mcp.sh` relaunch fix) into the branch. The merge did not change any #146 source, test or doc file.
 
 ---
 
@@ -47,11 +47,12 @@ The fix teaches the host side of `import_ue` that UE 5.8 Interchange imports a s
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/146.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 7efd7bdd-5721-40d2-a1fa-794610d13ef7`)
-- Identity: head `d9b7bd37ebf300a4899a8435c60634bbc6a50405`, tree clean, spec `sha256:bd4c93cb…`, steering `sha256:119992c8…`
+- Artifact: `.nmg-sdlc/verification/146.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 00f2f050-3eb8-4315-bfc0-bffe058e627f`, generated 2026-11-11T23:19:45Z)
+- Identity: head `3689c52792e4f98868b7543be80655d6339c1b12`, tree clean, spec `sha256:bd4c93cb…`, steering `sha256:119992c8…`
 - Coverage: declared 11, recorded 11, complete `true`; missing, duplicate and unknown are empty
 - Ceiling: `null`; no cap applies
-- The local `main` ref lags `origin/main`, so the runner diffed 137 paths and treated more gates as applicable than the 12-file #146 diff alone would. Every one of those extra gates ran and passed, so the evidence is a superset.
+- The local `main` ref lags `origin/main`, so the runner diffed 151 paths and treated more gates as applicable than the #146 diff against `origin/main` alone would. Every one of those extra gates ran and passed, so the evidence is a superset.
+- First run at this head: `repository.tests` failed with 1 failed and 1037 passed. The failure was `tests/bdd/steps/test_scaffold.py::test_unreal_launcher_detaches`, a wall-clock assertion that the launcher returns in under 2.0 s. It measured 2.04 s while the host load average was 120 to 264, with six lanes running builds at once. The test covers main's `start-unreal-mcp.sh` and does not touch #146 code. Run alone, it passed 5 times out of 5, in 0.64 to 1.15 s. The full gate was then run again at the same head and passed everything (see the gates below). The artifact above is from that second run.
 
 ---
 
@@ -147,8 +148,8 @@ The change stays in `src/nmg_game_dev/unreal/` (the UE import step implementatio
 
 - Feature files: 9 scenarios in `specs/146-…/feature.gherkin`. Its header maps them to `tests/unit/test_unreal_import.py` and `tests/e2e/test_finalize_e2e.py`.
 - Step definitions: implemented as unit tests and the e2e test, per the approved tasks
-- Unit tests: 55 in `tests/unit/test_unreal_import.py` (12 new). The full `repository.tests` run gave 1019 passed and 9 skipped.
-- Blender headless: 202 passed
+- Unit tests: 55 in `tests/unit/test_unreal_import.py` (12 new). The full `repository.tests` run gave 1038 passed and 9 skipped.
+- Blender headless: 211 passed
 - Integration tests: 1 opt-in e2e test (`--runslow`), not run against live editors (by design)
 
 ---
@@ -157,19 +158,19 @@ The change stays in `src/nmg_game_dev/unreal/` (the UE import step implementatio
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q`: 1019 passed, 9 skipped |
+| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q`: 1038 passed, 9 skipped |
 | repository.lint | Pass | `uv run ruff check .`: All checks passed |
-| repository.format | Pass | `uv run ruff format --check .`: 315 files already formatted |
-| repository.types | Pass | `uv run mypy src tests`: no issues found in 201 source files |
-| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 202 passed |
+| repository.format | Pass | `uv run ruff format --check .`: 316 files already formatted |
+| repository.types | Pass | `uv run mypy src tests`: no issues found in 202 source files |
+| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 211 passed |
 | gate-ue-compile | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
-| gate-mcp-schema | Pass | MCP tools match tools.json for every server |
-| gate-shellcheck | Not applicable | No `scripts/**.sh` change |
+| gate-mcp-schema | Pass | MCP tools match tools.json for every server under `mcp-servers/` |
+| gate-shellcheck | Pass | `shellcheck -S style` on `scripts/**.sh` exited 0 (applicable through the stale-`main` diff, which includes `scripts/start-unreal-mcp.sh`) |
 | gate-ship-smoke | Not applicable | No ship-path change |
-| plugin.validate | Pass | `claude plugin validate .` exited 0 |
+| plugin.validate | Pass | `claude plugin validate .`: validation passed with warnings, exit 0 |
 | plugin.session-smoke | Pass | Plugin loaded via `--plugin-dir`, and `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable). Coverage is complete (11/11).
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable). Coverage is complete (11/11).
 
 ---
 
@@ -220,6 +221,7 @@ None.
 - None
 
 ### Long Term (Could)
+- [ ] Loosen the 2.0 s wall-clock bound in `tests/bdd/steps/test_scaffold.py::script_returns_quickly`, or measure detach some other way. It flaked at 2.04 s under heavy parallel load. That test is outside #146's scope.
 - [ ] Consider a pytest-bdd feature for the import_ue LOD-group scenarios, next to `tests/bdd/features/import_ue_static_scale.feature`
 
 ---
@@ -235,7 +237,8 @@ None.
 | `tests/unit/fake_unreal.py` | 0 | `lods`, `imported_fbx` |
 | `tests/e2e/test_finalize_e2e.py` | 0 | Opt-in LOD group test |
 | `tests/e2e/fixtures/build_crate_fixture.py` | 0 | Headless fixture builder |
-| `VERSION`, `CHANGELOG.md`, plugin manifests | 0 | Delivery version prep (patch bump) |
+| `VERSION`, `CHANGELOG.md`, plugin manifests | 0 | Delivery version prep: patch bump 0.21.2 to 0.21.3, with main's unreleased entries and #146 under `## [0.21.3]` |
+| Merge `3689c52` | 0 | Merges `origin/main` (#184). It changes no #146 file, and the branch is level with `origin/main` |
 
 ---
 
@@ -243,4 +246,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion, functional requirement and task has passing evidence. The registered gate coverage is complete with no ceiling, and every applicable required validation passed at `d9b7bd37ebf300a4899a8435c60634bbc6a50405`.
+Every acceptance criterion, functional requirement and task has passing evidence. The registered gate coverage is complete with no ceiling, and every applicable required validation passed at `3689c52792e4f98868b7543be80655d6339c1b12`.
