@@ -5,13 +5,13 @@
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
 **Scope**: Implementation verification against spec (defect fix)
 
-**Verification head**: a82841e5a732dc8e13bcb7f5c90075c89eaff751
+**Verification head**: 62f96e29e02b9791f8840863b2679eb2f851e7bb
 
 ---
 
 ## Executive Summary
 
-The bake seam check now judges each wrap against the texture's own interior adjacent-pixel difference (`max(1.5 × interior, 2/255)`) through a new bpy-free `bake_core/seam_metric.py`. texture-gen's `is_seamless` uses the same definition, and a new `python -m nmg_game_dev.texture seamless` subcommand makes an existing PNG tile. Every acceptance criterion maps to code and passing tests. All applicable registered validations passed at the verification head.
+The bake seam check now judges each wrap against the texture's own interior adjacent-pixel difference (`max(1.5 × interior, 2/255)`) through a new bpy-free `bake_core/seam_metric.py`. texture-gen's `is_seamless` uses the same definition, and a new `python -m nmg_game_dev.texture seamless` subcommand makes an existing PNG tile. Every acceptance criterion maps to code and passing tests. All applicable registered validations passed at the verification head. This is a fresh verification after `origin/main` (#182, #184, #185) was merged into the branch; none of the #147 source, test, or doc files changed in that merge.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -49,7 +49,7 @@ The bake seam check now judges each wrap against the texture's own interior adja
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/147.json` (generated 2026-11-11T22:44:27Z, head `a82841e5a732dc8e13bcb7f5c90075c89eaff751`, clean tree)
+- Artifact: `.nmg-sdlc/verification/147.json` (generated 2026-11-11T23:34:15Z, head `62f96e29e02b9791f8840863b2679eb2f851e7bb`, clean tree, controller run `7694ce45-f557-4086-83f4-9ab117f4d43b`)
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown ids
 - Ceiling: none (`ok: true`)
 
@@ -57,35 +57,35 @@ The bake seam check now judges each wrap against the texture's own interior adja
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 985 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1054 passed, 9 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 312 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 199 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 181 passed (includes `tests/blender/test_bake_tiling.py`) |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against UE 5.8 (applies only because the version bump touched `nmg-game-dev.uplugin` `VersionName`) |
-| `gate-mcp-schema` | Not applicable | No `mcp-servers/**` change |
-| `gate-shellcheck` | Not applicable | No `scripts/**.sh` change |
+| `repository.format` | Pass | `uv run ruff format --check .`: 319 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 204 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 213 passed (includes `tests/blender/test_bake_tiling.py`) |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` (applies because the diff from the stale local `main` includes `nmg-game-dev.uplugin`; #147 changes no UE source) |
+| `gate-mcp-schema` | Pass | MCP tools match `tools.json` for every server under `mcp-servers/` (applies through merged `origin/main` changes, not #147) |
+| `gate-shellcheck` | Pass | shellcheck exited 0 (applies through merged `origin/main` changes, not #147) |
 | `gate-ship-smoke` | Not applicable | No ship path change |
-| `plugin.validate` | Pass | `claude plugin validate .` exited 0 (existing LICENSE/icon directory warnings only) |
+| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed with warnings (existing warnings only) |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 8/8 applicable gates passed, 0 failed, 0 incomplete (3 not applicable)
-
-**gate-ue-compile diagnosis.** The first two runs of the gate runner at this same head recorded `gate-ue-compile` as failed. The first failure was a link error (`LINKEDIT content 'symbol table strings' extends beyond end of segment` on VibeUE objects). The second was `input is not a PCH file` with UBA session-server segmentation faults that referenced paths in another checkout. Both runs overlapped with UnrealBuildTool builds from other lane worktrees. A direct diagnostic `Build.sh DogfoodEditor` succeeded. The full runner was then rerun once while no other lane's UnrealBuildTool was running, and every gate passed. #147 changes no UE source.
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
 
 ---
 
 ## Acceptance Criteria Verification
 
-Reproduction re-executed against the fixed code (old absolute rule vs new relative rule, same images):
+Reproduction re-executed at `62f96e2` against the fixed code (old absolute rule vs new relative rule, same images; independent seeded run):
 
-| Image | Old wrap error | Old verdict (≤ 0.04) | New verdict | Detail |
+| Image | Old wrap error | Old verdict (≤ 0.04) | New verdict | Detail (worst axis) |
 |-------|----------------|----------------------|-------------|--------|
-| Periodic busy noise (AC1) | 0.068 | fail (the bug) | pass | wrap 0.068 vs interior 0.069 |
-| Non-periodic crop (AC2) | 0.134 | fail | fail | wrap 0.134 vs interior 0.024 |
+| Periodic busy noise (AC1) | 0.074 | fail (the bug) | pass | wrap 0.074 vs interior 0.072 |
+| Non-periodic crop (AC2) | 0.139 | fail | fail | wrap 0.139 vs interior 0.014 |
 | Smooth 0–0.03 ramp (AC3) | 0.030 | pass (the bug) | fail | wrap 0.030 vs interior 0.000 |
-| Constant / near-flat uint8 (AC4) | 0.000 / 0.003 | pass | pass | allowed = floor 0.008 |
-| `make_seamless(white noise u8)` (AC5) | 0.291 | fail (the bug) | pass | wrap 0.291 vs interior 0.246 |
+| Constant / near-flat uint8 (AC4) | 0.000 / 0.004 | pass | pass | allowed = floor 0.008 |
+| `make_seamless(white noise u8)` (AC5) | 0.288 | fail (the bug) | pass | wrap 0.288 vs interior 0.248 |
+
+`nmg_game_dev.texture.seamless.is_seamless` gave the same verdict as the bake metric for every image above.
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
@@ -145,7 +145,7 @@ Reproduction re-executed against the fixed code (old absolute rule vs new relati
 
 ### Minimal-change check
 
-`git diff main...HEAD` also contains spec directories for #134, #140, #150. Those came from the approve-spec commits already on `origin/main` (the local `main` ref is stale), so they are not part of this change. The version commit `a82841e` (VERSION 0.21.2, CHANGELOG, plugin manifests) is the delivery-prep bump for a `bug` label (patch). No unrelated refactors.
+`git diff origin/main...HEAD` contains only the #147 files: `bake_core/seam_metric.py`, `tiling.py`, `errors.py`, `texture/seamless.py`, `texture/__main__.py`, the three docs, the tests listed below, this spec's verification report, and one `CHANGELOG.md` line under `## [Unreleased]`. The merge commit `62f96e2` took main's `VERSION` and plugin manifests unchanged; the controller re-runs prepare-version at delivery. The wider `changedPaths` in the steering artifact come from the stale local `main` ref and belong to #133–#185 already on `origin/main`. No unrelated refactors.
 
 ---
 
@@ -182,11 +182,7 @@ Not applicable: no changes under `workflows/`, `agents/`, or `skills/`.
 
 ## Fixes Applied
 
-| Severity | Category | Location | Original Issue | Fix Applied | Routing |
-|----------|----------|----------|----------------|-------------|---------|
-| — | Environment | `fixtures/` UE build intermediates | `gate-ue-compile` failed twice because of concurrent cross-lane UnrealBuildTool/UBA builds | Diagnostic rebuild, then one full gate rerun while no other lane was building; no source change | direct |
-
-No code fixes were needed.
+None. Every registered gate passed on the first run at this head; no code fixes were needed.
 
 ## Remaining Issues
 
@@ -253,4 +249,4 @@ No code fixes were needed.
 
 **Ready for PR**
 
-The defect reproduces before the fix and not after. Every AC, FR, task, and scenario has passing evidence. All applicable registered gates pass at `a82841e5a732dc8e13bcb7f5c90075c89eaff751` with complete coverage.
+The defect reproduces before the fix and not after. Every AC, FR, task, and scenario has passing evidence. All applicable registered gates pass at `62f96e29e02b9791f8840863b2679eb2f851e7bb` with complete coverage.
