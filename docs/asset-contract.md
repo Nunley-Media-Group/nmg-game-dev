@@ -104,6 +104,20 @@ Texture sizes are maximums.
 Environment pieces use the tiling mode and target a texel density of at least
 256 px/m on Desktop and 128 px/m on Mobile instead of a single texture set.
 
+A project-root `nmg-budgets.json` overrides these defaults. It is keyed by asset class. Top-level
+metrics (`tris`, `max_texture_px`, `materials`) override the Mobile budget. A nested `desktop`
+object overrides the Desktop budget that validation uses, so a class can allow a larger Desktop
+variant:
+
+```json
+{
+  "hero_prop": {
+    "tris": 10000,
+    "desktop": { "tris": 300000 }
+  }
+}
+```
+
 ## 7. Export
 
 - FBX, one file per variant, selected objects only, mesh (and armature if rigged) only,
