@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Add estimate_landmarks to propose rig_humanoid landmarks from the mesh (#137)
+
 ### Fixed
 - Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
 
