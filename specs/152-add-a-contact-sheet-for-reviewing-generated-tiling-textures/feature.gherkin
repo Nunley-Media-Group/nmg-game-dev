@@ -1,0 +1,67 @@
+**Issue**: #152
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/7-consumer-onboarding-onboard-consumer-skill-asset-contract-install-and-onboarding-docs/
+
+# File: tests/bdd/features/texture_contact_sheet.feature
+# Generated from: specs/152-add-a-contact-sheet-for-reviewing-generated-tiling-textures/requirements.md
+Feature: Contact sheet for reviewing generated tiling textures
+
+  @SCN001
+  Scenario: Generate refreshes a root-wide contact sheet
+    Given an output root holding the texture set "rusted-steel" with one albedo
+    When a generate run for "oak-planks" succeeds with the fake worker
+    Then the output root holds contact_sheet_001.png with 2 cells
+    And the run's JSON result has contact_sheet with that page, cells 2, and no skipped entries
+
+  @SCN002
+  Scenario: Each cell shows the albedo tiled 2x2 with its name label
+    Given texture sets "b-stone" and "a-wood" whose folders also hold _N, _R, and _compare.png files
+    When the contact sheet is built
+    Then the cells are ordered "a-wood" before "b-stone", then by backend and seed
+    And each cell is its albedo repeated 2x2 under a label with the set name and the backend and seed
+    And no derived map or comparison sheet is a cell
+
+  @SCN003
+  Scenario: The sheet command rebuilds on demand
+    Given an output root with texture sets
+    When "python -m nmg_game_dev.texture sheet --root <root>" runs
+    Then it prints JSON with pages, cells, and skipped
+    And it exits 0
+
+  @SCN004
+  Scenario: The texture_contact_sheet tool rebuilds on demand
+    Given the texture-gen MCP server with NMG_GAME_DEV_TEXTURE_DIR pointing at an output root with texture sets
+    When the texture_contact_sheet tool is called
+    Then it returns pages, cells, and skipped
+    And tools.json declares texture_contact_sheet
+
+  @SCN005
+  Scenario: Large roots page into numbered sheets
+    Given an output root with 25 albedos and a stale contact_sheet_003.png
+    When the contact sheet is built
+    Then contact_sheet_001.png holds 24 cells and contact_sheet_002.png holds 1
+    And both page paths are reported
+    And contact_sheet_003.png no longer exists
+
+  @SCN006
+  Scenario: Unreadable albedos are skipped without failing
+    Given an output root where one manifest lists a missing albedo and another lists a file that is not an image
+    When the contact sheet is built
+    Then both are listed under skipped with their path and reason
+    And the remaining albedos appear as cells
+
+  @SCN007
+  Scenario: An empty root reports an error on demand
+    Given an output root with no texture sets
+    When the sheet command runs
+    Then stderr has "ERROR [texture.no_texture_sets]" and a "Remediation:" line
+    And it exits 1
+    And the texture_contact_sheet tool returns the error code texture.no_texture_sets
+
+  @SCN008
+  Scenario: The rebuild needs no texture backend
+    Given a host with no texture model weights whose hardware probe would fail
+    When the sheet command runs on an output root with texture sets
+    Then the contact sheet is built

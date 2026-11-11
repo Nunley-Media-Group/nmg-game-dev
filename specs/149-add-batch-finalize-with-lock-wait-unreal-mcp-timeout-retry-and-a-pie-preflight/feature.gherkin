@@ -1,0 +1,79 @@
+**Issue**: #149
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/unit/pipeline/test_batch.py, tests/unit/test_unreal_retry.py, tests/unit/test_pie_preflight.py
+# Generated from: specs/149-add-batch-finalize-with-lock-wait-unreal-mcp-timeout-retry-and-a-pie-preflight/requirements.md
+Feature: Batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight
+
+  @SCN001
+  Scenario: Batch finalize through the CLI
+    Given three collections supplied as repeated --collection values or a --batch file
+    When the developer runs the finalize command once
+    Then the collections are finalized one at a time in the order given
+    And the command exits after the last one finishes
+
+  @SCN002
+  Scenario: Batch finalize through the MCP tool
+    Given finalize_asset is called with a list of requests
+    When the batch runs
+    Then get_finalize_job reports the running collection and completed out of total
+
+  @SCN003
+  Scenario: Per-asset result summary
+    Given a batch in which one collection fails
+    When the batch finishes
+    Then every collection is listed with its state and the failure's code, message, and step
+    And the CLI exits non-zero and prints the summary as JSON with --json
+
+  @SCN004
+  Scenario: One failed asset does not stop the batch
+    Given a batch in which one collection fails
+    When the batch runs without fail-fast
+    Then the remaining collections are finalized
+    And with fail-fast the remaining collections are skipped
+
+  @SCN005
+  Scenario: Wait for the lock instead of failing
+    Given a finalize job holds the cache-root lock
+    When a second finalize starts with the wait option
+    Then it runs after the lock is released
+    And with an expired wait limit it fails with finalize.job_running naming the holder job
+
+  @SCN006
+  Scenario: Default lock behavior is unchanged
+    Given a finalize job holds the cache-root lock
+    When a second finalize starts without the wait option
+    Then it fails immediately with finalize.job_running
+
+  @SCN007
+  Scenario: Unreal MCP timeouts are retried with back-off
+    Given the editor times out twice and then answers
+    When import_ue runs
+    Then it succeeds after increasing delays and records 3 attempts
+
+  @SCN008
+  Scenario: Retries are bounded
+    Given the editor never answers
+    When the retry limit is reached
+    Then import_ue fails with import_ue.failed stating the attempts and total seconds waited
+
+  @SCN009
+  Scenario: A retry does not duplicate or corrupt an import
+    Given an import timed out but the retry succeeds
+    When the import finishes
+    Then the result matches a single import with no duplicate assets and passing pivot checks
+
+  @SCN010
+  Scenario: PIE preflight before import
+    Given the editor is in a PIE session
+    When import_ue is about to start
+    Then it waits for PIE to end before sending the import
+    And at the wait limit or in refuse mode it fails with import_ue.editor_busy and sends no import
+
+  @SCN011
+  Scenario: Documentation
+    Given the finalize MCP reference, the finalize-asset skill, and the MCP tool descriptions
+    When a developer reads them
+    Then they describe batch input, the summary, the wait option, the retry limits, and import_ue.editor_busy

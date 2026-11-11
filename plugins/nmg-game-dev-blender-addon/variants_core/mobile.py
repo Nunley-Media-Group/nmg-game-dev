@@ -1,12 +1,14 @@
-"""Mobile build: copy the Desktop hierarchy, decimate to budget, and wrap LODs in a group."""
+"""Mobile build: copy the Desktop hierarchy, decimate to budget, wrap LODs in a group, and re-seat
+the variant on the world origin."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 from .assets import (
     asset_armature,
@@ -20,6 +22,8 @@ from .textures import max_texture_px, mobile_image_copy, mobile_material_copy, s
 
 #: Modifier name for the skin, matching the name rig_core gives the rig's own Armature modifier.
 _SKIN_MODIFIER = "Armature"
+#: LOD1 and LOD2 names. The re-seat measures without them, as contract_core's pivot check does.
+_LOD_EXTRA = re.compile(r"_LOD[1-9]$")
 
 
 def build_mobile(collection_name: str, budget: Mapping[str, int]) -> dict[str, Any]:
@@ -58,6 +62,7 @@ def build_mobile(collection_name: str, budget: Mapping[str, int]) -> dict[str, A
         )
     else:
         lod_tris = _build_lod_group(root_copy, budget["tris"], mobile_collection, collection_name)
+    _reseat(mobile_collection)
 
     return {
         "collection": mobile_name,
@@ -206,6 +211,51 @@ def _build_lod_group(
         obj.parent = group
         obj.matrix_parent_inverse = group.matrix_world.inverted()
     return [triangle_count(obj.data) for obj in lods]
+
+
+def _reseat(mobile_collection: bpy.types.Collection) -> None:
+    """Move the Mobile mesh data so the bounding-box bottom centre sits on the world origin.
+
+    Decimation can drop the extreme vertex that set the bottom, so the offset is measured after the
+    layout is built. The measure is the bounding box of the non-LOD meshes in world space, the one
+    contract_core's pivot check uses. Only mesh data moves. Origins, parents, the LodGroup Empty
+    and the skin stay as they are, and every LOD moves by the same world offset, so they stay
+    aligned with LOD0. A variant already exactly on the origin is left untouched.
+    """
+    bpy.context.view_layer.update()
+    meshes = [obj for obj in mobile_collection.objects if obj.type == "MESH"]
+    corners = [
+        corner
+        for obj in meshes
+        if not _LOD_EXTRA.search(obj.name)
+        for corner in _world_bounds_corners(obj)
+    ]
+    if not corners:
+        return
+    xs = [corner.x for corner in corners]
+    ys = [corner.y for corner in corners]
+    offset = Vector(((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, min(c.z for c in corners)))
+    if all(component == 0.0 for component in offset):
+        return
+    for obj in meshes:
+        local = obj.matrix_world.inverted().to_3x3() @ -offset
+        obj.data.transform(Matrix.Translation(local))
+        obj.data.update()
+
+
+def _world_bounds_corners(obj: bpy.types.Object) -> list[Vector]:
+    """The eight world-space corners of obj's local bounding box, from its current mesh data."""
+    coords = [vert.co for vert in obj.data.vertices]
+    if not coords:
+        return []
+    lows = [min(co[axis] for co in coords) for axis in range(3)]
+    highs = [max(co[axis] for co in coords) for axis in range(3)]
+    return [
+        obj.matrix_world @ Vector((x, y, z))
+        for x in (lows[0], highs[0])
+        for y in (lows[1], highs[1])
+        for z in (lows[2], highs[2])
+    ]
 
 
 def _remove_previous_mobile(mobile_name: str) -> None:
