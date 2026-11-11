@@ -1,0 +1,78 @@
+**Issue**: #148
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_material_variants.py, tests/unit/test_material_variants_host.py
+# Generated from: specs/148-let-one-finalized-asset-declare-several-material-variants/requirements.md
+Feature: Material variants for finalized assets
+
+  @SCN001
+  Scenario: An asset declares its material variants
+    Given Crate.material-variants.json beside the .blend declares Red with a base-colour texture and Blue with a Tint on M_Crate_Body
+    When the validate step runs
+    Then finalize uses that declaration
+    And the validate report lists Red and Blue with their material and texture or parameters
+
+  @SCN002
+  Scenario: A texture-based material variant reaches Desktop and Mobile
+    Given Crate declares Red on M_Crate_Body with a replacement base-colour texture
+    When finalize all runs
+    Then each export folder holds T_Crate_Body_BC_Red.png at that folder's T_Crate_Body_BC size
+    And import_ue creates MI_Crate_Body_Red in each Content folder with BaseColor from the Red texture and Normal and ORM from the main set
+
+  @SCN003
+  Scenario: A parameter-based material variant uses Tint
+    Given Crate declares Blue on M_Crate_Body with a Tint value and no texture
+    When finalize all runs
+    Then import_ue creates MI_Crate_Body_Blue in each Content folder with the main textures and the declared Tint
+    And no Blue texture is exported or imported
+    And M_NmgORM multiplies base colour by Tint, which defaults to white
+
+  @SCN004
+  Scenario: The main asset is unchanged
+    Given an asset with material variants and an asset without a declaration
+    When finalize all runs
+    Then mesh slots stay bound to the main MI_<Name>_<Part>
+    And the asset without a declaration produces the same exports, sidecar, and bindings as before
+
+  @SCN005
+  Scenario: The contract rejects an invalid declaration
+    Given a declaration that breaks one material_variant rule
+    When validate runs
+    Then it fails with that material_variant finding naming the asset and the material variant
+    And nothing is baked, exported, or imported
+
+  @SCN006
+  Scenario: A material variant on a merged material is rejected
+    Given an asset whose bake merges its authored materials into M_<Name>_Body
+    When it declares a material variant on one of the merged authored materials
+    Then validate fails with material_variant.material_merged naming M_<Name>_Body
+
+  @SCN007
+  Scenario: The sidecar and import result record material variants
+    Given finalize ran on an asset with material variants
+    When the run finishes
+    Then nmg-variants.json lists each material variant for desktop and mobile with its material, texture or parameters, and instance name
+    And the import_ue result lists the variant textures and material instance paths
+
+  @SCN008
+  Scenario: Material variants are listed from Unreal
+    Given Crate was finalized with material variants Red and Blue
+    When the caller runs list_material_variants for Crate
+    Then it returns Red and Blue with their material slot and Desktop and Mobile instance paths
+    And an asset without material variants returns an empty list
+
+  @SCN009
+  Scenario: Removing a material variant deletes its stale assets
+    Given Crate was finalized with Red and Blue
+    When Blue is removed from the declaration and finalize all runs again
+    Then Red is reused without duplicates
+    And Blue's material instance and texture are deleted from Content and listed as removed
+    And no Blue texture remains in the export folders
+
+  @SCN010
+  Scenario: The contract and skills document material variants
+    Given the feature is merged
+    When a contributor reads the asset contract, the finalize skill, and the finalize MCP reference
+    Then they find the declaration format and location, the T_ and MI_ naming, the validation rules, stale deletion, and listing
