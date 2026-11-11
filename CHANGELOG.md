@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-11
+
+### Fixed
+
+- Fix start-unreal-mcp.sh rebuilding plugins on every launch and failing to relaunch the editor after a config change (#150)
+
 ## [0.21.1] - 2026-11-02
 
 ### Fixed
