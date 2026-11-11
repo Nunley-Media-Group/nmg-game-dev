@@ -1,0 +1,66 @@
+**Issue**: #155
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/bdd/features/audio_import.feature
+# Generated from: specs/155-add-optional-elevenlabs-sound-effect-and-music-generation-that-imports-into-unreal/requirements.md
+Feature: Import generated audio into Unreal
+
+  @SCN001
+  Scenario: A WAV sound effect is stored and imported
+    Given a saved WAV file and a reachable Unreal MCP
+    When import_audio runs with name "DoorCreak" and kind "sfx"
+    Then SourceArt/Audio/SFX/DoorCreak.wav holds the file
+    And /Game/Audio/SFX/SW_DoorCreak is imported with looping off
+
+  @SCN002
+  Scenario Outline: Compressed audio is converted to WAV
+    Given a saved <format> file
+    When it is imported with name "ForestTheme" and kind "music"
+    Then SourceArt/Audio/Music/ForestTheme.wav is a 16-bit PCM WAV at the source rate and channels
+    And the result reports converted true
+
+    Examples:
+      | format |
+      | MP3    |
+      | OGG    |
+      | FLAC   |
+
+  @SCN003
+  Scenario: Looping is set on request
+    Given a saved audio file
+    When it is imported with loop true
+    Then the SoundWave loops
+
+  @SCN004
+  Scenario: An unreachable Unreal MCP keeps the file
+    Given a saved audio file and an unreachable Unreal MCP
+    When it is imported
+    Then the result has imported_to_unreal false and warning mcp.unreal.unreachable
+    And the WAV stays under SourceArt/Audio
+
+  @SCN005
+  Scenario: Invalid requests write nothing
+    Given an import request with a bad name, kind, path, format, or an existing target
+    When it is submitted
+    Then it fails with audio.invalid_request, audio.unsupported_format, or audio.asset_exists
+    And nothing is written and Unreal is not called
+
+  @SCN006
+  Scenario: Undecodable audio fails cleanly
+    Given a corrupt MP3 file
+    When it is imported
+    Then it fails with audio.decode_failed and leaves no file behind
+
+  @SCN007
+  Scenario: The CLI and the finalize MCP tool share one implementation
+    Given the same request and fakes
+    When it runs through the CLI and through the import_audio tool
+    Then both return the same result JSON
+
+  @SCN008
+  Scenario: No ElevenLabs integration ships in the plugin config
+    Given the repository
+    When the guards run
+    Then .mcp.json has no elevenlabs entry and no ELEVENLABS text
