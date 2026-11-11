@@ -192,6 +192,7 @@ class _Store:
         self.assets: dict[str, _Asset] = {}
         self.created: list[str] = []
         self.deleted: list[str] = []
+        self.missing_vectors: set[str] = set()
         self.assets[MASTER] = Material(MASTER)
 
 
@@ -295,8 +296,12 @@ def _fake_unreal(store: _Store) -> ModuleType:
         @staticmethod
         def set_material_instance_vector_parameter_value(
             instance: _Asset, name: str, value: Any
-        ) -> None:
+        ) -> bool:
+            # UE returns False when the parent material has no such parameter.
+            if name in store.missing_vectors:
+                return False
             instance.vectors[name] = value
+            return True
 
     module.EditorAssetLibrary = EditorAssetLibrary  # type: ignore[attr-defined]
     module.AssetToolsHelpers = AssetToolsHelpers  # type: ignore[attr-defined]
@@ -477,13 +482,53 @@ def test_a_texture_variant_is_created_beside_the_main_set_with_its_textures(tmp_
     assert instance.textures["Normal"].path == f"{DESKTOP}/T_Crate_Body_N"
     assert instance.textures["ORM"].path == f"{DESKTOP}/T_Crate_Body_ORM"
     assert store.assets[f"{DESKTOP}/T_Crate_Body_BC_Red"].props["srgb"] is True
-    assert result["material_variants"] == {
-        "Red": {
+    assert result["material_variants"] == [
+        {
+            "name": "Red",
             "material": "M_Crate_Body",
             "instance": f"{DESKTOP}/MI_Crate_Body_Red",
             "texture": f"{DESKTOP}/T_Crate_Body_BC_Red",
         }
-    }
+    ]
+
+
+def test_one_variant_name_on_two_materials_lists_both_instances(tmp_path: Path) -> None:
+    store = _Store()
+    desktop = _variant_dir(
+        tmp_path,
+        "Desktop",
+        [
+            "T_Crate_Lid_BC",
+            "T_Crate_Lid_N",
+            "T_Crate_Lid_ORM",
+            "T_Crate_Body_BC_Red",
+            "T_Crate_Lid_BC_Red",
+        ],
+    )
+    entries = [
+        {
+            "name": "Red",
+            "material": material,
+            "base_color": f"T_Crate_{part}_BC_Red.png",
+            "parameters": {},
+            "material_instance": f"MI_Crate_{part}_Red",
+        }
+        for part, material in (("Body", "M_Crate_Body"), ("Lid", "M_Crate_Lid"))
+    ]
+
+    result = _import(store, desktop, DESKTOP, entries)
+
+    assert result["material_variants"] == [
+        {
+            "name": "Red",
+            "material": f"M_Crate_{part}",
+            "instance": f"{DESKTOP}/MI_Crate_{part}_Red",
+            "texture": f"{DESKTOP}/T_Crate_{part}_BC_Red",
+        }
+        for part in ("Body", "Lid")
+    ]
+    assert f"{DESKTOP}/MI_Crate_Body_Red" in store.assets
+    assert f"{DESKTOP}/MI_Crate_Lid_Red" in store.assets
 
 
 def test_variant_instances_are_tagged_and_never_bound_to_the_mesh_slot(tmp_path: Path) -> None:
@@ -526,7 +571,29 @@ def test_a_parameter_variant_sets_tint_and_keeps_the_main_textures(tmp_path: Pat
     assert instance.vectors["Tint"].values == (0.5, 0.25, 1.0, 1.0)
     assert instance.textures["BaseColor"].path == f"{DESKTOP}/T_Crate_Body_BC"
     assert not any(path.endswith("_BC_Blue") for path in store.assets)
-    assert result["material_variants"]["Blue"]["texture"] is None
+    assert [entry["texture"] for entry in result["material_variants"]] == [None]
+    assert result["warnings"] == []
+
+
+def test_a_parameter_the_master_lacks_is_reported_as_a_warning(tmp_path: Path) -> None:
+    store = _Store()
+    store.missing_vectors.add("Tint")
+    desktop = _variant_dir(tmp_path, "Desktop", [])
+    entry = {
+        "name": "Blue",
+        "material": "M_Crate_Body",
+        "base_color": None,
+        "parameters": {"Tint": [0.5, 0.25, 1.0, 1.0]},
+        "material_instance": "MI_Crate_Body_Blue",
+    }
+
+    result = _import(store, desktop, DESKTOP, [entry])
+
+    assert result["ok"] is True
+    assert len(result["warnings"]) == 1
+    assert "MI_Crate_Body_Blue" in result["warnings"][0]
+    assert "Tint" in result["warnings"][0]
+    assert "build_master_material.py" in result["warnings"][0]
 
 
 def test_the_variant_texture_is_imported_in_both_folders_with_the_same_names(
@@ -612,7 +679,7 @@ def test_without_material_variants_the_bindings_are_unchanged(tmp_path: Path) ->
 
     assert result["ok"] is True
     assert result["materials"] == {"M_Crate_Body": f"{DESKTOP}/MI_Crate_Body"}
-    assert result["material_variants"] == {}
+    assert result["material_variants"] == []
     assert result["removed"] == []
     assert store.assets[f"{DESKTOP}/SM_Crate"].bound == {0: f"{DESKTOP}/MI_Crate_Body"}
 

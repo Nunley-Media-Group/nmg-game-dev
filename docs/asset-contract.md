@@ -110,7 +110,13 @@ or UV changes are out of scope.
   `M_<Name>_Body`. A variant declared on `M_<Name>_Body` is produced for both Desktop and Mobile.
 - **Tint.** `M_NmgORM` multiplies its base colour by a `Tint` vector parameter that defaults to
   white (1, 1, 1, 1). Rebuild `M_NmgORM` with `scripts/unreal/build_master_material.py` before
-  importing a parameter variant, because a shipped master built before #148 has no `Tint`.
+  importing a parameter variant, because a shipped master built before #148 has no `Tint`. When the
+  master lacks a declared parameter, the import still succeeds and its result's `warnings` names the
+  instance and the parameter.
+- **Import result.** Each variant's import result lists `material_variants` with one entry per
+  instance it imported: `name`, `material`, `instance` (the `MI_<Name>_<Part>_<Variant>` path), and
+  `texture` (the variant base-colour texture path, or `null` for a parameter-only variant). A variant
+  name used on several materials gives one entry for each material.
 - **Stale deletion.** Running finalize again with a variant removed deletes its material instance
   and texture from both Content folders, and its PNG leaves the export folders. Only assets that
   finalize tagged (`nmg.asset`, `nmg.material_variant`, `nmg.material_slot`) are deleted, and the

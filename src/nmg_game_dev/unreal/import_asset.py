@@ -104,8 +104,9 @@ RESULT = {
     "materials": {},
     "static_meshes": {},
     "skeletal_meshes": {},
-    "material_variants": {},
+    "material_variants": [],
     "removed": [],
+    "warnings": [],
     "error": None,
 }
 LOD_COUNT = {}
@@ -384,16 +385,26 @@ def _bind_material_variants(tools):
                 instance, parameter, _load(texture_path)
             )
         for parameter, values in sorted(entry["parameters"].items()):
-            unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
+            found = unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
                 instance, parameter, unreal.LinearColor(*values)
             )
+            if found is False:
+                # A master built before #148 has no Tint, so the variant renders like the main one.
+                RESULT["warnings"].append(
+                    entry["material_instance"] + ": " + MASTER_PATH + " has no vector parameter "
+                    + parameter + "; rebuild it with scripts/unreal/build_master_material.py"
+                )
         _set_tags(instance, variant, slot)
         unreal.EditorAssetLibrary.save_loaded_asset(instance)
-        RESULT["material_variants"][variant] = {
-            "material": slot,
-            "instance": dest + "/" + entry["material_instance"],
-            "texture": dest + "/" + stem if stem else None,
-        }
+        # One variant name may appear on several materials, so each instance is its own entry.
+        RESULT["material_variants"].append(
+            {
+                "name": variant,
+                "material": slot,
+                "instance": dest + "/" + entry["material_instance"],
+                "texture": dest + "/" + stem if stem else None,
+            }
+        )
 
 
 def _delete_stale_variants():
@@ -564,8 +575,10 @@ def import_variant(
 ) -> dict[str, Any]:
     """Import one variant through ``client``, then check its pivots. Return the UE result.
 
-    The result gains ``material_variants`` (variant name to its material, instance, and texture)
-    and ``removed`` (the stale tagged assets deleted from ``dest``), per #148.
+    The result gains ``material_variants`` (one entry per imported variant instance, with its
+    ``name``, ``material``, ``instance``, and ``texture``), ``removed`` (the stale tagged assets
+    deleted from ``dest``), and ``warnings`` (variant parameters the master material lacks), per
+    #148.
     """
     code = build_import_code(
         variant_dir,

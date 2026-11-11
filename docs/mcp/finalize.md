@@ -29,6 +29,8 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 `--blend` run uses the file beside the blend when one exists. A session run has no blend, so it declares
 no material variants unless the path is given. A path that does not exist returns
 `finalize.material_variants_not_found`. The format and the rules are in `docs/asset-contract.md` section 4.
+Each variant's `import_ue` result lists the imported instances in `material_variants`, one entry per
+instance, and names any variant parameter the master material lacks in `warnings`.
 
 `list_material_variants` reads the `nmg.*` metadata tags that finalize writes on each variant instance in
 `/Game/<Category>/<Name>/Desktop` and `/Game/<Category>/<Name>/Mobile`. Each row gives the variant's
