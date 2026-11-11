@@ -6,9 +6,15 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-11
+
 ### Fixed
 
 - Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
+
+### Changed
+
+- Add optional ElevenLabs sound-effect and music generation that imports into Unreal (#155)
 
 ## [0.21.2] - 2026-11-11
 
