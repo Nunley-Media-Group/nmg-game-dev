@@ -21,16 +21,24 @@ No Blender GUI APIs are imported here so this script runs cleanly under
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # The add-on source directory is hyphenated (nmg-game-dev-blender-addon) for
 # layout consistency with nmg-game-dev-ue-plugin, but Python/Blender require
 # the snake_case module id ``nmg_game_dev_blender_addon``.  Bridge the gap by
-# linking the source directory into Blender's user-addons path under the
-# snake_case name before pytest (and thus addon_utils.enable) runs.
+# linking the source directory under the snake_case name in a private
+# directory owned by this run, and putting that directory first on sys.path
+# before pytest (and thus addon_utils.enable) runs.
+#
+# The link deliberately does not live in Blender's user-addons path: that path
+# is shared by every checkout on the host, so a concurrent run from another
+# worktree would repoint it mid-run and this suite would import that
+# checkout's add-on.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADDON_SRC = _REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon"
 _ADDON_MODULE_ID = "nmg_game_dev_blender_addon"
@@ -87,27 +95,32 @@ def _ensure_pytest() -> None:
 
 
 def _install_addon_link() -> None:
-    """Idempotently link the hyphenated source dir into Blender's addons path
-    under the snake_case module id so ``addon_utils.enable`` can resolve it.
+    """Make ``import nmg_game_dev_blender_addon`` resolve to this checkout's source.
+
+    Links the hyphenated source dir under the snake_case module id in a private
+    temporary directory, puts that directory first on ``sys.path``, and drops
+    any copy of the add-on Blender already loaded from elsewhere (for example
+    one enabled in the user preferences). Fails when the import still resolves
+    outside this checkout.
     """
-    import bpy  # noqa: PLC0415 — bpy only available under Blender
+    import addon_utils  # noqa: PLC0415 — only available under Blender
 
-    addons_dir = Path(bpy.utils.user_resource("SCRIPTS", path="addons", create=True))
-    link = addons_dir / _ADDON_MODULE_ID
+    addons_dir = Path(tempfile.mkdtemp(prefix="nmg-blender-tests-"))
+    (addons_dir / _ADDON_MODULE_ID).symlink_to(_ADDON_SRC, target_is_directory=True)
+    sys.path.insert(0, str(addons_dir))
 
-    if link.is_symlink():
-        if link.resolve() == _ADDON_SRC.resolve():
-            return
-        link.unlink()
-    elif link.exists():
-        # A stale real directory at the target would shadow the source;
-        # bail loudly rather than silently deleting user content.
+    if _ADDON_MODULE_ID in sys.modules:
+        addon_utils.disable(_ADDON_MODULE_ID, default_set=False)
+        for name in [n for n in sys.modules if n.split(".")[0] == _ADDON_MODULE_ID]:
+            del sys.modules[name]
+
+    spec = importlib.util.find_spec(_ADDON_MODULE_ID)
+    origin = Path(spec.origin if spec and spec.origin else "").resolve()
+    if not origin.is_relative_to(_ADDON_SRC.resolve()):
         raise RuntimeError(
-            f"Expected symlink at {link}, found a real directory or file. "
-            "Remove it manually and re-run."
+            f"{_ADDON_MODULE_ID} resolved to {origin}, not this checkout's {_ADDON_SRC}. "
+            "Remove the other copy from Blender's add-on paths and re-run."
         )
-
-    link.symlink_to(_ADDON_SRC, target_is_directory=True)
 
 
 def main() -> None:
