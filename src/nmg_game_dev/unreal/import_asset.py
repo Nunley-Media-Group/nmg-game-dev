@@ -10,9 +10,27 @@ Import order for one variant, run inside the editor:
    replace_existing=True, save=True)``). ``_BC`` is sRGB. ``_N`` has flip green channel, normal
    compression, and linear color. ``_ORM`` is linear with masks compression.
 2. Import ``SM_<Name>.fbx``. A static asset imports with materials, textures, and skeletal import
-   off, and with ``combine_meshes``, ``transform_vertex_to_absolute``, and
-   ``bake_pivot_in_vertex`` all off. Each mesh node becomes its own static mesh.
-   A rigged asset (its snapshot holds the armature ``SK_<Name>``) imports as a Skeletal Mesh.
+   off, and with ``combine_meshes`` and ``bake_pivot_in_vertex`` off. Each mesh node becomes its
+   own static mesh. The static import splits on the part count (#145):
+
+   - Single-part: ``transform_vertex_to_absolute`` is on. The one part sits at the asset origin,
+     so baking the node transform applies the FBX unit conversion without moving a pivot, and UE
+     names the mesh after the node (the Blender object).
+   - Multi-part: ``transform_vertex_to_absolute`` is off, so every part keeps its own pivot. Under
+     Interchange the unit conversion sits on the node transform, not the vertices, so each mesh
+     would stay at 1/100 of its authored size. Every LOD of every static mesh then gets
+     ``build_scale3d`` 100 through ``StaticMeshEditorSubsystem`` and is saved, which rebuilds its
+     bounds in centimetres. A mesh is named after its datablock, so each one whose datablock is
+     mapped to a part is renamed to that part's export name, consolidating an existing asset at
+     that name first so references follow the new mesh.
+
+   This replaces the ghost1 ``sitecustomize.py`` workaround (its ``_IMPORT_TEMPLATE`` patch in
+   ``Tools/nmgpatch``), which applied the same two steps in process. The workaround wrote the
+   scale only while it was still 1.0, so a reimport over a mesh already at scale 100 kept stale
+   bounds. The write here is absolute and always rebuilds.
+
+   A rigged asset (its snapshot holds the armature ``SK_<Name>``) imports as a Skeletal Mesh and
+   runs neither the build-scale nor the rename step.
    The Desktop variant creates ``SM_<Name>_Skeleton`` and ``SM_<Name>_PhysicsAsset`` in ``dest``.
    The Mobile variant reuses those two from ``skeleton_dest`` and imports
    ``SM_<Name>_LOD1.fbx`` and ``SM_<Name>_LOD2.fbx`` as LOD 1 and 2 with
@@ -62,6 +80,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections import Counter
 from typing import Any, Final, NoReturn, Protocol, cast
 
 from nmg_game_dev.pipeline.errors import PipelineError
@@ -72,6 +91,8 @@ _RESULT_PREFIX: Final = "NMG_RESULT "
 _MOBILE_SUFFIX: Final = "_Mobile"
 #: Matches ``contract_core.validate._LOD_EXTRA``: LOD1 and LOD2 objects of a rigged Mobile variant.
 _LOD_EXTRA: Final = re.compile(r"_LOD[1-9]$")
+#: Any LOD suffix, so a multi-part count treats ``SM_Crate_LOD0`` and ``SM_Crate`` as one part.
+_LOD_ANY: Final = re.compile(r"_LOD[0-9]+$")
 PIVOT_TOLERANCE_CM: Final = 0.01
 _CM_PER_METER: Final = 100.0
 _MASTER_PATH: Final = "/nmg-game-dev/Materials/M_NmgORM"
@@ -95,6 +116,8 @@ import unreal
 
 PARAMS = json.loads(__PARAMS__)
 MASTER_PATH = "/nmg-game-dev/Materials/M_NmgORM"
+CM_PER_METER = 100.0
+ASSET_NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 RESULT = {
     "ok": False,
     "variant": PARAMS["variant"],
@@ -163,7 +186,7 @@ def _static_options():
     options.import_textures = False
     options.import_as_skeletal = False
     options.static_mesh_import_data.combine_meshes = False
-    options.static_mesh_import_data.transform_vertex_to_absolute = False
+    options.static_mesh_import_data.transform_vertex_to_absolute = not PARAMS["multi_part"]
     options.static_mesh_import_data.bake_pivot_in_vertex = False
     return options
 
@@ -250,6 +273,44 @@ def _import_skeletal(tools, fbx):
             lod_count += 1
     LOD_COUNT[object_path] = lod_count
     return meshes
+
+
+def _asset_name(text):
+    # UE replaces every character outside [A-Za-z0-9_] in an asset name with an underscore.
+    return "".join(char if char in ASSET_NAME_CHARS else "_" for char in text)
+
+
+def _set_build_scale(meshes):
+    # Written on every run, not only while the scale is 1.0: the write is absolute, so it never
+    # compounds, and it rebuilds the mesh, so the bounds are those of the new geometry even when
+    # an earlier import left the mesh at scale 100.
+    subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    for _, mesh in meshes:
+        for lod in range(mesh.get_num_lods()):
+            settings = subsystem.get_lod_build_settings(mesh, lod)
+            settings.build_scale3d = unreal.Vector(CM_PER_METER, CM_PER_METER, CM_PER_METER)
+            subsystem.set_lod_build_settings(mesh, lod, settings)
+        unreal.EditorAssetLibrary.save_loaded_asset(mesh)
+
+
+def _rename_to_parts(meshes):
+    dest = PARAMS["dest"]
+    export_names = {
+        _asset_name(datablock): export for datablock, export in PARAMS["mesh_names"].items()
+    }
+    renamed = []
+    for object_path, mesh in meshes:
+        asset_name = object_path.rsplit("/", 1)[-1]
+        export = export_names.get(asset_name)
+        if export is None or export == asset_name:
+            renamed.append((object_path, mesh))
+            continue
+        target = dest + "/" + export
+        if unreal.EditorAssetLibrary.does_asset_exist(target):
+            unreal.EditorAssetLibrary.consolidate_assets(mesh, [_load(target)])
+        unreal.EditorAssetLibrary.rename_asset(object_path, target)
+        renamed.append((target, mesh))
+    return renamed
 
 
 def _bounds(mesh):
@@ -345,6 +406,9 @@ def _run():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     _import_textures(tools)
     meshes = _import_meshes(tools)
+    if PARAMS["multi_part"] and not PARAMS["rigged"]:
+        _set_build_scale(meshes)
+        meshes = _rename_to_parts(meshes)
     _check_expected(meshes)
     _bind_materials(tools, meshes)
     RESULT["ok"] = True
@@ -393,6 +457,8 @@ def build_import_code(
         "rigged": rigged,
         "skeleton_dest": skeleton_dest if skeleton_dest is not None else dest,
         "expected_meshes": _expected_mesh_candidates(report, variant, rigged),
+        "multi_part": _multi_part(report, variant, rigged),
+        "mesh_names": _mesh_names(report, variant, rigged),
     }
     return _IMPORT_TEMPLATE.replace("__PARAMS__", json.dumps(json.dumps(params, sort_keys=True)))
 
@@ -506,13 +572,12 @@ def _is_rigged(report: dict[str, Any], name: str) -> bool:
     return isinstance(entry, dict) and entry.get("type") == "ARMATURE"
 
 
-def _expected_mesh_candidates(
-    report: dict[str, Any], variant: str, rigged: bool
-) -> list[list[str]]:
+def _variant_meshes(report: dict[str, Any], variant: str, rigged: bool) -> list[tuple[str, Any]]:
+    """The snapshot ``MESH`` entries of one variant, sorted by key, minus rigged LOD extras."""
     snapshot = report.get("snapshot")
     if not isinstance(snapshot, dict):
         return []
-    candidates: list[list[str]] = []
+    meshes: list[tuple[str, Any]] = []
     for key in sorted(snapshot):
         entry = snapshot[key]
         if not (
@@ -523,8 +588,41 @@ def _expected_mesh_candidates(
             continue
         if rigged and _LOD_EXTRA.search(key):
             continue
-        candidates.append(sorted({key, _export_name(key)}))
-    return candidates
+        meshes.append((key, entry))
+    return meshes
+
+
+def _expected_mesh_candidates(
+    report: dict[str, Any], variant: str, rigged: bool
+) -> list[list[str]]:
+    return [sorted({key, _export_name(key)}) for key, _ in _variant_meshes(report, variant, rigged)]
+
+
+def _multi_part(report: dict[str, Any], variant: str, rigged: bool) -> bool:
+    """True when the variant has more than one base part, so its parts need their own pivots.
+
+    Counts export names with any ``_LOD<n>`` suffix removed, as ghost1's ``_multi_part`` does.
+    """
+    bases = {
+        _LOD_ANY.sub("", _export_name(key)) for key, _ in _variant_meshes(report, variant, rigged)
+    }
+    return len(bases) > 1
+
+
+def _mesh_names(report: dict[str, Any], variant: str, rigged: bool) -> dict[str, str]:
+    """Map each part's mesh datablock to its export name for this variant.
+
+    A datablock shared by several parts is left out: UE names the mesh after that datablock, so
+    no single export name can be given to it. Snapshot entries from before #145 have no ``mesh``
+    key and are left out too.
+    """
+    parts = [
+        (entry.get("mesh"), _export_name(key))
+        for key, entry in _variant_meshes(report, variant, rigged)
+        if isinstance(entry.get("mesh"), str)
+    ]
+    counts = Counter(datablock for datablock, _ in parts)
+    return {datablock: export for datablock, export in parts if counts[datablock] == 1}
 
 
 def _matching_mesh(key: str, measured: dict[str, Any]) -> str | None:
