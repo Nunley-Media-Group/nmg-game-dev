@@ -1,8 +1,9 @@
 """Tiling mode for environment pieces: a seamless bake on a temporary 1 m tile, and the checks.
 
 Each tiling material is baked onto a 1 m plane whose UVs span 0 to 1, so the texture image is
-exactly one UV period. The seam check compares opposite edges. Texel density is checked per mesh
-against the contract minimum (256 px/m Desktop, 128 px/m Mobile).
+exactly one UV period. The seam check judges each wrap against the texture's own interior
+difference (seam_metric). Texel density is checked per mesh against the contract minimum
+(256 px/m Desktop, 128 px/m Mobile).
 """
 
 from __future__ import annotations
@@ -13,10 +14,10 @@ import bmesh
 import bpy
 import numpy as np
 
+from . import seam_metric
 from .errors import BakeError
 from .uv import uv_area, world_area
 
-SEAM_TOLERANCE = 0.04
 DESKTOP_DENSITY_MIN = 256.0
 MOBILE_DENSITY_MIN = 128.0
 TILE_NAME = "__nmg_bake_tile"
@@ -45,24 +46,24 @@ def make_tile() -> bpy.types.Object:
 
 
 def seam_error(rgb: np.ndarray) -> float:
-    """Largest mean absolute difference between opposite edges (first vs last column or row)."""
-    columns = np.mean(np.abs(rgb[:, 0, :] - rgb[:, -1, :]))
-    rows = np.mean(np.abs(rgb[0, :, :] - rgb[-1, :, :]))
-    return float(max(columns, rows))
+    """Largest wrap difference across both axes: the mean absolute first-vs-last pixel step."""
+    return max(seam.wrap for seam in seam_metric.measure(rgb))
 
 
 def check_seams(name: str, channels: dict[str, np.ndarray]) -> dict[str, float]:
-    """Raise not_seamless unless every channel's opposite edges match within tolerance."""
-    errors = {kind: seam_error(rgb) for kind, rgb in channels.items()}
-    failing = {kind: value for kind, value in errors.items() if value > SEAM_TOLERANCE}
+    """Raise not_seamless unless every channel's wrap passes the interior-relative seam measure."""
+    measured = {kind: seam_metric.measure(rgb) for kind, rgb in channels.items()}
+    failing = sorted(kind for kind, seams in measured.items() if not all(s.passes for s in seams))
     if failing:
-        worst = ", ".join(f"{kind} {value:.3f}" for kind, value in sorted(failing.items()))
+        details = ", ".join(seam_metric.failure_detail(kind, measured[kind]) for kind in failing)
         raise BakeError(
             "not_seamless",
-            f"Tiling material '{name}' is not seamless ({worst}; tolerance {SEAM_TOLERANCE}).",
+            f"Tiling material '{name}' is not seamless ({details}); a wrap may differ by at most "
+            f"{seam_metric.SEAM_RATIO:g}x the interior difference "
+            f"(minimum {seam_metric.SEAM_FLOOR:.3f}).",
             target=name,
         )
-    return errors
+    return {kind: max(seam.wrap for seam in seams) for kind, seams in measured.items()}
 
 
 def check_density(

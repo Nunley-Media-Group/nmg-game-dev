@@ -1,0 +1,56 @@
+**Issue**: #144
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_geometry_normals.py
+# Generated from: specs/144-fix-geometry-normals-rejecting-correctly-facing-open-surfaces-on-environment-pieces/requirements.md
+Feature: geometry.normals judges open sheets by winding and closed parts by orientation
+
+  @SCN001 @regression
+  Scenario: A correctly facing single open quad passes wherever it sits
+    Given one planar quad, axis-aligned or tilted, placed anywhere relative to the origin
+    When the geometry checks run on it
+    Then no geometry.normals finding is reported for any placement
+
+  @SCN002 @regression
+  Scenario: A consistently wound open sheet passes regardless of which way it faces
+    Given a floor and back wall facing into a room, or a welded grid ground sheet
+    When the geometry checks run on it
+    Then no geometry.normals finding is reported
+
+  @SCN003 @regression
+  Scenario: Inconsistent winding inside an open sheet is still reported
+    Given an open sheet with one face wound opposite to its neighbours
+    When the geometry checks run on it
+    Then a geometry.normals finding counts that face
+
+  @SCN004 @regression
+  Scenario: Closed islands are still required to face outward
+    Given a closed box with one flipped face, or a box turned inside out
+    When the geometry checks run on it
+    Then a geometry.normals finding is reported as before
+
+  @SCN005 @regression
+  Scenario: Islands are judged independently
+    Given one mesh with a correct box, a floor quad, and a box with one flipped face
+    When the geometry checks run on it
+    Then the geometry.normals finding counts exactly the one flipped face
+
+  @SCN006 @regression
+  Scenario: Welded touching closed primitives pass
+    Given two correct boxes touching at a vertex, an edge, or part of a face, merged by distance
+    When the geometry checks run on it
+    Then no geometry.normals finding is reported
+
+  @SCN007 @regression
+  Scenario: Remediation text fits open surfaces
+    Given a geometry.normals finding
+    When the report is produced
+    Then the remediation distinguishes closed parts facing outward from open sheets wound consistently
+
+  @SCN008 @regression
+  Scenario: The authoring rule is documented
+    Given the asset contract and the model-asset skill documents
+    When an author building an environment piece reads them
+    Then they state the open-sheet, closed-part, and touching-primitive rules the validator applies

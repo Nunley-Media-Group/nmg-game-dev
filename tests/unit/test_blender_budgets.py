@@ -37,10 +37,14 @@ def _load_budgets() -> ModuleType:
     return module
 
 
+def _section_6() -> str:
+    text = _CONTRACT_PATH.read_text(encoding="utf-8")
+    return text.split("## 6. Budgets", 1)[1].split("\n## ", 1)[0]
+
+
 def _parse_contract_budgets() -> dict[str, dict[str, dict[str, int]]]:
     """Read the section 6 table: Desktop/Mobile tris, max texture px, and D/M materials."""
-    text = _CONTRACT_PATH.read_text(encoding="utf-8")
-    section = text.split("## 6. Budgets", 1)[1].split("\n## ", 1)[0]
+    section = _section_6()
     parsed: dict[str, dict[str, dict[str, int]]] = {}
     for line in section.splitlines():
         if not line.startswith("|"):
@@ -203,3 +207,20 @@ def test_desktop_override_must_be_an_object(tmp_path: Path) -> None:
     path.write_text(json.dumps({"standard_prop": {"desktop": 256}}), encoding="utf-8")
     with pytest.raises(budgets.BudgetOverrideError):
         budgets.resolve_budget("standard_prop", path, "desktop")
+
+
+def test_section_6_documents_the_nested_desktop_override(tmp_path: Path) -> None:
+    """FR5 / #134: section 6 names nmg-budgets.json and its nested desktop override, and its
+    JSON example is accepted by the real override loader and applies to Desktop."""
+    section = _section_6()
+    assert "nmg-budgets.json" in section
+    assert "keyed by asset class" in section
+    example = re.search(r"```json\n(.*?)\n```", section, re.DOTALL)
+    assert example is not None
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(example.group(1), encoding="utf-8")
+
+    budgets = _load_budgets()
+
+    assert budgets.resolve_budget("hero_prop", path, "desktop")["tris"] == 300000
+    assert budgets.resolve_budget("hero_prop", path)["tris"] == 10000
