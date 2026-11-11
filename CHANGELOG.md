@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-11
+
+### Changed
+
+- Add estimate_landmarks to propose rig_humanoid landmarks from the mesh (#137)
+
 ## [0.21.1] - 2026-11-02
 
 ### Fixed
