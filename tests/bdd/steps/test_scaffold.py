@@ -293,19 +293,30 @@ def ue_root_resolves(fake_ue_root: pathlib.Path) -> None:
     assert editor.is_file()
 
 
+@pytest.fixture
+def launcher_uproject(tmp_path: pathlib.Path) -> pathlib.Path:
+    # A project with no source plugins, so the timing check measures the detach alone. The dogfood
+    # project's plugin build check depends on host state (an installed VibeUE, built dylibs) and
+    # is covered by tests/unit/test_start_unreal_mcp.py.
+    project = tmp_path / "Launcher" / "Launcher.uproject"
+    project.parent.mkdir()
+    project.write_text('{"FileVersion": 3, "Plugins": []}\n', encoding="utf-8")
+    return project
+
+
 @given("a valid `.uproject` resolves via the env-var or auto-detect chain")
-def uproject_resolves(repo_root: pathlib.Path) -> None:
-    assert (repo_root / "fixtures" / "dogfood.uproject").is_file()
+def uproject_resolves(launcher_uproject: pathlib.Path) -> None:
+    assert launcher_uproject.is_file()
 
 
 @when("`scripts/start-unreal-mcp.sh` runs", target_fixture="launcher_run")
-def run_unreal_script(fake_ue_root: pathlib.Path, repo_root: pathlib.Path) -> LauncherRun:
+def run_unreal_script(fake_ue_root: pathlib.Path, launcher_uproject: pathlib.Path) -> LauncherRun:
     return _run_launcher(
         "start-unreal-mcp.sh",
         {
             "UE_ROOT": str(fake_ue_root),
             "UE_MCP_PORT": UE_TEST_PORT,
-            "UE_PROJECT": str(repo_root / "fixtures" / "dogfood.uproject"),
+            "UE_PROJECT": str(launcher_uproject),
             "FAKE_UE_ARGV_FILE": str(fake_ue_root / "ue-argv.txt"),
         },
     )
@@ -322,9 +333,13 @@ def _wait_for_lines(path: pathlib.Path, timeout: float = 5.0) -> list[str]:
 
 
 @then("UE Editor is detached opened against the target `.uproject`")
-def ue_editor_detached(launcher_run: LauncherRun, fake_ue_root: pathlib.Path) -> None:
+def ue_editor_detached(
+    launcher_run: LauncherRun, fake_ue_root: pathlib.Path, launcher_uproject: pathlib.Path
+) -> None:
     assert launcher_run.result.returncode == 0, f"Script failed: {launcher_run.result.stderr}"
+    assert "building project plugins" not in launcher_run.result.stderr
     argv = _wait_for_lines(fake_ue_root / "ue-argv.txt")
+    assert str(launcher_uproject) in argv, f"editor argv: {argv}"
     assert "-ModelContextProtocolStartServer" in argv, f"editor argv: {argv}"
     assert f"-ModelContextProtocolPort={UE_TEST_PORT}" in argv, f"editor argv: {argv}"
 
