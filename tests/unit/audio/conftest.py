@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from tests.unit.fake_unreal import FakeEditor, FakeUnrealPythonClient
+from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "audio"
 

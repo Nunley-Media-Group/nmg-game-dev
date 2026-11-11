@@ -1,7 +1,7 @@
 """pytest-bdd bindings for audio_import.feature: SCN001-SCN008 (#155).
 
-The Unreal side is the fake editor in ``tests/unit/fake_unreal.py``, which runs the generated UE
-code against a fake ``unreal`` module. The fixtures are the committed clips in
+The Unreal side is the fake editor in ``tests/unit/fake_unreal_audio.py``, which runs the
+generated UE code against a fake ``unreal`` module. The fixtures are the committed clips in
 ``tests/fixtures/audio``. No live editor is started and no ElevenLabs call is made. The steps share
 one ``state`` dict per scenario.
 """
@@ -21,7 +21,7 @@ from pytest_bdd import given, parsers, scenarios, then, when
 from nmg_game_dev.audio import AudioError, import_audio
 from nmg_game_dev.audio.__main__ import main as audio_main
 from nmg_game_dev.finalize import import_audio as import_audio_tool
-from tests.unit.fake_unreal import FakeEditor, FakeUnrealPythonClient
+from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "audio"

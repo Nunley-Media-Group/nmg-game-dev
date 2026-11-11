@@ -17,7 +17,7 @@ import pytest
 from nmg_game_dev.audio.errors import AudioError
 from nmg_game_dev.audio.unreal_import import build_audio_import_code, run_import
 from nmg_game_dev.pipeline.errors import PipelineError
-from tests.unit.fake_unreal import FakeEditor, FakeOtherAsset, FakeUnrealPythonClient
+from tests.unit.fake_unreal_audio import FakeEditor, FakeOtherAsset, FakeUnrealPythonClient
 
 DEST = "/Game/Audio/SFX"
 ASSET = "SW_DoorCreak"

@@ -25,7 +25,7 @@ from nmg_game_dev.finalize import (
 from nmg_game_dev.finalize.service import clamp_wait
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, jobs
 from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
-from tests.unit.fake_unreal import FakeEditor, FakeUnrealPythonClient
+from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "audio"
 

@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from nmg_game_dev.audio.__main__ import main
-from tests.unit.fake_unreal import FakeUnrealPythonClient
+from tests.unit.fake_unreal_audio import FakeUnrealPythonClient
 
 
 def test_import_prints_the_result_json_and_exits_zero(

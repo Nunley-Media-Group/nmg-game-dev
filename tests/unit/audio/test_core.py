@@ -15,7 +15,7 @@ import pytest
 
 from nmg_game_dev.audio import AudioError, import_audio
 from nmg_game_dev.audio.paths import project_root
-from tests.unit.fake_unreal import FakeEditor, FakeUnrealPythonClient
+from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
 
 SFX_WAV = "SourceArt/Audio/SFX/DoorCreak.wav"
 MUSIC_WAV = "SourceArt/Audio/Music/ForestTheme.wav"

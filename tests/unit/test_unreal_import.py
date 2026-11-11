@@ -1,14 +1,17 @@
 """UE import code, NMG_RESULT parsing, and the pivot check for the finalize import step (#69, AC5).
 
 A fake client stands in for UnrealMcpClient. It returns a canned tool output and records the
-UE code it was given. The UE code itself runs only in the editor, so these tests check its
-text, its embedded parameters, and the host-side result handling.
+UE code it was given. The text tests check that code, its embedded parameters, and the host-side
+result handling. The tests from the "generated code on the fake" section run the code itself
+against ``tests/unit/fake_unreal.py`` (#145), an in-memory editor, so they check the assets it
+makes. Nothing here contacts a running editor.
 """
 
 from __future__ import annotations
 
 import ast
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,9 +23,26 @@ from nmg_game_dev.unreal import (
     import_variant,
     parse_nmg_result,
 )
+from tests.unit.fake_unreal import (
+    ASYM_HIGH,
+    ASYM_LOW,
+    BIG_HIGH,
+    BIG_LOW,
+    DESKTOP_DEST,
+    MASTER_PATH,
+    MOBILE_DEST,
+    SMALL_HIGH,
+    SMALL_LOW,
+    FbxNode,
+    MaterialInstanceConstant,
+    box,
+    contract_report,
+    dest_for,
+    part,
+    run_import,
+    stage,
+)
 
-DESKTOP_DEST = "/Game/Props/Crate/Desktop"
-MOBILE_DEST = "/Game/Props/Crate/Mobile"
 VARIANT_DIR = "/work/export/Props/Crate/Desktop"
 
 
@@ -51,14 +71,7 @@ def _snapshot(variant: str = "desktop") -> dict[str, Any]:
 
 
 def _report(variant: str = "desktop", snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
-        "kind": "contract",
-        "asset": "Crate",
-        "class": "standard_prop",
-        "passed": True,
-        "findings": [],
-        "snapshot": snapshot if snapshot is not None else _snapshot(variant),
-    }
+    return contract_report(snapshot if snapshot is not None else _snapshot(variant))
 
 
 def _ue_bounds(low: list[float], high: list[float]) -> dict[str, list[float]]:
@@ -125,8 +138,24 @@ def test_build_import_code_sets_the_fbx_options() -> None:
     assert "import_textures = False" in code
     assert "import_as_skeletal = False" in code
     assert "combine_meshes = False" in code
-    assert "transform_vertex_to_absolute = False" in code
+    # #145: the node transform is baked only for a single part, so a multi-part asset keeps pivots.
+    assert 'transform_vertex_to_absolute = not PARAMS["multi_part"]' in code
+    assert "transform_vertex_to_absolute = False" not in code
     assert "bake_pivot_in_vertex = False" in code
+
+
+def test_build_import_code_scales_and_renames_static_parts_and_never_sets_feature_flags() -> None:
+    # #145 FR5, FR9: the build scale and the rename run in the generated code, which never reads or
+    # sets the Interchange FBX feature flag.
+    code = build_import_code(VARIANT_DIR, DESKTOP_DEST, "Crate", _report())
+
+    assert "build_scale3d = unreal.Vector(CM_PER_METER, CM_PER_METER, CM_PER_METER)" in code
+    assert "get_lod_build_settings(mesh, lod)" in code
+    assert "set_lod_build_settings(mesh, lod, settings)" in code
+    assert "consolidate_assets(mesh, [_load(target)])" in code
+    assert "rename_asset(object_path, target)" in code
+    assert "Interchange" not in code
+    assert "FeatureFlags" not in code
 
 
 def test_build_import_code_embeds_parameters_and_prints_one_result_line() -> None:
@@ -469,3 +498,250 @@ def test_import_variant_hands_the_skeleton_destination_to_the_code() -> None:
 
     assert result["ok"] is True
     assert _embedded_params(fake.codes[0])["skeleton_dest"] == DESKTOP_DEST
+
+
+# --- multi-part static import (#145) ------------------------------------------------
+
+
+def test_build_import_code_passes_multi_part_and_the_datablock_export_names() -> None:
+    snapshot = {
+        "SM_Crate": {"variant": "desktop", "type": "MESH", "mesh": "SM_Crate", "local_bounds": {}},
+        "SM_Crate_Lid": {
+            "variant": "desktop",
+            "type": "MESH",
+            "mesh": "SM_Crate_Lid.001",
+            "local_bounds": {},
+        },
+        # Two parts that share a datablock cannot be named after it, so neither is mapped.
+        "SM_Crate_Clip": {
+            "variant": "desktop",
+            "type": "MESH",
+            "mesh": "SM_Crate_Shared",
+            "local_bounds": {},
+        },
+        "SM_Crate_Strap": {
+            "variant": "desktop",
+            "type": "MESH",
+            "mesh": "SM_Crate_Shared",
+            "local_bounds": {},
+        },
+    }
+
+    params = _embedded_params(
+        build_import_code(VARIANT_DIR, DESKTOP_DEST, "Crate", _report(snapshot=snapshot))
+    )
+
+    assert params["multi_part"] is True
+    assert params["mesh_names"] == {"SM_Crate": "SM_Crate", "SM_Crate_Lid.001": "SM_Crate_Lid"}
+
+
+def test_multi_part_counts_base_parts_not_their_lod_objects() -> None:
+    # SM_Crate_LOD0 is a level of SM_Crate, so this is still one part.
+    snapshot = {
+        "SM_Crate": {"variant": "desktop", "type": "MESH", "mesh": "SM_Crate", "local_bounds": {}},
+        "SM_Crate_LOD0": {
+            "variant": "desktop",
+            "type": "MESH",
+            "mesh": "SM_Crate_LOD0",
+            "local_bounds": {},
+        },
+    }
+
+    params = _embedded_params(
+        build_import_code(VARIANT_DIR, DESKTOP_DEST, "Crate", _report(snapshot=snapshot))
+    )
+
+    assert params["multi_part"] is False
+
+
+@pytest.mark.parametrize("variant", ["desktop", "mobile"])
+def test_single_part_static_mesh_imports_at_the_authored_size(tmp_path: Path, variant: str) -> None:
+    # AC1: one part bakes the node transform, so the reported bounds are centimetres and need no
+    # build scale.
+    world, folder, report = stage(tmp_path, variant, part(variant, "SM_Crate", BIG_LOW, BIG_HIGH))
+
+    result = run_import(world, folder, variant, report)
+
+    assert result["static_meshes"]["SM_Crate"]["bounds"] == box(800.0)
+    assert world.build_writes == []
+
+
+@pytest.mark.parametrize("variant", ["desktop", "mobile"])
+def test_multi_part_static_meshes_import_at_the_authored_size(tmp_path: Path, variant: str) -> None:
+    # AC1 and AC5: every part of a multi-part asset is rebuilt at build scale 100 on each run, and
+    # each reports its authored size and is saved at that size.
+    world, folder, report = stage(
+        tmp_path,
+        variant,
+        part(variant, "SM_Crate", BIG_LOW, BIG_HIGH),
+        part(variant, "SM_Crate_Trim", SMALL_LOW, SMALL_HIGH),
+    )
+    dest = dest_for(variant)
+
+    result = run_import(world, folder, variant, report)
+
+    assert result["static_meshes"]["SM_Crate"]["bounds"] == box(800.0)
+    assert result["static_meshes"]["SM_Crate_Trim"]["bounds"] == box(100.0)
+    # The scale is written before the rename, so each write is under the datablock-based path.
+    suffix = "" if variant == "desktop" else "_Mobile"
+    assert sorted(path for path, _, _ in world.build_writes) == [
+        dest + "/SM_Crate" + suffix,
+        dest + "/SM_Crate_Trim" + suffix,
+    ]
+    assert {scale for _, _, scale in world.build_writes} == {(100.0, 100.0, 100.0)}
+    assert world.saved[dest + "/SM_Crate"] == box(800.0)
+
+
+def test_each_part_keeps_its_own_pivot_on_a_multi_part_asset(tmp_path: Path) -> None:
+    # AC2: a part 5 m and 3 m from the asset origin keeps its bounds relative to its own origin, and
+    # its translation is not baked into its vertices. Y is negated, so its bounds are -75..-25 in Y.
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH),
+        part("desktop", "SM_Crate_Lid", ASYM_LOW, ASYM_HIGH, translation=(5.0, 3.0, 0.0)),
+    )
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["static_meshes"]["SM_Crate_Lid"]["bounds"] == {
+        "min": [-100.0, -75.0, 0.0],
+        "max": [100.0, -25.0, 200.0],
+    }
+
+
+@pytest.mark.parametrize("variant", ["desktop", "mobile"])
+def test_a_static_mesh_is_named_after_its_part_object_not_its_datablock(
+    tmp_path: Path, variant: str
+) -> None:
+    # AC3: the datablock SM_Crate_Lid.001 imports as SM_Crate_Lid, and on Mobile _Mobile is removed.
+    world, folder, report = stage(
+        tmp_path,
+        variant,
+        part(variant, "SM_Crate", BIG_LOW, BIG_HIGH),
+        part(
+            variant,
+            "SM_Crate_Lid",
+            SMALL_LOW,
+            SMALL_HIGH,
+            translation=(2.0, 0.0, 0.0),
+            duplicate=True,
+        ),
+    )
+    dest = dest_for(variant)
+
+    result = run_import(world, folder, variant, report)
+
+    assert sorted(result["static_meshes"]) == ["SM_Crate", "SM_Crate_Lid"]
+    assert world.static_mesh_paths() == [dest + "/SM_Crate", dest + "/SM_Crate_Lid"]
+
+
+def test_a_reimport_reports_the_new_bounds_over_a_mesh_at_one_hundredth_scale(
+    tmp_path: Path,
+) -> None:
+    # AC4: an earlier import left SM_Crate_Lid at 1/100 scale, and a datablock-named duplicate
+    # beside it. The reimport reports and saves the authored size, keeps one asset per part, and
+    # consolidates the old asset into the new one.
+    dest = DESKTOP_DEST
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH),
+        part("desktop", "SM_Crate_Lid", SMALL_LOW, SMALL_HIGH, duplicate=True),
+    )
+    lid = FbxNode("SM_Crate_Lid", "SM_Crate_Lid.001", SMALL_LOW, SMALL_HIGH)
+    world.seed_static_mesh(dest + "/SM_Crate_Lid", lid)
+    world.seed_static_mesh(dest + "/SM_Crate_Lid_001", lid)
+    assert world.static_mesh(dest + "/SM_Crate_Lid").bounds == box(1.0)
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["static_meshes"]["SM_Crate_Lid"]["bounds"] == box(100.0)
+    assert world.saved[dest + "/SM_Crate_Lid"] == box(100.0)
+    assert world.static_mesh_paths() == [dest + "/SM_Crate", dest + "/SM_Crate_Lid"]
+    assert list(world.redirects) == [dest + "/SM_Crate_Lid"]
+
+
+def test_a_rigged_import_keeps_its_size_and_sets_no_build_scale_or_name(tmp_path: Path) -> None:
+    # AC6: the skeletal path runs neither the build scale nor the rename, even when its node's
+    # datablock differs from its name.
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH, duplicate=True),
+        armature=True,
+    )
+    dest = DESKTOP_DEST
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["skeletal_meshes"]["SM_Crate"]["bounds"] == box(800.0)
+    assert world.build_writes == []
+    assert world.redirects == {}
+    assert sorted(world.assets) == sorted([MASTER_PATH, dest + "/SM_Crate"])
+
+
+def test_texture_settings_material_binding_and_result_keys_are_unchanged(tmp_path: Path) -> None:
+    # AC8: the textures, the MI_ binding, the result keys, and the error codes match before #145.
+    dest = DESKTOP_DEST
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH, materials=("M_Crate_Body",)),
+        textures=("T_Crate_Body_BC", "T_Crate_Body_N", "T_Crate_Body_ORM"),
+    )
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert set(result) == {
+        "ok",
+        "variant",
+        "name",
+        "dest",
+        "textures",
+        "materials",
+        "static_meshes",
+        "skeletal_meshes",
+        "error",
+    }
+    assert result["textures"] == [
+        dest + "/T_Crate_Body_BC",
+        dest + "/T_Crate_Body_N",
+        dest + "/T_Crate_Body_ORM",
+    ]
+    assert world.assets[dest + "/T_Crate_Body_BC"].properties == {"srgb": True}
+    assert world.assets[dest + "/T_Crate_Body_N"].properties == {
+        "flip_green_channel": True,
+        "compression_settings": "TC_NORMALMAP",
+        "srgb": False,
+    }
+    assert world.assets[dest + "/T_Crate_Body_ORM"].properties == {
+        "srgb": False,
+        "compression_settings": "TC_MASKS",
+    }
+    instance = world.assets[dest + "/MI_Crate_Body"]
+    assert isinstance(instance, MaterialInstanceConstant)
+    assert instance.parent is world.assets[MASTER_PATH]
+    assert instance.texture_params == {
+        "BaseColor": dest + "/T_Crate_Body_BC",
+        "Normal": dest + "/T_Crate_Body_N",
+        "ORM": dest + "/T_Crate_Body_ORM",
+    }
+    assert world.static_mesh(dest + "/SM_Crate").static_materials[0].material_interface is instance
+    assert result["materials"] == {"M_Crate_Body": dest + "/MI_Crate_Body"}
+
+
+def test_a_missing_master_material_fails_with_the_import_ue_failed_code(tmp_path: Path) -> None:
+    # AC8: the error code and remediation path are unchanged.
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH, materials=("M_Crate_Body",)),
+        seed_master=False,
+    )
+
+    with pytest.raises(PipelineError) as raised:
+        run_import(world, folder, "desktop", report)
+
+    assert raised.value.code == "import_ue.failed"
+    assert "M_NmgORM is missing" in raised.value.message
