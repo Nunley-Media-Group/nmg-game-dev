@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify stage)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 12c3680c44839b00af6da3ff73a1fa2945d31c4c
+**Verification head**: 628b99626e1447e2094ceaf56fa0951ed1ec08c9
 
 ---
 
@@ -24,7 +24,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 3 (all Low, none blocking)
 
-`estimate_landmarks(collection_name)` is in `rig_core`. A pure-Python slicing core (`rig_core/slicing.py`, no `bpy`) does the estimate, and a thin `bpy` wrapper (`rig_core/estimate.py`) reads the vertices. `rig_humanoid` now reads current transforms and names the real mesh in its failure texts. The agent flow is documented. All 10 acceptance criteria have passing tests. All 8 applicable registered validations passed at the verification head, and steering coverage is complete (11 declared, 11 recorded, 3 not applicable).
+`estimate_landmarks(collection_name)` is in `rig_core`. A pure-Python slicing core (`rig_core/slicing.py`, no `bpy`) does the estimate, and a thin `bpy` wrapper (`rig_core/estimate.py`) reads the vertices. `rig_humanoid` now reads current transforms and names the real mesh in its failure texts. The agent flow is documented. All 10 acceptance criteria have passing tests. This is a fresh verification after `628b996 chore: merge origin/main into #137 branch`. The merge changed no #137 feature file (`rig_core/`, the estimate tests and fixtures, the docs and the docs guard are identical to the previous verification head `12c3680`). It took main's version files (0.21.3) and kept #137's CHANGELOG entry under `## [Unreleased]`. All 10 applicable registered validations passed at the verification head, and steering coverage is complete (11 declared, 11 recorded, 1 not applicable).
 
 ---
 
@@ -48,11 +48,12 @@
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --project . --issue 137 --spec specs/137-… --base main --controller-run-id f80a3aa5-9e98-4a18-b45e-986b8ebf77f7`
-- Artifact: `.nmg-sdlc/verification/137.json`, generated 2026-11-11T22:54:39Z
-- Identity: head `12c3680c44839b00af6da3ff73a1fa2945d31c4c`, tree clean, specHash `sha256:04648d9a…6417435`, steeringHash `sha256:119992c8…5096a9`
+- Runner: `sdlc-verify-steering.mjs --project . --issue 137 --spec specs/137-… --base main --controller-run-id 20cb1e59-479a-4327-9267-2e86778a0af4`
+- Artifact: `.nmg-sdlc/verification/137.json`, generated 2026-11-11T23:53:57Z
+- Identity: head `628b99626e1447e2094ceaf56fa0951ed1ec08c9`, tree clean, specHash `sha256:04648d9a…6417435`, steeringHash `sha256:119992c8…5096a9`
 - Result: `ok: true`, `ceiling: null`
 - Coverage: declared 11, recorded 11, complete `true`; nothing missing, duplicated, or unknown
+- Note: the local `main` ref used as `--base` is behind `origin/main`, so the changed-path set includes paths from earlier merges. That made more gates applicable (`gate-mcp-schema`, `gate-shellcheck`, `gate-ue-compile`), and all of them passed. It only widens the gate set.
 
 ---
 
@@ -165,19 +166,12 @@ The change is local geometry only: no network, credentials, file I/O, subprocess
 ### Coverage Summary
 
 - Feature file: 10 scenarios, 10 of 10 ACs covered
-- Blender tests: 18 in `test_estimate_landmarks.py` (all pass). Full Blender suite: 197 passed in the registered gate
-- Unit tests: 11 in `test_rigging_docs.py`. Full `tests/unit tests/bdd`: 979 passed, 9 skipped
+- Blender tests: 18 in `test_estimate_landmarks.py` (all pass; rerun alone through `scripts/run-blender-tests.sh tests/blender/test_estimate_landmarks.py`: 18 passed in 21.15 s). Full Blender suite: 231 passed in the registered gate
+- Unit tests: 11 in `test_rigging_docs.py`. Full `tests/unit tests/bdd`: 1064 passed, 9 skipped
 
 ### Blender test isolation (lane host evidence)
 
-Six lane worktrees share `~/Library/Application Support/Blender/5.2/scripts/addons/nmg_game_dev_blender_addon`. During this run the link pointed at lane-2. To get evidence no other lane could repoint, `scripts/run-blender-tests.sh` was also run with `BLENDER_USER_RESOURCES` set to a lane-5 scratch directory:
-
-- The first run on the fresh directory failed with ModuleNotFoundError, as expected, because the link is created after the add-on paths are scanned.
-- The rerun gave **193 passed, 4 skipped** (the 4 `requires_host` tests skip because the isolated directory has no blender-mcp add-on). Exit 0.
-- `nmg_game_dev_blender_addon.rig_core` resolved through `<scratch>/blender-user/scripts/addons/nmg_game_dev_blender_addon` → `lane-5/plugins/nmg-game-dev-blender-addon`, and `estimate_landmarks` was present.
-- `test_estimate_landmarks.py` alone gave 18 passed.
-
-The registered `gate-blender-headless` run (shared HOME link, re-linked to lane-5 by `_runner.py`) gave 197 passed. Every estimate test in it needs `rig_core.estimate`, which exists only on this branch, so those passes could only have come from lane-5's code.
+Six lane worktrees share one Blender user add-on link, and `scripts/blender/_runner.py` re-links it to the running checkout before tests start. Every test in `test_estimate_landmarks.py` imports `rig_core.estimate`, which exists only on this branch, so the 18 passes (in the full gate and in the targeted rerun) could only come from lane-5's code. The previous verification also ran an isolated `BLENDER_USER_RESOURCES` pass (193 passed, 4 host-only skips). The feature files have not changed since then.
 
 ---
 
@@ -185,19 +179,19 @@ The registered `gate-blender-headless` run (shared HOME link, re-linked to lane-
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 979 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1064 passed, 9 skipped in 124.00 s |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 314 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 198 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 197 passed in 160.86 s |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8 compiled (applies because the `.uplugin` `VersionName` changed) |
+| `repository.format` | Pass | `uv run ruff format --check .`: 324 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 205 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 231 passed in 177.18 s |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against UE 5.8 (`Build.sh DogfoodEditor Mac Development`) |
+| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: passed |
+| `gate-shellcheck` | Pass | `shellcheck -S style` on every `scripts/**.sh`: passed |
 | `plugin.validate` | Pass | `claude plugin validate .`: validation passed (with warnings) |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`, and `nmg-game-dev:blender` connected |
-| `gate-mcp-schema` | Not applicable | No `mcp-servers/**` change |
-| `gate-shellcheck` | Not applicable | No `scripts/**.sh` change |
 | `gate-ship-smoke` | Not applicable | No ship-path change |
 
-**Gate Summary**: 8/8 applicable gates passed, 0 failed, 0 incomplete (3 not applicable)
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
 
 ---
 
@@ -288,7 +282,7 @@ None.
 | `tests/blender/rig_fixtures.py` | 0 | `voxel_size` parameter |
 | `tests/unit/test_rigging_docs.py` | 0 | SCN010 |
 | `tests/bdd/test_meshy_bdd.py`, `tests/blender/test_meshy_session.py` | 0 | `validate` signature update |
-| `VERSION`, `CHANGELOG.md`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin` | 0 | Controller version prep (0.22.0) |
+| `VERSION`, `CHANGELOG.md`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin` | 0 | After the merge of `origin/main`: main's values (0.21.3); the #137 entry sits under `## [Unreleased]`, and deliver prepares the version again |
 
 ---
 
@@ -296,4 +290,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion, functional requirement, and task is met, with passing tests at the verification head. All applicable registered gates passed and steering coverage is complete. The remaining items are Low and do not block.
+Every acceptance criterion, functional requirement, and task is met, with passing tests at the verification head. `origin/main` has moved one commit (`0e2fa86`, a spec approval for #189) beyond the merged base; that is for deliver to reconcile and does not touch #137's code. All applicable registered gates passed and steering coverage is complete. The remaining items are Low and do not block.
