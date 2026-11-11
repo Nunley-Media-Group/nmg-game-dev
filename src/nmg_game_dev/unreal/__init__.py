@@ -14,6 +14,7 @@ from .import_asset import (
     import_variant,
     parse_nmg_result,
 )
+from .material_variants import list_material_variants
 
 __all__ = [
     "PIVOT_TOLERANCE_CM",
@@ -21,5 +22,6 @@ __all__ = [
     "build_import_code",
     "check_pivots",
     "import_variant",
+    "list_material_variants",
     "parse_nmg_result",
 ]

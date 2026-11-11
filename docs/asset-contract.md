@@ -64,6 +64,62 @@ viewport or renderer is not done.
   (`Body`, `Glass`, `Surface`). Prefer one material per variant; at most the material
   count in section 6.
 
+### Material variants
+
+A material variant is another look of one baked material: a replacement base-colour
+texture, `M_NmgORM` parameter values (`Tint`), or both. It shares the material's normal and
+ORM textures. Unlike Desktop and Mobile it is not a separate asset: the mesh slots stay bound
+to the main `MI_<Name>_<Part>`. Replacement normal or ORM textures, masked tinting, and mesh
+or UV changes are out of scope.
+
+- **Declaration.** Write `<Name>.material-variants.json` beside the asset's `.blend`. A
+  `--blend` run finds it there; otherwise pass its path with `--material-variants` (CLI) or
+  `material_variants_path` (MCP). A session run has no `.blend` beside it, so it needs the
+  explicit path.
+- **Format.**
+
+  ```json
+  {
+    "schema": 1,
+    "material_variants": [
+      {"name": "Red", "material": "M_Crate_Body", "base_color": "Red.png"},
+      {"name": "Blue", "material": "M_Crate_Body", "parameters": {"Tint": [0.5, 0.25, 1.0]}}
+    ]
+  }
+  ```
+
+  `base_color` is a PNG path, relative to the declaration. `parameters` maps an `M_NmgORM`
+  parameter to a value. `Tint` is `[r, g, b]` or `[r, g, b, a]`, with every component finite and
+  at least 0; alpha defaults to 1. An entry has `base_color`, `parameters`, or both.
+- **Naming.** Finalize writes `T_<Name>_<Part>_BC_<Variant>` (a PNG base colour in sRGB, in both
+  the Desktop and Mobile folders) and `MI_<Name>_<Part>_<Variant>` (a material instance parented
+  to `M_NmgORM` in the same Content folder as the main set). A parameter-only variant has no
+  texture, so its instance uses the main base colour.
+- **Validation.** `validate` fails with a `material_variant.*` finding before anything is baked
+  or exported: `material_variant.name` (not PascalCase letters and digits, or `<Part>_<Variant>`
+  names another part), `material_variant.duplicate`, `material_variant.material_missing` (not a
+  material the asset has after the bake), `material_variant.material_merged` (see below),
+  `material_variant.texture_missing` (not an existing PNG), `material_variant.texture_size` (not
+  a power-of-two square, or not the Desktop base-colour size of its material),
+  `material_variant.parameter` (not a parameter of `M_NmgORM`, or a malformed value), and
+  `material_variant.empty` (neither `base_color` nor `parameters`). A file that is not valid JSON,
+  or does not match this format, raises `material_variant.declaration_invalid`.
+- **Merged materials.** When the bake merges several authored materials into `M_<Name>_Body`
+  (more of them than the Mobile material limit), declare variants on `M_<Name>_Body`. A variant
+  on one of the merged authored materials fails `material_variant.material_merged`, which names
+  `M_<Name>_Body`. A variant declared on `M_<Name>_Body` is produced for both Desktop and Mobile.
+- **Tint.** `M_NmgORM` multiplies its base colour by a `Tint` vector parameter that defaults to
+  white (1, 1, 1, 1). Rebuild `M_NmgORM` with `scripts/unreal/build_master_material.py` before
+  importing a parameter variant, because a shipped master built before #148 has no `Tint`.
+- **Stale deletion.** Running finalize again with a variant removed deletes its material instance
+  and texture from both Content folders, and its PNG leaves the export folders. Only assets that
+  finalize tagged (`nmg.asset`, `nmg.material_variant`, `nmg.material_slot`) are deleted, and the
+  import result lists the removed paths.
+- **Listing.** The `list_material_variants` MCP tool and
+  `python -m nmg_game_dev.finalize material-variants --category <C> --collection <N> [--json]`
+  list each variant with its material and its Desktop and Mobile instance paths. An asset with no
+  material variants returns an empty list.
+
 ## 5. Variants
 
 Desktop and Mobile are separate physical assets, both produced in the same session:
