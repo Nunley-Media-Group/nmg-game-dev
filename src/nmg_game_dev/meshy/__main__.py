@@ -49,6 +49,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="a-pose or t-pose, for characters and creatures with limbs only.",
     )
+    gen.add_argument(
+        "--no-arm-raise",
+        dest="raise_arms",
+        action="store_false",
+        help="Keep an a-pose import's arms where Meshy put them (no arm raise).",
+    )
     gen.add_argument("--wait", action="store_true", help="Poll until the job finishes.")
 
     retex = sub.add_parser("retexture", help="Start a retexture job for an authored collection.")
@@ -83,6 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     image_paths=tuple(args.images or ()),
                     texture=args.texture,
                     pose=args.pose,
+                    raise_arms=args.raise_arms,
                 )
             )
             result = _start_result(job_id, args.wait)

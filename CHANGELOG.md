@@ -8,6 +8,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Fixed
 
+- Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
 - Fix import_ue importing static meshes at 1/100 scale on UE 5.8 (#145)
 
 ## [0.21.2] - 2026-11-11

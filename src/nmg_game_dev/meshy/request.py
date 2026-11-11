@@ -95,6 +95,8 @@ class GenerateRequest:
     image_paths: tuple[str, ...] = ()
     texture: bool = True
     pose: str | None = None
+    # False skips the arm raise an a-pose import makes (#135). Other poses ignore it.
+    raise_arms: bool = True
 
     def validate(self) -> None:
         check_name(self.name)
