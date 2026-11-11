@@ -6,11 +6,17 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-11
+
 ### Fixed
 
 - Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
 - Fix import_ue importing static meshes at 1/100 scale on UE 5.8 (#145)
 - Honour nmg-budgets.json Desktop overrides in contract validation (#134)
+
+### Changed
+
+- Measure texel density per material slot and exempt trim-atlas and flat-colour slots (#151)
 
 ## [0.21.2] - 2026-11-11
 
