@@ -15,7 +15,14 @@ import pytest
 
 bpy = pytest.importorskip("bpy")
 
-from .contract_fixtures import DEFECTS, apply_defect, build_crate, clear_scene  # noqa: E402
+from .contract_fixtures import (  # noqa: E402
+    DEFECTS,
+    add_trim_material,
+    apply_defect,
+    build_crate,
+    clear_scene,
+    replace_mesh_with_grid,
+)
 
 DEFECT_RULES: dict[str, str] = {
     "root_rotation": "transform.root_applied",
@@ -179,3 +186,132 @@ def test_ac7_operator_reports_a_failing_report_as_an_error(
     assert stored["passed"] is False
     assert any(item["rule"] == "uv.single_map" for item in stored["findings"])
     assert json.loads(report_path.read_text(encoding="utf-8")) == stored
+
+
+# ---------------------------------------------------------------------------
+# #134 / SCN001-SCN005: nmg-budgets.json Desktop overrides reach validate_asset
+# ---------------------------------------------------------------------------
+
+DESKTOP_TRIS_OVERRIDES: dict[str, Any] = {"hero_prop": {"tris": 40000, "desktop": {"tris": 300000}}}
+
+
+def _overrides_file(tmp_path: Path, payload: dict[str, Any]) -> str:
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return str(path)
+
+
+def _findings(report: dict[str, Any], rule: str) -> list[dict[str, str]]:
+    return [item for item in report["findings"] if item["rule"] == rule]
+
+
+def _budget_tris_findings(report: dict[str, Any], variant: str) -> list[dict[str, str]]:
+    """The budget.tris findings whose target object belongs to the given variant."""
+    snapshot = report["snapshot"]
+    return [
+        item
+        for item in _findings(report, "budget.tris")
+        if snapshot[item["target"]]["variant"] == variant
+    ]
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["finalize_validate", "export_precheck"])
+def test_scn001_desktop_tris_override_lets_a_larger_desktop_variant_pass(
+    core: Any, tmp_path: Path, authored: bool
+) -> None:
+    build_crate()
+    replace_mesh_with_grid("SM_Crate", 50_000)
+    path = _overrides_file(tmp_path, DESKTOP_TRIS_OVERRIDES)
+
+    report = core.validate_asset("Crate", "hero_prop", path, authored=authored)
+
+    assert report["snapshot"]["SM_Crate"]["tris"] == 50_000
+    assert _budget_tris_findings(report, "desktop") == []
+
+
+def test_scn002_desktop_override_still_enforces_its_own_limit(core: Any, tmp_path: Path) -> None:
+    build_crate()
+    replace_mesh_with_grid("SM_Crate", 320_000)
+    path = _overrides_file(tmp_path, DESKTOP_TRIS_OVERRIDES)
+
+    report = core.validate_asset("Crate", "hero_prop", path)
+
+    findings = _budget_tris_findings(report, "desktop")
+    assert [item["target"] for item in findings] == ["SM_Crate"]
+    assert "300000" in findings[0]["message"]
+
+
+def test_scn003_desktop_texture_size_override_is_used_by_the_full_contract(
+    core: Any, tmp_path: Path
+) -> None:
+    build_crate()
+    path = _overrides_file(tmp_path, {"standard_prop": {"desktop": {"max_texture_px": 256}}})
+
+    report = core.validate_asset("Crate", "standard_prop", path)
+
+    findings = _findings(report, "budget.texture_size")
+    assert [item["target"] for item in findings] == ["T_Crate_Body_BC"]
+    assert "256" in findings[0]["message"]
+    default = core.validate_asset("Crate", "standard_prop")
+    assert _findings(default, "budget.texture_size") == []
+
+
+def test_scn003_desktop_materials_override_is_used_by_the_full_contract(
+    core: Any, tmp_path: Path
+) -> None:
+    build_crate()
+    add_trim_material("SM_Crate")
+    path = _overrides_file(tmp_path, {"standard_prop": {"desktop": {"materials": 1}}})
+
+    report = core.validate_asset("Crate", "standard_prop", path)
+
+    findings = _findings(report, "budget.materials")
+    assert [item["target"] for item in findings] == ["SM_Crate"]
+    assert "limit is 1" in findings[0]["message"]
+    default = core.validate_asset("Crate", "standard_prop")
+    assert _findings(default, "budget.materials") == []
+
+
+def test_scn004_without_overrides_the_desktop_budget_is_the_contract_default(core: Any) -> None:
+    build_crate()
+    replace_mesh_with_grid("SM_Crate", 50_000)
+
+    report = core.validate_asset("Crate", "hero_prop")
+
+    findings = _budget_tris_findings(report, "desktop")
+    assert [item["target"] for item in findings] == ["SM_Crate"]
+    assert "40000" in findings[0]["message"]
+
+
+def test_scn004_mobile_top_level_override_still_applies_to_mobile_only(
+    core: Any, tmp_path: Path
+) -> None:
+    build_crate()
+    apply_defect("mobile_lod0_4000_tris")
+    path = _overrides_file(tmp_path, {"standard_prop": {"tris": 3000}})
+
+    report = core.validate_asset("Crate", "standard_prop", path)
+
+    findings = _budget_tris_findings(report, "mobile")
+    assert [item["target"] for item in findings] == ["SM_Crate_Mobile_LOD0"]
+    assert "3000" in findings[0]["message"]
+    assert _budget_tris_findings(report, "desktop") == []
+
+
+@pytest.mark.parametrize(
+    "desktop_override",
+    [{"polys": 10}, {"tris": 0}],
+    ids=["unknown_metric", "non_positive_value"],
+)
+def test_scn005_invalid_desktop_override_raises_the_existing_error(
+    core: Any, tmp_path: Path, desktop_override: dict[str, Any]
+) -> None:
+    build_crate()
+    path = _overrides_file(tmp_path, {"standard_prop": {"desktop": desktop_override}})
+
+    with pytest.raises(core.ContractError) as raised:
+        core.validate_asset("Crate", "standard_prop", path)
+
+    assert raised.value.code == "variants.budget_override_invalid"
+    assert raised.value.message
+    assert raised.value.remediation

@@ -35,10 +35,25 @@ IMPORT_NORMALIZATION: Final[Mapping[str, Any]] = {
     "merged_vertices": 16,
     "origin_offset": [0.0, 0.0, 0.5],
 }
-# What the session's import_glb reports for an A-pose import (#106 AC3); only a-pose gets it.
+# What the session's import_glb reports for an A-pose import (#106 AC3, #135 AC5): the 55 degree box
+# humanoid, as the Blender session measured it. Only a-pose gets it, and not with raise_arms false.
 ARM_RAISE: Final[Mapping[str, Any]] = {
-    "left": {"drop_before_deg": 55.0, "drop_after_deg": 48.0, "rotation_deg": 7.0},
-    "right": {"drop_before_deg": 55.0, "drop_after_deg": 48.0, "rotation_deg": 7.0},
+    "left": {
+        "detected": True,
+        "shoulder": [0.15, 0.0, 1.495353],
+        "hand_tip": [0.583471, 0.0, 1.013934],
+        "drop_before_deg": 54.72,
+        "drop_after_deg": 48.0,
+        "rotation_deg": 6.72,
+    },
+    "right": {
+        "detected": True,
+        "shoulder": [-0.15, 0.0, 1.495353],
+        "hand_tip": [-0.583471, 0.0, 1.013934],
+        "drop_before_deg": 54.72,
+        "drop_after_deg": 48.0,
+        "rotation_deg": 6.72,
+    },
 }
 TEST_KEY: Final = "test-key-do-not-leak"
 ENV: Final[Mapping[str, str]] = {"MESHY_API_KEY": TEST_KEY}
@@ -186,7 +201,8 @@ class FakeSession:
             if name in self.collections:
                 return _error("meshy.collection_exists", f"{name!r} already exists.")
             self.collections[name] = _collection(name)
-            arm_raise = dict(ARM_RAISE) if payload.get("pose") == "a-pose" else None
+            raise_arms = bool(payload.get("raise_arms", True))
+            arm_raise = dict(ARM_RAISE) if payload.get("pose") == "a-pose" and raise_arms else None
             imported = {
                 "ok": True,
                 **_collection(name),

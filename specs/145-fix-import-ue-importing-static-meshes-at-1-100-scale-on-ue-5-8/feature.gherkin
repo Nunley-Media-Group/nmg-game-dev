@@ -1,0 +1,63 @@
+**Issue**: #145
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/69-reshape-the-pipeline-to-finalize-an-authored-asset-instead-of-generating-from-a-prompt/
+
+# File: tests/bdd/features/import_ue_static_scale.feature
+# Generated from: specs/145-fix-import-ue-importing-static-meshes-at-1-100-scale-on-ue-5-8/requirements.md
+Feature: import_ue imports static meshes at the authored size
+
+  @SCN001 @regression
+  Scenario: A static mesh larger than a metre imports at the authored size
+    Given a non-rigged asset exported by finalize with a part 8 m wide
+    When import_ue imports the Desktop variant on UE 5.8
+    Then the part's static mesh bounds are -800 cm to 800 cm on that axis within 0.01 cm
+    And the pivot check passes
+
+  @SCN002 @regression
+  Scenario: Each part keeps its own pivot
+    Given a non-rigged asset with two parts whose origins are away from the asset origin
+    When import_ue imports the Desktop variant
+    Then each static mesh's bounds are relative to its own part origin
+    And no part's translation appears in its bounds
+
+  @SCN003 @regression
+  Scenario: A static mesh is named after its part object, not its datablock
+    Given a part object "SM_Crate_Lid" whose mesh datablock is "SM_Crate_Lid.001"
+    When import_ue imports the variant
+    Then the result holds a static mesh named "SM_Crate_Lid"
+    And every snapshot part has a static mesh
+
+  @SCN004 @regression
+  Scenario: A reimport reports the new geometry
+    Given the destination already holds "SM_Crate_Lid" imported at 1/100 scale
+    When import_ue imports the variant again
+    Then the reported and saved bounds are those of the new import at the authored size
+    And the pivot check passes
+
+  @SCN005 @regression
+  Scenario: Desktop and Mobile variants both import correctly
+    Given a non-rigged multi-part asset
+    When finalize runs import_ue for the Desktop and Mobile variants
+    Then each variant's static meshes are at the authored size, keep their pivots, and are named after their part export names
+
+  @SCN006
+  Scenario: Rigged imports are unchanged
+    Given a rigged character report
+    When import_ue imports its Desktop and Mobile variants
+    Then the Skeletal Mesh import sets no build scale and renames nothing
+    And the pivot check passes
+
+  @SCN007
+  Scenario: An opt-in end-to-end test covers a multi-part static asset
+    Given the multi-part Gantry fixture builder and the slow finalize test in tests/e2e
+    When pytest collects tests/e2e without --runslow
+    Then the multi-part finalize test is collected and skipped
+    And the test asserts both variants import with one static mesh per part named after its object and a passing pivot check when run with --runslow
+
+  @SCN008
+  Scenario: Other import behavior is preserved
+    Given any static asset
+    When import_ue imports it
+    Then texture settings, MI_<Name>_<Part> binding, the NMG_RESULT schema, the error codes, and the 0.01 cm tolerance are unchanged

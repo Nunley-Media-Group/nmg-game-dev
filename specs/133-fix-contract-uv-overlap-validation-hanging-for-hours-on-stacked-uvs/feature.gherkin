@@ -1,0 +1,51 @@
+**Issue**: #133
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_contract_uv_overlap.py
+# Generated from: specs/133-fix-contract-uv-overlap-validation-hanging-for-hours-on-stacked-uvs/requirements.md
+Feature: Contract UV overlap validation finishes quickly and reports progress
+
+  @SCN001 @regression
+  Scenario: Stacked UVs on a 100k-triangle mesh fail fast
+    Given a mesh of at least 100k triangles whose faces all cover the full 0-1 UV square
+    And its asset class runs the overlap check
+    When contract validation runs on it
+    Then a "uv.overlap" finding is reported
+    And the overlap check for that mesh finishes within 10 seconds
+
+  @SCN002 @regression
+  Scenario: Early exit never changes the overlap outcome
+    Given a set of UV faces
+    When the overlap fraction is computed
+    Then it exceeds OVERLAP_LIMIT exactly when full rasterization of those faces would
+    And rasterizing stops once the shared-texel count exceeds OVERLAP_LIMIT times GRID squared
+
+  @SCN003 @regression
+  Scenario: An early-exit overlap finding states a lower bound
+    Given a mesh where the overlap check stopped early
+    When the "uv.overlap" finding is reported
+    Then its message says "at least" the reported share of covered UV texels is shared
+    And it names the overlap limit
+
+  @SCN004 @regression
+  Scenario: A large non-overlapping layout stays fast and passes
+    Given a mesh of at least 200k triangles with a non-overlapping UV layout
+    When contract validation runs on it
+    Then no "uv.overlap" finding is reported
+    And the overlap check for that mesh finishes within 30 seconds
+
+  @SCN005 @regression
+  Scenario: Existing overlap fixtures keep their results
+    Given the existing contract-validate and bake-unique fixtures
+    When validation and the bake UV check run on them
+    Then each fixture produces the same pass/fail result and finding codes as before
+
+  @SCN006 @regression
+  Scenario: The validate step reports per-check progress
+    Given a finalize job running the validate step on a collection with several meshes
+    When the job status is read during validation
+    Then its step is "validate"
+    And its progress rises strictly between 0 and 1 as meshes and checks finish
+    And its message names the current object and check
