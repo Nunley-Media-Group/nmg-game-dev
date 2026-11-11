@@ -4,7 +4,7 @@
 **Issue**: #134
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer)
 **Scope**: Implementation verification against spec
-**Verification head**: eb9dd4c61fe7a1c04833e8b3a31c4d2500bfdb53
+**Verification head**: 15895db94997afba118bd585d0ab09a9306b5f3e
 
 ---
 
@@ -23,7 +23,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 1 (Low, not blocking)
 
-The fix is the one-function change the design calls for. In `contract_core/validate.py`, `_budgets` now resolves the Desktop budget with `resolve_budget(asset_class, path, "desktop")` instead of copying the section 6 default from `CONTRACT_BUDGETS`. That matches how `bake_core/core.py` `_budgets` and `inspect_core/spatial.py` already resolve it. Every `validate_asset` caller now applies the nested `desktop` overrides with no signature change: the finalize validate step (`finalize_core/steps.py:98`), the export pre-check (`finalize_core/steps.py:178`) and the validate operator. The registered gate was re-run in the foreground at this head. All 11 registered validations are recorded. The 8 that apply passed and the other 3 do not apply to this change.
+The fix is the one-function change the design calls for. In `contract_core/validate.py`, `_budgets` now resolves the Desktop budget with `resolve_budget(asset_class, path, "desktop")` instead of copying the section 6 default from `CONTRACT_BUDGETS`. That matches how `bake_core/core.py` `_budgets` and `inspect_core/spatial.py` already resolve it. Every `validate_asset` caller now applies the nested `desktop` overrides with no signature change: the finalize validate step (`finalize_core/steps.py:98`), the export pre-check (`finalize_core/steps.py:178`) and the validate operator. This is a re-verification after `origin/main` (`d66e47e`, #173) was merged into the branch and the CHANGELOG entry was refiled under `## [Unreleased]`. The #134 code, tests and docs are unchanged by the merge. The registered gate was re-run at this head. All 11 registered validations are recorded. The 9 that apply passed and the other 2 do not apply to this change.
 
 ---
 
@@ -47,10 +47,11 @@ The fix is the one-function change the design calls for. In `contract_core/valid
 
 ## Deterministic Steering Artifact
 
-- Artifact: `.nmg-sdlc/verification/134.json`, generated 2026-11-11T22:17:30Z by `sdlc-verify-steering.mjs --issue 134 --base main --controller-run-id 4ad8edf4-ca8d-4ed2-b3f9-cde254ac23c2`, run in the foreground (exit 0).
-- Identity: head `eb9dd4c61fe7a1c04833e8b3a31c4d2500bfdb53`, clean tree.
+- Artifact: `.nmg-sdlc/verification/134.json`, generated 2026-11-11T22:46:27Z by `sdlc-verify-steering.mjs --issue 134 --base main --controller-run-id b3f40ae9-e8a6-44cb-acca-8329f3b5ebbc` (exit 0).
+- Identity: head `15895db94997afba118bd585d0ab09a9306b5f3e`, clean tree.
 - Coverage: declared 11, recorded 11, complete; no missing, duplicate or unknown results.
 - Ceiling: none.
+- Note: the local `main` ref (`41c5b31`) is older than `origin/main` (`d66e47e`), so the runner's changed-path set (139 paths) is wider than this issue's own diff against `origin/main` (7 files). That only makes more gates apply (for example `gate-mcp-schema`). It does not hide any gate.
 
 ---
 
@@ -141,8 +142,8 @@ The change stays in the step-implementation layer (`contract_core/`). The pipeli
 
 - Feature files: 5 scenarios in `specs/134-.../feature.gherkin`. Under tech steering, Blender add-on acceptance runs as pytest in headless Blender (`tests/blender/`)
 - Step definitions: Implemented as `tests/blender/test_contract_validate.py` scenario tests
-- Headless Blender suite: 188 passed, 0 skipped, 0 failed (`gate-blender-headless`)
-- Unit + BDD suite: 970 passed, 9 skipped, 0 failed (`repository.tests`), including the new section 6 documentation test
+- Headless Blender suite: 211 passed, 0 failed (`gate-blender-headless`)
+- Unit + BDD suite: 1008 passed, 9 skipped, 0 failed (`repository.tests`), including the new section 6 documentation test
 
 ---
 
@@ -150,7 +151,7 @@ The change stays in the step-implementation layer (`contract_core/`). The pipeli
 
 | Field | Value |
 |-------|-------|
-| **Reason** | Not applicable. The change touches no skill, agent, command or workflow file (`skills/`, `agents/`, `commands/`, `workflows/`), so there is no skill to exercise. `plugin.validate` and `plugin.session-smoke` apply only because the version bump touched `.claude-plugin/plugin.json`, and both passed |
+| **Reason** | Not applicable. The change touches no skill, agent, command or workflow file (`skills/`, `agents/`, `commands/`, `workflows/`), so there is no skill to exercise. `plugin.validate` and `plugin.session-smoke` apply through the changed-path set against local `main`, and both passed |
 | **Recommendation** | None |
 
 ---
@@ -159,19 +160,19 @@ The change stays in the step-implementation layer (`contract_core/`). The pipeli
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 970 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1008 passed, 9 skipped |
 | `repository.lint` | Pass | `uv run ruff check .` exited 0 |
-| `repository.format` | Pass | `uv run ruff format --check .` exited 0 |
-| `repository.types` | Pass | `uv run mypy src tests` exited 0 |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 188 passed in 176.49 s |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` (applies through the `.uplugin` version bump) |
-| `gate-mcp-schema` | N/A | Not applicable: no `mcp-servers/**` or validator change |
+| `repository.format` | Pass | `uv run ruff format --check .`: 314 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 200 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 211 passed in 278.52 s |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` (applies through the changed-path set against local `main`) |
+| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server (applies through the changed-path set against local `main`) |
 | `gate-shellcheck` | N/A | Not applicable: no `scripts/**.sh` change |
 | `gate-ship-smoke` | N/A | Not applicable: no ship path change |
 | `plugin.validate` | Pass | `claude plugin validate .` exited 0 |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 8/8 applicable gates passed, 0 failed, 0 incomplete; 3 not applicable. Coverage 11/11 recorded.
+**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete; 2 not applicable. Coverage 11/11 recorded.
 
 ---
 
@@ -239,7 +240,7 @@ None.
 | `tests/blender/test_contract_validate.py` | 0 | SCN001–SCN005 |
 | `tests/unit/test_blender_budgets.py` | 0 | Section 6 doc test |
 | `docs/asset-contract.md` | 0 | FR5 prose and example |
-| `VERSION`, `CHANGELOG.md`, plugin manifests | 0 | Delivery version bump |
+| `CHANGELOG.md` | 0 | #134 entry under `## [Unreleased]` after the `origin/main` merge |
 
 ---
 
@@ -247,4 +248,4 @@ None.
 
 **Ready for PR**
 
-All five acceptance criteria, five functional requirements and three tasks are implemented and covered by passing tests. The registered gate is full green at `eb9dd4c61fe7a1c04833e8b3a31c4d2500bfdb53` with complete coverage. The only finding is a Low-priority duplication note that is outside this defect's scope.
+All five acceptance criteria, five functional requirements and three tasks are implemented and covered by passing tests. The registered gate is full green at `15895db94997afba118bd585d0ab09a9306b5f3e` with complete coverage. The only finding is a Low-priority duplication note that is outside this defect's scope.
