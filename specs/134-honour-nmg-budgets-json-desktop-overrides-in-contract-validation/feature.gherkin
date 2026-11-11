@@ -1,0 +1,42 @@
+**Issue**: #134
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_contract_validate.py
+# Generated from: specs/134-honour-nmg-budgets-json-desktop-overrides-in-contract-validation/requirements.md
+Feature: Contract validation honours nmg-budgets.json Desktop overrides
+
+  @SCN001 @regression
+  Scenario: A Desktop triangle override lets a larger Desktop variant pass
+    Given an nmg-budgets.json with {"hero_prop": {"tris": 40000, "desktop": {"tris": 300000}}}
+    And a hero_prop Desktop variant with 50000 triangles
+    When validate_asset runs with that budgets_path as the finalize validate step and as the export pre-check
+    Then no budget.tris finding is reported for the Desktop variant
+
+  @SCN002 @regression
+  Scenario: A Desktop triangle override still enforces its own limit
+    Given the same nmg-budgets.json
+    And a hero_prop Desktop variant with more than 300000 triangles
+    When validate_asset runs with that budgets_path
+    Then a budget.tris finding is reported for the Desktop variant
+    And its message cites the 300000 budget
+
+  @SCN003 @regression
+  Scenario: Desktop texture size and material overrides are used by the full contract
+    Given an nmg-budgets.json whose standard_prop desktop object sets max_texture_px or materials
+    When the full contract validates the Desktop variant against it
+    Then the Desktop budget.texture_size and budget.materials checks cite the overridden values
+
+  @SCN004 @regression
+  Scenario: Mobile overrides and contract defaults behave as before
+    Given an nmg-budgets.json with only top-level Mobile metrics, or no budgets_path
+    When validate_asset runs
+    Then the Desktop variant is checked against the contract section 6 Desktop defaults
+    And the Mobile variant is checked against the top-level overrides
+
+  @SCN005 @regression
+  Scenario: An invalid Desktop override fails with the existing error
+    Given an nmg-budgets.json whose desktop object has an unknown metric or a non-positive value
+    When validate_asset runs with that budgets_path
+    Then it raises the variants.budget_override_invalid contract error with its message and remediation
