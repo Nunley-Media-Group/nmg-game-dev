@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-12
+
+### Fixed
+
+- Reconcile CHANGELOG release sections after parallel delivery and guard their structure with a test (#223)
+
 ## [0.25.0] - 2026-11-12
 
 ### Changed
