@@ -37,7 +37,12 @@ RULES: Final[dict[str, str]] = {
     "geometry.loose": "Delete loose vertices and edges (Mesh > Clean Up > Delete Loose).",
     "geometry.zero_area": "Delete zero-area faces (Mesh > Clean Up > Degenerate Dissolve).",
     "geometry.duplicates": "Merge duplicate vertices (Mesh > Clean Up > Merge by Distance).",
-    "geometry.normals": "Recalculate normals outside (Shift+N) so every face points outward.",
+    "geometry.normals": (
+        "Closed parts: recalculate normals outside (Shift+N) on that part only, so every face "
+        "points outward. Open sheets such as floors, roof planes, and decals: do not recalculate "
+        "outside; flip only the faces wound opposite to their neighbours (Mesh > Normals > Flip), "
+        "so the sheet is wound consistently and faces the viewer."
+    ),
     "uv.single_map": "Keep exactly one UV map on every mesh, named UVMap (contract section 4).",
     "uv.overlap": (
         "Unwrap so UV islands do not overlap; environment pieces use the tiling mode instead "

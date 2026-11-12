@@ -7,6 +7,10 @@ Invoked as::
 Blender consumes its own arguments up to ``--``; everything after ``--`` is
 forwarded via ``sys.argv`` and parsed here as the pytest target path.
 
+The add-on link is created only under ``BLENDER_USER_SCRIPTS``, which
+``scripts/run-blender-tests.sh`` sets to a per-run temporary directory (#189). Running this
+file directly without that variable raises instead of touching the user's scripts directory.
+
 Steps:
 1. Parse the pytest target from ``sys.argv`` (after ``--``).
 2. Attempt ``import pytest``.  On ``ImportError``, bootstrap pip into
@@ -25,20 +29,13 @@ import importlib.util
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 # The add-on source directory is hyphenated (nmg-game-dev-blender-addon) for
 # layout consistency with nmg-game-dev-ue-plugin, but Python/Blender require
 # the snake_case module id ``nmg_game_dev_blender_addon``.  Bridge the gap by
-# linking the source directory under the snake_case name in a private
-# directory owned by this run, and putting that directory first on sys.path
-# before pytest (and thus addon_utils.enable) runs.
-#
-# The link deliberately does not live in Blender's user-addons path: that path
-# is shared by every checkout on the host, so a concurrent run from another
-# worktree would repoint it mid-run and this suite would import that
-# checkout's add-on.
+# linking the source directory into Blender's user-addons path under the
+# snake_case name before pytest (and thus addon_utils.enable) runs.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADDON_SRC = _REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon"
 _ADDON_MODULE_ID = "nmg_game_dev_blender_addon"
@@ -94,26 +91,63 @@ def _ensure_pytest() -> None:
         )
 
 
-def _install_addon_link() -> None:
-    """Make ``import nmg_game_dev_blender_addon`` resolve to this checkout's source.
+def _isolated_addons_dir() -> Path:
+    """Return Blender's addons path, which must resolve inside this run's ``BLENDER_USER_SCRIPTS``.
 
-    Links the hyphenated source dir under the snake_case module id in a private
-    temporary directory, puts that directory first on ``sys.path``, and drops
-    any copy of the add-on Blender already loaded from elsewhere (for example
-    one enabled in the user preferences). Fails when the import still resolves
-    outside this checkout.
+    ``scripts/run-blender-tests.sh`` sets ``BLENDER_USER_SCRIPTS`` to a per-run temporary
+    directory. Both checks run before any filesystem write: the variable must be set, and
+    Blender's ``SCRIPTS/addons`` path must resolve inside it. Otherwise the runner would link
+    into the user's real Blender scripts directory.
     """
-    import addon_utils  # noqa: PLC0415 — only available under Blender
+    import bpy  # noqa: PLC0415 — bpy only available under Blender
 
-    addons_dir = Path(tempfile.mkdtemp(prefix="nmg-blender-tests-"))
-    (addons_dir / _ADDON_MODULE_ID).symlink_to(_ADDON_SRC, target_is_directory=True)
-    sys.path.insert(0, str(addons_dir))
+    user_scripts = os.environ.get("BLENDER_USER_SCRIPTS", "")
+    if not user_scripts:
+        raise RuntimeError(
+            "BLENDER_USER_SCRIPTS is unset; run the Blender tests through "
+            "scripts/run-blender-tests.sh, which gives each run its own user scripts directory."
+        )
+    root = Path(user_scripts).resolve()
+    addons_dir = Path(bpy.utils.user_resource("SCRIPTS", path="addons")).resolve()
+    if not addons_dir.is_relative_to(root):
+        raise RuntimeError(
+            f"Blender resolved its addons path to {addons_dir}, outside BLENDER_USER_SCRIPTS "
+            f"({root}); refusing to link the add-on there. Run the Blender tests through "
+            "scripts/run-blender-tests.sh."
+        )
+    return addons_dir
 
-    if _ADDON_MODULE_ID in sys.modules:
-        addon_utils.disable(_ADDON_MODULE_ID, default_set=False)
-        for name in [n for n in sys.modules if n.split(".")[0] == _ADDON_MODULE_ID]:
-            del sys.modules[name]
 
+def _install_addon_link() -> None:
+    """Idempotently link the hyphenated source dir into the run's isolated addons path
+    under the snake_case module id so ``addon_utils.enable`` can resolve it.
+    """
+    addons_dir = _isolated_addons_dir()
+    addons_dir.mkdir(parents=True, exist_ok=True)
+    link = addons_dir / _ADDON_MODULE_ID
+
+    if link.is_symlink():
+        if link.resolve() == _ADDON_SRC.resolve():
+            return
+        link.unlink()
+    elif link.exists():
+        # A stale real directory at the target would shadow the source;
+        # bail loudly rather than silently deleting user content.
+        raise RuntimeError(
+            f"Expected symlink at {link}, found a real directory or file. "
+            "Remove it manually and re-run."
+        )
+
+    link.symlink_to(_ADDON_SRC, target_is_directory=True)
+
+
+def _verify_addon_origin() -> None:
+    """Fail unless ``import nmg_game_dev_blender_addon`` resolves to this checkout's source.
+
+    Guards against another copy of the add-on (for example one installed as an extension or
+    enabled from another path) shadowing the per-run link, which would make this suite test
+    a different checkout's code.
+    """
     spec = importlib.util.find_spec(_ADDON_MODULE_ID)
     origin = Path(spec.origin if spec and spec.origin else "").resolve()
     if not origin.is_relative_to(_ADDON_SRC.resolve()):
@@ -127,6 +161,13 @@ def main() -> None:
     target = _parse_target()
     _ensure_pytest()
     _install_addon_link()
+    # Blender puts a scripts addons directory on sys.path only when it exists at startup. The
+    # per-run directory is created after startup (#189), so refresh the script paths or
+    # addon_utils.enable cannot find the linked add-on.
+    import bpy  # noqa: PLC0415 — bpy only available under Blender
+
+    bpy.utils.refresh_script_paths()
+    _verify_addon_origin()
 
     import pytest  # noqa: PLC0415 — imported after potential install
 

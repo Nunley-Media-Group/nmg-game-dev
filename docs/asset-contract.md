@@ -36,11 +36,17 @@ viewport or renderer is not done.
 
 ## 3. Geometry
 
-- Normals point outward and are consistent; shading uses custom/auto smoothing,
+- Closed parts have every face pointing outward. Shading uses custom/auto smoothing,
   not unwanted flat facets.
+- Open sheets (floors, roof planes, decals, terrain, ground sheets) are allowed where nothing
+  will see underneath. Wind every face of a sheet consistently and make it face the viewer:
+  `geometry.normals` checks consistent winding between neighbouring faces, and it never compares
+  a sheet with an outside direction, so a sheet passes wherever it sits.
+- Touching primitives, such as an environment piece built from many boxes, either merge by
+  distance so they share vertices, or stay about 0.6 mm apart. Vertices that coincide without
+  merging raise `geometry.duplicates`.
 - No loose vertices, zero-area faces, or duplicate geometry. Visible interpenetration
-  is a defect; hidden interior faces should be removed where practical. Open surfaces
-  (terrain, ground sheets) are fine where nothing will see underneath.
+  is a defect; hidden interior faces should be removed where practical.
 - Triangle counts within the budget for the asset class (section 6).
 
 ## 4. UVs and materials
