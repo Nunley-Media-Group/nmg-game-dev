@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify stage)
 **Scope**: Implementation verification against spec
 
-**Verification head**: b43412c5d97f03c99b6478584a6f516b4eba64fc
+**Verification head**: 0d79d14e19325ca8b57c5352373c27baf4b3aef9
 
 ---
 
@@ -24,7 +24,9 @@
 ### Implementation Status: Pass
 **Total Issues**: 0 blocking (2 low-severity observations, no action required)
 
-A new shared module, `contract_core/texel.py`, measures UV area and world area per material slot. It classifies each slot as `trim_atlas`, `flat_colour`, `skipped` or `measured`. Contract validation (`_texel_findings`) and the tiling bake (`check_density`) both use it, so they measure the same faces the same way. Validation reports one `texel.density` finding per failing slot, and the bake raises `texel_density` for the first failing slot. Both name the mesh, the material, the px/m, the minimum and the variant. The validation snapshot (`texel`) and the bake report (`texel_density`) list every slot. When any source material carries `nmg_trim_atlas`, the baked material gets the marker too, and `Material.copy()` keeps it on `_Mobile`. The docs and the `/model-asset` guidance describe the per-slot rule and the marker. All 11 registered validations are recorded at the verification head: 9 applicable ones passed and 2 do not apply to this change.
+A new shared module, `contract_core/texel.py`, measures UV area and world area per material slot. It classifies each slot as `trim_atlas`, `flat_colour`, `skipped` or `measured`. Contract validation (`_texel_findings`) and the tiling bake (`check_density`) both use it, so they measure the same faces the same way. Validation reports one `texel.density` finding per failing slot, and the bake raises `texel_density` for the first failing slot. Both name the mesh, the material, the px/m, the minimum and the variant. The validation snapshot (`texel`) and the bake report (`texel_density`) list every slot. When any source material carries `nmg_trim_atlas`, the baked material gets the marker too, and `Material.copy()` keeps it on `_Mobile`. The docs and the `/model-asset` guidance describe the per-slot rule and the marker.
+
+This is a re-verification after base reconciliation. Merge commit `0d79d14` brings `origin/main` (`38d164c`) into the branch without a rebase or force push. The merge keeps #147's `seam_metric` seam check and its remediation text alongside #151's per-slot density in `bake_core/tiling.py`, `bake_core/errors.py`, `docs/asset-contract.md` and `docs/skills/bake-materials.md`. `SEAM_TOLERANCE` is removed, as #147 intended. `VERSION` and the three plugin manifests take main's 0.21.3, and the branch diff against `origin/main` no longer touches them. `CHANGELOG.md` keeps main's released sections and adds the #151 line under `[Unreleased]` / `Changed`. The merge leaves the #151 core (`contract_core/texel.py`, `validate.py`, `report.py`) unchanged. All 11 registered validations were re-run and recorded at the merge head: 10 applicable ones passed and 1 does not apply.
 
 ---
 
@@ -48,8 +50,8 @@ A new shared module, `contract_core/texel.py`, measures UV area and world area p
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/151.json` (run id `a10c9007-0d1e-4e0a-acce-90cf7936cefd`)
-- Identity: head `b43412c5d97f03c99b6478584a6f516b4eba64fc`, tree clean, spec hash `sha256:02f5a85a…`, steering hash `sha256:119992c8…`
+- Artifact: `.nmg-sdlc/verification/151.json` (controller run id `c65afae8-10a4-4cc7-865d-6c7da76382fd`, generated 2026-11-12T00:27:51Z)
+- Identity: head `0d79d14e19325ca8b57c5352373c27baf4b3aef9`, tree clean, spec hash `sha256:02f5a85a…`, steering hash `sha256:119992c8…`
 - Coverage: declared 11, recorded 11, complete `true`, with no missing, duplicate or unknown ids
 - Ceiling: `null` (no cap)
 
@@ -162,7 +164,7 @@ Changes stay within the step-implementation layer (`contract_core`, `bake_core`)
 
 - Feature file: 9 scenarios (`feature.gherkin`). Each is implemented as a headless Blender test tagged with its scenario id, matching how this repository implements Blender-dependent ACs (`tests/blender/` through `gate-blender-headless`)
 - Unit tests: `tests/unit/test_texel_classify.py` (classification order, cut-off boundary, density arithmetic, report entries, marker parsing, no `bpy` import)
-- Suites: `repository.tests` 1023 passed, 9 skipped; `gate-blender-headless` 227 passed
+- Suites: `repository.tests` 1079 passed, 9 skipped; `gate-blender-headless` 247 passed
 
 ---
 
@@ -179,19 +181,19 @@ Changes stay within the step-implementation layer (`contract_core`, `bake_core`)
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q`: 1023 passed, 9 skipped |
+| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q`: 1079 passed, 9 skipped |
 | repository.lint | Pass | `uv run ruff check .`: All checks passed |
 | repository.format | Pass | `uv run ruff format --check .`: 318 files already formatted |
-| repository.types | Pass | `uv run mypy src tests`: no issues in 201 source files |
-| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 227 passed in 173 s |
-| gate-ue-compile | Pass | `Build.sh DogfoodEditor Mac Development`: Result: Succeeded (applicable because version files changed) |
+| repository.types | Pass | `uv run mypy src tests`: no issues in 206 source files |
+| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 247 passed in 148 s, including #147's seam tests and #151's density tests in the merged `test_bake_tiling.py` |
+| gate-ue-compile | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8: Result: Succeeded |
 | gate-mcp-schema | Pass | MCP tools match tools.json for every server |
-| gate-shellcheck | Not applicable | No `scripts/**.sh` changed |
+| gate-shellcheck | Pass | `shellcheck -S style` on every `scripts/**.sh`: exit 0 (applicable because the runner's diff base is the local `main`, which predates `scripts/start-unreal-mcp.sh` from #184) |
 | gate-ship-smoke | Not applicable | No ship paths changed |
 | plugin.validate | Pass | `claude plugin validate .`: Validation passed with warnings (the existing `PRIVACY_URL_MISSING` notice, unrelated to this change) |
-| plugin.session-smoke | Pass | Herdr session loaded this checkout with `--plugin-dir` and checked `/mcp` in an ephemeral project |
+| plugin.session-smoke | Pass | Plugin loaded with `--plugin-dir`; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable)
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
 
 ---
 
@@ -263,10 +265,10 @@ None.
 | `plugins/nmg-game-dev-blender-addon/contract_core/texel.py` | 0 | New shared module |
 | `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Per-slot findings and snapshot |
 | `plugins/nmg-game-dev-blender-addon/contract_core/report.py` | 0 | Remediation |
-| `plugins/nmg-game-dev-blender-addon/bake_core/tiling.py` | 0 | Per-slot bake check |
+| `plugins/nmg-game-dev-blender-addon/bake_core/tiling.py` | 0 | Per-slot bake check; merge keeps #147 `seam_metric` and removes `SEAM_TOLERANCE` |
 | `plugins/nmg-game-dev-blender-addon/bake_core/core.py` | 1 (low) | Report field and marker flag |
 | `plugins/nmg-game-dev-blender-addon/bake_core/rewire.py` | 0 | Marker on baked material |
-| `plugins/nmg-game-dev-blender-addon/bake_core/errors.py` | 0 | Remediation |
+| `plugins/nmg-game-dev-blender-addon/bake_core/errors.py` | 0 | Remediation; #147 `not_seamless` and #151 `texel_density` text both kept |
 | `plugins/nmg-game-dev-blender-addon/bake_core/uv.py` | 0 | Dead helper removed |
 | `docs/asset-contract.md`, `docs/skills/bake-materials.md`, `docs/skills/model-asset.md`, `skills/model-asset/SKILL.md` | 0 | Docs and guidance |
 | `tests/unit/test_texel_classify.py`, `tests/blender/test_contract_validate.py`, `tests/blender/test_bake_tiling.py`, `tests/blender/test_variants_mobile.py`, `tests/blender/texel_fixtures.py` | 0 | Coverage for SCN001–SCN009 |
@@ -277,4 +279,4 @@ None.
 
 **Ready for PR**
 
-All nine acceptance criteria and thirteen functional requirements are implemented and tested. Every registered validation that applies passed at head `b43412c5d97f03c99b6478584a6f516b4eba64fc`, with complete coverage and no ceiling. The two remaining observations are low-severity, need no action, and match the approved design.
+All nine acceptance criteria and thirteen functional requirements are implemented and tested. Every registered validation that applies passed at merge head `0d79d14e19325ca8b57c5352373c27baf4b3aef9`, with complete coverage and no ceiling. The two remaining observations are low-severity, need no action, and match the approved design.
