@@ -33,6 +33,7 @@ class NMGGAMEDEV_PT_main_panel(bpy.types.Panel):
         layout.operator("nmggamedev.inspect_spatial")
         layout.separator()
         layout.operator("nmggamedev.bake_materials")
+        layout.operator("nmggamedev.reduce_to_budget")
         layout.separator()
         layout.operator("nmggamedev.rig_humanoid")
         layout.operator("nmggamedev.import_animations")
@@ -49,6 +50,8 @@ def _summary_lines(raw: str) -> list[str]:
         data: Any = json.loads(raw)
     except ValueError:
         return ["Last result: unreadable"]
+    if data.get("kind") == "reduce":
+        return [data["summary"], f"State: {data['state']}"]
     if data.get("kind") == "bake":
         return [data["summary"], f"Bake manifest: {data['manifest_path']}"]
     if "poly_count_desktop" in data:

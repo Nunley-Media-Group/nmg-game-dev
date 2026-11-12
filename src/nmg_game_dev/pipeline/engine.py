@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -69,8 +69,13 @@ class BlenderSession(Protocol):
         result_blend: Path,
         collection: str,
         expected_hash: str,
+        suffixes: Sequence[str] | None = None,
     ) -> dict[str, Any]:
-        """Load the result into the session unless the session changed, and report which."""
+        """Load the result into the session unless the session changed, and report which.
+
+        ``suffixes`` names the collections to replace (``("", "_High")`` for reduce); None keeps
+        the add-on default of ``("", "_Mobile")``.
+        """
         ...
 
 
@@ -259,27 +264,45 @@ def execute(
 
 
 def _checkpoint(run: _Run) -> tuple[str, Path]:
-    checkpoint = run.job_dir / "checkpoint.blend"
-    request = run.request
-    if request.blend is None:
-        if run.clients.blender is None:
-            run.clients.blender = BlenderSessionClient()
-        asset_hash = run.clients.blender.checkpoint(
-            collection=request.collection,
-            path=checkpoint,
-        )
+    return checkpoint_session(
+        collection=run.request.collection,
+        blend=run.request.blend,
+        job_dir=run.job_dir,
+        runner=run.runner,
+        clients=run.clients,
+    )
+
+
+def checkpoint_session(
+    *,
+    collection: str,
+    blend: Path | None,
+    job_dir: Path,
+    runner: StepRunner,
+    clients: FinalizeClients,
+) -> tuple[str, Path]:
+    """Save the collection's checkpoint copy and return its content hash and path.
+
+    ``blend`` None saves a copy of the open session through the Blender session client.  A saved
+    ``.blend`` is copied and hashed headlessly.  Shared by finalize and reduce (#139).
+    """
+    checkpoint = job_dir / "checkpoint.blend"
+    if blend is None:
+        if clients.blender is None:
+            clients.blender = BlenderSessionClient()
+        asset_hash = clients.blender.checkpoint(collection=collection, path=checkpoint)
         return asset_hash, checkpoint
-    if not request.blend.is_file():
+    if not blend.is_file():
         raise PipelineError(
             code="finalize.blend_not_found",
-            message=f"The .blend to finalize does not exist: {request.blend}",
+            message=f"The .blend to finalize does not exist: {blend}",
             remediation="Pass the path of a saved .blend with --blend, or omit it to finalize the "
             "open session.",
             stage="finalize",
         )
-    run.job_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(request.blend, checkpoint)
-    return run.runner.hash(job_dir=run.job_dir, in_blend=checkpoint), checkpoint
+    job_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(blend, checkpoint)
+    return runner.hash(job_dir=job_dir, in_blend=checkpoint), checkpoint
 
 
 def _run_step(
@@ -336,6 +359,8 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
         client = owned
     imports: dict[str, Any] = {}
     paths: dict[str, str] = {}
+    # Each variant imports its own material variants, which the export sidecar lists (#148).
+    material_variants = _sidecar_material_variants(str(outputs_by_step["export"]["sidecar"]))
     # A rigged Mobile reuses the Desktop skeleton and physics asset, so both variants name the
     # Desktop folder, and Desktop is imported first (VARIANTS orders it).
     skeleton_dest = ue_destination(request, "Desktop")
@@ -353,6 +378,7 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
                 name=request.collection,
                 report=report,
                 skeleton_dest=skeleton_dest,
+                material_variants=material_variants.get(variant.lower(), []),
             )
             paths[variant] = destination
     finally:
@@ -362,6 +388,25 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
         "desktop_content_path": paths["Desktop"],
         "mobile_content_path": paths["Mobile"],
         "imports": imports,
+    }
+
+
+def _sidecar_material_variants(sidecar: str) -> dict[str, list[dict[str, Any]]]:
+    """Return the sidecar's material-variant lists keyed by variant ("desktop" or "mobile").
+
+    A sidecar with no material_variants key, or no sidecar file, declares none (#148, AC4).
+    """
+    path = Path(sidecar)
+    if not path.is_file():
+        return {}
+    payload: Any = json.loads(path.read_text(encoding="utf-8"))
+    declared = payload.get("material_variants") if isinstance(payload, dict) else None
+    if not isinstance(declared, dict):
+        return {}
+    return {
+        str(key): [dict(item) for item in value if isinstance(item, dict)]
+        for key, value in declared.items()
+        if isinstance(value, list)
     }
 
 

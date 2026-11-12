@@ -11,6 +11,20 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Fixed
 
 - Judge launcher detach in the scaffold scenarios by process state, not a 2-second wall clock (#215)
+## [0.24.0] - 2026-11-12
+## [0.22.1] - 2026-11-12
+
+### Fixed
+
+- Fix texture job queue: duplicate batch outputs, orphaned running jobs, and runner log location (#211)
+
+### Added
+
+- Let one finalized asset declare several material variants (#148)
+
+### Changed
+
+- Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
 
 ## [0.22.0] - 2026-11-12
 
@@ -25,6 +39,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 ## [0.21.6] - 2026-11-12
 
 ### Fixed
+
+- Fail import_ue when Unreal refuses to rename or consolidate an imported asset (#203)
 
 - Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
 

@@ -20,10 +20,24 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `finalize_asset` | `collection`, `export_root`, optional `category`, `asset_class`, `blend`, `budgets_path`, `force`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds` |
+| `finalize_asset` | `collection`, `export_root`, optional `category`, `asset_class`, `blend`, `budgets_path`, `material_variants_path`, `force`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds` |
 | `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` | The same shape as `finalize_asset`, for one step |
+| `reduce_asset` | `collection`, `asset_class`, optional `blend`, `budgets_path`, `device`, `cage_extrusion`, `max_ray_distance`, `miss_threshold`, `parts`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds`. See [reduce_asset](#reduce_asset-139). |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "result"?, "error"?}` |
+| `list_material_variants` | `category`, `collection` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants or is not in Content |
 | `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop` | The audio import result. See [elevenlabs.md](elevenlabs.md) |
+
+`material_variants_path` names the asset's `<Name>.material-variants.json` declaration. Without it, a
+`--blend` run uses the file beside the blend when one exists. A session run has no blend, so it declares
+no material variants unless the path is given. A path that does not exist returns
+`finalize.material_variants_not_found`. The format and the rules are in `docs/asset-contract.md` section 4.
+Each variant's `import_ue` result lists the imported instances in `material_variants`, one entry per
+instance, and names any variant parameter the master material lacks in `warnings`.
+
+`list_material_variants` reads the `nmg.*` metadata tags that finalize writes on each variant instance in
+`/Game/<Category>/<Name>/Desktop` and `/Game/<Category>/<Name>/Mobile`. Each row gives the variant's
+material slot and its instance path in each folder, or `null` for a folder that does not hold it. An
+unreachable Unreal MCP endpoint returns `mcp.unreal.unreachable` in the `error` object.
 
 `wait_seconds` is clamped to 0–150. A value of 0 returns the job id at once. `get_finalize_job`
 reports `state` as `queued`, `running`, `succeeded`, or `failed`, and `progress` as a number from 0
@@ -40,8 +54,14 @@ logs to stderr only, because stdout is the MCP channel.
 ```text
 python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue} \
   --collection Crate --export-root <dir> [--category Props] [--class standard_prop] \
-  [--blend B] [--budgets P] [--device GPU|CPU] [--force] [--json]
+  [--blend B] [--budgets P] [--material-variants P] [--device GPU|CPU] [--force] [--json]
+
+python -m nmg_game_dev.finalize material-variants --category Props --collection Crate [--json]
 ```
+
+`material-variants` prints the rows that `list_material_variants` returns, one line per variant, or the
+JSON array with `--json`. It needs the Unreal MCP endpoint, and it exits `2` when that endpoint is
+unreachable.
 
 | Exit | Meaning |
 |------|---------|
@@ -64,6 +84,7 @@ Every entry point takes one `FinalizeRequest`:
 | `export_root` | Folder that receives `<Category>/<Name>/Desktop/` and `<Category>/<Name>/Mobile/`. |
 | `blend` | Optional saved `.blend` to finalize instead of the open session. |
 | `budgets_path` | Optional `nmg-budgets.json` with budget overrides. |
+| `material_variants_path` | Optional `<Name>.material-variants.json`. Found beside `blend` when omitted (see the tools section). |
 | `device` | `GPU` (default) or `CPU` for the bake. |
 
 ## Backlog fallback
@@ -101,6 +122,36 @@ Load-back sits between `reimport` and `import_ue`. It is not a step in its own r
 `run_finalize_step` returns a result with `step`, `cache_hit`, `outputs`, and `summary`. When a step
 fails, no later step runs, and nothing is imported into Unreal.
 
+## reduce_asset (#139)
+
+`reduce_asset` reduces a generated collection to its class's Desktop triangle budget and bakes its
+look onto the reduced mesh. It runs as a background job, like finalize, and shares its lock, status,
+and `get_finalize_job`. The originals move to the hidden `<Name>_High` collection, which finalize
+never reads. The reduced `<Name>` then passes `finalize_asset` with no reduce-specific arguments.
+
+| Input | Meaning |
+|-------|---------|
+| `collection` | The asset's collection `<Name>`, PascalCase. |
+| `asset_class` | `small_prop`, `standard_prop`, `hero_prop`, `character`, or `environment_piece`. Any other value, including `terrain`, is refused with `reduce.class_unsupported`. |
+| `blend` | Optional saved `.blend` to reduce instead of the open session. |
+| `budgets_path` | Optional `nmg-budgets.json`. Defaults to the project's file when it exists. |
+| `device` | `GPU` (default) or `CPU`. |
+| `cage_extrusion` | Asset-wide bake cage in metres. Default 0.03. |
+| `max_ray_distance` | Asset-wide bake ray distance in metres. Default 0.10. |
+| `miss_threshold` | Largest unbaked share per part, from 0 to 1. Default 0.01. |
+| `parts` | Per-part overrides keyed by object name: `share` (above 0, at most 1) or `tris` (at least 1), plus optional `cage_extrusion` and `max_ray_distance`. A part takes `share` or `tris`, never both. |
+| `wait_seconds` | Clamped to 0–150. A value of 0 returns the job id at once. |
+
+The result has the same shape from the MCP tool, the CLI (`python -m nmg_game_dev.finalize reduce`),
+the panel operator, and `reduce_core.run_for_mcp`. It holds `state` (`reduced` or `within_budget`),
+the per-part `parts` table with source, target, and final triangles, the cage and ray values each
+part used, `unbaked_share`, the texture paths, a one-line `summary`, and for a job `kind: "reduce"`,
+`loaded_back`, and `result_blend`. The full description is in
+[`docs/skills/reduce-to-budget.md`](../skills/reduce-to-budget.md).
+
+A session run loads the reduced `<Name>` and `<Name>_High` back into Blender only when the session's
+`<Name>` still matches the checkpoint. Otherwise the job fails with `reduce.session_changed`.
+
 ## Job flow and load-back
 
 1. **Checkpoint.** The job saves the open session's scene as a copy, `checkpoint.blend`, and hashes
@@ -131,7 +182,9 @@ Each step has a content-addressed cache key:
   after that. The asset hash covers the mesh, materials, images, and transforms of `<Name>` and its
   Mobile collection.
 - `settings_hash` covers the asset class, the resolved budget, the device (bake only), the export
-  root (export and import only), the category, and the step version.
+  root (export and import only), the category, and the step version. `validate` and `export` also cover
+  the material-variants declaration and the bytes of each base-colour texture it names, so editing a
+  variant reruns those two steps and leaves `bake` and `variants` cached.
 
 An alias index under `runs/` maps the asset hash to each step's key. A rerun with no change finds
 every step in the cache, reports `cache_hit: true` for each, and skips `import_ue`. Load-back is
@@ -160,13 +213,20 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | Code | Meaning | Remediation |
 |------|---------|-------------|
 | `finalize.session_changed` | `<Name>` changed in the session after the checkpoint, so load-back was refused. The export, reimport, and `import_ue` steps still ran. | Read the result `.blend` named in the message. Revert or re-author the session changes, then rerun finalize to load the result back. |
+| `reduce.session_changed` | `<Name>` changed in the session during a reduce job, so the reduced asset was not loaded back. The result `.blend` is named in the message. | Open the result `.blend`, or revert the session changes and rerun `reduce_asset`. |
+| `reduce.bake_misses` | A part's unbaked share is above `miss_threshold`. The scene is unchanged. | Raise `max_ray_distance` or `cage_extrusion` for the part named in the message, then rerun. |
+| `reduce.invalid_request` / `reduce.invalid_override` | An argument or a per-part override is invalid. Nothing starts. | Fix the argument or override named in the message, then rerun. |
+| `reduce.<code>` | Any other reduce refusal, such as `reduce.rigged`, `reduce.class_unsupported`, or `reduce.overrides_exceed_budget`. | See the error table in [`docs/skills/reduce-to-budget.md`](../skills/reduce-to-budget.md#errors). |
 | `finalize.job_crashed` | A background Blender process exited before its step finished. The step is named in the error. | Read `blender-<step>.log` in the job directory. Fix the cause and rerun. The open session is unchanged. |
 | `finalize.job_running` | Another finalize job holds the lock for this cache root. | Wait for it with `get_finalize_job`, or stop it, then rerun. |
 | `finalize.job_not_found` | No job has that id in this cache root. | Use the `job_id` that `finalize_asset` or `run_finalize_step` returned. |
 | `finalize.invalid_request` | `category` or `asset_class` is omitted, and no asset entry in `docs/design/backlog.json` supplies it. The message names the argument and the backlog path. | Pass the argument, or add the asset's design doc, run `python -m nmg_game_dev.design sync`, then rerun. |
 | `finalize.blender_not_found` | No Blender executable at `BLENDER_BIN`, `BLENDER_APP`, or `/Applications/Blender.app`. | Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun. |
 | `finalize.collection_not_found` | The session, or `--blend`, has no collection named `<Name>`. | Check that the collection name matches `--collection` and is PascalCase. |
-| `quality.contract_failed` | A contract report failed. Its findings name each rule and target. | Fix each finding in Blender, using `docs/asset-contract.md`, then rerun. |
+| `quality.contract_failed` | A contract report failed. Its findings name each rule and target. A `material_variant.*` finding names the variant and the rule. | Fix each finding in Blender, or in `<Name>.material-variants.json`, using `docs/asset-contract.md`, then rerun. |
+| `finalize.material_variants_not_found` | The `material_variants_path` does not exist. | Pass the path of an existing declaration, or omit it to use the one beside the `.blend`. |
+| `validate.material_variant.declaration_invalid` | The material-variants file is not valid JSON, or does not match the format in `docs/asset-contract.md` section 4. | Fix the file, then rerun. |
+| `finalize.material_variants_failed` | Unreal could not list the material variants. The UE error is in the message. | Confirm the editor is idle and the asset is in Content, then rerun `list_material_variants`. |
 | `quality.reimport_mismatch` | An exported FBX re-imported differently from its pre-export report. | Read the re-import report in the job directory, fix the export cause, then rerun. |
 | `bake.texture.bake_failed` | A texture bake failed. | Read `blender-bake.log` and fix the material it names, then rerun. |
 | `variants.<code>` | Variant generation failed. The code names the cause. | Read the message, fix the mesh or material it names, then rerun. |

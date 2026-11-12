@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 import socket
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import closing
 from pathlib import Path
 from typing import Any, Final
@@ -120,16 +120,20 @@ class BlenderSessionClient:
         result_blend: Path,
         collection: str,
         expected_hash: str,
+        suffixes: Sequence[str] | None = None,
     ) -> dict[str, Any]:
-        """Load the baked collections into the session unless the session changed meanwhile."""
-        result = self.run_session_op(
-            "load_back",
-            {
-                "result_blend": str(result_blend),
-                "collection": collection,
-                "expected_hash": expected_hash,
-            },
-        )
+        """Load the baked collections into the session unless the session changed meanwhile.
+
+        ``suffixes`` is sent only when given, so finalize's payload stays unchanged (#139).
+        """
+        payload: dict[str, Any] = {
+            "result_blend": str(result_blend),
+            "collection": collection,
+            "expected_hash": expected_hash,
+        }
+        if suffixes is not None:
+            payload["suffixes"] = list(suffixes)
+        result = self.run_session_op("load_back", payload)
         _raise_if_error(result, stage="load_back")
         return result
 

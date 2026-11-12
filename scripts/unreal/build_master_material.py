@@ -3,9 +3,10 @@
 
     uv run --group dev python scripts/unreal/build_master_material.py [--url URL]
 
-The graph has three texture parameters. ``BaseColor`` (Color) feeds Base Color, ``Normal``
-(Normal) feeds Normal, and ``ORM`` (Masks) feeds Ambient Occlusion from R, Roughness from G, and
-Metallic from B. Each sampler starts from a default texture of its own sampler type:
+The graph has three texture parameters. ``BaseColor`` (Color) is multiplied by the ``Tint`` vector
+parameter (default white, #148) and feeds Base Color, ``Normal`` (Normal) feeds Normal, and ``ORM``
+(Masks) feeds Ambient Occlusion from R, Roughness from G, and Metallic from B. Each sampler starts
+from a default texture of its own sampler type:
 ``DefaultTexture`` for BaseColor, ``DefaultNormal`` for Normal, and ``DefaultDiffuse_TC_Masks``
 for ORM. The material is also enabled for skeletal meshes, so instances compile on both mesh
 types. The nmg-game-dev plugin mounts at /nmg-game-dev/, so the asset saves to
@@ -67,6 +68,16 @@ def _clear(material):
         raise RuntimeError("could not clear the existing M_NmgORM graph")
 
 
+def _tint(material):
+    # Tint is the one vector parameter (#148, FR6). Its white default leaves a base colour as it is.
+    node = unreal.MaterialEditingLibrary.create_material_expression(
+        material, unreal.MaterialExpressionVectorParameter, -700, 700
+    )
+    node.set_editor_property("parameter_name", "Tint")
+    node.set_editor_property("default_value", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+    return node
+
+
 def _build(material):
     mel = unreal.MaterialEditingLibrary
     base = _sampler(
@@ -76,7 +87,11 @@ def _build(material):
         unreal.MaterialSamplerType.SAMPLERTYPE_COLOR,
         "/Engine/EngineResources/DefaultTexture",
     )
-    mel.connect_material_property(base, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+    tint = _tint(material)
+    tinted = mel.create_material_expression(material, unreal.MaterialExpressionMultiply, -300, -200)
+    mel.connect_material_expressions(base, "RGB", tinted, "A")
+    mel.connect_material_expressions(tint, "", tinted, "B")
+    mel.connect_material_property(tinted, "", unreal.MaterialProperty.MP_BASE_COLOR)
     normal = _sampler(
         material,
         "Normal",

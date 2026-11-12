@@ -9,7 +9,7 @@ the old names and removes what was appended.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Final
 
 import bpy
@@ -32,17 +32,24 @@ class LoadBackError(Exception):
         self.remediation = remediation
 
 
-def load_back(result_blend: str, collection_name: str, expected_hash: str) -> dict[str, Any]:
-    """Replace <collection_name> (and its Mobile sibling) with the result file's copies.
+def load_back(
+    result_blend: str,
+    collection_name: str,
+    expected_hash: str,
+    suffixes: Sequence[str] = ("", MOBILE_SUFFIX),
+) -> dict[str, Any]:
+    """Replace <collection_name><suffix> for each suffix with the result file's copies.
 
-    Returns {"loaded": True, "hash": <post-load content hash>} on success, or
-    {"loaded": False, "reason": "session_changed"} without touching the session when its hash
-    differs from expected_hash. Raises LoadBackError when the result cannot be loaded.
+    suffixes defaults to the Desktop and Mobile collections. A reduce passes ("", "_High") so
+    its hidden originals come back too (#139). Returns {"loaded": True, "hash": <post-load
+    content hash>} on success, or {"loaded": False, "reason": "session_changed"} without
+    touching the session when its hash differs from expected_hash. Raises LoadBackError when
+    the result cannot be loaded.
     """
     if content_hash(collection_name) != expected_hash:
         return {"loaded": False, "reason": "session_changed"}
 
-    targets = _result_targets(result_blend, collection_name)
+    targets = _result_targets(result_blend, collection_name, suffixes)
     scene_collection = bpy.context.scene.collection
     parents = {
         name: _parents_of(bpy.data.collections[name], scene_collection)
@@ -75,7 +82,7 @@ def load_back(result_blend: str, collection_name: str, expected_hash: str) -> di
     return {"loaded": True, "hash": content_hash(collection_name)}
 
 
-def _result_targets(result_blend: str, collection_name: str) -> list[str]:
+def _result_targets(result_blend: str, collection_name: str, suffixes: Sequence[str]) -> list[str]:
     try:
         with bpy.data.libraries.load(result_blend, link=False) as (source, _loaded):
             available = set(source.collections)
@@ -85,7 +92,7 @@ def _result_targets(result_blend: str, collection_name: str) -> list[str]:
             "Rerun the bake and variants steps so they write a readable result .blend.",
         ) from error
     targets = [
-        name for name in (collection_name, f"{collection_name}{MOBILE_SUFFIX}") if name in available
+        name for name in (f"{collection_name}{suffix}" for suffix in suffixes) if name in available
     ]
     if collection_name not in targets:
         raise LoadBackError(

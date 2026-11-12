@@ -8,7 +8,8 @@ The authored materials are never changed: every pass runs on a copy that is remo
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
 import bpy
 
@@ -124,6 +125,203 @@ def bake_channel(
             mesh.active_material_index = active_slots[mesh.name]
         for copy in copies:
             bpy.data.materials.remove(copy)
+
+
+def bake_transfer(
+    source: bpy.types.Object,
+    copy: bpy.types.Object,
+    channel: str,
+    target: bpy.types.Image,
+    size: int,
+    cage_extrusion: float,
+    max_ray_distance: float,
+    clear: bool,
+) -> None:
+    """Selected-to-active bake of one channel: source's surface onto copy's target image (#139).
+
+    For the pass, the source's slots hold channel copies of its materials (EMIT for base color,
+    roughness, and metallic; tangent-space NORMAL; AO), and the copy's only slot holds a temporary
+    material whose image node is the active target. Both are restored afterward, so the source
+    keeps its authored materials. clear is True only on the first pass into a shared target.
+    """
+    channel_copies: dict[int, bpy.types.Material] = {}
+    replacements: dict[int, bpy.types.Material] = {}
+    target_material = _target_material(target)
+    try:
+        for index, material in enumerate(source.data.materials):
+            if material is None:
+                continue
+            key = material.as_pointer()
+            if key not in channel_copies:
+                channel_copies[key] = _channel_copy(material, channel, len(channel_copies), size)
+            replacements[index] = channel_copies[key]
+        with _slots_replaced(source, replacements):
+            _set_slots(copy, target_material)
+            select_only([source, copy], copy)
+            _run_bake(
+                BAKE_TYPES[channel],
+                margin=bake_margin(size),
+                clear=clear,
+                selected=True,
+                cage_extrusion=cage_extrusion,
+                max_ray_distance=max_ray_distance,
+                normal=channel == "N",
+            )
+    finally:
+        copy.data.materials.clear()
+        bpy.data.materials.remove(target_material)
+        for material in channel_copies.values():
+            bpy.data.materials.remove(material)
+
+
+def bake_coverage(
+    source: bpy.types.Object,
+    copy: bpy.types.Object,
+    target: bpy.types.Image,
+    cage_extrusion: float,
+    max_ray_distance: float,
+    clear: bool,
+) -> None:
+    """Constant-white EMIT from source's hits onto copy's target, with no margin (#139 coverage).
+
+    Texels the copy's rays reached on the source come out white; the rest stay black.
+    """
+    constant = _constant_material()
+    target_material = _target_material(target)
+    try:
+        replacements = {index: constant for index in range(len(source.data.materials))}
+        with _slots_replaced(source, replacements):
+            _set_slots(copy, target_material)
+            select_only([source, copy], copy)
+            _run_bake(
+                "EMIT",
+                margin=0,
+                clear=clear,
+                selected=True,
+                cage_extrusion=cage_extrusion,
+                max_ray_distance=max_ray_distance,
+                normal=False,
+            )
+    finally:
+        copy.data.materials.clear()
+        bpy.data.materials.remove(target_material)
+        bpy.data.materials.remove(constant)
+
+
+def bake_island(
+    copy: bpy.types.Object,
+    target: bpy.types.Image,
+    clear: bool,
+) -> None:
+    """Constant-white EMIT of copy onto its own UV islands, with no margin (#139 coverage)."""
+    island = _target_material(target, emit_white=True)
+    try:
+        _set_slots(copy, island)
+        select_only([copy], copy)
+        _run_bake(
+            "EMIT",
+            margin=0,
+            clear=clear,
+            selected=False,
+            cage_extrusion=0.0,
+            max_ray_distance=0.0,
+            normal=False,
+        )
+    finally:
+        copy.data.materials.clear()
+        bpy.data.materials.remove(island)
+
+
+def select_only(objects: Sequence[bpy.types.Object], active: bpy.types.Object) -> None:
+    """Select exactly objects (in object mode) and make active the active one."""
+    view_layer = bpy.context.view_layer
+    if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for obj in view_layer.objects:
+        obj.select_set(False)
+    for obj in objects:
+        obj.select_set(True)
+    view_layer.objects.active = active
+
+
+@contextmanager
+def _slots_replaced(
+    obj: bpy.types.Object, replacements: dict[int, bpy.types.Material]
+) -> Iterator[None]:
+    """Swap the given slot materials for the duration of the block, then restore every slot."""
+    originals = list(obj.data.materials)
+    try:
+        for index, material in replacements.items():
+            obj.data.materials[index] = material
+        yield
+    finally:
+        _restore_slots(obj, originals)
+
+
+def _set_slots(obj: bpy.types.Object, material: bpy.types.Material) -> None:
+    """Give obj one slot holding material, with every face on it."""
+    obj.data.materials.clear()
+    obj.data.materials.append(material)
+    obj.data.polygons.foreach_set("material_index", [0] * len(obj.data.polygons))
+
+
+def _target_material(image: bpy.types.Image, *, emit_white: bool = False) -> bpy.types.Material:
+    """A temporary material whose image node is the active bake target (and white EMIT if asked)."""
+    material = bpy.data.materials.new("__nmg_bake_target")
+    material.use_nodes = True
+    if emit_white:
+        _make_emission(material)
+    node = _set_target(material, image)
+    material.node_tree.nodes.active = node
+    return material
+
+
+def _constant_material() -> bpy.types.Material:
+    material = bpy.data.materials.new("__nmg_bake_constant")
+    material.use_nodes = True
+    _make_emission(material)
+    return material
+
+
+def _make_emission(material: bpy.types.Material) -> None:
+    """Replace the Principled BSDF with a white Emission feeding the output."""
+    tree = material.node_tree
+    output = _output(material)
+    for node in [node for node in tree.nodes if node.type == "BSDF_PRINCIPLED"]:
+        tree.nodes.remove(node)
+    emission = tree.nodes.new("ShaderNodeEmission")
+    emission.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    tree.links.new(emission.outputs["Emission"], output.inputs["Surface"])
+
+
+def _run_bake(
+    bake_type: str,
+    *,
+    margin: int,
+    clear: bool,
+    selected: bool,
+    cage_extrusion: float,
+    max_ray_distance: float,
+    normal: bool,
+) -> None:
+    try:
+        bpy.ops.object.bake(
+            type=bake_type,
+            margin=margin,
+            use_clear=clear,
+            target="IMAGE_TEXTURES",
+            save_mode="INTERNAL",
+            use_selected_to_active=selected,
+            use_cage=False,
+            cage_extrusion=cage_extrusion,
+            max_ray_distance=max_ray_distance,
+            **(_NORMAL_KWARGS if normal else {}),
+        )
+    except RuntimeError as error:
+        raise BakeError(
+            "internal_error",
+            f"Blender refused the {bake_type} bake: {error}",
+        ) from error
 
 
 def _channel_copy(

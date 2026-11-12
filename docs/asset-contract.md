@@ -10,6 +10,10 @@ viewport or renderer is not done.
 - Each asset lives in its own collection named `<Name>` (PascalCase, e.g. `Lamppost`).
 - That collection contains only what ships. Ground planes, lights, cameras, and
   set dressing go in a separate `<Name>_Preview` collection that is never exported.
+- A reduce run (`docs/skills/reduce-to-budget.md`, #139) may keep the original meshes of a generated
+  asset in a top-level `<Name>_High` collection, hidden in the viewport and in renders, with each
+  object named `<object>_High`. `<Name>_High` is never validated, hashed, or exported. Only `<Name>`
+  and `<Name>_Mobile` are.
 - One root mesh object per variant: `SM_<Name>` (Desktop) and `SM_<Name>_Mobile` (Mobile).
   Split into multiple objects only for parts that must move independently, named
   `SM_<Name>_<Part>`, parented to the root.
@@ -80,11 +84,79 @@ viewport or renderer is not done.
   (`Body`, `Glass`, `Surface`). Prefer one material per variant; at most the material
   count in section 6.
 
+### Material variants
+
+A material variant is another look of one baked material: a replacement base-colour
+texture, `M_NmgORM` parameter values (`Tint`), or both. It shares the material's normal and
+ORM textures. Unlike Desktop and Mobile it is not a separate asset: the mesh slots stay bound
+to the main `MI_<Name>_<Part>`. Replacement normal or ORM textures, masked tinting, and mesh
+or UV changes are out of scope.
+
+- **Declaration.** Write `<Name>.material-variants.json` beside the asset's `.blend`. A
+  `--blend` run finds it there; otherwise pass its path with `--material-variants` (CLI) or
+  `material_variants_path` (MCP). A session run has no `.blend` beside it, so it needs the
+  explicit path.
+- **Format.**
+
+  ```json
+  {
+    "schema": 1,
+    "material_variants": [
+      {"name": "Red", "material": "M_Crate_Body", "base_color": "Red.png"},
+      {"name": "Blue", "material": "M_Crate_Body", "parameters": {"Tint": [0.5, 0.25, 1.0]}}
+    ]
+  }
+  ```
+
+  `base_color` is a PNG path, relative to the declaration. `parameters` maps an `M_NmgORM`
+  parameter to a value. `Tint` is `[r, g, b]` or `[r, g, b, a]`, with every component finite and
+  at least 0; alpha defaults to 1. An entry has `base_color`, `parameters`, or both.
+- **Naming.** Finalize writes `T_<Name>_<Part>_BC_<Variant>` (a PNG base colour in sRGB, in both
+  the Desktop and Mobile folders) and `MI_<Name>_<Part>_<Variant>` (a material instance parented
+  to `M_NmgORM` in the same Content folder as the main set). A parameter-only variant has no
+  texture, so its instance uses the main base colour.
+- **Validation.** `validate` fails with a `material_variant.*` finding before anything is baked
+  or exported: `material_variant.name` (not PascalCase letters and digits, or `<Part>_<Variant>`
+  names another part), `material_variant.duplicate`, `material_variant.material_missing` (not a
+  material the asset has after the bake), `material_variant.material_merged` (see below),
+  `material_variant.texture_missing` (not an existing PNG), `material_variant.texture_size` (not
+  a power-of-two square, or not the Desktop base-colour size of its material),
+  `material_variant.parameter` (not a parameter of `M_NmgORM`, or a malformed value), and
+  `material_variant.empty` (neither `base_color` nor `parameters`). A file that is not valid JSON,
+  or does not match this format, raises `material_variant.declaration_invalid`.
+- **Merged materials.** When the bake merges several authored materials into `M_<Name>_Body`
+  (more of them than the Mobile material limit), declare variants on `M_<Name>_Body`. A variant
+  on one of the merged authored materials fails `material_variant.material_merged`, which names
+  `M_<Name>_Body`. A variant declared on `M_<Name>_Body` is produced for both Desktop and Mobile.
+- **Tint.** `M_NmgORM` multiplies its base colour by a `Tint` vector parameter that defaults to
+  white (1, 1, 1, 1). Rebuild `M_NmgORM` with `scripts/unreal/build_master_material.py` before
+  importing a parameter variant, because a shipped master built before #148 has no `Tint`. When the
+  master lacks a declared parameter, the import still succeeds and its result's `warnings` names the
+  instance and the parameter.
+- **Import result.** Each variant's import result lists `material_variants` with one entry per
+  instance it imported: `name`, `material`, `instance` (the `MI_<Name>_<Part>_<Variant>` path), and
+  `texture` (the variant base-colour texture path, or `null` for a parameter-only variant). A variant
+  name used on several materials gives one entry for each material.
+- **Stale deletion.** Running finalize again with a variant removed deletes its material instance
+  and texture from both Content folders, and its PNG leaves the export folders. Only assets that
+  finalize tagged (`nmg.asset`, `nmg.material_variant`, `nmg.material_slot`) are deleted, and the
+  import result lists the removed paths.
+- **Listing.** The `list_material_variants` MCP tool and
+  `python -m nmg_game_dev.finalize material-variants --category <C> --collection <N> [--json]`
+  list each variant with its material and its Desktop and Mobile instance paths. An asset with no
+  material variants returns an empty list.
+
 ## 5. Variants
 
 Desktop and Mobile are separate physical assets, both produced in the same session:
 
-- **Desktop**: full quality. Structural cleanup only; no decimation or texture reduction.
+- **Desktop**: full quality. Structural cleanup only; no decimation or texture reduction. The one
+  exception is a reduce run on a generated asset whose Desktop triangle count is over its class
+  budget. Reduce decimates each part to its share of the Desktop budget and rebakes the original's
+  look onto the reduced mesh, one `M_<Name>_Body` material and one `T_<Name>_Body_{BC,N,ORM}` set. It
+  runs before finalize, never inside it. The reduced `<Name>` carries the custom property
+  `nmg_reduced`, and the finalize bake then keeps its atlas layout, including for an
+  `environment_piece`. The originals stay in `<Name>_High`.
 - **Mobile**: within the mobile budget, by decimating the Desktop mesh or by rebuilding at
   lower detail. Textures re-baked or reduced to mobile resolution, materials merged to the
   mobile material limit. Silhouette must still read.
