@@ -116,8 +116,8 @@ def _request(
                 "code": "finalize.invalid_request",
                 "message": f"The finalize arguments are invalid: {error.errors()[0]['msg']}",
                 "remediation": "Use a PascalCase collection and category, a valid asset_class "
-                "(small_prop, standard_prop, hero_prop, character, environment_piece), and an "
-                "export_root directory.",
+                "(small_prop, standard_prop, hero_prop, character, environment_piece, "
+                "terrain), and an export_root directory.",
                 "stage": "finalize",
             }
         ) from error

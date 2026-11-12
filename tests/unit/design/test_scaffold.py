@@ -1,12 +1,18 @@
-"""AC5 and AC6: the generated Unreal code, the report lines, failures, and the backlog write."""
+"""AC5 and AC6: the generated Unreal code, the report lines, failures, and the backlog write.
+
+The region code is also run against the fake ``unreal`` module in ``terrain_fakes``, with and
+without an existing terrain level (AC5), and a region whose terrain names no entry is an
+``design.unknown_reference`` line that does not stop the other items (AC6).
+"""
 
 from __future__ import annotations
 
 import ast
+import dataclasses
 import io
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +23,14 @@ from nmg_game_dev.design.__main__ import main
 from nmg_game_dev.design.paths import backlog_path
 from nmg_game_dev.design.scaffold import ScaffoldReport, run_scaffold
 from nmg_game_dev.pipeline.errors import PipelineError
+from tests.unit.design.terrain_fakes import DEFAULT_LEVEL, PLANE, FakeUnreal
 
 UNREACHABLE_CODE = "mcp.unreal.unreachable"
 REGION_PATH = "/Game/Levels/OldTown/L_OldTown"
+HARBOR_PATH = "/Game/Levels/Harbor/L_Harbor"
 MISSION_PATH = "/Game/Missions/FindKey/DA_FindKey"
 SYSTEM_PATH = "/Game/Systems/Inventory/BPC_Inventory"
+HILLS_LEVEL = "/Game/Terrain/Hills/Desktop/L_Hills"
 
 REGION = """\
 ---
@@ -53,6 +62,30 @@ SYSTEM = """\
 ---
 type: system
 name: Inventory
+---
+"""
+
+HILLS = """\
+---
+type: environment
+name: Hills
+asset_class: terrain
+category: Terrain
+---
+"""
+
+TERRAIN_REGION = """\
+---
+type: region
+name: Old Town
+terrain: Hills
+---
+"""
+
+HARBOR = """\
+---
+type: region
+name: Harbor
 ---
 """
 
@@ -135,10 +168,38 @@ def _full_project(root: Path) -> Path:
     )
 
 
+def _terrain_project(root: Path) -> Path:
+    """A region that names the Hills terrain, and the Hills entry, then synced."""
+    return _project(root, {"regions/old-town.md": TERRAIN_REGION, "environment/hills.md": HILLS})
+
+
+def _set_terrain(root: Path, asset: str, terrain: str) -> None:
+    """Point the region ``asset`` at ``terrain`` in the backlog.
+
+    Sync rejects a region whose terrain names no entry, so such a backlog exists only when someone
+    edits it by hand.  The test does that edit.
+    """
+    path = backlog_path(root)
+    updated = [
+        dataclasses.replace(entry, fields={**entry.fields, "terrain": terrain})
+        if entry.asset_name == asset
+        else entry
+        for entry in backlog.load(path)
+    ]
+    backlog.write_atomic(path, backlog.dump(updated))
+
+
 def _run(root: Path, client: FakeUnrealClient) -> ScaffoldReport:
     report = ScaffoldReport()
     run_scaffold(client, root, report)
     return report
+
+
+def _run_region(root: Path, existing: Iterable[str]) -> tuple[FakeUnreal, dict[str, Any]]:
+    """Run the Old Town region code on the fake unreal module, with ``existing`` assets present."""
+    fake = FakeUnreal(existing)
+    result = fake.run(_code_for(_codes(root), REGION_PATH))
+    return fake, result
 
 
 def _codes(root: Path) -> list[str]:
@@ -315,3 +376,95 @@ def test_missing_backlog_raises_before_any_editor_call(tmp_path: Path) -> None:
         _run(tmp_path, client)
 
     assert client.codes == []
+
+
+def test_region_code_names_the_desktop_terrain_level_of_its_terrain(tmp_path: Path) -> None:
+    codes = _codes(_terrain_project(tmp_path))
+
+    assert len(codes) == 1, "the terrain entry itself is not scaffolded"
+    assert f"TERRAIN_LEVEL = '{HILLS_LEVEL}'\n" in _code_for(codes, REGION_PATH)
+
+
+def test_region_code_has_no_terrain_level_when_the_region_names_no_terrain(tmp_path: Path) -> None:
+    code = _code_for(_codes(_full_project(tmp_path)), REGION_PATH)
+
+    assert "TERRAIN_LEVEL = None\n" in code
+
+
+def test_region_streams_an_existing_terrain_level_and_spawns_no_plane(tmp_path: Path) -> None:
+    fake, result = _run_region(_terrain_project(tmp_path), existing={HILLS_LEVEL})
+
+    assert result == {
+        "ok": True,
+        "created": True,
+        "path": REGION_PATH,
+        "error": None,
+        "terrain": HILLS_LEVEL,
+    }
+    streamed = ("add_level_to_world", REGION_PATH, HILLS_LEVEL, "LevelStreamingAlwaysLoaded")
+    assert streamed in fake.calls
+    assert fake.calls.index(("new_level", REGION_PATH)) < fake.calls.index(streamed)
+    assert "StaticMeshActor" not in fake.spawned()
+    assert ("load_asset", PLANE) not in fake.calls
+    assert {"PlayerStart", "DirectionalLight", "SkyLight"} <= set(fake.spawned())
+    assert fake.open_level == DEFAULT_LEVEL, "the editor returns to the level it had open"
+
+
+def test_region_spawns_the_plane_when_its_terrain_level_does_not_exist(tmp_path: Path) -> None:
+    fake, result = _run_region(_terrain_project(tmp_path), existing=())
+
+    assert result == {
+        "ok": True,
+        "created": True,
+        "path": REGION_PATH,
+        "error": None,
+        "terrain": None,
+    }
+    assert not any(call[0] == "add_level_to_world" for call in fake.calls)
+    assert "StaticMeshActor" in fake.spawned()
+    assert ("load_asset", PLANE) in fake.calls
+    assert ("scale", (100, 100, 1)) in fake.calls
+    assert {"PlayerStart", "DirectionalLight", "SkyLight"} <= set(fake.spawned())
+
+
+def test_region_without_a_terrain_field_spawns_the_plane(tmp_path: Path) -> None:
+    fake, result = _run_region(_full_project(tmp_path), existing={HILLS_LEVEL})
+
+    assert result["terrain"] is None
+    assert not any(call[0] == "add_level_to_world" for call in fake.calls)
+    assert ("load_asset", PLANE) in fake.calls
+
+
+def test_region_naming_no_terrain_entry_is_an_unknown_reference_and_the_others_still_run(
+    tmp_path: Path,
+) -> None:
+    root = _project(
+        tmp_path,
+        {
+            "regions/old-town.md": REGION,
+            "regions/harbor.md": HARBOR,
+            "environment/hills.md": HILLS,
+            "systems/inventory.md": SYSTEM,
+        },
+    )
+    _set_terrain(root, "OldTown", "Ghost")
+    client = FakeUnrealClient()
+
+    report = _run(root, client)
+
+    assert report.failed is True
+    texts = _texts(report)
+    assert (
+        "error design.unknown_reference OldTown: "
+        "terrain 'Ghost' names no environment entry with asset_class terrain"
+    ) in texts
+    assert f"created region Harbor: {HARBOR_PATH}" in texts
+    assert f"created system Inventory: {SYSTEM_PATH}" in texts
+    assert len(client.codes) == 2, "no Unreal call is made for the region that names no terrain"
+    assert all(REGION_PATH not in code for code in client.codes)
+    assert _statuses(root) == {
+        "Harbor": "scaffolded",
+        "Hills": "planned",
+        "Inventory": "scaffolded",
+        "OldTown": "planned",
+    }

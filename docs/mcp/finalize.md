@@ -59,7 +59,7 @@ Every entry point takes one `FinalizeRequest`:
 |-------|---------|
 | `collection` | The asset's collection name `<Name>`, PascalCase. The session (or `--blend`) must hold it. |
 | `category` | Optional. The Unreal category, PascalCase. Content lands in `/Game/<Category>/<Name>/`. When omitted, taken from the design backlog. |
-| `asset_class` | Optional. One of `small_prop`, `standard_prop`, `hero_prop`, `character`, or `environment_piece`. Sets the texture sizes and the material limit. When omitted, taken from the design backlog. |
+| `asset_class` | Optional. One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`, or `terrain`. Sets the texture sizes and the material limit. For `terrain`, it sets the heightmap size and the layer limit. When omitted, taken from the design backlog. |
 | `export_root` | Folder that receives `<Category>/<Name>/Desktop/` and `<Category>/<Name>/Mobile/`. |
 | `blend` | Optional saved `.blend` to finalize instead of the open session. |
 | `budgets_path` | Optional `nmg-budgets.json` with budget overrides. |
@@ -99,6 +99,20 @@ Load-back sits between `reimport` and `import_ue`. It is not a step in its own r
 
 `run_finalize_step` returns a result with `step`, `cache_hit`, `outputs`, and `summary`. When a step
 fails, no later step runs, and nothing is imported into Unreal.
+
+## Terrain
+
+`asset_class` `terrain` runs the same six steps. Four of them do different work, and each variant
+imports as a Landscape level instead of a Static Mesh. The rules are in `docs/asset-contract.md`
+section 9.
+
+| Step | Terrain |
+|------|---------|
+| `validate` | Runs the `terrain.*` rules and the texel density check in place of the mesh and budget checks. The validation report gains a `terrain` object |
+| `variants` | Derives the Mobile heightmap and layer set from the Desktop grid. No `_Mobile` collection is created |
+| `export` | Writes PNG heightmaps, weightmaps, and layer textures instead of FBX. Writes `nmg-variants.json` with `"terrain": true`, and `Mobile/nmg-asset.json` |
+| `reimport` | Decodes each variant's PNGs and checks them against the pre-export heights. Its findings use the rule `reimport.terrain` |
+| `import_ue` | Imports each variant's layer textures, then creates `M_<Name>_Landscape`, the layer infos, and `L_<Name>` in `/Game/<Category>/<Name>/<Variant>/`. It has no pivot check. It checks sampled Landscape heights against the sidecar within 5 cm |
 
 ## Job flow and load-back
 
@@ -166,11 +180,12 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `finalize.blender_not_found` | No Blender executable at `BLENDER_BIN`, `BLENDER_APP`, or `/Applications/Blender.app`. | Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun. |
 | `finalize.collection_not_found` | The session, or `--blend`, has no collection named `<Name>`. | Check that the collection name matches `--collection` and is PascalCase. |
 | `quality.contract_failed` | A contract report failed. Its findings name each rule and target. | Fix each finding in Blender, using `docs/asset-contract.md`, then rerun. |
-| `quality.reimport_mismatch` | An exported FBX re-imported differently from its pre-export report. | Read the re-import report in the job directory, fix the export cause, then rerun. |
+| `quality.reimport_mismatch` | An exported FBX re-imported differently from its pre-export report, or a terrain's PNGs decoded differently from its pre-export heights. | Read the re-import report in the job directory, fix the export cause, then rerun. |
 | `bake.texture.bake_failed` | A texture bake failed. | Read `blender-bake.log` and fix the material it names, then rerun. |
 | `variants.<code>` | Variant generation failed. The code names the cause. | Read the message, fix the mesh or material it names, then rerun. |
 | `import_ue.failed` | The Unreal import call failed. | Check the editor Output Log for the import, then rerun `import_ue`. |
 | `import_ue.pivot_mismatch` | A child part's local bounds differ from the Blender part by more than 0.01 cm. | Fix the pivot in Blender, then rerun finalize with `--force` so the UE content is reimported. |
+| `import_ue.terrain_height_mismatch` | A sampled height of a terrain's Landscape differs from the Blender height by more than 5 cm. | Re-export the terrain, then rerun `import_ue`. If it persists, check the heightmap encoding and the Landscape scale and location. |
 | `mcp.blender.unreachable` | The Blender MCP session on `BLENDER_MCP_PORT` is not reachable. | Run `scripts/start-blender-mcp.sh`, then rerun. |
 | `mcp.unreal.unreachable` | The Unreal MCP endpoint on `UE_MCP_PORT` is not reachable. | Run `scripts/start-unreal-mcp.sh`, then rerun `import_ue`. |
 

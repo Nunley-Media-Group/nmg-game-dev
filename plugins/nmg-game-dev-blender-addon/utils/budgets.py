@@ -17,10 +17,17 @@ ASSET_CLASSES: Final[tuple[str, ...]] = (
     "hero_prop",
     "character",
     "environment_piece",
+    "terrain",
 )
-METRICS: Final[tuple[str, ...]] = ("tris", "max_texture_px", "materials")
+TERRAIN_CLASS: Final = "terrain"
+METRICS: Final[tuple[str, ...]] = ("tris", "max_texture_px", "materials", "heightmap_px", "layers")
+# Mirrors terrain_core/heightfield.VALID_SIZES. This file loads by path under plain CPython, so it
+# cannot import the heightfield core; the unit suite asserts the two tuples are equal.
+VALID_HEIGHTMAP_SIZES: Final[tuple[int, ...]] = (127, 253, 505, 1009, 2017, 4033)
 VARIANTS: Final[tuple[str, ...]] = ("desktop", "mobile")
 _DESKTOP_KEY: Final = "desktop"
+_MESH_METRICS: Final[tuple[str, ...]] = ("tris", "max_texture_px", "materials")
+_TERRAIN_METRICS: Final[tuple[str, ...]] = ("heightmap_px", "layers", "max_texture_px", "materials")
 
 CONTRACT_BUDGETS: Final[dict[str, dict[str, dict[str, int]]]] = {
     "small_prop": {
@@ -42,6 +49,10 @@ CONTRACT_BUDGETS: Final[dict[str, dict[str, dict[str, int]]]] = {
     "environment_piece": {
         "desktop": {"tris": 40000, "max_texture_px": 2048, "materials": 6},
         "mobile": {"tris": 10000, "max_texture_px": 1024, "materials": 3},
+    },
+    "terrain": {
+        "desktop": {"heightmap_px": 2017, "layers": 4, "max_texture_px": 2048, "materials": 4},
+        "mobile": {"heightmap_px": 1009, "layers": 3, "max_texture_px": 1024, "materials": 3},
     },
 }
 
@@ -139,6 +150,11 @@ def load_overrides(path: Path) -> dict[str, dict[str, Any]]:
     return overrides
 
 
+def metrics_for(asset_class: str) -> tuple[str, ...]:
+    """The budget metrics a class may override: terrain takes heightmap_px, never tris."""
+    return _TERRAIN_METRICS if asset_class == TERRAIN_CLASS else _MESH_METRICS
+
+
 def _checked_metrics(
     asset_class: str, metrics: dict[str, Any], scope: str | None
 ) -> dict[str, int]:
@@ -150,10 +166,21 @@ def _checked_metrics(
                 f"Unknown budget metric '{metric}' for '{label}'.",
                 f"Use one of: {', '.join(METRICS)}.",
             )
+        if metric not in metrics_for(asset_class):
+            raise BudgetOverrideError(
+                f"Budget metric '{metric}' does not apply to '{label}'.",
+                f"Use one of: {', '.join(metrics_for(asset_class))}.",
+            )
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise BudgetOverrideError(
                 f"Budget override {label}.{metric} must be a positive integer, got {value!r}.",
                 "Set it to a positive whole number.",
+            )
+        if metric == "heightmap_px" and value not in VALID_HEIGHTMAP_SIZES:
+            raise BudgetOverrideError(
+                f"Budget override {label}.heightmap_px must be a valid terrain resolution, "
+                f"got {value}.",
+                f"Use one of: {', '.join(str(size) for size in VALID_HEIGHTMAP_SIZES)}.",
             )
         checked[metric] = value
     return checked

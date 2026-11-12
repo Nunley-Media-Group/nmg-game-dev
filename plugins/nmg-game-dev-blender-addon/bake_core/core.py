@@ -83,7 +83,10 @@ def _bake(
     desktop, mobile = _budgets(asset_class, budgets_path)
     desktop_px = desktop["max_texture_px"]
     mobile_px = mobile["max_texture_px"]
-    mode = "tiling" if asset_class == "environment_piece" else "unique"
+    # Terrain layers tile like environment pieces (#154). Its material limit is the Desktop one,
+    # because the Mobile layer reduction happens in the variants step.
+    mode = "tiling" if asset_class in ("environment_piece", "terrain") else "unique"
+    material_limit = desktop["materials"] if asset_class == "terrain" else mobile["materials"]
     meshes = sorted(
         (obj for obj in collection.all_objects if obj.type == "MESH"), key=lambda obj: obj.name
     )
@@ -95,11 +98,11 @@ def _bake(
         )
     sources = inspect_materials(meshes)
     merged = mode == "unique" and len(sources) > mobile["materials"]
-    if mode == "tiling" and len(sources) > mobile["materials"]:
+    if mode == "tiling" and len(sources) > material_limit:
         raise BakeError(
             "material_limit",
-            f"{collection_name} has {len(sources)} tiling materials; the {asset_class} Mobile "
-            f"limit is {mobile['materials']}.",
+            f"{collection_name} has {len(sources)} tiling materials; the {asset_class} limit "
+            f"is {material_limit}.",
             target=collection_name,
         )
 

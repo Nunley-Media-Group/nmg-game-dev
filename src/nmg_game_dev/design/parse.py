@@ -220,6 +220,17 @@ def _check_optional_fields(
                     "design.invalid_field", source, "region", "region must name a region entry"
                 )
             )
+    if entry_type == "region" and "terrain" in data:
+        terrain = data["terrain"]
+        if not isinstance(terrain, str) or not terrain.strip():
+            errors.append(
+                DesignError(
+                    "design.invalid_field",
+                    source,
+                    "terrain",
+                    "terrain must name an environment entry with asset_class terrain",
+                )
+            )
 
 
 def _duplicate_errors(entries: list[Entry]) -> list[DesignError]:
@@ -249,6 +260,12 @@ def _reference_errors(entries: list[Entry]) -> list[DesignError]:
         if entry.type == "region"
         for name in (entry.name, entry.asset_name)
     }
+    terrains = {
+        name
+        for entry in entries
+        if entry.type == "environment" and entry.fields.get("asset_class") == "terrain"
+        for name in (entry.name, entry.asset_name)
+    }
     errors: list[DesignError] = []
     for entry in entries:
         for dependency in entry.fields.get("depends_on", []):
@@ -269,6 +286,16 @@ def _reference_errors(entries: list[Entry]) -> list[DesignError]:
                     entry.source,
                     "region",
                     f"{region!r} does not name a region entry",
+                )
+            )
+        terrain = entry.fields.get("terrain")
+        if entry.type == "region" and terrain is not None and terrain not in terrains:
+            errors.append(
+                DesignError(
+                    "design.unknown_reference",
+                    entry.source,
+                    "terrain",
+                    f"{terrain!r} names no environment entry with asset_class terrain",
                 )
             )
     return errors

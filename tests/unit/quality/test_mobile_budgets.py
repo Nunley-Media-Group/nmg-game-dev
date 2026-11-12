@@ -8,12 +8,17 @@ import sys
 from pathlib import Path
 
 from nmg_game_dev.quality.mobile_budgets import (
+    ASSET_CLASSES,
     DEFAULT_MOBILE_BUDGETS,
+    VALID_HEIGHTMAP_SIZES,
     check_mobile_budgets,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 AUDIT_SCRIPT = REPO_ROOT / "scripts" / "audit-mobile-budgets.py"
+HEIGHTFIELD_PATH = (
+    REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon" / "terrain_core" / "heightfield.py"
+)
 
 
 def _project(root: Path) -> Path:
@@ -37,7 +42,112 @@ def test_defaults_match_the_asset_contract_mobile_column() -> None:
         "hero_prop": {"tris": 10000, "max_texture_px": 2048, "materials": 2},
         "character": {"tris": 15000, "max_texture_px": 2048, "materials": 2},
         "environment_piece": {"tris": 10000, "max_texture_px": 1024, "materials": 3},
+        "terrain": {"heightmap_px": 1009, "layers": 3, "max_texture_px": 1024},
     }
+
+
+def test_terrain_is_a_gated_asset_class() -> None:
+    assert "terrain" in ASSET_CLASSES
+
+
+def test_valid_heightmap_sizes_match_the_heightfield_core() -> None:
+    """The ship gate mirrors heightfield.VALID_SIZES, because src/ cannot import the add-on."""
+    import importlib.util  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location("heightfield_under_test", HEIGHTFIELD_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert VALID_HEIGHTMAP_SIZES == module.VALID_SIZES
+
+
+_TERRAIN = {"class": "terrain", "heightmap_px": 1009, "layers": 3, "max_texture_px": 1024}
+
+
+def test_terrain_within_budget_passes(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _report(root, "Terrain/Hills", _TERRAIN)
+    audit = check_mobile_budgets(root)
+    assert audit.passed is True
+    assert audit.assets == ["Terrain/Hills"]
+
+
+def test_terrain_over_each_metric_fails_once_per_metric(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _report(
+        root,
+        "Terrain/Hills",
+        {**_TERRAIN, "heightmap_px": 2017, "layers": 4, "max_texture_px": 2048},
+    )
+    audit = check_mobile_budgets(root)
+    assert audit.passed is False
+    assert {finding.code for finding in audit.findings} == {"ship.mobile_budget_exceeded"}
+    messages = sorted(finding.message for finding in audit.findings)
+    assert messages == [
+        "Terrain/Hills: heightmap_px 2017 > 1009 (+1008)",
+        "Terrain/Hills: layers 4 > 3 (+1)",
+        "Terrain/Hills: max_texture_px 2048 > 1024 (+1024)",
+    ]
+
+
+def test_terrain_report_missing_a_metric_is_invalid(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _report(root, "Terrain/Hills", {"class": "terrain", "heightmap_px": 1009, "layers": 3})
+    (finding,) = check_mobile_budgets(root).findings
+    assert finding.code == "ship.budget_report_invalid"
+    assert "max_texture_px" in finding.message
+
+
+def test_terrain_report_with_mesh_metrics_only_is_invalid(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _report(root, "Terrain/Hills", {"class": "terrain", "tris": 100, "max_texture_px": 1024})
+    (finding,) = check_mobile_budgets(root).findings
+    assert finding.code == "ship.budget_report_invalid"
+    assert "heightmap_px" in finding.message
+
+
+def test_mesh_report_without_tris_is_invalid(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _report(root, "Props/Crate", {"class": "standard_prop", "max_texture_px": 1024, "materials": 1})
+    (finding,) = check_mobile_budgets(root).findings
+    assert finding.code == "ship.budget_report_invalid"
+
+
+def test_terrain_heightmap_override_raises_the_budget(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    _report(root, "Terrain/Hills", {**_TERRAIN, "heightmap_px": 2017})
+    (root / "nmg-budgets.json").write_text(
+        json.dumps({"terrain": {"heightmap_px": 2017}}), encoding="utf-8"
+    )
+    assert check_mobile_budgets(root).passed is True
+
+
+def test_terrain_override_must_be_a_valid_heightmap_size(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    (root / "nmg-budgets.json").write_text(
+        json.dumps({"terrain": {"heightmap_px": 1000}}), encoding="utf-8"
+    )
+    (finding,) = check_mobile_budgets(root).findings
+    assert finding.code == "ship.budget_override_invalid"
+
+
+def test_terrain_rejects_a_tris_override(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    (root / "nmg-budgets.json").write_text(
+        json.dumps({"terrain": {"tris": 9000}}), encoding="utf-8"
+    )
+    (finding,) = check_mobile_budgets(root).findings
+    assert finding.code == "ship.budget_override_invalid"
+    assert "tris" in finding.message
+
+
+def test_mesh_class_rejects_a_heightmap_override(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    (root / "nmg-budgets.json").write_text(
+        json.dumps({"standard_prop": {"heightmap_px": 1009}}), encoding="utf-8"
+    )
+    (finding,) = check_mobile_budgets(root).findings
+    assert finding.code == "ship.budget_override_invalid"
 
 
 def test_over_budget_standard_prop_fails_with_the_overage(tmp_path: Path) -> None:

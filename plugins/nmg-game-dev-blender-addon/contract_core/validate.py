@@ -13,15 +13,15 @@ from typing import Any
 import bpy
 from mathutils import Vector
 
-from ..utils.budgets import CONTRACT_BUDGETS, BudgetOverrideError, resolve_budget
+from ..utils.budgets import BudgetOverrideError, resolve_budget
 from .geometry import geometry_findings
 from .report import ContractError, build_report, finding
+from .terrain import TERRAIN_CLASS, TEXEL_DENSITY_MIN, mesh_areas, terrain_check
 from .uv import uv_findings
 
 LOCATION_TOLERANCE = 1e-5
 ANGLE_TOLERANCE = 1e-5
 PIVOT_TOLERANCE = 1e-3
-TEXEL_DENSITY_MIN: dict[str, float] = {"desktop": 256.0, "mobile": 128.0}
 ALLOWED_NODE_TYPES = frozenset(
     {
         "TEX_IMAGE",
@@ -73,6 +73,8 @@ def validate_asset(
             "scene.collection", collection, f"No collection named '{collection}' is in the file."
         )
         return build_report("contract", collection, asset_class, [missing], {})
+    if asset_class == TERRAIN_CLASS:
+        return _validate_terrain(collection, asset, asset_class, budgets, authored)
 
     variants: list[tuple[str, bpy.types.Collection]] = [("desktop", asset)]
     mobile = bpy.data.collections.get(f"{collection}{MOBILE_SUFFIX}")
@@ -100,6 +102,30 @@ def validate_asset(
     if authored:
         findings = [item for item in findings if not item["rule"].startswith(_EXPORT_ONLY_RULES)]
     return build_report("contract", collection, asset_class, findings, snapshot)
+
+
+def _validate_terrain(
+    collection: str,
+    asset: bpy.types.Collection,
+    asset_class: str,
+    budgets: dict[str, dict[str, int]],
+    authored: bool,
+) -> dict[str, Any]:
+    """The terrain contract (#154): the grid, its layers, and their budgets, with no mesh rules.
+
+    Terrain has no pivot, UV-overlap, or triangle rules. Its checks live in terrain.py, which
+    also builds the terrain object on a passing report. Scene units still apply.
+    """
+    findings = _unit_findings()
+    terrain_items, terrain_object = terrain_check(asset, budgets, authored=authored)
+    findings += terrain_items
+    snapshot: dict[str, Any] = {}
+    root = asset.objects.get(f"SM_{collection}")
+    if root is not None:
+        tris = triangle_count(root.data) if root.type == "MESH" else 0
+        snapshot[root.name] = object_snapshot(root, "desktop", tris)
+    extra = {"terrain": terrain_object} if terrain_object is not None else None
+    return build_report("contract", collection, asset_class, findings, snapshot, extra)
 
 
 def triangle_count(mesh: bpy.types.Mesh) -> int:
@@ -141,11 +167,13 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
 
 
 def _budgets(asset_class: str, budgets_path: str | None) -> dict[str, dict[str, int]]:
+    """Desktop and Mobile budgets with nmg-budgets.json overrides applied to each variant."""
     try:
+        desktop = resolve_budget(asset_class, budgets_path or None, "desktop")
         mobile = resolve_budget(asset_class, budgets_path or None)
     except BudgetOverrideError as error:
         raise ContractError(error.code, error.message, error.remediation) from error
-    return {"desktop": dict(CONTRACT_BUDGETS[asset_class]["desktop"]), "mobile": mobile}
+    return {"desktop": desktop, "mobile": mobile}
 
 
 def _root_name(collection: str, variant: str) -> str:
@@ -401,7 +429,7 @@ def _image_findings(collection: str, image: bpy.types.Image) -> list[dict[str, s
 def _texel_findings(
     obj: bpy.types.Object, copy: bpy.types.Mesh, variant: str
 ) -> list[dict[str, str]]:
-    uv_area, world_area = _areas(copy)
+    uv_area, world_area = mesh_areas(copy)
     images = [image for material in _materials_of(obj) for image in _images_of(material)]
     if uv_area <= 0 or world_area <= 0 or not images:
         return []
@@ -553,23 +581,6 @@ def _images_of(material: bpy.types.Material) -> list[bpy.types.Image]:
         for node in material.node_tree.nodes
         if node.type == "TEX_IMAGE" and node.image is not None
     ]
-
-
-def _areas(mesh: bpy.types.Mesh) -> tuple[float, float]:
-    """Return (UV area, world area) of the mesh, for the texel density estimate."""
-    layer = mesh.uv_layers[0].data if mesh.uv_layers else None
-    uv_total = 0.0
-    if layer is not None:
-        for poly in mesh.polygons:
-            points = [
-                layer[index].uv
-                for index in range(poly.loop_start, poly.loop_start + poly.loop_total)
-            ]
-            for index in range(1, len(points) - 1):
-                a, b, c = points[0], points[index], points[index + 1]
-                uv_total += abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2
-    world_total = sum(poly.area for poly in mesh.polygons)
-    return uv_total, world_total
 
 
 def _close(values: Any, expected: tuple[float, ...], tolerance: float) -> bool:

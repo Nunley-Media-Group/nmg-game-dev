@@ -17,8 +17,13 @@ import bpy
 
 from ..bake_core import BakeError, bake_asset
 from ..contract_core import ContractError, reimport_check, validate_asset
+from ..contract_core.terrain import TERRAIN_CLASS
+from ..terrain_core.export import export_terrain
+from ..terrain_core.reimport import terrain_reimport_check, write_height_samples
+from ..terrain_core.variants import DESKTOP, MOBILE, TerrainVariant, terrain_variants
 from ..utils.budgets import BudgetOverrideError, resolve_budget
 from ..variants_core.assets import (
+    asset_meshes,
     desktop_export_objects,
     distinct_materials,
     require_export_root,
@@ -29,7 +34,7 @@ from ..variants_core.errors import VariantError
 from ..variants_core.export import export_variants
 from ..variants_core.mobile import build_mobile
 from ..variants_core.sidecars import write_sidecars
-from ..variants_core.textures import max_texture_px, source_images
+from ..variants_core.textures import check_baked_material, max_texture_px, source_images
 
 SCHEMA_VERSION: Final = 1
 STEPS: Final[tuple[str, ...]] = ("validate", "bake", "variants", "export", "reimport")
@@ -128,6 +133,8 @@ def _variants(
     request: Mapping[str, Any], job: Path, inputs: Mapping[str, Any] | None
 ) -> tuple[str, dict[str, Any]]:
     collection = str(request["collection"])
+    if str(request["asset_class"]) == TERRAIN_CLASS:
+        return _terrain_variants(collection, request, job)
     budget = resolve_budget(str(request["asset_class"]), _budgets_path(request))
     validate_inputs(collection, budget)
     desktop_materials = distinct_materials(desktop_export_objects(bpy.data.collections[collection]))
@@ -170,6 +177,8 @@ def _export(
     asset_class = str(request["asset_class"])
     export_root = str(request["export_root"])
     budgets_path = _budgets_path(request)
+    if asset_class == TERRAIN_CLASS:
+        return _export_terrain(collection, category, export_root, budgets_path, job)
     require_export_root(export_root)
     budget = resolve_budget(asset_class, budgets_path)
     metrics = _upstream_metrics(inputs, job)
@@ -235,7 +244,10 @@ def _reimport(
                 "Run the export step for both variants before reimport.",
             )
         _fresh_scene()
-        report = reimport_check(str(spec["dir"]), str(spec["pre_report"]))
+        if str(request.get("asset_class")) == TERRAIN_CLASS:
+            report = terrain_reimport_check(str(spec["dir"]), str(spec["pre_report"]))
+        else:
+            report = reimport_check(str(spec["dir"]), str(spec["pre_report"]))
         path = job / f"reimport.{variant}.json"
         _write_json(path, report)
         reports[variant] = str(path)
@@ -245,6 +257,127 @@ def _reimport(
     else:
         summary = f"re-import reported {findings} finding(s)"
     return summary, {"reports": reports}
+
+
+def _terrain_budgets(budgets_path: str | None) -> dict[str, dict[str, int]]:
+    """The terrain budget for each variant, keyed desktop and mobile, with overrides merged in."""
+    return {
+        "desktop": resolve_budget(TERRAIN_CLASS, budgets_path, "desktop"),
+        "mobile": resolve_budget(TERRAIN_CLASS, budgets_path, "mobile"),
+    }
+
+
+def _terrain_variants(
+    collection: str, request: Mapping[str, Any], job: Path
+) -> tuple[str, dict[str, Any]]:
+    """Build the terrain Desktop and Mobile variants (#154, AC3). The scene itself is unchanged."""
+    budgets = _terrain_budgets(_budgets_path(request))
+    for material in distinct_materials(asset_meshes(bpy.data.collections[collection])):
+        check_baked_material(material)
+    variants = terrain_variants(collection, budgets)
+    blend = _save_copy(job / "variants.blend")
+    metrics = {
+        "terrain": True,
+        DESKTOP.lower(): variants[DESKTOP].metrics(),
+        MOBILE.lower(): variants[MOBILE].metrics(),
+    }
+    mobile = variants[MOBILE]
+    summary = (
+        f"{collection}: Desktop {variants[DESKTOP].heightmap_px} px, Mobile "
+        f"{mobile.heightmap_px} px with {len(mobile.layers)} layer(s)"
+    )
+    return summary, {"blend": str(blend), "metrics": metrics}
+
+
+def _export_terrain(
+    collection: str,
+    category: str,
+    export_root: str,
+    budgets_path: str | None,
+    job: Path,
+) -> tuple[str, dict[str, Any]]:
+    """Validate, then write the terrain PNGs and sidecars (#154, AC2, AC6).
+
+    A failing pre-export contract exports nothing. On a pass, each pre-export report also names the
+    evaluated height samples that the re-import check compares the decoded PNGs against.
+    """
+    require_export_root(export_root)
+    budget = resolve_budget(TERRAIN_CLASS, budgets_path)
+    report = validate_asset(collection, TERRAIN_CLASS, budgets_path)
+    variants = (
+        terrain_variants(collection, _terrain_budgets(budgets_path)) if report["passed"] else None
+    )
+    variant_root = Path(export_root) / category / collection
+    pre_reports = {}
+    for variant in (DESKTOP, MOBILE):
+        payload = dict(report)
+        if variants is not None:
+            heights = write_height_samples(
+                job / f"export.heights-{variant}.f32", variants[variant].heights
+            )
+            payload["terrain_heights"] = str(heights)
+        path = job / f"export.pre-report-{variant}.json"
+        _write_json(path, payload)
+        pre_reports[variant] = str(path)
+    outputs: dict[str, Any] = {
+        "variants": {
+            variant: {"dir": str(variant_root / variant), "pre_report": pre_reports[variant]}
+            for variant in (DESKTOP, MOBILE)
+        },
+        "sidecar": str(variant_root / "nmg-variants.json"),
+        "exported": False,
+    }
+    if variants is None:
+        summary = (
+            f"{collection}: pre-export contract failed with {len(report['findings'])} "
+            "finding(s); nothing exported"
+        )
+        return summary, outputs
+
+    exported = export_terrain(collection, category, export_root, variants)
+    payload = _terrain_sidecar_payload(collection, category, budget, variants, exported)
+    write_sidecars(variant_root, payload)
+    outputs.update(
+        {
+            "exported": True,
+            "heightmap": {
+                DESKTOP: str(exported["desktop_heightmap"]),
+                MOBILE: str(exported["mobile_heightmap"]),
+            },
+            "texture_bytes": {
+                DESKTOP: exported["desktop_texture_bytes"],
+                MOBILE: exported["mobile_texture_bytes"],
+            },
+        }
+    )
+    return f"{collection}: exported Desktop and Mobile to {variant_root}", outputs
+
+
+def _terrain_sidecar_payload(
+    collection: str,
+    category: str,
+    budget: Mapping[str, int],
+    variants: Mapping[str, TerrainVariant],
+    exported: Mapping[str, Any],
+) -> dict[str, Any]:
+    """nmg-variants.json for terrain: "terrain": true and each variant's fields and samples."""
+
+    def block(variant: str) -> dict[str, Any]:
+        return {
+            "heightmap": f"{variant}/T_{collection}_Height.png",
+            **variants[variant].metrics(),
+            "texture_bytes": exported[f"{variant.lower()}_texture_bytes"],
+        }
+
+    return {
+        "terrain": True,
+        "name": collection,
+        "category": category,
+        "class": TERRAIN_CLASS,
+        "budget": dict(budget),
+        "desktop": block(DESKTOP),
+        "mobile": block(MOBILE),
+    }
 
 
 def _sidecar_payload(

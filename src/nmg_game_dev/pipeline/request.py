@@ -13,7 +13,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-AssetClass = Literal["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]
+AssetClass = Literal[
+    "small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"
+]
 Device = Literal["GPU", "CPU"]
 
 _PASCAL_CASE = r"^[A-Z][A-Za-z0-9]*$"

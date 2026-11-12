@@ -1,7 +1,7 @@
 """Unreal-side helpers for the finalize pipeline: the variant import and its pivot check (#69).
 
 Everything here runs host-side and reaches UE only through the Unreal MCP client. The UE Python
-itself is a string built by ``import_asset.build_import_code``.
+itself is a string built by ``import_asset.build_import_code`` or ``terrain.build_terrain_code``.
 """
 
 from __future__ import annotations
@@ -14,12 +14,24 @@ from .import_asset import (
     import_variant,
     parse_nmg_result,
 )
+from .terrain import (
+    HEIGHT_TOLERANCE_CM,
+    build_terrain_code,
+    import_terrain_variant,
+    landscape_transform,
+    ue_samples,
+)
 
 __all__ = [
+    "HEIGHT_TOLERANCE_CM",
     "PIVOT_TOLERANCE_CM",
     "UnrealPythonClient",
     "build_import_code",
+    "build_terrain_code",
     "check_pivots",
+    "import_terrain_variant",
     "import_variant",
+    "landscape_transform",
     "parse_nmg_result",
+    "ue_samples",
 ]

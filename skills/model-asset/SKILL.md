@@ -26,8 +26,8 @@ your own judgment. Stop only when the final presentation is written.
    `get_scene_info` for the existing objects and collections. Note any collection that already uses
    the name you plan to use.
 2. Plan the asset. Write the real-world dimensions of every part in metres, the target collection
-   `<Name>`, the `asset_class` (`small_prop`, `standard_prop`, `hero_prop`, `character`, or
-   `environment_piece`), and the list of parts with their placement.
+   `<Name>`, the `asset_class` (`small_prop`, `standard_prop`, `hero_prop`, `character`,
+   `environment_piece`, or `terrain`), and the list of parts with their placement.
 3. Write one generating script for the asset with `execute_blender_code`. Keep that one script for
    the whole session. Change it with localized edits to a single part or value; never regenerate the
    whole script from the start.
@@ -83,7 +83,7 @@ written in headless Blender.
 - `inspect.collection_missing` → No collection `<Name>` exists in the open file. Create it, or fix the
   name in the inspection call, then rerun step 5.
 - `inspect.unknown_asset_class` → The `asset_class` is not one of `small_prop`, `standard_prop`,
-  `hero_prop`, `character`, or `environment_piece`. Use one of them, then rerun step 5.
+  `hero_prop`, `character`, `environment_piece`, or `terrain`. Use one of them, then rerun step 5.
 - `variants.budget_override_invalid` → `nmg-budgets.json` cannot be read or has an invalid value. Fix
   the file named in the message, or pass no budget path to use the contract defaults.
 - `render.asset_missing` → The collection `<Name>` is not in the open file. Create it, then rerun

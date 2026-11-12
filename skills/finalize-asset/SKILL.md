@@ -19,7 +19,7 @@ never sends a bake, variant, or export through a Blender MCP call.
 
 1. Confirm that the collection `<Name>` exists in the open Blender session, or that a saved `.blend`
    is available. Confirm `category` (PascalCase) and `asset_class` (`small_prop`, `standard_prop`,
-   `hero_prop`, `character`, or `environment_piece`). When either is omitted, both come from the design
+   `hero_prop`, `character`, `environment_piece`, or `terrain`). When either is omitted, both come from the design
    backlog (`docs/design/backlog.json`): the asset entry whose `asset_name` is `<Name>` supplies them,
    and explicit values win. A successful `finalize_asset` marks that entry `finalized`. If one is
    missing and no backlog entry supplies it, stop with an error that names it. Do not guess a category
@@ -30,8 +30,9 @@ never sends a bake, variant, or export through a Blender MCP call.
 3. If the reply has no `result`, poll `get_finalize_job` with the returned `job_id` until `state` is
    `succeeded` or `failed`. Report `step` and `progress` as they change.
 4. On `succeeded`, report each step's `cache_hit`, the Unreal content paths
-   `/Game/<Category>/<Name>/Desktop/` and `/Game/<Category>/<Name>/Mobile/`, and `loaded_back`. If
-   `loaded_back` is false, say that the session was not updated and name the result `.blend` path.
+   `/Game/<Category>/<Name>/Desktop/` and `/Game/<Category>/<Name>/Mobile/`, and `loaded_back`. For
+   `terrain`, the Landscape in each folder is the level `L_<Name>`. If `loaded_back` is false, say that
+   the session was not updated and name the result `.blend` path.
 5. On `failed`, report `error.code`, `error.message`, `error.stage`, and `error.remediation`, then stop.
    A failed step stops the run before UE import. The one exception is `finalize.session_changed`, where
    the UE import still runs.
@@ -57,6 +58,7 @@ cache hits, so rerun after a fix without `force`.
 - `variants.<code>` → Read the message, fix the mesh or material it names, then rerun.
 - `import_ue.failed` → Check the editor Output Log for the import, then rerun `import_ue`.
 - `import_ue.pivot_mismatch` → A child part's pivot moved. Fix it in Blender, then rerun with `force: true` so the UE content is reimported.
+- `import_ue.terrain_height_mismatch` → A sampled height of a terrain's Landscape differs from the Blender height by more than 5 cm. Rerun finalize to export the terrain again, then rerun `import_ue`. If the mismatch persists, report it; it is not a grid fault.
 - `mcp.blender.unreachable` → Run `scripts/start-blender-mcp.sh`, then rerun.
 - `mcp.unreal.unreachable` → Run `scripts/start-unreal-mcp.sh`, then rerun `import_ue`.
 

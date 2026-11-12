@@ -203,3 +203,138 @@ def test_desktop_override_must_be_an_object(tmp_path: Path) -> None:
     path.write_text(json.dumps({"standard_prop": {"desktop": 256}}), encoding="utf-8")
     with pytest.raises(budgets.BudgetOverrideError):
         budgets.resolve_budget("standard_prop", path, "desktop")
+
+
+# ---------------------------------------------------------------------------
+# Terrain (#154, FR1, FR2): defaults, class registration, and override rules
+# ---------------------------------------------------------------------------
+
+_HEIGHTFIELD_PATH = (
+    _REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon" / "terrain_core" / "heightfield.py"
+)
+
+
+def _load_heightfield() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("nmg_heightfield_budget_test", _HEIGHTFIELD_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_terrain_is_a_registered_asset_class() -> None:
+    budgets = _load_budgets()
+    assert "terrain" in budgets.ASSET_CLASSES
+    assert budgets.ASSET_CLASSES[-1] == "terrain"
+    assert "terrain" in budgets.CONTRACT_BUDGETS
+
+
+def test_terrain_budget_defaults_match_fr2() -> None:
+    budgets = _load_budgets()
+    assert budgets.CONTRACT_BUDGETS["terrain"] == {
+        "desktop": {"heightmap_px": 2017, "layers": 4, "max_texture_px": 2048, "materials": 4},
+        "mobile": {"heightmap_px": 1009, "layers": 3, "max_texture_px": 1024, "materials": 3},
+    }
+
+
+def test_terrain_metrics_include_heightmap_and_layers() -> None:
+    budgets = _load_budgets()
+    assert {"heightmap_px", "layers"} <= set(budgets.METRICS)
+
+
+def test_resolve_budget_returns_terrain_mobile_defaults() -> None:
+    budgets = _load_budgets()
+    assert budgets.resolve_budget("terrain") == {
+        "heightmap_px": 1009,
+        "layers": 3,
+        "max_texture_px": 1024,
+        "materials": 3,
+    }
+    assert budgets.resolve_budget("terrain", None, "desktop")["heightmap_px"] == 2017
+
+
+def test_valid_heightmap_sizes_mirror_the_heightfield_core() -> None:
+    """budgets.py cannot import the core under plain CPython, so the tuples are checked here."""
+    budgets = _load_budgets()
+    assert budgets.VALID_HEIGHTMAP_SIZES == _load_heightfield().VALID_SIZES
+
+
+def test_terrain_heightmap_and_layers_overrides_apply_to_mobile(tmp_path: Path) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps({"terrain": {"heightmap_px": 505, "layers": 2}}), encoding="utf-8")
+    mobile = budgets.resolve_budget("terrain", path)
+    assert mobile["heightmap_px"] == 505
+    assert mobile["layers"] == 2
+    assert mobile["max_texture_px"] == 1024
+
+
+def test_terrain_desktop_override_applies_to_desktop_only(tmp_path: Path) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps({"terrain": {"desktop": {"heightmap_px": 505}}}), encoding="utf-8")
+    assert budgets.resolve_budget("terrain", path, "desktop")["heightmap_px"] == 505
+    assert budgets.resolve_budget("terrain", path)["heightmap_px"] == 1009
+
+
+@pytest.mark.parametrize("size", [127, 253, 505, 1009, 2017, 4033])
+def test_every_valid_heightmap_size_is_accepted(tmp_path: Path, size: int) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps({"terrain": {"heightmap_px": size}}), encoding="utf-8")
+    assert budgets.resolve_budget("terrain", path)["heightmap_px"] == size
+
+
+@pytest.mark.parametrize("size", [1000, 2016, 128, 4096, 1])
+def test_heightmap_outside_valid_sizes_raises_budget_override_invalid(
+    tmp_path: Path, size: int
+) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps({"terrain": {"heightmap_px": size}}), encoding="utf-8")
+    with pytest.raises(budgets.BudgetOverrideError) as info:
+        budgets.resolve_budget("terrain", path)
+    assert info.value.code == "variants.budget_override_invalid"
+    assert "heightmap_px" in info.value.message
+    assert info.value.remediation
+
+
+def test_heightmap_desktop_override_outside_valid_sizes_is_rejected(tmp_path: Path) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps({"terrain": {"desktop": {"heightmap_px": 1000}}}), encoding="utf-8")
+    with pytest.raises(budgets.BudgetOverrideError) as info:
+        budgets.resolve_budget("terrain", path, "desktop")
+    assert info.value.code == "variants.budget_override_invalid"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"terrain": {"tris": 5000}},
+        {"terrain": {"desktop": {"tris": 5000}}},
+        {"standard_prop": {"heightmap_px": 1009}},
+        {"standard_prop": {"layers": 2}},
+        {"environment_piece": {"desktop": {"layers": 2}}},
+    ],
+)
+def test_heightmap_layers_and_tris_follow_their_class(
+    tmp_path: Path, payload: dict[str, Any]
+) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(budgets.BudgetOverrideError) as info:
+        budgets.resolve_budget(next(iter(payload)), path)
+    assert info.value.code == "variants.budget_override_invalid"
+
+
+def test_terrain_materials_and_max_texture_remain_overridable(tmp_path: Path) -> None:
+    budgets = _load_budgets()
+    path = tmp_path / "nmg-budgets.json"
+    path.write_text(
+        json.dumps({"terrain": {"materials": 2, "max_texture_px": 512}}), encoding="utf-8"
+    )
+    mobile = budgets.resolve_budget("terrain", path)
+    assert mobile["materials"] == 2
+    assert mobile["max_texture_px"] == 512

@@ -9,7 +9,7 @@
         "properties": {
           "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
-          "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]},
+          "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"]},
           "export_root": {"type": "string"},
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
@@ -28,7 +28,7 @@
           "step": {"type": "string", "enum": ["validate", "bake", "variants", "export", "reimport", "import_ue"]},
           "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
-          "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]},
+          "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"]},
           "export_root": {"type": "string"},
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
