@@ -6,6 +6,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-12
+
+### Changed
+
+- Add a built-in procedural clip library to import_animations (#136)
 ## [0.23.0] - 2026-11-12
 
 ### Changed
