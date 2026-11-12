@@ -1,9 +1,11 @@
-"""Regression tests for the M_NmgORM master-material builder (#101).
+"""Regression tests for the M_NmgORM master-material builder (#101) and its headless rebuild (#204).
 
-Covers AC1-AC3 and FR1-FR3 of specs/101-*/requirements.md. The graph code in ``_MATERIAL_CODE``
-runs inside the UE editor, so these tests read it as an AST and check the committed
-``M_NmgORM.uasset`` bytes instead of executing it. The BDD bindings in
-``tests/bdd/test_master_material_bdd.py`` reuse the helpers defined here.
+Covers AC1-AC3 and FR1-FR3 of specs/101-*/requirements.md, and AC1-AC3 and FR1-FR4 of
+specs/204-*/requirements.md. The graph code in ``_MATERIAL_CODE`` runs inside the UE editor, so
+these tests read it as an AST and check the committed ``M_NmgORM.uasset`` bytes instead of
+executing it. The headless tests run the builder against fake ``Build.sh`` and
+``UnrealEditor-Cmd`` stubs, never a real engine. The BDD bindings in
+``tests/bdd/test_master_material_bdd.py`` reuse the helpers here.
 """
 
 from __future__ import annotations
@@ -11,8 +13,11 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import socket
+import struct
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -388,3 +393,252 @@ def test_normal_and_orm_channels_still_feed_their_material_properties(
     assert (orm, "R", None, "unreal.MaterialProperty.MP_AMBIENT_OCCLUSION") in record.connections
     assert (orm, "G", None, "unreal.MaterialProperty.MP_ROUGHNESS") in record.connections
     assert (orm, "B", None, "unreal.MaterialProperty.MP_METALLIC") in record.connections
+
+
+# --- the headless rebuild (#204): fake Build.sh and UnrealEditor-Cmd, no real engine -------------
+
+DOGFOOD_PROJECT = REPO_ROOT / "fixtures" / "dogfood.uproject"
+SUCCESS_LINE = (
+    'LogPython: NMG_RESULT {"asset": "/nmg-game-dev/Materials/M_NmgORM", "error": null, "ok": true}'
+)
+FAILURE_LINE = (
+    'LogPython: NMG_RESULT {"ok": false, "error": "RuntimeError: x", '
+    '"asset": "/nmg-game-dev/Materials/M_NmgORM"}'
+)
+# Each stub is a POSIX shell script that records its argv, one argument per line.
+_BUILD_STUB = r"""printf '%s\n' "$@" > "__LOG__"
+exit __EXIT__
+"""
+_EDITOR_STUB = r"""printf '%s\n' "$@" > "__LOG__"
+for arg in "$@"; do
+  case "$arg" in
+    -ExecutePythonScript=*) cp "${arg#-ExecutePythonScript=}" "__COPY__" ;;
+  esac
+done
+cat "__OUTPUT__"
+exit __EXIT__
+"""
+
+
+@dataclass(frozen=True)
+class FakeUe:
+    """A temporary UE_ROOT whose Build.sh and UnrealEditor-Cmd log their arguments."""
+
+    root: Path
+    build_log: Path
+    editor_log: Path
+    script_copy: Path
+
+    def build_args(self) -> list[str]:
+        return self.build_log.read_text(encoding="utf-8").splitlines()
+
+    def editor_args(self) -> list[str]:
+        return self.editor_log.read_text(encoding="utf-8").splitlines()
+
+
+def _write_stub(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def make_fake_ue(
+    tmp_path: Path,
+    *,
+    build_exit: int = 0,
+    editor_exit: int = 0,
+    editor_output: str = SUCCESS_LINE,
+    with_editor: bool = True,
+) -> FakeUe:
+    fake = FakeUe(
+        root=tmp_path / "UE_5.8",
+        build_log=tmp_path / "build-argv.txt",
+        editor_log=tmp_path / "editor-argv.txt",
+        script_copy=tmp_path / "copied-script.py",
+    )
+    output = tmp_path / "editor-output.txt"
+    output.write_text(editor_output + "\n", encoding="utf-8")
+    build_body = _BUILD_STUB.replace("__LOG__", str(fake.build_log)).replace(
+        "__EXIT__", str(build_exit)
+    )
+    _write_stub(fake.root / "Engine" / "Build" / "BatchFiles" / "Mac" / "Build.sh", build_body)
+    if with_editor:
+        editor_body = (
+            _EDITOR_STUB.replace("__LOG__", str(fake.editor_log))
+            .replace("__COPY__", str(fake.script_copy))
+            .replace("__OUTPUT__", str(output))
+            .replace("__EXIT__", str(editor_exit))
+        )
+        _write_stub(fake.root / "Engine" / "Binaries" / "Mac" / "UnrealEditor-Cmd", editor_body)
+    return fake
+
+
+def guard_network(monkeypatch: pytest.MonkeyPatch, builder: ModuleType) -> list[str]:
+    """Make any MCP client construction or socket connect fail; return the list of attempts."""
+    attempts: list[str] = []
+
+    class RefusingClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            attempts.append("UnrealMcpClient")
+            raise AssertionError("headless mode constructed UnrealMcpClient")
+
+    def refuse_connect(*args: object, **kwargs: object) -> None:
+        attempts.append("socket.connect")
+        raise AssertionError("headless mode opened a network connection")
+
+    monkeypatch.setattr(builder, "UnrealMcpClient", RefusingClient)
+    monkeypatch.setattr(socket.socket, "connect", refuse_connect)
+    return attempts
+
+
+def name_entry(name: str) -> bytes:
+    """A serialized name-table entry: int32 length counting the NUL, the ASCII bytes, then a NUL."""
+    return struct.pack("<i", len(name) + 1) + name.encode("ascii") + b"\0"
+
+
+def test_headless_builds_dogfood_then_runs_the_graph_in_a_separate_editor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = make_fake_ue(tmp_path)
+    monkeypatch.setenv("UE_ROOT", str(fake.root))
+    builder = load_builder()
+    attempts = guard_network(monkeypatch, builder)
+
+    assert builder.main(["--headless"]) == 0
+
+    assert attempts == []
+    assert fake.build_args() == [
+        "DogfoodEditor",
+        "Mac",
+        "Development",
+        f"-Project={DOGFOOD_PROJECT}",
+        "-WaitMutex",
+        "-NoUBA",
+    ]
+    editor = fake.editor_args()
+    assert editor[0] == str(DOGFOOD_PROJECT)
+    assert Path(editor[0]).is_absolute()
+    assert "-DisablePlugins=ModelContextProtocol,EditorToolset,VibeUE" in editor
+    assert "-EnablePlugins=PythonScriptPlugin" in editor
+    for flag in ("-unattended", "-nopause", "-nosplash", "-nullrhi", "-stdout"):
+        assert flag in editor
+    assert "-FullStdOutLogOutput" in editor
+    assert "Built /nmg-game-dev/Materials/M_NmgORM" in capsys.readouterr().out
+
+
+def test_headless_runs_the_builder_graph_and_removes_its_temporary_script(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = make_fake_ue(tmp_path)
+    monkeypatch.setenv("UE_ROOT", str(fake.root))
+    builder = load_builder()
+    guard_network(monkeypatch, builder)
+
+    assert builder.main(["--headless"]) == 0
+
+    script_arg = next(arg for arg in fake.editor_args() if arg.startswith("-ExecutePythonScript="))
+    script_path = Path(script_arg.removeprefix("-ExecutePythonScript="))
+    assert fake.script_copy.read_text(encoding="utf-8") == builder._MATERIAL_CODE
+    assert not script_path.exists()
+
+
+def test_headless_ue_error_exits_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = make_fake_ue(tmp_path, editor_output=FAILURE_LINE)
+    monkeypatch.setenv("UE_ROOT", str(fake.root))
+    builder = load_builder()
+    guard_network(monkeypatch, builder)
+
+    assert builder.main(["--headless"]) == 1
+    assert "ERROR [import_ue.failed] RuntimeError: x" in capsys.readouterr().err
+
+
+def test_headless_without_a_result_line_exits_1_and_names_the_editor_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = make_fake_ue(tmp_path, editor_exit=5, editor_output="LogPython: booting")
+    monkeypatch.setenv("UE_ROOT", str(fake.root))
+    builder = load_builder()
+    guard_network(monkeypatch, builder)
+
+    assert builder.main(["--headless"]) == 1
+    assert "exited 5" in capsys.readouterr().err
+
+
+def test_missing_unreal_editor_cmd_exits_3_before_building(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = make_fake_ue(tmp_path, with_editor=False)
+    monkeypatch.setenv("UE_ROOT", str(fake.root))
+    builder = load_builder()
+    guard_network(monkeypatch, builder)
+
+    assert builder.main(["--headless"]) == 3
+
+    err = capsys.readouterr().err
+    assert "[master_material.headless_unavailable]" in err
+    assert str(fake.root / "Engine" / "Binaries" / "Mac" / "UnrealEditor-Cmd") in err
+    assert "UE_ROOT" in err
+    assert not fake.build_log.exists()
+
+
+def test_failed_dogfood_build_exits_3_and_never_runs_the_editor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = make_fake_ue(tmp_path, build_exit=2)
+    monkeypatch.setenv("UE_ROOT", str(fake.root))
+    builder = load_builder()
+    guard_network(monkeypatch, builder)
+
+    assert builder.main(["--headless"]) == 3
+
+    assert "[master_material.build_failed] Build.sh exited 2" in capsys.readouterr().err
+    assert not fake.editor_log.exists()
+
+
+def test_headless_and_url_are_mutually_exclusive() -> None:
+    builder = load_builder()
+
+    with pytest.raises(SystemExit) as exit_info:
+        builder.main(["--headless", "--url", "http://127.0.0.1:8000/mcp"])
+
+    assert exit_info.value.code == 2
+
+
+def test_mcp_mode_still_exits_2_when_the_endpoint_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    builder = load_builder()
+
+    class UnreachableClient:
+        def __init__(self, url: object) -> None:
+            _ = url
+            raise builder.PipelineError(
+                code="mcp.unreal.unreachable",
+                message="no Unreal MCP endpoint",
+                remediation="start the editor",
+                stage="import_ue",
+            )
+
+    monkeypatch.setattr(builder, "UnrealMcpClient", UnreachableClient)
+
+    assert builder.main([]) == 2
+    assert "[mcp.unreal.unreachable]" in capsys.readouterr().err
+
+
+def test_committed_asset_carries_every_parameter_the_builder_defines() -> None:
+    data = shipped_asset_bytes()
+
+    missing = [
+        name for name in ("Tint", "BaseColor", "Normal", "ORM") if name_entry(name) not in data
+    ]
+
+    assert missing == []
+
+
+def test_committed_asset_keeps_the_master_package_path_and_name() -> None:
+    data = shipped_asset_bytes()
+
+    assert b"/nmg-game-dev/Materials/M_NmgORM" in data
+    assert name_entry("M_NmgORM") in data

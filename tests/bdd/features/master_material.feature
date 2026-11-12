@@ -24,3 +24,25 @@ Feature: M_NmgORM compiles with typed sampler defaults and supports skeletal mes
     Then it loads and clears the existing material instead of recreating it
     And the BaseColor, Normal, and ORM parameters keep their names
     And ORM R, G, and B still feed Ambient Occlusion, Roughness, and Metallic
+
+  @SCN004 @regression
+  Scenario: The master material is rebuilt by a separate headless UnrealEditor-Cmd process
+    Given UE_ROOT holds a fake Build.sh and a fake UnrealEditor-Cmd that log their arguments
+    And the Unreal MCP client fails if it is constructed
+    When the builder runs with --headless
+    Then UnrealEditor-Cmd opens fixtures/dogfood.uproject with -ExecutePythonScript and the MCP plugins disabled
+    And the script it runs is the builder's graph code
+    And the builder exits 0 without contacting an editor
+
+  @SCN005 @regression
+  Scenario: The committed master material carries the Tint parameter
+    Given the committed M_NmgORM.uasset
+    When its name table is inspected
+    Then it holds the parameter names Tint, BaseColor, Normal, and ORM
+
+  @SCN006 @regression
+  Scenario: The rebuilt master material keeps its path and package name
+    Given the committed M_NmgORM.uasset and the builder's graph code
+    When the master is rebuilt in place
+    Then the asset's package name is /nmg-game-dev/Materials/M_NmgORM
+    And the builder loads and clears the existing material instead of recreating it
