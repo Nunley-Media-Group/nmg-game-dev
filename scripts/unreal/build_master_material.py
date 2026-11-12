@@ -233,7 +233,6 @@ def _build_headless() -> int:
             "Development",
             f"-Project={DOGFOOD_PROJECT}",
             "-WaitMutex",
-            "-NoUBA",
         ],
         check=False,
     )

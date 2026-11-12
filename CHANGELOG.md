@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.25.3] - 2026-11-12
+
+### Fixed
+
+- Build the UE compile gate with the default toolchain again (drop -NoUBA) (#227)
+
 ## [0.25.2] - 2026-11-12
 
 ### Fixed

@@ -523,8 +523,8 @@ def test_headless_builds_dogfood_then_runs_the_graph_in_a_separate_editor(
         "Development",
         f"-Project={DOGFOOD_PROJECT}",
         "-WaitMutex",
-        "-NoUBA",
     ]
+    assert "-NoUBA" not in fake.build_args()
     editor = fake.editor_args()
     assert editor[0] == str(DOGFOOD_PROJECT)
     assert Path(editor[0]).is_absolute()
