@@ -1,0 +1,89 @@
+**Issue**: #136
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_rig_builtin_clips.py, tests/unit/test_builtin_clips.py
+# Generated from: specs/136-add-a-built-in-procedural-clip-library-to-import-animations/requirements.md
+Feature: Built-in procedural clip library for import_animations
+
+  @SCN001
+  Scenario: The built-in library bakes with no files
+    Given a character rigged with rig_humanoid and no animation library folder
+    When import_animations is called with library "builtin" and no clips
+    Then the result is ok and every built-in clip is an action named after the clip on SK_<Name>
+    And each action has keyframes on the bones its poses target, no file is read, and the rig is at rest
+
+  @SCN002
+  Scenario: The starter set is present
+    Given the built-in library
+    When all of its clips are baked
+    Then the result lists Idle, FightIdle, Walk, Run, Punch1, Punch2, Punch3, Kick, Jump, JumpKick, Hit, Knockdown, Down, GetUp, Grab, Throw, Roar, Talk, and Ride
+
+  @SCN003
+  Scenario: A subset can be requested
+    Given a rigged character
+    When import_animations is called with library "builtin" and clips Idle and Walk
+    Then only Idle and Walk are baked and listed
+
+  @SCN004
+  Scenario: One definition fits any proportions and A-pose angle
+    Given a near-T-pose rig and a rig with arms 45 degrees below horizontal and different proportions
+    When the same built-in clip is baked onto both
+    Then at each key frame every targeted limb bone points along the pose's world direction within 2 degrees on both rigs
+
+  @SCN005
+  Scenario: Pelvis movement scales with leg length
+    Given two rigged characters with different leg lengths
+    When Jump and Down are baked onto both
+    Then at each key frame the pelvis is displaced by the pose offset times that character's leg length
+
+  @SCN006
+  Scenario: Cycles are mirrored and loop
+    Given a rigged character
+    When Walk and Run are baked
+    Then the second half of each cycle mirrors the first half
+    And the last frame matches the first frame for Walk, Run, Idle, and FightIdle
+
+  @SCN007
+  Scenario: Provenance is recorded like a file clip
+    Given a rigged character with built-in clips baked
+    When the import result and the exported nmg-animations.json are read
+    Then each built-in clip has its frame range, fps, and a source with library "builtin", skeleton "manny", file null, and the definition's sha256
+    And the exported FBX holds the clip as an action
+
+  @SCN008
+  Scenario: Baking is repeatable
+    Given a rigged character with a built-in clip already baked
+    When the same clip is baked again
+    Then the action is replaced with identical keyframes and provenance and no temporary data remains
+
+  @SCN009
+  Scenario: An unknown built-in clip is reported
+    Given a rigged character
+    When import_animations is called with library "builtin" and an unknown clip name
+    Then the result is fallback required with anim.clip_not_found listing the built-in clip names and nothing is baked
+
+  @SCN010
+  Scenario: Invalid library selection is reported
+    Given a rigged character
+    When import_animations is called with both a folder and library "builtin", with neither, or with an unknown library value
+    Then the result is fallback required with anim.library_invalid and the scene is unchanged
+
+  @SCN011
+  Scenario: File libraries behave as before
+    Given a library folder with a valid library.json and clips
+    When import_animations is called with the folder as today and built-in clips are baked onto the same rig
+    Then the file clips' provenance is unchanged and both kinds appear in nmg-animations.json
+
+  @SCN012
+  Scenario: Existing preconditions still apply
+    Given a collection with no SK_<Name> rig, or a call with a motion_prompt
+    When import_animations is called with library "builtin"
+    Then the result is anim.rig_missing or anim.text_motion_unsupported respectively
+
+  @SCN013
+  Scenario: The operator can select the built-in library
+    Given the add-on operator nmggamedev.import_animations
+    When it runs with the built-in library selected and no library folder
+    Then the built-in clips are baked, the result is stored on scene.nmg_game_dev.last_result, and it returns FINISHED

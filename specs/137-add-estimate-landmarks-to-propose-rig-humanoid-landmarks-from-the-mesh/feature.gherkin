@@ -1,0 +1,77 @@
+**Issue**: #137
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_estimate_landmarks.py
+# Generated from: specs/137-add-estimate-landmarks-to-propose-rig-humanoid-landmarks-from-the-mesh/requirements.md
+Feature: estimate_landmarks proposes rig_humanoid landmarks from the mesh
+
+  @SCN001
+  Scenario: Landmarks are proposed for an A-pose humanoid
+    Given a symmetric A-pose humanoid with known joint positions
+    When the agent calls estimate_landmarks
+    Then the result is ok with high confidence, no warnings, and all 19 landmarks
+    And each landmark is within 5% of the height of its known joint
+    And every _l landmark has x > 0 and every _r landmark has x < 0
+
+  @SCN002
+  Scenario: A high-confidence proposal rigs without edits
+    Given the landmarks from a high confidence result
+    When they are passed unchanged to rig_humanoid
+    Then rig_humanoid returns ok
+
+  @SCN003
+  Scenario: Stylized proportions and accessories do not mislead it
+    Given a stylized A-pose character with a large head and a hat brim, earrings, or glasses
+    When the agent calls estimate_landmarks
+    Then the shoulders are placed at the arms, not at the accessory
+    And the result meets the A-pose checks
+
+  @SCN004
+  Scenario: An asymmetric stance is reported as low confidence
+    Given an A-pose humanoid whose arms or legs are not mirrored within 5% of its height
+    When the agent calls estimate_landmarks
+    Then the result is ok with low confidence
+    And the landmarks are measured per side, not mirror-averaged
+    And warnings name each asymmetric pair
+
+  @SCN005
+  Scenario: No A-pose arms or no crotch is a failure
+    Given a T-pose humanoid, a humanoid with arms fused to the torso, or a mesh with no crotch
+    When the agent calls estimate_landmarks
+    Then the result is rig.arms_not_found or rig.crotch_not_found with a message and a remediation
+    And it has no landmarks
+
+  @SCN006
+  Scenario: A missing mesh is reported
+    Given a missing collection or a collection without SM_<Name>
+    When the agent calls estimate_landmarks
+    Then the result is rig.asset_not_found naming the expected mesh
+
+  @SCN007
+  Scenario: Estimating changes nothing
+    Given any collection
+    When estimate_landmarks returns with any status
+    Then objects, mesh data, transforms, selection, active object, and mode are unchanged
+
+  @SCN008
+  Scenario: rig_humanoid uses the mesh's current position
+    Given SM_<Name> moved, rotated, and scaled in a script with no view-layer update
+    When the script calls rig_humanoid with landmarks for the new position
+    Then rig_humanoid returns ok
+    And estimate_landmarks returns landmarks at the new position
+
+  @SCN009
+  Scenario: rig_humanoid messages name the mesh
+    Given a collection Hero
+    When rig_humanoid fails with rig.asset_not_found, rig.landmarks_outside_mesh, or rig.weights_failed
+    Then the message and remediation say SM_Hero and Hero
+    And no result contains SM_<Name> or <Name>
+
+  @SCN010
+  Scenario: The agent flow is documented
+    Given docs/rigging-and-animation.md
+    When an agent reads the flow
+    Then it calls estimate_landmarks, reviews and corrects the proposal, and then calls rig_humanoid
+    And the result fields, confidence values, A-pose limit, and failure codes are documented

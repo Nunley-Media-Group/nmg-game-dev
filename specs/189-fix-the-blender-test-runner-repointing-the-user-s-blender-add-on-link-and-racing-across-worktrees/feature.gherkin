@@ -1,0 +1,36 @@
+**Issue**: #189
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/95-fix-the-always-green-blender-gate-re-import-entry-lookup-notarization-secret-exposure-and-stale-lockfiles/
+
+# File: tests/unit/test_run_blender_tests.py (SCN001–SCN003), tests/unit/test_blender_runner_isolation.py (SCN001–SCN002), gate-blender-headless (SCN004)
+# Generated from: specs/189-fix-the-blender-test-runner-repointing-the-user-s-blender-add-on-link-and-racing-across-worktrees/requirements.md
+Feature: The Blender gate isolates each run's add-on link from the user and from other checkouts
+
+  @SCN001 @regression
+  Scenario: A gate run leaves the user's Blender scripts directory unchanged
+    Given the user's Blender scripts directory holds an nmg_game_dev_blender_addon link to some checkout
+    When scripts/run-blender-tests.sh runs
+    Then the link in the user's Blender scripts directory is unchanged
+    And the run's add-on link lives under its own BLENDER_USER_SCRIPTS directory
+
+  @SCN002 @regression
+  Scenario: Concurrent runs each import the add-on from their own checkout
+    Given two checkouts running scripts/run-blender-tests.sh at the same time
+    When both runs enable the add-on
+    Then each run uses a distinct BLENDER_USER_SCRIPTS directory
+    And each run's add-on resolves to its own checkout's plugins/nmg-game-dev-blender-addon
+
+  @SCN003 @regression
+  Scenario: The per-run user scripts location is removed after a passing or failing run
+    Given a gate run that passes and a gate run that fails
+    When each run exits
+    Then the temporary user scripts directory each created no longer exists
+    And each gate exits with Blender's exit status
+
+  @SCN004
+  Scenario: The existing Blender test suite still passes
+    Given the current tests/blender suite
+    When scripts/run-blender-tests.sh runs
+    Then it exits 0

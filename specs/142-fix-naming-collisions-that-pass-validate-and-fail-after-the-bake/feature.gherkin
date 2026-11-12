@@ -1,0 +1,50 @@
+**Issue**: #142
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/67-bake-authored-materials-to-contract-compliant-uv-texture-sets/
+
+# File: tests/blender/test_bake_unique.py, tests/blender/test_variants.py, tests/blender/test_contract_validate.py
+# Generated from: specs/142-fix-naming-collisions-that-pass-validate-and-fail-after-the-bake/requirements.md
+Feature: Naming collisions are resolved before they fail a finalize run
+
+  @SCN001 @regression
+  Scenario: Bake outputs take the contract names when source images already hold them
+    Given a Crate whose authored material samples images named T_Crate_Body_BC, T_Crate_Body_N, and T_Crate_Body_ORM
+    When the bake step runs
+    Then the baked material samples images named exactly T_Crate_Body_BC, T_Crate_Body_N, and T_Crate_Body_ORM
+    And the full contract reports no naming.texture finding after the variants step
+
+  @SCN002 @regression
+  Scenario: Authored materials keep their source images
+    Given the same Crate after the bake
+    When the retired M_Crate_Body_Authoring material is inspected
+    Then it samples the original image datablocks, now named T_Crate_Body_BC_Src, T_Crate_Body_N_Src, and T_Crate_Body_ORM_Src
+    And their pixels are unchanged
+
+  @SCN003 @regression
+  Scenario: Re-running the bake leaves no suffixed contract images
+    Given a Crate that was already baked
+    When the bake step runs again
+    Then exactly one image holds each contract name
+    And no image name matches a contract name followed by .NNN
+
+  @SCN004 @regression
+  Scenario: Export names mesh datablocks after their objects
+    Given a Crate part SM_Crate_Seat whose mesh data is named SM_Crate_Seat.001
+    When the export step writes the Desktop and Mobile FBX files
+    Then re-importing each FBX shows every mesh named the same as its object
+    And the session's object and mesh names are unchanged after export
+
+  @SCN005 @regression
+  Scenario: Shared mesh data is reported before the bake
+    Given two Crate parts that share one mesh datablock
+    When validate runs with authored=True
+    Then it reports naming.mesh_data naming both parts and the datablock
+    And the remediation says to make the mesh data single-user
+
+  @SCN006 @regression
+  Scenario: Assets without collisions are unchanged
+    Given a Crate with neither collision
+    When validate, bake, and export run
+    Then the findings, image names, material names, and FBX file names are the same as before the fix
