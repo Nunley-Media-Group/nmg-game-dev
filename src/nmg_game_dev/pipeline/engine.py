@@ -188,8 +188,11 @@ def execute(
                 refused = load
 
         if spec.per_clip:
-            # Per-clip steps keep their own cache and leave the input hash unchanged (#138).
-            clip_outputs = _run_per_clip(run, step, outputs_by_step, last_blend, force=force)
+            # Per-clip steps keep their own cache and leave the input hash unchanged (#138).  Clips
+            # are read from this run's checkpoint: the asset hash does not cover actions, so after a
+            # clip-only change the mesh steps restore a cached variants .blend holding the old
+            # actions.  The variants step changes only meshes, so SK_<Name> is the same in both.
+            clip_outputs = _run_per_clip(run, step, outputs_by_step, checkpoint, force=force)
             outputs_by_step[step] = clip_outputs
             # With no clips nothing was re-run, so the step is served from cache exactly when the
             # step before it was.  The probe itself is never cached.
@@ -356,7 +359,7 @@ def _run_per_clip(
     run: _Run,
     step: StepName,
     outputs_by_step: dict[str, dict[str, Any]],
-    last_blend: Path,
+    checkpoint: Path,
     *,
     force: bool,
 ) -> dict[str, Any]:
@@ -366,7 +369,7 @@ def _run_per_clip(
             cache=run.cache,
             job_dir=run.job_dir,
             runner=run.runner,
-            in_blend=last_blend,
+            in_blend=checkpoint,
             force=force,
             on_progress=_progress_callback(run, step),
         )

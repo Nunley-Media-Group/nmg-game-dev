@@ -117,7 +117,7 @@ def test_one_armature_only_fbx_per_clip_and_each_reimports_as_one_clip(
 
     assert [record["file"] for record in records] == ["A_Hero_Idle.fbx", "A_Hero_Wave.fbx"]
     for record in records:
-        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.wm.read_homefile(use_empty=True)
         bpy.ops.import_scene.fbx(filepath=str(out / record["file"]))
         armatures = [obj for obj in bpy.data.objects if obj.type == "ARMATURE"]
         meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]

@@ -100,7 +100,7 @@ Finalize runs the steps in this order, and each step can also run alone:
 | `bake` | Blender, writes a copy | Checkpoint to `bake.blend` | Contract texture sets and the bake proof |
 | `variants` | Blender, writes a copy | `bake.blend` to `variants.blend` | Triangle counts per variant and LOD |
 | `export` | Blender, read-only | `variants.blend` to the FBX folders and `nmg-variants.json` | Pre-export contract report, gated by `quality.contract_failed` |
-| `export_anims` | Blender, read-only | `variants.blend` to `Animations/A_<Name>_<Clip>.fbx` and `nmg-animations.json` | One FBX per clip, cached per clip. Fails with `finalize.clip_name_invalid` |
+| `export_anims` | Blender, read-only | `checkpoint.blend` (the session's current actions) to `Animations/A_<Name>_<Clip>.fbx` and `nmg-animations.json` | One FBX per clip, cached per clip. Fails with `finalize.clip_name_invalid` |
 | `reimport` | Blender, factory startup | Exported FBX | Re-import report per variant, gated by `quality.reimport_mismatch` |
 | `import_ue` | Unreal MCP | Exported folders to `/Game/<Category>/<Name>/{Desktop,Mobile}/` | Pivot check, failing with `import_ue.pivot_mismatch` |
 | `import_anims` | Unreal MCP | Clip FBX to `/Game/<Category>/<Name>/Animations/A_<Name>_<Clip>` on the Desktop skeleton | Skeleton and frame-count check against the sidecar, failing with `import_anims.clip_mismatch`. Stale and compatible-skeleton reports |

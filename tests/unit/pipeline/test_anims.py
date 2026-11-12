@@ -211,6 +211,26 @@ class TestExportPerClip:
         # The probe, then the one export run for Walk.  Nothing else in Blender runs.
         assert runner.steps_run() == ["export_anims", "export_anims"]
 
+    def test_clips_are_probed_and_exported_from_the_current_checkpoint(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        # AC6 and FR7: the asset hash does not cover actions, so on a clip-only change the mesh
+        # steps restore the old cached variants .blend.  The probe and export must read this run's
+        # checkpoint, which holds the session's current actions, never a cached step result.
+        project = _anim_unreal()
+        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], unreal=project)
+        changed_walk = {**WALK, "hash": "hash-walk-changed"}
+
+        _result, runner, _anim = _finalize(
+            request_for, tmp_path, jobs, clips=[IDLE, changed_walk], unreal=project
+        )
+
+        anim_calls = [call for call in runner.calls if call["step"] == "export_anims"]
+        assert len(anim_calls) == 2
+        checkpoint = str(tmp_path / f"job-{jobs[0]}" / "checkpoint.blend")
+        for call in anim_calls:
+            assert call["in_blend"] == checkpoint
+
     def test_force_reexports_and_reimports_every_clip(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
