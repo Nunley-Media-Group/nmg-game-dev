@@ -4,7 +4,7 @@
 **Issue**: #189
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify stage)
 **Scope**: Implementation verification against the approved defect spec
-**Verification head**: c529bd33697bcfc9a31b5daac07285e2cf27ea96
+**Verification head**: a3f7b029b28182aad0a30cc07046b578a6ed51a9
 
 ---
 
@@ -21,9 +21,9 @@
 | **Overall** | 4.8 |
 
 ### Implementation Status: Pass
-**Total Issues**: 2 (both Low, non-blocking)
+**Total Issues**: 3 (all Low, non-blocking)
 
-`scripts/run-blender-tests.sh` now gives every run a fresh `mktemp -d` directory, exports it as `BLENDER_USER_SCRIPTS` (overriding any inherited value), removes it on exit through an `EXIT` trap, and passes Blender's exit status through. `tests/blender/_runner.py` links the add-on only inside that directory and raises `RuntimeError` before any write when the variable is unset or Blender's addons path resolves outside it. All four ACs, three FRs, five tasks and four scenarios are met. All 10 applicable registered gates passed at the verification head. This re-verification covers the branch after `origin/main` was merged in (19c1f31), the CHANGELOG section repairs (df9414e, 9d2be61), and the port of the paged `/mcp` `plugin.session-smoke` provider and its unit tests from #195 (c529bd3), which is byte-identical to `origin/main` (`git diff origin/main HEAD` on both files is empty).
+`scripts/run-blender-tests.sh` now gives every run a fresh `mktemp -d` directory, exports it as `BLENDER_USER_SCRIPTS` (overriding any inherited value), removes it on exit through an `EXIT` trap, and passes Blender's exit status through. `tests/blender/_runner.py` links the add-on only inside that directory and raises `RuntimeError` before any write when the variable is unset or Blender's addons path resolves outside it. All four ACs, three FRs, five tasks and four scenarios are met. All 10 applicable registered gates passed at the verification head. This re-verification covers the branch after the base reconciliation merge `a3f7b02`, which brought in `origin/main` at `375a65b` (#196, #197, #201). The merge changed no #189 file: `git diff 76dce87 HEAD` on `scripts/run-blender-tests.sh`, `tests/blender/_runner.py`, `tests/unit/test_run_blender_tests.py` and `tests/unit/test_blender_runner_isolation.py` is empty. The full registered gate was rerun at the new head, because main's add-on, texture and Unreal import changes also flow through `gate-blender-headless`, `repository.tests` and `gate-ue-compile`.
 
 ---
 
@@ -47,8 +47,8 @@
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --project . --issue 189 --spec specs/189-… --base main --controller-run-id 564ba3f9-6cc5-4f26-aad2-1800439d8357`
-- Artifact: `.nmg-sdlc/verification/189.json`. Identity: head `c529bd33697bcfc9a31b5daac07285e2cf27ea96`, tree clean, steering `sha256:795f9897…`, spec `sha256:7cdb160b…`
+- Runner: `sdlc-verify-steering.mjs --project . --issue 189 --spec specs/189-… --base main --controller-run-id ca1008e2-0c5d-4f69-a182-383af3f1f85f`
+- Artifact: `.nmg-sdlc/verification/189.json`. Identity: head `a3f7b029b28182aad0a30cc07046b578a6ed51a9`, tree clean, steering `sha256:795f9897…`, spec `sha256:7cdb160b…`
 - Ceiling: none (`ok: true`)
 - Coverage: declared 11, recorded 11, complete `true`, with no missing, duplicate or unknown ids
 
@@ -58,10 +58,10 @@
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Test runs do not touch the user's Blender scripts directory | Pass | `scripts/run-blender-tests.sh` runs Blender with `BLENDER_USER_SCRIPTS="${user_scripts}"`, a per-run `mktemp -d` directory. `tests/blender/_runner.py` `_isolated_addons_dir()` refuses an unset variable or an addons path outside it. `test_gate_runs_blender_with_a_per_run_user_scripts_directory_not_the_callers` shows that the caller's stand-in scripts tree is byte-identical after a run. The `test_blender_runner_isolation.py` refusal tests show nothing is written outside. Live check: no `nmg_game_dev_blender_addon` link in the user's `~/Library/Application Support/Blender/*/scripts/addons/` points at this lane's checkout after this run's real headless gate (one link was repointed during the run to another lane's checkout, by that lane running `origin/main`'s unfixed runner, which is the defect this branch removes) |
+| AC1 | Test runs do not touch the user's Blender scripts directory | Pass | `scripts/run-blender-tests.sh` runs Blender with `BLENDER_USER_SCRIPTS="${user_scripts}"`, a per-run `mktemp -d` directory. `tests/blender/_runner.py` `_isolated_addons_dir()` refuses an unset variable or an addons path outside it. `test_gate_runs_blender_with_a_per_run_user_scripts_directory_not_the_callers` shows that the caller's stand-in scripts tree is byte-identical after a run. The `test_blender_runner_isolation.py` refusal tests show nothing is written outside. Live check after this run's real headless gates: neither user `nmg_game_dev_blender_addon` link (`Blender/5.1` and `Blender/5.2` `scripts/addons/`) points at this lane's checkout; both point at other checkouts that still run the unfixed runner, which is the defect this branch removes |
 | AC2 | Each run uses its own add-on location | Pass | `test_concurrent_gate_runs_each_use_their_own_user_scripts_directory`: two overlapping runs (rendezvous-confirmed `overlapped`) saw distinct directories. `test_a_real_gate_run_loads_the_add_on_from_its_own_location_and_checkout` (real Blender 5.2, run here with `BLENDER_APP`): `user_resource("SCRIPTS")` resolves to the run directory, the link resolves to this checkout's `plugins/nmg-game-dev-blender-addon`, and the enabled module's `__file__` is inside this checkout |
 | AC3 | The isolated location is cleaned up | Pass | `trap 'rm -rf "${user_scripts}"' EXIT`. `test_gate_removes_its_user_scripts_directory_and_exits_with_blenders_status[0/3]`: the directory existed while Blender ran and is gone afterwards, for both passing and failing runs. After the real-Blender gate run at this head, no `nmg-blender-user-scripts.*` directories remained under `$TMPDIR` |
-| AC4 | Existing Blender tests still pass | Pass | `gate-blender-headless` passed: `243 passed, 4 skipped` through the isolated gate |
+| AC4 | Existing Blender tests still pass | Pass | `gate-blender-headless` passed: `269 passed, 4 skipped` through the isolated gate |
 
 ### Functional Requirements
 
@@ -81,7 +81,7 @@
 | T002 | Runner links only inside the per-run location | Complete | `_isolated_addons_dir()` and `_install_addon_link()`. `main()` also calls `bpy.utils.refresh_script_paths()` after linking |
 | T003 | Gate-script isolation and cleanup tests | Complete | Shim tests for the caller directory, concurrency, and pass/fail cleanup, plus the real-Blender isolation test |
 | T004 | Fake-bpy runner guard tests | Complete | `tests/unit/test_blender_runner_isolation.py`: 4 tests |
-| T005 | Existing Blender suite passes through the isolated gate | Complete | `gate-blender-headless`: 243 passed, 4 skipped at this head. No `tests/blender` test changes were needed |
+| T005 | Existing Blender suite passes through the isolated gate | Complete | `gate-blender-headless`: 269 passed, 4 skipped at this head. No `tests/blender` test changes were needed |
 
 ---
 
@@ -120,7 +120,7 @@ The gate script sets the contract (`BLENDER_USER_SCRIPTS`), and the runner enfor
 - [x] Async patterns: N/A
 - [x] Caching: N/A
 - [x] Resource management: one small temp directory per run, removed on exit, with no leak seen after real runs
-- [x] Query optimization: N/A. Gate runtime is unchanged (headless suite 131.6 s at this head)
+- [x] Query optimization: N/A. Gate runtime is unchanged (headless suite 141.5 s at this head)
 
 ## Testability
 
@@ -146,8 +146,8 @@ Both refusal paths raise `RuntimeError` with remediation, and nothing is written
 ### Coverage Summary
 
 - Feature file: `feature.gherkin` with 4 scenarios, mapped to pytest tests and the gate as declared in its header
-- `repository.tests`: 1097 passed, 10 skipped (includes the 14 #189 tests and the ported `test_plugin_session_smoke.py`)
-- `gate-blender-headless`: 243 passed, 4 skipped
+- `repository.tests`: 1139 passed, 10 skipped (includes the 14 #189 tests and the ported `test_plugin_session_smoke.py`)
+- `gate-blender-headless`: 269 passed, 4 skipped
 
 ---
 
@@ -164,11 +164,11 @@ Both refusal paths raise `RuntimeError` with remediation, and nothing is written
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `1097 passed, 10 skipped` in 113.36 s |
+| `repository.tests` | Pass | `1139 passed, 10 skipped` in 139.57 s |
 | `repository.lint` | Pass | `uv run ruff check .` exited 0 |
 | `repository.format` | Pass | `uv run ruff format --check .` exited 0 |
 | `repository.types` | Pass | `uv run mypy src tests` exited 0 |
-| `gate-blender-headless` | Pass | `243 passed, 4 skipped` in 131.59 s through the isolated gate |
+| `gate-blender-headless` | Pass | `269 passed, 4 skipped` in 141.48 s through the isolated gate |
 | `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
 | `gate-mcp-schema` | Pass | Exited 0 |
 | `gate-shellcheck` | Pass | Exited 0, including `scripts/run-blender-tests.sh` |
@@ -217,6 +217,15 @@ None.
 | **Impact** | Negligible. The directory is private, holds only a symlink, and the OS temp cleaner removes it. It is never shared with another run |
 | **Reason Not Fixed** | This is inherent to signal semantics and outside the spec |
 
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Release notes |
+| **Location** | `CHANGELOG.md` `## [0.21.4]` → `### Fixed` |
+| **Issue** | After the base merge, the #189 line sits in the released 0.21.4 section (which `origin/main` released without it), and `## [Unreleased]` is empty |
+| **Impact** | Release notes only. No code or gate effect |
+| **Reason Not Fixed** | The verify publication scope allows only `verification-report.md`. Version and CHANGELOG preparation belongs to the deliver stage's prepare-version step, which should move the entry under `## [Unreleased]` (or the new release section) |
+
 ---
 
 ## Positive Observations
@@ -238,6 +247,7 @@ None.
 
 ### Long Term (Could)
 - [ ] Reword the `_runner.py` refresh comment to "may not exist at startup"
+- [ ] At delivery, move the #189 CHANGELOG line out of the released 0.21.4 section
 
 ---
 
@@ -249,7 +259,7 @@ None.
 | `tests/blender/_runner.py` | 1 (Low) | Guard and isolated link; comment wording |
 | `tests/unit/test_run_blender_tests.py` | 0 | Shim, concurrency, cleanup and real-Blender tests |
 | `tests/unit/test_blender_runner_isolation.py` | 0 | Fake-bpy guard tests |
-| `CHANGELOG.md`, `VERSION`, plugin manifests | 0 | 0.21.4 version preparation. `origin/main` has since released 0.21.4 with #193's entry, so the CHANGELOG will need the usual orchestrator version merge at delivery; not a verification defect |
+| `CHANGELOG.md` | 1 (Low) | The #189 entry sits in the already released `## [0.21.4]` `### Fixed` list, not under `## [Unreleased]`. `VERSION` and the plugin manifests match `origin/main` after the base merge |
 | `steering/extensions/plugin-session-smoke.mjs`, `tests/unit/test_plugin_session_smoke.py` | 0 | Verbatim port of #195's paged `/mcp` provider; identical to `origin/main` |
 
 ---
@@ -258,4 +268,4 @@ None.
 
 **Ready for PR**
 
-Every AC, FR, task and scenario is met with direct evidence, including a real headless Blender 5.2 run. All applicable registered gates passed at `c529bd33697bcfc9a31b5daac07285e2cf27ea96`. The two Low findings are non-blocking.
+Every AC, FR, task and scenario is met with direct evidence, including a real headless Blender 5.2 run. All applicable registered gates passed at `a3f7b029b28182aad0a30cc07046b578a6ed51a9`. The three Low findings are non-blocking.
