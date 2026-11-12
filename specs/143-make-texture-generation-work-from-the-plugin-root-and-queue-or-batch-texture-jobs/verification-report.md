@@ -1,19 +1,19 @@
 # Verification Report: Texture generation from the plugin root, with queued and batched jobs
 
-**Date**: 2026-11-11
+**Date**: 2026-11-12
 **Issue**: #143
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
-**Scope**: Implementation verification against spec
+**Scope**: Re-verification after base reconciliation (merge of `origin/main` at `df1f1cd` into the issue branch)
 
-**Verification head**: bfb2b707a0f94961398f92642ab547e60eb20cd9
+**Verification head**: 0f348119c32b0ebbcbf76fedd7496a006ed61670
 
 ---
 
 ## Executive Summary
 
-The branch implements all eight acceptance criteria. The root project carries mflux and hf_transfer as Apple Silicon floors. A `find_spec` probe turns a missing mflux or mlx into `texture.dependencies_missing`, both before any work starts and in `status` / `texture_backends`. A worker that cannot import a module now names that module in its `texture.worker_failed` remediation. `texture.job_running` is gone: jobs go into a FIFO queue that one detached `run-queue` runner drains under the existing PID lock. Batches (`generate_textures(requests=…)` and `generate --batch FILE`) are validated as a whole and run one worker per backend.
+This run re-verifies #143 after the base merge `0f34811`. That merge brought in #144 (geometry.normals) and #192 (Blender test runner isolation) from main. It did not touch any texture source, test, schema or doc. The feature itself is unchanged since the last Pass at `bfb2b70`, and all eight acceptance criteria still hold. All 11 registered validations were recorded at the new head with complete coverage. All 10 that apply passed, and `gate-ship-smoke` does not apply.
 
-All 11 manifest-registered validations have results. Coverage is complete: 10 applicable required gates passed, and `gate-ship-smoke` does not apply. No findings needed a fix. The remaining notes are low priority and outside the spec.
+The status is **Fail** because the merge resolved `CHANGELOG.md` wrongly. It breaks the lane rule to keep main's released sections unchanged and to put this issue's entry under `## [Unreleased]`. If delivered as is, the controller's version preparation would publish a duplicate `## [0.22.0]` heading. It would also list #143 in two releases, including main's already-released 0.21.5 notes (see High finding H1). The fix is two deleted lines in `CHANGELOG.md`. Verify's publication scope covers only this report, so the fix goes back to implementation.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -25,8 +25,8 @@ All 11 manifest-registered validations have results. Coverage is complete: 10 ap
 | Error Handling | 4 |
 | **Overall** | 4.5 |
 
-### Implementation Status: Pass
-**Total Issues**: 4 (all Low or informational; none block delivery)
+### Implementation Status: Fail
+**Total Issues**: 5 (1 High: CHANGELOG merge defect; 3 Low and 1 informational carried over, none blocking)
 
 ---
 
@@ -43,7 +43,7 @@ All 11 manifest-registered validations have results. Coverage is complete: 10 ap
 
 ## Delivery Validation
 
-- Local verification: Pass
+- Local verification: Not complete (the release notes in `CHANGELOG.md` are corrupted)
 - PR evidence: Not required
 
 ---
@@ -51,13 +51,23 @@ All 11 manifest-registered validations have results. Coverage is complete: 10 ap
 ## Deterministic Steering Artifact and Ceiling
 
 - Runner: `sdlc-verify-steering.mjs --project . --issue 143 --spec specs/143-… --base main --controller-run-id 408c5465-26a2-44d9-bc7c-b3bfa24066cb`
-- Artifact: `.nmg-sdlc/verification/143.json`. Head `bfb2b707a0f94961398f92642ab547e60eb20cd9`, clean tree. Steering hash `sha256:795f9897…`, spec hash `sha256:7d8d383e…`.
+- Artifact: `.nmg-sdlc/verification/143.json`. Head `0f348119c32b0ebbcbf76fedd7496a006ed61670`, clean tree. Steering hash `sha256:795f9897…`, spec hash `sha256:7d8d383e…`.
 - Coverage: `declared: 11`, `recorded: 11`, `complete: true`. Nothing is missing, duplicated or unknown.
-- Ceiling: none. Every applicable required validation passed, and `gate-ship-smoke` does not apply to this change.
+- Ceiling: none from the gate. The overall status is Fail because of finding H1, not because of any gate result.
+
+---
+
+## Base Reconciliation Review
+
+The merge `0f34811` changed these files relative to the last verified report commit `4f4920d`: `contract_core/geometry.py` and `report.py`, `scripts/run-blender-tests.sh`, `tests/blender/_runner.py`, and new and updated tests for #144 and #192. It also changed docs and skills for geometry normals, specs for #202 and #203, and the version files. No path under `src/nmg_game_dev/texture/`, `mcp-servers/texture-gen/`, `pyproject.toml`, `uv.lock` or `docs/onboarding/texture-models.md` changed. The AC evidence below therefore still applies, and the fresh registered suite re-runs every texture test at the new head.
+
+The version files took main's values (`VERSION`, `.claude-plugin/plugin.json`, `blender_manifest.toml` and `nmg-game-dev.uplugin` are all `0.21.5`), which is correct. `CHANGELOG.md` did not (see H1).
 
 ---
 
 ## Acceptance Criteria Verification
+
+Evidence collected at `bfb2b70`. The texture code has not changed since, and the registered suite re-ran every bound scenario at the new head.
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
@@ -147,8 +157,8 @@ The MCP server stays a thin wrapper over `nmg_game_dev.texture.jobs` and `genera
 
 - Feature files: `tests/bdd/features/texture_queue_batch.feature` has 8 scenarios. `texture_generation.feature` SCN017 was updated to expect queueing.
 - Step definitions: Implemented (`tests/bdd/test_texture_queue_batch_bdd.py`)
-- Targeted run: `uv run pytest tests/unit/texture tests/unit/test_pyproject_texture_deps.py tests/bdd/test_texture_queue_batch_bdd.py tests/bdd/test_texture_bdd.py -q` gave 152 passed.
-- Full registered suite (`repository.tests`): 1172 passed, 9 skipped.
+- Targeted run (recorded at `bfb2b70`; the texture code has not changed since): `uv run pytest tests/unit/texture tests/unit/test_pyproject_texture_deps.py tests/bdd/test_texture_queue_batch_bdd.py tests/bdd/test_texture_bdd.py -q` gave 152 passed.
+- Full registered suite (`repository.tests`) at `0f348119c32b0ebbcbf76fedd7496a006ed61670`: 1183 passed, 10 skipped.
 
 ### Manual exercise (no live editors)
 
@@ -162,31 +172,19 @@ The MCP server stays a thin wrapper over `nmg_game_dev.texture.jobs` and `genera
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q`: 1172 passed, 9 skipped |
+| repository.tests | Pass | `uv run pytest tests/unit tests/bdd -q`: 1183 passed, 10 skipped |
 | repository.lint | Pass | `ruff check .`: All checks passed |
-| repository.format | Pass | `ruff format --check .`: 336 files already formatted |
-| repository.types | Pass | `mypy src tests`: no issues in 214 source files |
-| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 247 passed (applies because the version bump touched `blender_manifest.toml`) |
-| gate-ue-compile | Pass | DogfoodEditor compiled against UE 5.8 (applies because the version bump touched `nmg-game-dev.uplugin`) |
+| repository.format | Pass | `ruff format --check .`: 339 files already formatted |
+| repository.types | Pass | `mypy src tests`: no issues found in 216 source files |
+| gate-blender-headless | Pass | `scripts/run-blender-tests.sh`: 269 passed, 4 skipped (applies through the merged runner and `blender_manifest.toml` changes) |
+| gate-ue-compile | Pass | DogfoodEditor compiled against UE 5.8: `Result: Succeeded` |
 | gate-mcp-schema | Pass | MCP tools match tools.json for every server under mcp-servers/ |
 | gate-shellcheck | Pass | `shellcheck -S style` exited 0 |
 | gate-ship-smoke | Not applicable | No ship paths changed |
-| plugin.validate | Pass | `claude plugin validate .` exited 0 |
+| plugin.validate | Pass | `claude plugin validate .`: Validation passed with warnings |
 | plugin.session-smoke | Pass | Plugin loaded with `--plugin-dir`; `nmg-game-dev:blender` connected |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
-
-Environment note: the release-tooling SCN008 test in `repository.tests` runs `uv` offline with `--frozen` against the finalize and meshy projects. Before the gate ran, both `.venv`s were synced locally (`uv sync --project mcp-servers/finalize` and `--project mcp-servers/meshy`). This is a host preparation step, not a code change.
-
----
-
-## Review Note: finalize and meshy lockfiles
-
-FR1 adds mflux and hf_transfer to the root project's core `[project] dependencies`. `mcp-servers/finalize` and `mcp-servers/meshy` depend on the root package as an editable path. As a result, their `uv.lock` files must also resolve the marked mflux stack (mflux, mlx, mlx-metal, huggingface-hub, opencv-python, matplotlib, and so on). That accounts for about 700 added lines each.
-
-The diff only adds lines, every new entry applies only on `darwin`/`arm64`, and no existing pinned version changed. No source in either server changed. Without the regeneration, `uv lock --check` would fail for those projects.
-
-This is therefore a mechanical consequence of the spec as written (FR1 puts the dependencies in core), not a change to the finalize or meshy servers that the Out of Scope list forbids. The trade-off is a heavier install for those two servers on Apple Silicon. If that matters, a follow-up issue could move the dependencies behind a dependency group.
 
 ---
 
@@ -194,7 +192,7 @@ This is therefore a mechanical consequence of the spec as written (FR1 puts the 
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| — | — | — | No defects needing a fix were found | — | — |
+| High | Delivery artifacts | `CHANGELOG.md` | Base merge put #143 into main's released 0.21.5 section and left an empty `## [0.22.0]` heading | Not applied. Verify publication scope is limited to this report | Implementation |
 
 ## Remaining Issues
 
@@ -202,64 +200,37 @@ This is therefore a mechanical consequence of the spec as written (FR1 puts the 
 None.
 
 ### High Priority
-None.
+
+**H1: The base merge corrupted CHANGELOG.md**
+
+| Field | Value |
+|-------|-------|
+| **Severity** | High |
+| **Category** | Delivery artifacts (release notes) |
+| **Location** | `CHANGELOG.md` lines 9 and 19 (merge commit `0f34811`) |
+| **Issue** | Line 9 is an empty `## [0.22.0] - 2026-11-12` heading directly above main's `## [0.21.5] - 2026-11-12`. Line 19 adds `- Make texture generation work from the plugin root and queue or batch texture jobs (#143)` inside main's already-released 0.21.5 `### Changed` section. `git diff origin/main HEAD -- CHANGELOG.md` shows exactly these two added lines. |
+| **Impact** | Running the controller's `updateChangelog` (copied from `sdlc-deliver.mjs` 4.10.1) on this tree with version `0.22.0` and issue 143 gives `## [Unreleased]`, a new `## [0.22.0]` with the #143 entry, the stray empty `## [0.22.0]` again, and then `## [0.21.5]`, which still lists #143. Merging that would ship a duplicate release heading and claim that #143 shipped in 0.21.5. |
+| **Fix** | In `CHANGELOG.md`, delete line 9 (`## [0.22.0] - 2026-11-12`) and line 19 (the #143 bullet under 0.21.5), so that `git diff origin/main HEAD -- CHANGELOG.md` is empty. Leave `## [Unreleased]` empty (version preparation adds the #143 entry), or put the single #143 bullet under `## [Unreleased]` / `### Changed`. Keep `VERSION` and the manifests at main's `0.21.5`. Then rerun the full registered gate. |
+| **Reason Not Fixed** | Verify may publish only `verification-report.md`. |
 
 ### Medium Priority
 None.
 
 ### Low Priority
 
-| Field | Value |
-|-------|-------|
-| **Severity** | Low |
-| **Category** | Error Handling |
-| **Location** | `src/nmg_game_dev/texture/generate.py` (`_generate`) |
-| **Issue** | Two batch requests whose `name`, backend, seed and resolution resolve to the same slug write to the same PNG paths and the same `textures.json`, so the later request overwrites the earlier one. |
-| **Impact** | Silent overwrite inside a malformed batch. Separate single requests had the same behavior before this change. |
-| **Reason Not Fixed** | Not covered by the spec. Verify publication scope is limited to the report. Candidate follow-up: reject duplicate output names in `validate_batch`. |
+These carry over unchanged from the previous verification. They are outside the spec and do not block delivery.
 
-| Field | Value |
-|-------|-------|
-| **Severity** | Low |
-| **Category** | Error Handling |
-| **Location** | `src/nmg_game_dev/texture/jobs.py` (`run_queue`) |
-| **Issue** | If a queue runner is killed partway through a job, that job stays `running`. The next start replaces the stale lock and drains the queued jobs, but the orphaned job is never marked failed. |
-| **Impact** | `get_texture_job` shows `running` indefinitely for that one job. The same was true of the old single-job runner. |
-| **Reason Not Fixed** | Existing behavior, not covered by #143. |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Low |
-| **Category** | Error Handling |
-| **Location** | `src/nmg_game_dev/texture/jobs.py` (`start`) |
-| **Issue** | The runner's stdout and stderr go to the `job.log` of the job that spawned it, but that runner may go on to run later jobs. The `texture.job_crashed` remediation points at the crashed job's own `job.log`. |
-| **Impact** | Diagnostics for a crash may sit in a different job's log. |
-| **Reason Not Fixed** | Cosmetic, and not covered by the spec. |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Informational |
-| **Category** | Architecture |
-| **Location** | `mcp-servers/finalize/uv.lock`, `mcp-servers/meshy/uv.lock` |
-| **Issue** | The marked mflux stack is now in these lockfiles (see the review note above). |
-| **Impact** | A heavier `uv sync` for those servers on Apple Silicon. |
-| **Reason Not Fixed** | Required by FR1 as written. |
-
----
-
-## Positive Observations
-
-- The probe never imports `mlx`, and a test guards this with an assertion on `sys.modules`.
-- The queue closes the release/start race by re-scanning after the lock is released. The job is written before its runner is spawned.
-- One `_generate` serves both single and batch runs, so the single-request shape cannot drift.
-- Every external effect (probe, spawn, hardware, env) is injectable, which keeps the tests hermetic on Linux CI.
+- **Error Handling**, `src/nmg_game_dev/texture/generate.py` (`_generate`): two batch requests that resolve to the same slug write to the same PNG paths and `textures.json`, so the later one silently overwrites the earlier one. Candidate follow-up: reject duplicate output names in `validate_batch`.
+- **Error Handling**, `src/nmg_game_dev/texture/jobs.py` (`run_queue`): a runner killed partway through a job leaves that job `running`. Stale-lock recovery drains the queued jobs but never marks the orphaned one failed. The old single-job runner behaved the same way.
+- **Error Handling**, `src/nmg_game_dev/texture/jobs.py` (`start`): the runner logs to the `job.log` of the job that spawned it, which may not be the job that crashed.
+- **Informational**, `mcp-servers/finalize/uv.lock` and `mcp-servers/meshy/uv.lock`: these now carry the marked mflux stack, as FR1 (core dependencies) requires.
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- [ ] None
+- [ ] Fix H1: restore main's `CHANGELOG.md` release sections and drop the empty `## [0.22.0]` heading, then rerun the full registered gate.
 
 ### Short Term (Should)
 - [ ] Reject duplicate output names in a batch.
@@ -270,26 +241,8 @@ None.
 
 ---
 
-## Files Reviewed
-
-| File | Issues | Notes |
-|------|--------|-------|
-| `pyproject.toml`, `uv.lock` | 0 | Floors and markers match FR1 |
-| `mcp-servers/{texture-gen,finalize,meshy}/uv.lock` | 1 (info) | Additions only, under the arm64 marker |
-| `src/nmg_game_dev/texture/deps.py` | 0 | New |
-| `src/nmg_game_dev/texture/hardware.py` | 0 | |
-| `src/nmg_game_dev/texture/batch.py` | 0 | |
-| `src/nmg_game_dev/texture/generate.py` | 1 | Duplicate-name batch overwrite |
-| `src/nmg_game_dev/texture/jobs.py` | 2 | Orphaned running job; runner log location |
-| `src/nmg_game_dev/texture/__main__.py` | 0 | |
-| `mcp-servers/texture-gen/src/texture_gen_mcp/server.py`, `tools.json` | 0 | |
-| `docs/onboarding/texture-models.md` | 0 | |
-| `tests/**` (texture unit, BDD) | 0 | |
-
----
-
 ## Recommendation
 
-**Ready for PR**
+**Needs fixes**
 
-Every AC, FR, task and scenario is implemented and evidenced. All 10 applicable registered gates passed at `bfb2b707a0f94961398f92642ab547e60eb20cd9` with complete coverage. The remaining items are low priority and outside the spec.
+The #143 implementation is complete and all 10 applicable registered gates passed at `0f348119c32b0ebbcbf76fedd7496a006ed61670` with complete coverage. Delivery has to wait for the two-line `CHANGELOG.md` repair (H1), because merging now would corrupt main's release notes.

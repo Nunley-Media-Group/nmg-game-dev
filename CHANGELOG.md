@@ -6,7 +6,6 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
-## [0.22.0] - 2026-11-12
 ## [0.21.5] - 2026-11-12
 
 ### Fixed
@@ -16,7 +15,6 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Changed
 
 - Add a contact sheet for reviewing generated tiling textures (#152)
-- Make texture generation work from the plugin root and queue or batch texture jobs (#143)
 
 ### Fixed
 
