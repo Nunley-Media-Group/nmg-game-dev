@@ -9,6 +9,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Changed
 
 - Add estimate_landmarks to propose rig_humanoid landmarks from the mesh (#137)
+- Measure texel density per material slot and exempt trim-atlas and flat-colour slots (#151)
 
 ### Fixed
 - Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
