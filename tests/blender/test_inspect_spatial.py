@@ -15,6 +15,9 @@ import pytest
 
 bpy = pytest.importorskip("bpy")
 
+import bmesh  # noqa: E402
+
+from .contract_fixtures import build_crate, clear_scene  # noqa: E402
 from .inspect_fixtures import build_clean, build_probe  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -236,3 +239,85 @@ def test_operator_reports_an_error_and_stores_no_report_on_a_missing_collection(
     with pytest.raises(RuntimeError, match="inspect.collection_missing"):
         bpy.ops.nmggamedev.inspect_spatial(collection_name="Missing", asset_class="small_prop")
     assert bpy.context.scene.nmg_game_dev.last_result == ""
+
+
+# ---------------------------------------------------------------------------
+# #153: each part's geometry entries match contract validation (SCN006, SCN007)
+# ---------------------------------------------------------------------------
+
+
+def _link_mesh(
+    collection: bpy.types.Collection, name: str, bm: bmesh.types.BMesh
+) -> bpy.types.Object:
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    collection.objects.link(obj)
+    return obj
+
+
+def _geometry_collection() -> None:
+    """Collection Geo: a closed body and a part with two loose vertices in one vertex group.
+
+    The part has a non-identity world transform, so its samples must come out in world space.
+    """
+    clear_scene()
+    collection = bpy.data.collections.new("Geo")
+    bpy.context.scene.collection.children.link(collection)
+
+    body = bmesh.new()
+    bmesh.ops.create_cube(body, size=1.0)
+    _link_mesh(collection, "SM_Geo_Body", body)
+
+    part = bmesh.new()
+    bmesh.ops.create_cube(part, size=0.4)
+    bmesh.ops.translate(part, verts=part.verts[:], vec=(1.0, 0.0, 0.0))
+    part.verts.new((1.6, 0.0, 0.0))  # loose vertex 8
+    part.verts.new((1.6, 0.5, 0.0))  # loose vertex 9
+    loose = _link_mesh(collection, "SM_Geo_Loose", part)
+    loose.vertex_groups.new(name="Stray").add([8, 9], 1.0, "REPLACE")
+    loose.location = (2.0, 3.0, 4.0)
+    loose.rotation_euler = (0.0, 0.0, 0.3)
+    loose.scale = (1.5, 1.2, 1.0)
+    bpy.context.view_layer.update()
+
+
+def _contract_geometry(report: dict[str, Any], target: str) -> dict[str, dict[str, Any]]:
+    """The geometry findings one object carries in a contract report, keyed by rule."""
+    return {
+        item["rule"]: item
+        for item in report["findings"]
+        if item["rule"].startswith("geometry.") and item["target"] == target
+    }
+
+
+def test_scn006_part_geometry_matches_contract_validation(core: Any, enabled_addon: str) -> None:
+    """SCN006: each part's geometry entries carry the count and samples of contract validation."""
+    _geometry_collection()
+    contract = importlib.import_module(f"{enabled_addon}.contract_core")
+    expected_report = contract.validate_asset("Geo", "small_prop")
+    report = core.inspect_asset("Geo", "small_prop")
+
+    loose_part = next(part for part in report["parts"] if part["name"] == "SM_Geo_Loose")
+    loose = next(entry for entry in loose_part["geometry"] if entry["rule"] == "geometry.loose")
+    assert loose["count"] == 2
+    assert [sample["index"] for sample in loose["samples"]] == [8, 9]
+
+    for part in report["parts"]:
+        expected = _contract_geometry(expected_report, part["name"])
+        actual = {entry["rule"]: entry for entry in part["geometry"]}
+        assert actual.keys() == expected.keys(), part["name"]
+        for rule, entry in actual.items():
+            assert entry["count"] == expected[rule]["count"], rule
+            assert entry["samples"] == expected[rule]["samples"], rule
+
+
+def test_scn007_clean_part_has_no_geometry_findings(core: Any) -> None:
+    """SCN007: a clean crate's part carries no geometry entries, and the report still passes."""
+    build_crate()
+    report = core.inspect_asset("Crate", "standard_prop")
+
+    assert report["passed"] is True
+    crate = next(part for part in report["parts"] if part["name"] == "SM_Crate")
+    assert crate["geometry"] == []

@@ -9,6 +9,22 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Added
 
 - Let one finalized asset declare several material variants (#148)
+## [0.22.0] - 2026-11-12
+
+### Changed
+
+- Add a built-in procedural clip library to import_animations (#136)
+## [0.23.0] - 2026-11-12
+
+### Changed
+
+- Report sample locations in geometry contract findings (#153)
+## [0.21.6] - 2026-11-12
+
+### Fixed
+
+- Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
+
 ### Changed
 
 - Make texture generation work from the plugin root and queue or batch texture jobs (#143)

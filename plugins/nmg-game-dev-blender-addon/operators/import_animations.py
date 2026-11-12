@@ -13,7 +13,8 @@ class NMGGAMEDEV_OT_import_animations(bpy.types.Operator):
     bl_idname = "nmggamedev.import_animations"
     bl_label = "Import animation library clips"
     bl_description = (
-        "Retarget clips from a local animation library onto SK_<Name> and bake them as actions"
+        "Bake clips from a local animation library, or the built-in procedural library, onto "
+        "SK_<Name> as actions"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -21,6 +22,15 @@ class NMGGAMEDEV_OT_import_animations(bpy.types.Operator):
         name="Asset collection",
         description="Collection <Name> whose rig is SK_<Name>",
         default="",
+    )
+    library_source: bpy.props.EnumProperty(  # type: ignore[valid-type]
+        name="Library",
+        description="Bake from a folder of clips, or from the built-in procedural library",
+        items=(
+            ("FOLDER", "Animation folder", "Clips in the library folder below"),
+            ("BUILTIN", "Built-in library", "Procedural clips shipped with the add-on"),
+        ),
+        default="FOLDER",
     )
     library_dir: bpy.props.StringProperty(  # type: ignore[valid-type]
         name="Animation library",
@@ -44,9 +54,13 @@ class NMGGAMEDEV_OT_import_animations(bpy.types.Operator):
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         names = [name.strip() for name in self.clips.split(",") if name.strip()]
-        result = bake_animations(
-            self.collection_name, self.library_dir, names or None, self.motion_prompt or None
-        )
+        prompt = self.motion_prompt or None
+        if self.library_source == "BUILTIN":
+            result = bake_animations(
+                self.collection_name, None, names or None, prompt, library="builtin"
+            )
+        else:
+            result = bake_animations(self.collection_name, self.library_dir, names or None, prompt)
         store_rig_result(context, result)
         if result["status"] == "ok":
             log_operator_result(_OP_NAME, f"{self.collection_name}: {len(result['clips'])} clip(s)")
