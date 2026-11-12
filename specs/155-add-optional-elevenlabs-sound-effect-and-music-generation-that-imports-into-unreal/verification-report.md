@@ -1,11 +1,11 @@
 # Verification Report: Import generated audio into Unreal (sound effects and music from the official ElevenLabs MCP)
 
-**Date**: 2026-11-11
+**Date**: 2026-11-12
 **Issue**: #155
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 60d459b47f53ee2aca6f18639e9ddb1772390a6e
+**Verification head**: 096735a1231c931324112e2dc8929f5158c0650b
 
 ---
 
@@ -13,7 +13,7 @@
 
 The branch adds `nmg_game_dev.audio`, a synchronous `import_audio` that validates the request, stores a 16-bit PCM WAV under `SourceArt/Audio/<SFX|Music>/`, and imports it through the Unreal MCP as `SW_<Name>`. The same function backs `python -m nmg_game_dev.audio import` and a fourth `import_audio` tool on the existing `finalize` MCP server. `.mcp.json` is unchanged, and guard tests keep any ElevenLabs entry and API use out of the repository. All nine acceptance criteria, nine functional requirements, five tasks and eight scenarios are met. Fakes and committed fixtures exercise all of them, with no live editor and no ElevenLabs call.
 
-This run re-verifies the branch after the `chore: merge origin/main into #155 branch` commit (`60d459b`). The registered gate ran on that exact head with a clean tree. Coverage is complete: 11 declared, 11 recorded. All 9 applicable required validations passed, and the 2 validations that did not apply (`gate-shellcheck`, `gate-ship-smoke`) were recorded as not applicable.
+This run re-verifies the branch after a second `chore: merge origin/main into #155 branch` commit (`096735a`). The merge brought in main's work from #184 through #201 (Unreal import, texture, Blender test runner, contract and rigging changes). It changed none of the #155 audio files, and the `import_audio` registration in `mcp-servers/finalize/src/finalize_mcp/server.py`, `tools.json` and `nmg_game_dev.finalize` is intact. The only change to a module the audio package imports is a new `check_lod_counts` export in `nmg_game_dev.unreal`, which is additive. The registered gate ran on that exact head with a clean tree. Coverage is complete: 11 declared, 11 recorded. All 10 applicable required validations passed, and `gate-ship-smoke` was recorded as not applicable.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -32,14 +32,14 @@ This run re-verifies the branch after the `chore: merge origin/main into #155 br
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/155.json` (generated 2026-11-11T23:07:20Z, controller run `db74e7cd-e46e-4fce-b074-59caec52a908`)
-- Base ref: `main`; head `60d459b47f53ee2aca6f18639e9ddb1772390a6e`; tree `clean`
-- Steering hash: `sha256:9535f1e6bdc28ee7d9c80879808858197eb6c251fbbe804e39a145355cfe9a89`
+- Artifact: `.nmg-sdlc/verification/155.json` (generated 2026-11-12T04:21:28Z, controller run `baaba7eb-a673-4f79-9187-37d38a0de3ec`)
+- Base ref: `main`; head `096735a1231c931324112e2dc8929f5158c0650b`; tree `clean`
+- Steering hash: `sha256:98aa7bb7ffcdd7a3f109cc2e2debdd088d90053b4086a7b5c3f6e31a83edbbb0`
 - Spec hash: `sha256:94a64e6c6a3a124867bfc99c9c5fc8eb9f4167815ed054cc466fd11747aeeef5`
 - Coverage: declared 11, recorded 11, complete `true`; missing, duplicate and unknown are all empty
 - Ceiling: none
 
-The local `main` ref is behind `origin/main`, because `main` is checked out in another worktree and this worker does not move it. Diffing against local `main` therefore marks extra paths as changed, which made `gate-blender-headless` and `gate-ue-compile` applicable. Both ran on this head and passed, so the result is stricter than a diff against `origin/main` would require.
+The local `main` ref is behind `origin/main`, because `main` is checked out in another worktree and this worker does not move it. Diffing against local `main` therefore marks paths from main's newer commits as changed, which made `gate-blender-headless`, `gate-ue-compile` and `gate-shellcheck` applicable. All three ran on this head and passed, so the result is stricter than a diff against `origin/main` would require.
 
 ---
 
@@ -175,7 +175,7 @@ The structure steering is respected. The MCP server is a thin wrapper over `nmg_
 - Feature file: `tests/bdd/features/audio_import.feature`, 8 scenarios (10 with outline examples), bound in `tests/bdd/test_audio_import_bdd.py`
 - Step definitions: Implemented
 - Unit tests: `tests/unit/audio/` (request, convert, Unreal import, core, CLI), plus `tests/unit/test_finalize_mcp.py` and `tests/unit/test_scaffold_guards.py` additions
-- Full suite: `uv run pytest tests/unit tests/bdd -q` gave 1093 passed and 9 skipped in 107.96 s on head `60d459b`
+- Full suite: `uv run pytest tests/unit tests/bdd -q` gave 1224 passed and 10 skipped in 209.13 s on head `096735a`
 
 ---
 
@@ -192,19 +192,19 @@ The structure steering is respected. The MCP server is a thin wrapper over `nmg_
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0: 1093 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0: 1224 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 331 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 217 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 211 passed |
+| `repository.format` | Pass | `uv run ruff format --check .`: 352 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 229 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 269 passed, 4 skipped |
 | `gate-ue-compile` | Pass | DogfoodEditor Mac Development against UE 5.8: Result Succeeded |
-| `gate-mcp-schema` | Pass | `validate-mcp-tools.py`: MCP tools match tools.json for every server |
-| `gate-shellcheck` | Not applicable | No `scripts/**.sh` changed |
+| `gate-mcp-schema` | Pass | `validate-mcp-tools.py`: MCP tools match tools.json for every server under `mcp-servers/` |
+| `gate-shellcheck` | Pass | `find scripts -name '*.sh' -exec shellcheck -S style {} +` exited 0 with no findings |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
-| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed (with warnings) |
+| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed (with warnings about root `CLAUDE.md` / `CLAUDE.local.md`, which are not plugin content) |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir` in an ephemeral project; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable). Coverage 11/11 complete.
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable). Coverage 11/11 complete.
 
 No `repository.nmg-sdlc-smoke` or `project.nmg-sdlc-smoke` validation is declared in `steering/manifest.json`, so no real smoke lifecycle evidence is required.
 
@@ -307,4 +307,4 @@ None.
 
 **Ready for PR**
 
-Every delivery AC, FR, task and scenario passes. The registered gate is complete and green on head `60d459b47f53ee2aca6f18639e9ddb1772390a6e`. The three remaining findings are Low and do not affect the approved behaviour.
+Every delivery AC, FR, task and scenario passes. The registered gate is complete and green on head `096735a1231c931324112e2dc8929f5158c0650b`. The three remaining findings are Low and do not affect the approved behaviour.
