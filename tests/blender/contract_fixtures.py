@@ -7,7 +7,10 @@ baked-style material whose Image Texture nodes sample UVMap through a UV Map nod
 
 from __future__ import annotations
 
+import json
 import math
+import struct
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -247,3 +250,32 @@ def export_crate(export_root: Path) -> Path:
     export = import_module("nmg_game_dev_blender_addon.variants_core.export")
     export.export_variants("Crate", "Props", str(export_root))
     return export_root / "Props" / "Crate"
+
+
+def write_png_file(path: Path, size: int, rgb: tuple[int, int, int] = (128, 64, 32)) -> Path:
+    """Write a size x size RGB PNG, a replacement base colour for a material variant (#148)."""
+    row = b"\x00" + bytes(rgb) * size
+    raw = row * size
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+    return path
+
+
+def write_declaration(path: Path, entries: list[dict[str, Any]]) -> Path:
+    """Write a <Name>.material-variants.json declaration with the given entries (#148)."""
+    path.write_text(json.dumps({"schema": 1, "material_variants": entries}), encoding="utf-8")
+    return path

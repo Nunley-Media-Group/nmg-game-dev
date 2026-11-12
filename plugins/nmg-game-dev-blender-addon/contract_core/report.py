@@ -16,6 +16,10 @@ RULES: Final[dict[str, str]] = {
     "scene.units": "Set Scene > Units to Metric with Unit Scale 1.0 (contract section 2).",
     "naming.root": "Name the root SM_<Name> (Mobile: SM_<Name>_Mobile), contract section 1.",
     "naming.part": "Name child parts SM_<Name>_<Part> and parent each one to the root (section 1).",
+    "naming.mesh_data": (
+        "Give each part its own mesh data: select the parts and run Object > Relations > Make "
+        "Single User > Object & Data (contract section 1)."
+    ),
     "naming.material": "Name each material M_<Name>_<Part> (contract section 4).",
     "naming.texture": "Name each image T_<Name>_<Part>_BC, _N, or _ORM (contract section 4).",
     "transform.root_applied": (
@@ -68,6 +72,39 @@ RULES: Final[dict[str, str]] = {
     "variants.names_match": (
         "Give each Mobile object, material, and image the Desktop name plus the _Mobile suffix; "
         "LOD objects add _LOD0 to _LOD2 (contract section 5)."
+    ),
+    "material_variant.name": (
+        "Name each material variant in PascalCase letters and digits, and pick a name so that "
+        "<Part>_<Variant> is not another part's name (contract section 4)."
+    ),
+    "material_variant.duplicate": (
+        "Give each material variant on one material a different name (contract section 4)."
+    ),
+    "material_variant.material_missing": (
+        "Declare the variant on a material the asset has after the bake, M_<Name>_<Part> "
+        "(contract section 4)."
+    ),
+    "material_variant.material_merged": (
+        "The bake merges these authored materials into M_<Name>_Body; declare the variant on "
+        "M_<Name>_Body instead (contract section 4)."
+    ),
+    "material_variant.texture_missing": (
+        "Point base_color at an existing PNG file beside the declaration (contract section 4)."
+    ),
+    "material_variant.texture_size": (
+        "Make the replacement base colour a power-of-two square the size of the Desktop base "
+        "colour of its material (contract section 4)."
+    ),
+    "material_variant.parameter": (
+        "Use a parameter M_NmgORM declares (Tint), with [r, g, b] or [r, g, b, a] finite numbers "
+        "of at least 0 (contract section 4)."
+    ),
+    "material_variant.empty": (
+        "Give the material variant a base_color, parameters, or both (contract section 4)."
+    ),
+    "material_variant.declaration_invalid": (
+        "Fix <Name>.material-variants.json to the format in contract section 4 (raised as an "
+        "error, not a finding)."
     ),
     "reimport.texture_missing": "Re-export so each BC and N PNG sits beside the FBX (section 7).",
     "reimport.orm_missing": "Re-export so the ORM PNG sits beside the FBX (section 7).",

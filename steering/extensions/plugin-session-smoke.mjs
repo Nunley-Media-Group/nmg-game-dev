@@ -167,19 +167,26 @@ async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
       "--", "--plugin-dir", projectRoot, "--settings", JSON.stringify({ enabledPlugins: { "nmg-game-dev@nmg-plugins": false } }),
     ], { signal }).then((output) => { started = output; });
     let trusted = false;
+    const acceptTrust = async () => {
+      const screen = await readVisible(pane, signal);
+      if (!TRUST_DIALOG.test(String(screen ?? "").replace(/\s+/g, " "))) return false;
+      trusted = true;
+      evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${TRUST_ACCEPT_KEYS.join(" ")} (trust ephemeral project)`,
+        await run("herdr", ["pane", "send-keys", pane, ...TRUST_ACCEPT_KEYS], { signal })));
+      return true;
+    };
     while (started === null) {
       if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
       await sleep(pollMs);
-      if (trusted || started !== null) continue;
-      const screen = await readVisible(pane, signal);
-      if (TRUST_DIALOG.test(screen.replace(/\s+/g, " "))) {
-        trusted = true;
-        evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${TRUST_ACCEPT_KEYS.join(" ")} (trust ephemeral project)`,
-          await run("herdr", ["pane", "send-keys", pane, ...TRUST_ACCEPT_KEYS], { signal })));
-      }
+      if (!trusted && started === null) await acceptTrust();
     }
     await starting;
     evidence.push(commandEvidence(`herdr agent start ${label} -- --plugin-dir ${projectRoot}`, started));
+    // `agent start` can report the session blocked on the trust dialog before the first poll sees it.
+    if (started.status !== 0 && !trusted && await acceptTrust()) {
+      started = await run("herdr", ["agent", "wait", label, "--until", "idle", "--timeout", String(START_TIMEOUT_MS)], { signal });
+      evidence.push(commandEvidence(`herdr agent wait ${label} --until idle (after trusting the project)`, started));
+    }
     if (started.status !== 0) return finish("failed", "Claude Code session with --plugin-dir did not become ready");
 
     evidence.push(commandEvidence("herdr agent prompt /mcp", await run("herdr", ["agent", "prompt", label, "/mcp"], { signal })));

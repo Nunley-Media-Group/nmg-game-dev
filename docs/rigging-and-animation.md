@@ -164,6 +164,42 @@ its rest pose is copied onto the same bone of the rig. The pelvis also gets its
 translation, scaled by the ratio of the two pelvis heights. Unmapped bones stay
 at rest. Each clip is stored as an action named after the clip.
 
+## Built-in library
+
+`import_animations` also bakes a library shipped inside the add-on. It needs no
+animation files and reads none. Call it with `library="builtin"` and no folder:
+
+```python
+rig_core.import_animations("Hero", library="builtin")
+rig_core.import_animations("Hero", library="builtin", clips=["Idle", "Walk"])
+```
+
+The built-in clips are `Idle`, `FightIdle`, `Walk`, `Run`, `Punch1`, `Punch2`,
+`Punch3`, `Kick`, `Jump`, `JumpKick`, `Hit`, `Knockdown`, `Down`, `GetUp`, `Grab`,
+`GrabKnee`, `Throw`, `Held`, `Roar`, `Special`, `Talk`, `Ride`, `RideKickL`, and
+`RideKickR`.
+
+- Each clip is a stick-figure pose sequence in character space. The solver turns
+  each pose into bone rotations from the rig's own rest pose, so one clip fits any
+  `rig_humanoid` character, whatever its proportions or rest arm angle.
+- With no `clips`, every built-in clip is baked. `clips=["Idle", "Walk"]` bakes
+  only those. An unknown name fails with `anim.clip_not_found`, lists the built-in
+  names, and bakes nothing.
+- Each clip is an action named after the clip. Baking a clip again replaces the
+  action with identical keys and provenance.
+- Clips play in place, with no root motion. `Idle`, `FightIdle`, `Walk`, and `Run`
+  loop. `Walk` and `Run` are authored as half cycles, and the second half is the
+  left/right mirror of the first.
+- Every Manny bone is keyed in every built-in clip, so a clip never inherits a
+  rotation left by the clip played before it. The rig is left in its rest pose.
+- Provenance is recorded like a file clip, with `library` `"builtin"`, `file`
+  `null`, `skeleton` `"manny"`, and a `sha256` of the clip's pose definition.
+
+Choose one library source: a `library_dir` folder, or `library="builtin"`.
+Passing both, neither, or any other `library` value fails with
+`anim.library_invalid` before the scene changes. A `motion_prompt` still reports
+`anim.text_motion_unsupported`.
+
 ## Result statuses
 
 | Status | Meaning |
@@ -194,10 +230,12 @@ Codes:
 - `anim.text_motion_unsupported` (spike): a `motion_prompt` was given.
 - `anim.rig_missing` (fallback): `SK_<Name>` does not exist yet.
 - `anim.library_invalid` (fallback): `library.json` or a clip file breaks the
-  rules above.
+  rules above, or the library selection is invalid (both a folder and
+  `library="builtin"`, neither, or an unknown `library` value).
 - `anim.bone_map_incomplete` (fallback): the bone map or the clip file lacks a
   required bone.
-- `anim.clip_not_found` (fallback): a requested clip is not in the library.
+- `anim.clip_not_found` (fallback): a requested clip is not in the library, or
+  in the built-in library when `library="builtin"`.
 - `export.rig_missing` (fallback): `SK_<Name>` does not exist, so there is
   nothing to export.
 - `export.name_taken` (fallback): an object named `Armature` already exists and
@@ -225,7 +263,9 @@ The same functions run from the add-on panel, under the NMG tab:
 - `nmggamedev.rig_humanoid` wraps `rig_humanoid`. Inputs: collection, body
   type, and a landmarks JSON file.
 - `nmggamedev.import_animations` wraps `import_animations`. Inputs: collection,
-  library folder, comma-separated clips, and motion prompt.
+  library source (`Animation folder`, the default, or `Built-in library`), library
+  folder (for the folder source; leave it empty for the built-in library),
+  comma-separated clips, and motion prompt.
 - `nmggamedev.export_rigged` wraps `export_rigged`. Inputs: collection and
   output folder.
 

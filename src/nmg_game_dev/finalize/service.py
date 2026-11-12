@@ -19,6 +19,7 @@ from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER
 
 BUDGET_FILE: Final = "nmg-budgets.json"
+MATERIAL_VARIANTS_SUFFIX: Final = ".material-variants.json"
 MAX_WAIT_SECONDS: Final = 150
 
 
@@ -77,6 +78,35 @@ def default_budgets_path() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def resolve_material_variants(
+    collection: str,
+    blend: Path | None,
+    explicit: str | Path | None,
+) -> Path | None:
+    """Return the absolute material-variants declaration for a request, or ``None`` (#148).
+
+    An explicit path wins and must exist.  Without one, the declaration named
+    ``<collection>.material-variants.json`` beside ``blend`` is used when it is there.  A session
+    run without an explicit path has no ``blend`` to search, so it declares no material variants.
+    """
+    if explicit:
+        path = Path(explicit).resolve()
+        if not path.is_file():
+            raise PipelineError(
+                code="finalize.material_variants_not_found",
+                message=f"The material-variants declaration does not exist: {path}",
+                remediation="Pass the path of an existing <Name>.material-variants.json, or omit "
+                "it to use the one beside the .blend.",
+                stage="finalize",
+            )
+        return path
+    if blend is not None:
+        candidate = blend.resolve().parent / f"{collection}{MATERIAL_VARIANTS_SUFFIX}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def build_request(
     *,
     collection: str,
@@ -87,12 +117,15 @@ def build_request(
     budgets_path: str | Path | None = None,
     device: str = "GPU",
     compatible_with: Sequence[str] = (),
+    material_variants_path: str | Path | None = None,
 ) -> FinalizeRequest:
     """Validate the arguments into a ``FinalizeRequest``, defaulting the budget file.
 
     A ``None`` category or asset class comes from the design backlog (#112 FR5).  Raises
     ``MissingArgumentError`` when neither the argument nor the backlog supplies it, and
-    ``pydantic.ValidationError`` for an invalid argument, both before any step runs.
+    ``pydantic.ValidationError`` for an invalid argument, both before any step runs.  Raises
+    ``PipelineError`` (``finalize.material_variants_not_found``) for a missing explicit
+    material-variants path.
     """
     category, asset_class, backlog = resolve_backlog(collection, category, asset_class)
     checked = backlog_path(project_root())
@@ -101,17 +134,20 @@ def build_request(
     if asset_class is None:
         raise MissingArgumentError("asset_class", checked)
     budgets = Path(budgets_path) if budgets_path else default_budgets_path()
+    blend_path = Path(blend) if blend else None
+    declaration = resolve_material_variants(collection, blend_path, material_variants_path)
     return FinalizeRequest.model_validate(
         {
             "collection": collection,
             "category": category,
             "asset_class": asset_class,
             "export_root": Path(export_root),
-            "blend": Path(blend) if blend else None,
+            "blend": blend_path,
             "budgets_path": budgets,
             "device": device,
             "backlog_path": backlog,
             "compatible_with": tuple(compatible_with),
+            "material_variants_path": declaration,
         }
     )
 

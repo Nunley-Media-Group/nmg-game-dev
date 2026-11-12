@@ -8,14 +8,18 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import bpy
 from mathutils import Vector
 
+from ..bake_core.rewire import part_names
 from ..utils.budgets import BudgetOverrideError, resolve_budget
 from . import texel
 from .geometry import geometry_findings
+from .material_variants import check_declaration, load_declaration
 from .report import ContractError, build_report, finding
 from .uv import uv_findings
 
@@ -60,11 +64,19 @@ def validate_asset(
     budgets_path: str | None = None,
     *,
     authored: bool = False,
+    material_variants_path: str | None = None,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """Validate <collection> (Desktop) and <collection>_Mobile when it exists.
 
     With ``authored=True`` (the finalize validate step, #69), material and texture rules are
     skipped, because the bake step produces them. The export gate runs the full contract.
+
+    With ``material_variants_path`` (#148), the declaration is checked against the material rules
+    and the report gains a ``material_variants`` list. Its findings survive ``authored=True``.
+
+    With ``progress``, it is called before each mesh check with the share of checks already done
+    and a message naming the variant, check, and object (#133). The report does not depend on it.
     """
     budgets = _budgets(asset_class, budgets_path)
     bpy.context.view_layer.update()
@@ -80,6 +92,14 @@ def validate_asset(
     if mobile is not None:
         variants.append(("mobile", mobile))
 
+    mesh_count = sum(
+        1
+        for _, variant_collection in variants
+        for obj in variant_collection.all_objects
+        if obj.type == "MESH"
+    )
+    checks_per_mesh = 3 if asset_class == "environment_piece" else 2
+    units = _CheckUnits(mesh_count * checks_per_mesh, progress)
     findings = _unit_findings()
     snapshot: dict[str, Any] = {}
     objects_by_variant: dict[str, list[bpy.types.Object]] = {}
@@ -90,6 +110,7 @@ def validate_asset(
         tris: dict[str, int] = {}
         texel_entries: dict[str, list[dict[str, Any]]] = {}
         findings += _structure_findings(collection, variant, objects, root_name)
+        findings += _shared_mesh_findings(objects)
         findings += _mesh_findings(
             collection,
             variant,
@@ -99,6 +120,7 @@ def validate_asset(
             root_name,
             tris,
             texel_entries,
+            units,
         )
         for obj in objects:
             snapshot[obj.name] = object_snapshot(obj, variant, tris.get(obj.name, 0))
@@ -108,9 +130,72 @@ def validate_asset(
         findings += _variant_name_findings(
             objects_by_variant["desktop"], objects_by_variant["mobile"]
         )
+    material_variants: list[dict[str, Any]] | None = None
+    if material_variants_path is not None:
+        variant_findings, material_variants = _material_variant_checks(
+            collection,
+            asset_class,
+            budgets,
+            Path(material_variants_path),
+            objects_by_variant["desktop"],
+        )
+        findings += variant_findings
     if authored:
         findings = [item for item in findings if not item["rule"].startswith(_EXPORT_ONLY_RULES)]
-    return build_report("contract", collection, asset_class, findings, snapshot)
+    report = build_report("contract", collection, asset_class, findings, snapshot)
+    if material_variants is not None:
+        report["material_variants"] = material_variants
+    return report
+
+
+def _material_variant_checks(
+    collection: str,
+    asset_class: str,
+    budgets: dict[str, dict[str, int]],
+    path: Path,
+    desktop: list[bpy.types.Object],
+) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    """Check the declaration against the materials the bake will produce from the Desktop meshes.
+
+    The predicted parts and the merge decision come from the bake's own rules (bake_core.core):
+    unique mode merges every authored material into Body when there are more of them than the
+    Mobile material budget, and tiling mode never merges. A baked asset already holds its
+    M_<Name>_<Part> materials, so the same prediction returns those parts.
+    """
+    entries = load_declaration(path)
+    sources = _source_materials([obj for obj in desktop if obj.type == "MESH"])
+    mode = "tiling" if asset_class == "environment_piece" else "unique"
+    merged = mode == "unique" and len(sources) > budgets["mobile"]["materials"]
+    parts = part_names(sources, collection, merged)
+    body = f"M_{collection}_Body"
+    merged_sources = frozenset(source.name for source in sources if merged and source.name != body)
+    # The Desktop base colour is the existing T_<Name>_<Part>_BC on a baked asset, and the bake's
+    # Desktop size otherwise.
+    images = {image.name: image for material in sources for image in _images_of(material)}
+    main_px: dict[str, int] = {}
+    for part in parts:
+        image = images.get(f"T_{collection}_{part}_BC")
+        main_px[part] = (
+            max(image.size) if image is not None else budgets["desktop"]["max_texture_px"]
+        )
+    return check_declaration(
+        collection,
+        path,
+        entries,
+        parts=parts,
+        merged_sources=merged_sources,
+        main_px=main_px,
+    )
+
+
+def _source_materials(meshes: list[bpy.types.Object]) -> list[bpy.types.Material]:
+    """The distinct materials of meshes in first-use order, which is the bake's source order."""
+    distinct: list[bpy.types.Material] = []
+    for obj in meshes:
+        for slot in obj.material_slots:
+            if slot.material is not None and slot.material not in distinct:
+                distinct.append(slot.material)
+    return distinct
 
 
 def triangle_count(mesh: bpy.types.Mesh) -> int:
@@ -247,6 +332,31 @@ def _structure_findings(
     return findings
 
 
+def _shared_mesh_findings(objects: list[bpy.types.Object]) -> list[dict[str, str]]:
+    """One naming.mesh_data finding per mesh datablock that two or more mesh objects use (#142).
+
+    Export names each mesh after its object, so a datablock shared by two parts cannot carry both.
+    """
+    users: dict[int, list[bpy.types.Object]] = {}
+    for obj in objects:
+        if obj.type == "MESH":
+            users.setdefault(obj.data.as_pointer(), []).append(obj)
+    findings: list[dict[str, str]] = []
+    for group in users.values():
+        if len(group) < 2:
+            continue
+        mesh_name = group[0].data.name
+        parts = ", ".join(obj.name for obj in group)
+        findings.append(
+            finding(
+                "naming.mesh_data",
+                mesh_name,
+                f"{mesh_name} is shared by {parts}; each part needs its own mesh data.",
+            )
+        )
+    return findings
+
+
 def _basis_problems(obj: bpy.types.Object, check_location: bool) -> list[str]:
     location, rotation, scale = obj.matrix_basis.decompose()
     problems: list[str] = []
@@ -284,6 +394,24 @@ def _pivot_findings(root: bpy.types.Object, meshes: list[bpy.types.Object]) -> l
     ]
 
 
+class _CheckUnits:
+    """Reports validate_asset progress one mesh check at a time (#133).
+
+    total is the number of checks validate_asset will run. Each start() call reports the share
+    of checks already started, with a message that names the variant, check, and object.
+    """
+
+    def __init__(self, total: int, progress: Callable[[float, str], None] | None) -> None:
+        self._total = total
+        self._started = 0
+        self._progress = progress
+
+    def start(self, variant: str, check: str, obj_name: str) -> None:
+        if self._progress is not None and self._total:
+            self._progress(self._started / self._total, f"{variant}: {check} check on {obj_name}")
+        self._started += 1
+
+
 def _mesh_findings(
     collection: str,
     variant: str,
@@ -293,19 +421,26 @@ def _mesh_findings(
     root_name: str,
     tris_out: dict[str, int],
     texel_out: dict[str, list[dict[str, Any]]],
-) -> list[dict[str, str]]:
-    findings: list[dict[str, str]] = []
+    units: _CheckUnits,
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
     meshes = [obj for obj in objects if obj.type == "MESH"]
     texel_check = asset_class == "environment_piece"
+    uv_check = "UV map" if texel_check else "UV overlap"
     materials: dict[str, bpy.types.Material] = {}
     images: dict[str, bpy.types.Image] = {}
     for obj in meshes:
         copy = texel.evaluated_copy(obj)
         try:
             tris_out[obj.name] = triangle_count(copy)
-            findings += geometry_findings(obj.name, copy)
+            units.start(variant, "geometry", obj.name)
+            findings += geometry_findings(
+                obj.name, copy, obj.matrix_world, [group.name for group in obj.vertex_groups]
+            )
+            units.start(variant, uv_check, obj.name)
             findings += uv_findings(obj.name, copy, check_overlap=not texel_check)
             if texel_check:
+                units.start(variant, "texel density", obj.name)
                 findings += _texel_findings(obj, copy, variant, texel_out)
         finally:
             bpy.data.meshes.remove(copy)

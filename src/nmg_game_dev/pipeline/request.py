@@ -40,6 +40,9 @@ class FinalizeRequest(BaseModel):
         compatible_with: ``<Category>/<Name>`` characters whose Desktop skeleton this character's
             clips may play on (#138).  ``import_anims`` registers them as compatible skeletons in
             both directions.  Duplicates are dropped, keeping the first occurrence.
+        material_variants_path: The ``<collection>.material-variants.json`` declaration, given
+            explicitly or found beside ``blend``.  ``None`` means the asset declares no material
+            variants.  Validate and export key their cache on its bytes (#148).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -52,6 +55,7 @@ class FinalizeRequest(BaseModel):
     budgets_path: Path | None = None
     device: Device = "GPU"
     backlog_path: Path | None = None
+    material_variants_path: Path | None = None
     compatible_with: tuple[str, ...] = ()
 
     @field_validator("compatible_with")

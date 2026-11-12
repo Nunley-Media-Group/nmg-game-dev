@@ -1,8 +1,9 @@
 """The ``finalize`` MCP server (#69).
 
-Registers four tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
-``get_finalize_job``, and ``import_audio`` (#155).  The tool logic lives in the package, so the CLI
-and this server share one implementation.  stdout is the MCP channel, so logs go to stderr only.
+Registers five tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
+``get_finalize_job``, ``list_material_variants`` (#148), and ``import_audio`` (#155).  The tool
+logic lives in the package, so the CLI and this server share one implementation.  stdout is the MCP
+channel, so logs go to stderr only.
 """
 
 from __future__ import annotations
@@ -16,15 +17,16 @@ from mcp.server.fastmcp import FastMCP
 from nmg_game_dev.finalize import finalize_asset as _finalize_asset
 from nmg_game_dev.finalize import get_finalize_job as _get_finalize_job
 from nmg_game_dev.finalize import import_audio as _import_audio
+from nmg_game_dev.finalize import list_material_variants as _list_material_variants
 from nmg_game_dev.finalize import run_finalize_step as _run_finalize_step
 
 logger = logging.getLogger("finalize_mcp")
 mcp = FastMCP("finalize")
 
 
-def _logged(response: dict[str, Any]) -> dict[str, Any]:
-    error = response.get("error")
-    if isinstance(error, dict):
+def _logged(response: Any) -> Any:
+    if isinstance(response, dict) and isinstance(response.get("error"), dict):
+        error = response["error"]
         logger.error("%s: %s", error.get("code"), error.get("message"))
     return response
 
@@ -37,6 +39,7 @@ def finalize_asset(
     asset_class: str | None = None,
     blend: str | None = None,
     budgets_path: str | None = None,
+    material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
     compatible_with: list[str] | None = None,
@@ -44,8 +47,10 @@ def finalize_asset(
     """Finalize an authored collection through every step and import it into Unreal.
 
     Returns {"job_id", "status"} at once. When wait_seconds (0-150) is given and the job finishes in
-    time, the result is included. Poll get_finalize_job for progress. compatible_with lists
-    <Category>/<Name> characters whose skeleton this character's clips may also play on.
+    time, the result is included. Poll get_finalize_job for progress. material_variants_path names a
+    <Name>.material-variants.json declaration; without it, one beside blend is used when present.
+    compatible_with lists <Category>/<Name> characters whose skeleton this character's clips may
+    also play on.
     """
     return _logged(
         _finalize_asset(
@@ -55,6 +60,7 @@ def finalize_asset(
             export_root=export_root,
             blend=blend,
             budgets_path=budgets_path,
+            material_variants_path=material_variants_path,
             force=force,
             wait_seconds=wait_seconds,
             compatible_with=compatible_with,
@@ -71,6 +77,7 @@ def run_finalize_step(
     asset_class: str | None = None,
     blend: str | None = None,
     budgets_path: str | None = None,
+    material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
     compatible_with: list[str] | None = None,
@@ -90,6 +97,7 @@ def run_finalize_step(
             export_root=export_root,
             blend=blend,
             budgets_path=budgets_path,
+            material_variants_path=material_variants_path,
             force=force,
             wait_seconds=wait_seconds,
             compatible_with=compatible_with,
@@ -101,6 +109,17 @@ def run_finalize_step(
 def get_finalize_job(job_id: str) -> dict[str, Any]:
     """Return a job's state, step, progress, message, and result or error."""
     return _logged(_get_finalize_job(job_id))
+
+
+@mcp.tool(name="list_material_variants")
+def list_material_variants(category: str, collection: str) -> Any:
+    """List the material variants Unreal holds for a finalized asset, for Desktop and Mobile.
+
+    Returns rows of {name, material, desktop, mobile}, where desktop and mobile are the variant's
+    material instance path in each folder, sorted by material then name. An asset with no material
+    variants, or one not in Content, returns []. A failure returns {"error": {...}}.
+    """
+    return _logged(_list_material_variants(category=category, collection=collection))
 
 
 @mcp.tool(name="import_audio")

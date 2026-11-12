@@ -7,18 +7,23 @@ by the server.  Keeping the logic here lets the tests cover it without the MCP S
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, Final
 
 from pydantic import ValidationError
 
 from nmg_game_dev.audio import import_audio as _import_audio
+from nmg_game_dev.pipeline.clients.unreal_mcp import UnrealMcpClient
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER, parse_step
+from nmg_game_dev.unreal import list_material_variants as list_variants
+from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
 from .service import FinalizeService, MissingArgumentError, build_request, clamp_wait, error_dict
 
 _JOB_FIELDS = ("job_id", "state", "step", "progress", "message", "result", "error")
+_PASCAL: Final = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 
 
 def finalize_asset(
@@ -29,6 +34,7 @@ def finalize_asset(
     export_root: str,
     blend: str | None = None,
     budgets_path: str | None = None,
+    material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
     compatible_with: list[str] | None = None,
@@ -37,7 +43,14 @@ def finalize_asset(
     """Finalize every step for the collection.  Returns the job id and the result, if finished."""
     try:
         request = _request(
-            collection, category, asset_class, export_root, blend, budgets_path, compatible_with
+            collection,
+            category,
+            asset_class,
+            export_root,
+            blend,
+            budgets_path,
+            material_variants_path,
+            compatible_with,
         )
     except _InvalidRequestError as error:
         return {"error": error.payload}
@@ -59,6 +72,7 @@ def run_finalize_step(
     export_root: str,
     blend: str | None = None,
     budgets_path: str | None = None,
+    material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
     compatible_with: list[str] | None = None,
@@ -68,7 +82,14 @@ def run_finalize_step(
     try:
         canonical = parse_step(step).name
         request = _request(
-            collection, category, asset_class, export_root, blend, budgets_path, compatible_with
+            collection,
+            category,
+            asset_class,
+            export_root,
+            blend,
+            budgets_path,
+            material_variants_path,
+            compatible_with,
         )
     except PipelineError as error:
         return {"error": error_dict(error)}
@@ -90,6 +111,37 @@ def get_finalize_job(job_id: str, *, service: FinalizeService | None = None) -> 
     except PipelineError as error:
         return {"error": error_dict(error)}
     return {field: status.get(field) for field in _JOB_FIELDS if field in status}
+
+
+def list_material_variants(
+    *,
+    category: str,
+    collection: str,
+    client: UnrealPythonClient | None = None,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """List the material variants Unreal holds for a finalized asset (#148, FR8).
+
+    Returns rows of {name, material, desktop, mobile} sorted by material, then name. An asset with
+    no material variants, or one not in Content, returns []. A failure returns {"error": {...}},
+    such as mcp.unreal.unreachable when the Unreal MCP endpoint does not answer.
+    """
+    if not _PASCAL.fullmatch(category) or not _PASCAL.fullmatch(collection):
+        return {
+            "error": {
+                "code": "finalize.invalid_request",
+                "message": "category and collection must be PascalCase names",
+                "remediation": "Pass the Props-style category and the Crate-style collection that "
+                "finalize used.",
+                "stage": "finalize",
+            }
+        }
+    try:
+        if client is not None:
+            return list_variants(client, category, collection)
+        with UnrealMcpClient() as owned:
+            return list_variants(owned, category, collection)
+    except PipelineError as error:
+        return {"error": error_dict(error)}
 
 
 def import_audio(file: str, name: str, kind: str, loop: bool = False) -> dict[str, Any]:
@@ -116,6 +168,7 @@ def _request(
     export_root: str,
     blend: str | None,
     budgets_path: str | None,
+    material_variants_path: str | None = None,
     compatible_with: list[str] | None = None,
 ) -> FinalizeRequest:
     try:
@@ -126,10 +179,13 @@ def _request(
             export_root=export_root,
             blend=blend,
             budgets_path=budgets_path,
+            material_variants_path=material_variants_path,
             compatible_with=compatible_with or (),
         )
     except MissingArgumentError as error:
         raise _InvalidRequestError(error.payload()) from error
+    except PipelineError as error:
+        raise _InvalidRequestError(error_dict(error)) from error
     except ValidationError as error:
         raise _InvalidRequestError(
             {

@@ -5,7 +5,13 @@ Both use ``FinalizeService`` and the pipeline's job layer, so they share one imp
 
 from __future__ import annotations
 
-from .mcp_tools import finalize_asset, get_finalize_job, import_audio, run_finalize_step
+from .mcp_tools import (
+    finalize_asset,
+    get_finalize_job,
+    import_audio,
+    list_material_variants,
+    run_finalize_step,
+)
 from .service import FinalizeService, build_request, default_budgets_path
 
 __all__ = [
@@ -15,5 +21,6 @@ __all__ = [
     "finalize_asset",
     "get_finalize_job",
     "import_audio",
+    "list_material_variants",
     "run_finalize_step",
 ]

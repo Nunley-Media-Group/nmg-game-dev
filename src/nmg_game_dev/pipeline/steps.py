@@ -48,7 +48,9 @@ STEP_ORDER: Final[tuple[StepName, ...]] = (
 VARIANTS: Final[tuple[str, ...]] = ("Desktop", "Mobile")
 ENVELOPE_SCHEMA_VERSION: Final = 1
 
-_STEP_VERSION: Final = "4"  # bumped for #138: export_anims and import_anims are per-clip steps
+_STEP_VERSION: Final = (
+    "4"  # bumped for #148 (material-variants keys) and #138 (per-clip anim steps)
+)
 _REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 _BUDGET_TABLE: Final = (
     _REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon" / "utils" / "budgets.py"
@@ -142,6 +144,44 @@ def budget_fingerprint(budgets_path: Path | None) -> str:
     return digest.hexdigest()
 
 
+def material_variants_fingerprint(path: Path | None) -> str:
+    """Return a hash of the material-variants declaration and the texture bytes it references.
+
+    A missing declaration hashes as absent, so adding or removing one changes the key. Each
+    base_color resolves relative to the declaration, as the contract resolves it, and a missing
+    texture hashes as absent too.
+    """
+    digest = hashlib.sha256()
+    if path is None or not path.is_file():
+        digest.update(b"absent")
+        return digest.hexdigest()
+    text = path.read_bytes()
+    digest.update(b"declaration\0")
+    digest.update(text)
+    for texture in _declared_textures(text, path.parent):
+        digest.update(b"texture\0")
+        digest.update(texture.read_bytes() if texture.is_file() else b"absent")
+    return digest.hexdigest()
+
+
+def _declared_textures(text: bytes, base: Path) -> list[Path]:
+    """The base_color files a declaration names, resolved beside it. Malformed JSON names none."""
+    try:
+        data: object = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    entries = data.get("material_variants") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        return []
+    textures: list[Path] = []
+    for entry in entries:
+        value = entry.get("base_color") if isinstance(entry, dict) else None
+        if isinstance(value, str) and value:
+            candidate = Path(value)
+            textures.append(candidate if candidate.is_absolute() else base / candidate)
+    return textures
+
+
 def settings_hash(step: StepName, request: FinalizeRequest, budgets: str) -> str:
     """Return the SHA-256 of the canonical settings that a whole-step output depends on.
 
@@ -151,6 +191,9 @@ def settings_hash(step: StepName, request: FinalizeRequest, budgets: str) -> str
     if step == "validate":
         settings |= {"collection": request.collection, "asset_class": request.asset_class}
         settings["budgets"] = budgets
+        settings["material_variants"] = material_variants_fingerprint(
+            request.material_variants_path
+        )
     elif step == "bake":
         settings |= {
             "collection": request.collection,
@@ -168,6 +211,9 @@ def settings_hash(step: StepName, request: FinalizeRequest, budgets: str) -> str
             "asset_class": request.asset_class,
             "export_root": str(request.export_root),
         }
+        settings["material_variants"] = material_variants_fingerprint(
+            request.material_variants_path
+        )
     elif step == "reimport":
         settings["collection"] = request.collection
     elif step == "import_ue":

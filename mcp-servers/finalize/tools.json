@@ -13,6 +13,7 @@
           "export_root": {"type": "string"},
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
+          "material_variants_path": {"type": ["string", "null"]},
           "force": {"type": "boolean", "default": false},
           "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0},
           "compatible_with": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$"}, "default": []}
@@ -33,6 +34,7 @@
           "export_root": {"type": "string"},
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
+          "material_variants_path": {"type": ["string", "null"]},
           "force": {"type": "boolean", "default": false},
           "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0},
           "compatible_with": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$"}, "default": []}
@@ -63,6 +65,18 @@
           "job_id": {"type": "string"}
         },
         "required": ["job_id"]
+      }
+    },
+    {
+      "name": "list_material_variants",
+      "description": "List the material variants Unreal holds for a finalized asset, for Desktop and Mobile. Returns rows of {name, material, desktop, mobile} sorted by material then name; an asset with none, or not in Content, returns []. A failure returns an error object.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"}
+        },
+        "required": ["category", "collection"]
       }
     }
   ]

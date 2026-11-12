@@ -153,6 +153,9 @@ RESULT = {
     "materials": {},
     "static_meshes": {},
     "skeletal_meshes": {},
+    "material_variants": [],
+    "removed": [],
+    "warnings": [],
     "error": None,
 }
 LOD_COUNT = {}
@@ -187,7 +190,8 @@ def _import_textures(tools):
     for stem in stems:
         suffix = stem.rsplit("_", 1)[-1]
         texture = _load(dest + "/" + stem)
-        if suffix == "BC":
+        # A material variant's base colour is named T_<Name>_<Part>_BC_<Variant> (#148).
+        if stem.endswith("_BC") or "_BC_" in stem:
             texture.set_editor_property("srgb", True)
         elif suffix == "N":
             texture.set_editor_property("flip_green_channel", True)
@@ -483,11 +487,106 @@ def _bind_materials(tools, meshes):
         unreal.EditorAssetLibrary.save_loaded_asset(mesh)
 
 
+def _part(material):
+    prefix = "M_" + PARAMS["name"] + "_"
+    if not material.startswith(prefix):
+        raise RuntimeError("material variant material is not M_<Name>_<Part>: " + material)
+    return material[len(prefix) :]
+
+
+def _set_tags(asset, variant, slot):
+    unreal.EditorAssetLibrary.set_metadata_tag(asset, "nmg.asset", PARAMS["name"])
+    unreal.EditorAssetLibrary.set_metadata_tag(asset, "nmg.material_variant", variant)
+    unreal.EditorAssetLibrary.set_metadata_tag(asset, "nmg.material_slot", slot)
+
+
+def _bind_material_variants(tools):
+    # Variant instances are never assigned to a mesh slot: the mesh keeps the main instances.
+    parent = _load(MASTER_PATH)
+    dest = PARAMS["dest"]
+    name = PARAMS["name"]
+    for entry in PARAMS["material_variants"]:
+        variant = entry["name"]
+        slot = entry["material"]
+        part = _part(slot)
+        base_path = dest + "/T_" + name + "_" + part + "_BC"
+        stem = None
+        if entry["base_color"]:
+            stem = entry["base_color"][: -len(".png")]
+            base_path = dest + "/" + stem
+            texture = _load(base_path)
+            _set_tags(texture, variant, slot)
+            unreal.EditorAssetLibrary.save_loaded_asset(texture)
+        instance = _instance(tools, dest, entry["material_instance"], parent)
+        unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+            instance, "BaseColor", _load(base_path)
+        )
+        for parameter, suffix in (("Normal", "N"), ("ORM", "ORM")):
+            texture_path = dest + "/T_" + name + "_" + part + "_" + suffix
+            unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(
+                instance, parameter, _load(texture_path)
+            )
+        for parameter, values in sorted(entry["parameters"].items()):
+            found = unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
+                instance, parameter, unreal.LinearColor(*values)
+            )
+            if found is False:
+                # A master built before #148 has no Tint, so the variant renders like the main one.
+                RESULT["warnings"].append(
+                    entry["material_instance"] + ": " + MASTER_PATH + " has no vector parameter "
+                    + parameter + "; rebuild it with scripts/unreal/build_master_material.py"
+                )
+        _set_tags(instance, variant, slot)
+        unreal.EditorAssetLibrary.save_loaded_asset(instance)
+        # One variant name may appear on several materials, so each instance is its own entry.
+        RESULT["material_variants"].append(
+            {
+                "name": variant,
+                "material": slot,
+                "instance": dest + "/" + entry["material_instance"],
+                "texture": dest + "/" + stem if stem else None,
+            }
+        )
+
+
+def _delete_stale_variants():
+    # Only assets finalize tagged for this asset are candidates, and only when their slot and
+    # variant pair is no longer declared (#148, AC9).
+    declared = set()
+    for entry in PARAMS["material_variants"]:
+        declared.add((entry["material"], entry["name"]))
+    dest = PARAMS["dest"]
+    stale = []
+    for asset_path in unreal.EditorAssetLibrary.list_assets(
+        dest, recursive=False, include_folder=False
+    ):
+        path = str(asset_path).split(".")[0]
+        asset = unreal.EditorAssetLibrary.load_asset(path)
+        if asset is None:
+            continue
+        if unreal.EditorAssetLibrary.get_metadata_tag(asset, "nmg.asset") != PARAMS["name"]:
+            continue
+        pair = (
+            unreal.EditorAssetLibrary.get_metadata_tag(asset, "nmg.material_slot"),
+            unreal.EditorAssetLibrary.get_metadata_tag(asset, "nmg.material_variant"),
+        )
+        if pair in declared:
+            continue
+        # Instances go before the textures they reference.
+        is_instance = isinstance(asset, unreal.MaterialInstanceConstant)
+        stale.append((0 if is_instance else 1, path))
+    for _order, path in sorted(stale):
+        unreal.EditorAssetLibrary.delete_asset(path)
+        RESULT["removed"].append(path)
+
+
 def _run():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     _import_textures(tools)
     meshes = _import_meshes(tools)
     _bind_materials(tools, meshes)
+    _bind_material_variants(tools)
+    _delete_stale_variants()
     RESULT["ok"] = True
 
 
@@ -513,6 +612,7 @@ def build_import_code(
     name: str,
     report: dict[str, Any],
     skeleton_dest: str | None = None,
+    material_variants: list[dict[str, Any]] | None = None,
 ) -> str:
     """Return the UE Python that imports one variant folder into ``dest``.
 
@@ -521,6 +621,9 @@ def build_import_code(
     material is bound, and whether the asset is rigged (it holds the armature ``SK_<Name>``).
     A rigged Mobile variant reads its skeleton and physics asset from ``skeleton_dest``, the
     Desktop folder, so ``skeleton_dest`` is required for it.
+
+    ``material_variants`` is this variant's list from the export sidecar (#148): each entry has
+    the material, its variant base-colour file or None, its parameters, and its instance name.
     """
     variant = _variant_of(dest)
     rigged = _is_rigged(report, name)
@@ -534,6 +637,7 @@ def build_import_code(
         "rigged": rigged,
         "skeleton_dest": skeleton_dest if skeleton_dest is not None else dest,
         "expected_meshes": _expected_mesh_candidates(report, variant, rigged),
+        "material_variants": [dict(entry) for entry in material_variants or []],
         "multi_part": _multi_part(report, variant, rigged),
         "mesh_names": _mesh_names(report, variant, rigged),
     }
@@ -638,9 +742,23 @@ def import_variant(
     name: str,
     report: dict[str, Any],
     skeleton_dest: str | None = None,
+    material_variants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Import one variant through ``client``, then check its pivots. Return the UE result."""
-    code = build_import_code(variant_dir, dest, name, report, skeleton_dest=skeleton_dest)
+    """Import one variant through ``client``, then check its pivots. Return the UE result.
+
+    The result gains ``material_variants`` (one entry per imported variant instance, with its
+    ``name``, ``material``, ``instance``, and ``texture``), ``removed`` (the stale tagged assets
+    deleted from ``dest``), and ``warnings`` (variant parameters the master material lacks), per
+    #148.
+    """
+    code = build_import_code(
+        variant_dir,
+        dest,
+        name,
+        report,
+        skeleton_dest=skeleton_dest,
+        material_variants=material_variants,
+    )
     result = parse_nmg_result(client.execute_python_code(code))
     if result.get("ok") is not True:
         error_text = result.get("error") or "UE reported no error text"
