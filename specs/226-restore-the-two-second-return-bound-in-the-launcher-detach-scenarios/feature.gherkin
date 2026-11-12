@@ -1,0 +1,30 @@
+**Issue**: #226
+**Date**: 2026-11-12
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/215-judge-launcher-detach-in-the-scaffold-scenarios-by-process-state-not-a-2-second-wall-clock/
+
+# File: tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature
+# Generated from: specs/226-restore-the-two-second-return-bound-in-the-launcher-detach-scenarios/requirements.md
+Feature: Launcher detach requires a return in under two seconds with the child still running
+
+  @SCN001 @regression
+  Scenario: A launcher passes only when it returns in under two seconds with its child alive
+    Given a fake Blender and a fake UE editor that record their PID and keep running until stopped
+    When scripts/start-blender-mcp.sh and scripts/start-unreal-mcp.sh each run against their fake
+    Then each script exits 0 while the fake child it started is still alive
+    And each script returns control to the shell in under two seconds
+
+  @SCN002 @regression
+  Scenario: A slow launcher fails the detach check
+    Given a synthetic launcher that sleeps 2.5 seconds before detaching the fake child
+    When it runs with a fake child that keeps running
+    Then the detach check fails because the launcher took longer than two seconds
+    And the launcher finished its 2.5 second delay before detaching
+
+  @SCN003 @regression
+  Scenario: A launcher that waits for its child still fails the detach check
+    Given a synthetic launcher that starts the fake child and waits for it
+    When it runs with a child that exits after 1 second, and again with a child that keeps running under a 3 second bound
+    Then the detach check fails the first run because the child is gone
+    And the detach check fails the second run because the launcher did not return
