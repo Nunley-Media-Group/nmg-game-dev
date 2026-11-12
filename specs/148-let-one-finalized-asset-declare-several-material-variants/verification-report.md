@@ -1,11 +1,11 @@
 # Verification Report: Material variants for finalized assets
 
-**Date**: 2026-11-11
+**Date**: 2026-11-12
 **Issue**: #148
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: d6ce618c0f07e011fb2a34197d2981de742eefb8
+**Verification head**: b4bf7bae91363757a742281f63559ecfdf4ce4be
 
 ---
 
@@ -24,25 +24,25 @@
 ### Implementation Status: Pass
 **Total Issues**: 5 (0 Critical, 0 High, 2 Medium, 3 Low), none blocking
 
-All ten acceptance criteria and all nine tasks are met at `d6ce618`. The previous verification passed at `10d3520`. Deliver's base reconciliation then merged `origin/main` at `5b80f98` into the branch (merge commit `d6ce618`). The branch now contains the current `origin/main`. This run verified the merged head again from scratch with the full registered gate.
+All ten acceptance criteria and all nine tasks are met at `b4bf7ba`. The previous verification passed at `d6ce618` (report commit `f6ab122`). Deliver's base reconciliation then merged `origin/main` at `1a6418f` into the branch (merge commit `b4bf7ba`). The branch contains the current `origin/main` (checked with `git merge-base --is-ancestor` after a fresh fetch). This run verified the merged head again from scratch with the full registered gate.
 
-The merge brings in #208 (texture generation from the plugin root, with queued and batched texture jobs) and the approved spec for #211. It changes:
+**Why verification ran again.** Nothing in #148 failed. Other lanes keep merging into `main`. Each time, deliver merges the new `origin/main` into this branch, and the new head needs a fresh gate run. The earlier `missing_handoff` at `f6ab122` was a verify session that ended without writing a handoff, not a failing gate. The repair here is a full gate run at `b4bf7ba` itself. No earlier result or unchanged smoke result was replayed.
 
-- `src/nmg_game_dev/texture/**`
-- `mcp-servers/texture-gen/**`
-- the texture unit and BDD tests
-- `docs/onboarding/texture-models.md`
-- `pyproject.toml`, `uv.lock` and the per-server `uv.lock` files (including `mcp-servers/finalize/uv.lock`)
-- `CHANGELOG.md`
+The merge brings in #136 (the built-in procedural clip library), #153 (sample locations in geometry contract findings), #202 (UE compile gate without UBA), and the approved spec for #215. It touches three files that #148 also changes:
 
-The merge changes none of the files that implement #148: the contract, variants, finalize, pipeline and Unreal code, `build_master_material.py`, the finalize MCP server and its `tools.json`, the docs and SKILL.md, and the #148 tests. The only shared file is `CHANGELOG.md`. Its `## [Unreleased]` section now lists #148 under `### Added` and #143 under `### Changed`, and there are no conflict markers. The feature behaviour reviewed in the previous verification therefore still applies. The fresh gate run confirms that it still passes beside the merged texture code:
+- `plugins/nmg-game-dev-blender-addon/contract_core/validate.py`: `_mesh_findings` now calls #153's `geometry_findings(obj.name, copy, obj.matrix_world, vertex_group_names)` and returns `list[dict[str, Any]]`. The #148 code in this file (`material_variants_path`, `_material_variant_checks`, `_source_materials`, and the report key `material_variants`) is unchanged, and the hunks do not overlap.
+- `docs/asset-contract.md`: #136 adds three lines about built-in clip sources in the animation section. §4 "Material variants" is unchanged.
+- `CHANGELOG.md`: compared with `origin/main`, the branch only adds `### Added` and the #148 bullet under `## [Unreleased]`. There are no conflict markers.
 
-- `repository.tests`: 1307 passed, up from 1263 because of the merged texture tests.
-- `gate-mcp-schema`: the finalize `tools.json` (including `list_material_variants`) still matches the server.
+Every other file that implements #148 is byte-identical to what passed at `d6ce618`. That includes the material-variant cores, the finalize steps, the pipeline, the Unreal import and listing code, the master-material builder, the finalize MCP server and its `tools.json`, SKILL.md, `docs/mcp/finalize.md`, and the #148 tests. The fresh gate run confirms that #148 still passes with the merged code:
+
+- `repository.tests`: 1325 passed, 10 skipped (up from 1307 because of the merged tests).
+- `gate-blender-headless`: 338 passed, 4 skipped, including `tests/blender/test_material_variants.py` and the merged #153 geometry tests.
+- `gate-ue-compile`: DogfoodEditor compiled with `-NoUBA` (Result: Succeeded).
 
 All 11 registered validations are recorded at this exact head and spec identity, and coverage is complete. Ten passed and one does not apply (`gate-ship-smoke`).
 
-This review found no new issues. The Medium and Low items from the previous verification still apply and are carried forward under Remaining Issues. This verify publication may write only this report, so none of them is fixed here.
+This review found no new defects. The Medium and Low items from the previous verification still apply and are carried forward under Remaining Issues. This verify publication may write only this report, so none of them is fixed here.
 
 ---
 
@@ -66,8 +66,9 @@ This review found no new issues. The Medium and Low items from the previous veri
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/148.json` (generatedAt `2026-11-12T05:25:56.202Z`, base ref `main`)
-- Identity: head `d6ce618c0f07e011fb2a34197d2981de742eefb8`, clean tree, specHash `sha256:e63bc77a…7164f`, steeringHash `sha256:754f3665…0a584`, controller run id `ae3e6bba-0370-442c-b466-f833e34daa1c`
+- Artifact: `.nmg-sdlc/verification/148.json` (generatedAt `2026-11-12T06:14:41.588Z`, base ref `main`)
+- Identity: head `b4bf7bae91363757a742281f63559ecfdf4ce4be`, clean tree, specHash `sha256:e63bc77a…7164f`, steeringHash `sha256:6db9aabc…474d4`, controller run id `ae3e6bba-0370-442c-b466-f833e34daa1c`
+- The local `main` ref (`41c5b31`) is older than `origin/main` (`1a6418f`), so the base ref `main` gives a larger changed-path set than the #148 change alone. That can only make more gates apply. Every path-gated validation except `gate-ship-smoke` applied and passed
 - Coverage: declared 11, recorded 11, complete `true`; nothing missing, duplicated, or unknown
 - Ceiling: `null`, so the steering evidence does not cap the status
 - This worker ran `sdlc-verify-steering.mjs` fresh at the merged head under this controller run. `sdlc-finalize-verification.mjs` checks the artifact's identity again at publication.
@@ -183,8 +184,8 @@ Host code never imports the add-on. The add-on's `utils/master_material.py` is p
 ### Coverage Summary
 
 - Feature file: 10 scenarios, each mapped to pytest tests named for the scenario
-- Unit and BDD suite (`repository.tests`): 1307 passed, 10 skipped
-- Headless Blender suite (`gate-blender-headless`): 307 passed, 4 skipped, including `tests/blender/test_material_variants.py`
+- Unit and BDD suite (`repository.tests`): 1325 passed, 10 skipped
+- Headless Blender suite (`gate-blender-headless`): 338 passed, 4 skipped, including `tests/blender/test_material_variants.py`
 - UE master-material builder: proven against an in-memory fake `unreal` module, with no live editor
 
 ---
@@ -202,12 +203,12 @@ Host code never imports the add-on. The add-on's `utils/master_material.py` is p
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1307 passed, 10 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1325 passed, 10 skipped |
 | `repository.lint` | Pass | `ruff check .`: All checks passed! |
-| `repository.format` | Pass | `ruff format --check .`: 363 files already formatted |
-| `repository.types` | Pass | `mypy src tests`: no issues found in 235 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 307 passed, 4 skipped |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` (Result: Succeeded) |
+| `repository.format` | Pass | `ruff format --check .`: 368 files already formatted |
+| `repository.types` | Pass | `mypy src tests`: no issues found in 237 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 338 passed, 4 skipped |
+| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development -WaitMutex -NoUBA` against `/Users/Shared/Epic Games/UE_5.8` (Result: Succeeded) |
 | `gate-mcp-schema` | Pass | `scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server |
 | `gate-shellcheck` | Pass | `shellcheck -S style` is clean on every `scripts/**.sh` |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
@@ -245,7 +246,7 @@ None.
 |----------|----------|----------|-------|------------------|
 | Low | Documentation | `specs/148-…/design.md` (API table, `import_variant` row) | Still shows `material_variants` as a dict keyed by variant name and omits `warnings` | Spec files are read-only in verify. Requirements AC7/FR7 take precedence |
 | Low | Error Handling | `src/nmg_game_dev/pipeline/engine.py` `_sidecar_material_variants` | A corrupt sidecar raises an unstructured `JSONDecodeError` | The same job's export step writes the sidecar, so corruption is unlikely |
-| Low | Documentation | `CHANGELOG.md` `## [Unreleased]` | After the merge, `### Changed` has no blank line before it (it follows the #148 bullet). Main also already has an empty `## [0.22.0]` heading. Neither affects rendering of the entries | Verify may write only this report. Deliver's prepare-version rewrites this section |
+| Low | Documentation | `CHANGELOG.md` `## [Unreleased]` | The #148 bullet is followed directly by `## [0.22.0]` with no blank line between them. The released sections that follow come from `origin/main` as it is: `[0.22.0]` appears twice, and the versions are out of order. #148 did not cause any of this, and it does not affect how the #148 entry renders | Verify may write only this report. Deliver's prepare-version rewrites this section. The released-section order on `main` should be fixed separately |
 | Low | Testing | `tasks.md` T009 file list | The tests are combined in `tests/unit/test_material_variants_host.py` instead of the per-module test files listed in T009 | Every acceptance bullet still has a test |
 
 ---
@@ -279,7 +280,7 @@ None.
 | File | Issues | Notes |
 |------|--------|-------|
 | `plugins/nmg-game-dev-blender-addon/contract_core/material_variants.py` | 0 | Rules and declaration parsing |
-| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Part prediction and merge reuse; checked again after the merged #198 and #199 changes |
+| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Part prediction and merge reuse; checked again after the merged #153 `geometry_findings` call change |
 | `plugins/nmg-game-dev-blender-addon/contract_core/report.py` | 0 | Rule remediations |
 | `plugins/nmg-game-dev-blender-addon/finalize_core/steps.py` | 1 | Medium: stale PNGs stay when the declaration file is deleted |
 | `plugins/nmg-game-dev-blender-addon/variants_core/material_variants.py` | 0 | Texture export and stale clearing |
@@ -299,4 +300,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion, functional requirement, and task passes, and all registered gates are recorded green at the exact merged head `d6ce618`. That head contains the current `origin/main` (`5b80f98`). The merged #208 texture-generation changes and the #211 spec do not touch any #148 code, and they do not regress any #148 behaviour. The two Medium items are a content rebuild (#204) and a stale-cleanup edge case outside the ACs. Neither blocks delivery.
+Every acceptance criterion, functional requirement, and task passes, and all registered gates are recorded green at the exact merged head `b4bf7ba`. That head contains the current `origin/main` (`1a6418f`). The merged #136, #153, and #202 changes and the #215 spec do not regress any #148 behaviour. The only overlap is `validate.py`, where #153's `geometry_findings` call sits next to the unchanged #148 material-variant checks. The two Medium items are a content rebuild (#204) and a stale-cleanup edge case outside the ACs. Neither blocks delivery.
