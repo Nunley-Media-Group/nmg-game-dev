@@ -6,8 +6,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.4] - 2026-11-12
+
 ### Fixed
 - Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
+- Fix the Blender test runner repointing the user's Blender add-on link and racing across worktrees (#189)
 
 ## [0.21.3] - 2026-11-11
 
