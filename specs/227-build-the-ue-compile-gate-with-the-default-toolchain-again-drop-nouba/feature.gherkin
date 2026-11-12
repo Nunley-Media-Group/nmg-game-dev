@@ -1,0 +1,38 @@
+**Issue**: #227
+**Date**: 2026-11-12
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/202-build-the-ue-compile-gate-without-uba-so-parallel-worktrees-don-t-corrupt-each-other-s-objects/
+
+# File: tests/unit/test_ue_compile_gate.py
+# Generated from: specs/227-build-the-ue-compile-gate-with-the-default-toolchain-again-drop-nouba/requirements.md
+Feature: gate-ue-compile builds with the default UE 5.8 toolchain
+
+  @SCN001 @regression
+  Scenario: The gate passes the default arguments to Build.sh
+    Given a fake Build.sh under UE_ROOT that logs its arguments
+    And a project at fixtures/dogfood.uproject
+    When the project.ue-compile provider compiles target DogfoodEditor
+    Then Build.sh receives DogfoodEditor, Mac, Development, -Project=<absolute project path> and -WaitMutex
+    And it does not receive -NoUBA
+
+  @SCN002 @regression
+  Scenario: The documented gate row describes the default build
+    Given steering/snippets/project-tech.md
+    When the gate-ue-compile row is read
+    Then it contains "Build.sh DogfoodEditor Mac Development -WaitMutex"
+    And it does not mention -NoUBA, the Unreal Build Accelerator, or parallel worktrees
+
+  @SCN003 @regression
+  Scenario: The unit test rejects a build that passes -NoUBA
+    Given tests/unit/test_ue_compile_gate.py and the fake Build.sh
+    When the test runs the provider
+    Then it asserts the exact default argument list
+    And it asserts that -NoUBA is absent from the logged arguments and from the command evidence
+
+  @SCN004 @regression
+  Scenario: The headless master-material build uses the default toolchain
+    Given a fake UE engine under UE_ROOT whose Build.sh logs its arguments
+    When scripts/unreal/build_master_material.py --headless builds DogfoodEditor
+    Then Build.sh receives DogfoodEditor, Mac, Development, -Project=<dogfood project> and -WaitMutex
+    And it does not receive -NoUBA
