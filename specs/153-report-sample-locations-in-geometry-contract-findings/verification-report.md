@@ -4,7 +4,8 @@
 **Issue**: #153
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 43773c24f1ae53db091b3641ea2860e932e664d3
+
+**Verification head**: c4fc67d186b233298d6a76246f73df860997de66
 
 ---
 
@@ -23,7 +24,9 @@
 ### Implementation Status: Pass
 **Total Issues**: 2 (both Low, not blocking)
 
-`geometry_findings` now collects the offending elements for each of the four geometry rules. Each finding gets `count` (the full total) and `samples`: up to 5 lowest-index elements, each with its world-space position and vertex-group names, plus `coincides_with` for duplicates. Both callers, contract validation and the spatial inspector, pass the object's world matrix and vertex-group names, and they keep deform layers on the evaluated copy. Detection and `passed` are unchanged. This re-verification runs at the head that merged `origin/main` (#144's per-island normals rule, #151's texel work) into the branch. The merge keeps #144's normals check, and the check now returns the flagged faces, so #153 can count and sample them. All 11 registered validations recorded terminal results at the verification head: 10 passed and 1 did not apply to this change.
+`geometry_findings` collects the offending elements for each of the four geometry rules. Each finding gets `count` (the full total) and `samples`: up to 5 lowest-index elements, each with its world-space position and vertex-group names, plus `coincides_with` for duplicates. Both callers, contract validation and the spatial inspector, pass the object's world matrix and vertex-group names, and they keep deform layers on the evaluated copy. Detection and `passed` are unchanged.
+
+This re-verification runs at head `c4fc67d`, which merged `origin/main` (#198's naming-collision checks in `validate.py` and `report.py`, #199's UV-overlap rewrite in `uv.py`) into the branch and re-prepared the version (0.23.0). The merge left #153's code unchanged: against `origin/main`, the `validate.py` diff is still only the `geometry_findings` call and the widened annotations. All 11 registered validations recorded terminal results at the verification head: 10 passed and 1 did not apply to this change.
 
 ---
 
@@ -47,8 +50,8 @@
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/153.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 8167b7b1-ba01-4d97-bc5a-bde0668d0747`, generated 2026-11-12T04:32:34Z)
-- Identity: head `43773c24f1ae53db091b3641ea2860e932e664d3`, tree clean, spec hash `sha256:d37c7240…`, steering hash `sha256:795f9897…`
+- Artifact: `.nmg-sdlc/verification/153.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 36e69283-b400-4e48-9fde-c558720014fd`, generated 2026-11-12T05:34:52Z)
+- Identity: head `c4fc67d186b233298d6a76246f73df860997de66`, tree clean, spec hash `sha256:d37c7240…`, steering hash `sha256:754f3665…`
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown results
 - Ceiling: none
 
@@ -153,21 +156,21 @@ No external input, credentials, network, file I/O, or shell. The new data comes 
 | AC4 | Yes (SCN004) | Yes (`test_scn004_*`) | Yes |
 | AC5 | Yes (SCN005) | Yes (`test_scn005_*`) | Yes |
 | AC6 | Yes (SCN006) | Yes (`test_scn006_*`) | Yes |
-| AC7 | Yes (SCN007) | Yes (`test_scn007_*` ×2) | Yes |
+| AC7 | Yes (SCN007) | Yes (`test_scn007_*` x2) | Yes |
 
 ### Coverage Summary
 
-- Feature file: `specs/153-…/feature.gherkin`, 7 scenarios, all tagged and mapped to headless Blender tests (the tech steering puts Blender add-on acceptance tests in `tests/blender/`)
-- Blender headless suite: 277 passed, 4 skipped (`gate-blender-headless`). The 4 skips are `tests/blender/test_coexistence.py` host-add-on tests (`requires_host`), which do not touch #153
-- #144's normals tests in `tests/blender/test_geometry_normals.py` still pass. They now compare each message without the location suffix, check that the count is in the message, and check the flagged face's sample index
-- Python unit and BDD suites: 1139 passed, 10 skipped (`repository.tests`)
+- Feature file: `specs/153-report-sample-locations-in-geometry-contract-findings/feature.gherkin`, 7 scenarios, all tagged and mapped to headless Blender tests (the tech steering puts Blender add-on acceptance tests in `tests/blender/`)
+- Blender headless suite: 292 passed, 4 skipped (`gate-blender-headless`). The 4 skips are the host-add-on tests in `tests/blender/test_coexistence.py`, which do not touch #153. The suite now also includes #198's and #199's merged Blender tests
+- #144's normals tests in `tests/blender/test_geometry_normals.py` still pass. They compare each message without the location suffix, check that the count is in the message, and check the flagged face's sample index
+- Python unit and BDD suites: 1226 passed, 10 skipped (`repository.tests`)
 - No live Blender or Unreal editor was used
 
 ---
 
 ## Exercise Test Results
 
-Exercise testing was not applicable. The change touches no nmg-sdlc plugin `workflows/` or `agents/` paths. The Claude Code plugin surface of this repo was still checked by `plugin.validate` and `plugin.session-smoke`.
+Exercise testing was not applicable. The change touches no nmg-sdlc plugin `workflows/` or `agents/` paths. `plugin.validate` and `plugin.session-smoke` still checked this repo's Claude Code plugin surface.
 
 ---
 
@@ -175,16 +178,16 @@ Exercise testing was not applicable. The change touches no nmg-sdlc plugin `work
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1139 passed, 10 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1226 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 335 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 212 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 277 passed, 4 skipped (host-only coexistence tests) |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8: compiled `DogfoodEditor` against `/Users/Shared/Epic Games/UE_5.8`. The `.uplugin` version bump makes this gate apply |
-| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server. It applies because the runner diffs against local `main`, which is behind `origin/main`, so other lanes' merged MCP changes count as changed paths |
-| `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0. It applies for the same base-ref reason |
-| `gate-ship-smoke` | Not applicable | No changed ship paths |
-| `plugin.validate` | Pass | `claude plugin validate .` exited 0. Its only warning is the untracked lane-local `CLAUDE.local.md` |
+| `repository.format` | Pass | `uv run ruff format --check .`: 353 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 229 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 292 passed, 4 skipped (host-only coexistence tests) |
+| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development`: compiled `DogfoodEditor` against `/Users/Shared/Epic Games/UE_5.8`. The gate applies because the version bump changes the `.uplugin` file |
+| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server. The gate applies because the runner diffs against local `main`, which is behind `origin/main`, so MCP changes other lanes merged count as changed paths |
+| `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0. The gate applies for the same base-ref reason |
+| `gate-ship-smoke` | Not applicable | No ship paths changed |
+| `plugin.validate` | Pass | `claude plugin validate .` exited 0. Its only warning is about the untracked lane-local `CLAUDE.local.md` |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete; 1 not applicable (`gate-ship-smoke`). Coverage complete (11/11 recorded).
@@ -263,7 +266,7 @@ None.
 | `docs/skills/model-asset.md` | 0 | FR7 |
 | `tests/blender/test_contract_validate.py` | 1 (Low) | SCN001–SCN005, SCN007 |
 | `tests/blender/test_inspect_spatial.py` | 0 | SCN006, SCN007 |
-| `CHANGELOG.md`, `VERSION`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin` | 0 | Version 0.22.0 (minor) |
+| `CHANGELOG.md`, `VERSION`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin` | 0 | Version 0.23.0 (minor), re-prepared after the merge with `origin/main` |
 
 ---
 
@@ -271,4 +274,4 @@ None.
 
 **Ready for PR**
 
-All 7 acceptance criteria, 7 functional requirements, and 4 tasks are implemented and covered by passing headless Blender tests. Every applicable registered gate passed at head `43773c24f1ae53db091b3641ea2860e932e664d3`, after the merge with `origin/main`, with complete coverage. The two remaining findings are Low and do not block.
+All 7 acceptance criteria, 7 functional requirements, and 4 tasks are implemented and covered by passing headless Blender tests. Every applicable registered gate passed at head `c4fc67d186b233298d6a76246f73df860997de66`, after the merge with `origin/main` (#198, #199), with complete coverage. The two remaining findings are Low and do not block.
