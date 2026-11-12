@@ -7,6 +7,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 ## [Unreleased]
 
 ## [0.24.0] - 2026-11-12
+## [0.22.1] - 2026-11-12
+
+### Fixed
+
+- Fix texture job queue: duplicate batch outputs, orphaned running jobs, and runner log location (#211)
 
 ### Added
 
@@ -29,6 +34,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 ## [0.21.6] - 2026-11-12
 
 ### Fixed
+
+- Fail import_ue when Unreal refuses to rename or consolidate an imported asset (#203)
 
 - Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
 
