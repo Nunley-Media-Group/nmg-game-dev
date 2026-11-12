@@ -3,8 +3,8 @@
 **Date**: 2026-11-12
 **Issue**: #149
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
-**Scope**: Implementation verification against spec (re-verification after merging `origin/main` at `19f4c1f`)
-**Verification head**: e12ccc5da796f9f059ec427236949cb1edb23105
+**Scope**: Implementation verification against spec (re-verification after merging `origin/main` at `e7b8486`)
+**Verification head**: fe8b0bafd15f23da176824112fd3432741904673
 
 ---
 
@@ -23,7 +23,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 5 (all Low, none blocking)
 
-All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests that use fakes only. This re-verification covers the head after a fourth `chore: merge origin/main` commit (`e12ccc5`), which brings in #148 material variants (#186), #203 rename/consolidate checks (#217), the texture queue (#208), and the UBA-free UE compile gate (#210). The merge keeps #149's retry wiring in `import_variant`: it now takes `material_variants` and also `retry`/`sleep`/`clock` and records `attempts`. #217's refused-rename and refused-consolidate checks stay in the import template, and a re-sent import over existing assets still goes through the consolidate path, so AC9 holds. Batch entries gain `material_variants_path`. The CLI rejects `--material-variants` for a batch, and the MCP docs say the top-level parameter applies to one collection only. `pipeline/jobs.py`, `unreal/retry.py`, and `unreal/preflight.py` are unchanged by the merge. Every applicable registered steering validation passed at the verification head (10 of 10). `gate-ship-smoke` does not apply.
+All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests that use fakes only. This re-verification covers the head after a fifth `chore: merge origin/main` commit (`fe8b0ba`), which brings in #139's reduce-to-budget job (#219) and the headless `M_NmgORM` rebuild (#220). The merge resolution in `pipeline/jobs.py` keeps #149's single and batch jobs, the atomic `{pid, job_id}` lock, and the lock wait, and adds reduce as a third job `kind`: `start_reduce` now goes through the shared `_submit` with `wait_for_lock=False`, so a reduce job refuses with `finalize.job_running` like any job without wait, and `run_job` dispatches it to `_run_reduce` inside the same `finally` that writes status and releases the lock by job id. `engine.py` only factors `_checkpoint` into `checkpoint_session` for reduce; `_run_import` still calls `ensure_not_in_pie` before each variant import, and `import_variant` still records `attempts` through `call_with_retry`. The CLI's `reduce` subcommand has its own single `--collection`, so the appendable `--collection` of the finalize commands is unaffected. Docs, the skill, `server.py`, and `tools.json` keep both sides' parameters and error codes. `unreal/retry.py` and `unreal/preflight.py` are unchanged by the merge. Every applicable registered steering validation passed at the verification head (10 of 10). `gate-ship-smoke` does not apply.
 
 ---
 
@@ -47,7 +47,7 @@ All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests 
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/149.json` (base `main`, head `e12ccc5da796f9f059ec427236949cb1edb23105`, clean tree, run id `9cee569d-e9c4-4ac1-b8fb-e1f80a089c9e`, generated 2026-11-12T06:58:07Z)
+- Artifact: `.nmg-sdlc/verification/149.json` (base `main`, head `fe8b0bafd15f23da176824112fd3432741904673`, clean tree, controller run id `3110250a-cee7-4066-aec6-8785add5864c`, generated 2026-11-12T07:44:49Z)
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown ids
 - Ceiling: none (`null`)
 - Note: the local `main` ref in this lane worktree lags `origin/main`, so the runner's changed-path set is wider than #149's own diff. That made `gate-shellcheck`, `gate-blender-headless`, and `gate-ue-compile` applicable, and all three passed. Applicability only grew, so no gate was skipped.
@@ -110,7 +110,7 @@ All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
 | Single Responsibility | 4 | Retry (`unreal/retry.py`) and PIE preflight (`unreal/preflight.py`) are separate small modules; batch validation is in `service.build_batch`. `jobs.py` grows to cover lock, single, and batch lifecycle. It is cohesive but large. |
-| Open/Closed | 4 | Single and batch jobs share `_submit` and `run_job`, branching on `job.kind`. |
+| Open/Closed | 4 | Single, batch, and (after the merge) reduce jobs share `_submit` and `run_job`, branching on `job.kind`; adding reduce needed no change to the lock or wait code. |
 | Liskov Substitution | 5 | `UnrealTimeoutError` subclasses `PipelineError` and keeps code `import_ue.failed`, so existing handlers are unaffected. |
 | Interface Segregation | 5 | `TimeoutAwareClient` / `UnrealPythonClient` protocols expose only `execute_python_code(code, *, timeout)`. |
 | Dependency Inversion | 5 | Sleep, clock, launcher, runner, and retry settings are injected, which makes every timing path testable without real waits. |
@@ -165,8 +165,8 @@ This follows the steering layer table. Skill and docs describe the tools. `mcp_t
 ### Coverage Summary
 
 - Feature file: `specs/149-…/feature.gherkin`, 11 scenarios mapped to unit tests in `tests/unit/pipeline/test_batch.py`, `tests/unit/pipeline/test_jobs.py`, `tests/unit/test_unreal_retry.py`, `tests/unit/test_pie_preflight.py`, `tests/unit/test_finalize_cli.py`, `tests/unit/test_finalize_mcp_tools.py`, `tests/unit/test_finalize_docs.py`
-- `repository.tests`: 1432 passed, 10 skipped (`uv run pytest tests/unit tests/bdd -q`)
-- `gate-blender-headless`: 338 passed, 4 skipped
+- `repository.tests`: 1512 passed, 10 skipped (`uv run pytest tests/unit tests/bdd -q`)
+- `gate-blender-headless`: 350 passed, 4 skipped
 - All timing uses injected sleep and clock; no live Blender or Unreal editor is contacted
 
 ---
@@ -184,11 +184,11 @@ This follows the steering layer table. Skill and docs describe the tools. `mcp_t
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0; 1432 passed, 10 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0; 1512 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 376 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 245 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0; 338 passed, 4 skipped |
+| `repository.format` | Pass | `uv run ruff format --check .`: 393 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 251 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0; 350 passed, 4 skipped |
 | `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` (`-NoUBA`) |
 | `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json |
 | `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0 with no findings |
@@ -295,7 +295,7 @@ None.
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `src/nmg_game_dev/pipeline/jobs.py` | 2 (Low) | Lock, wait, batch lifecycle |
+| `src/nmg_game_dev/pipeline/jobs.py` | 2 (Low) | Lock, wait, batch lifecycle; merge adds the reduce job kind through `_submit` |
 | `src/nmg_game_dev/finalize/service.py` | 0 | `build_batch`, `start_batch`, `run_batch` |
 | `src/nmg_game_dev/finalize/__main__.py` | 0 | CLI batch and flags |
 | `src/nmg_game_dev/finalize/mcp_tools.py` | 1 (Low) | MCP parameters; batch ignores top-level `material_variants_path` |
@@ -305,7 +305,7 @@ None.
 | `src/nmg_game_dev/unreal/retry.py` | 0 | Bounded retry |
 | `src/nmg_game_dev/unreal/preflight.py` | 1 (Low) | PIE preflight |
 | `src/nmg_game_dev/unreal/import_asset.py` | 0 | Retry wiring, `attempts`; #217 rename/consolidate checks preserved |
-| `src/nmg_game_dev/pipeline/engine.py` | 0 | Preflight call |
+| `src/nmg_game_dev/pipeline/engine.py` | 0 | Preflight call kept; merge factors out `checkpoint_session` for reduce |
 | `src/nmg_game_dev/pipeline/request.py` | 0 | PIE fields |
 | `docs/mcp/finalize.md`, `skills/finalize-asset/SKILL.md` | 0 | AC11 |
 | `tests/**` (listed above) | 0 | Fakes only |
@@ -316,4 +316,4 @@ None.
 
 **Ready for PR**
 
-All delivery ACs, FRs, tasks, and scenarios are implemented and tested. The deterministic steering artifact shows complete coverage with no ceiling, and every applicable required validation passed at `e12ccc5da796f9f059ec427236949cb1edb23105`. The five Low findings do not block delivery.
+All delivery ACs, FRs, tasks, and scenarios are implemented and tested. The deterministic steering artifact shows complete coverage with no ceiling, and every applicable required validation passed at `fe8b0bafd15f23da176824112fd3432741904673`. The five Low findings do not block delivery.
