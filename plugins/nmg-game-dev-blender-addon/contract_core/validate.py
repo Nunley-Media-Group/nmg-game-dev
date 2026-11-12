@@ -278,8 +278,8 @@ def _mesh_findings(
     budget: dict[str, int],
     root_name: str,
     tris_out: dict[str, int],
-) -> list[dict[str, str]]:
-    findings: list[dict[str, str]] = []
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
     meshes = [obj for obj in objects if obj.type == "MESH"]
     texel_check = asset_class == "environment_piece"
     materials: dict[str, bpy.types.Material] = {}
@@ -288,7 +288,9 @@ def _mesh_findings(
         copy = _evaluated_copy(obj)
         try:
             tris_out[obj.name] = triangle_count(copy)
-            findings += geometry_findings(obj.name, copy)
+            findings += geometry_findings(
+                obj.name, copy, obj.matrix_world, [group.name for group in obj.vertex_groups]
+            )
             findings += uv_findings(obj.name, copy, check_overlap=not texel_check)
             if texel_check:
                 findings += _texel_findings(obj, copy, variant)
@@ -537,8 +539,11 @@ def _name_set_findings(kind: str, desktop: set[str], mobile: set[str]) -> list[d
 
 
 def _evaluated_copy(obj: bpy.types.Object) -> bpy.types.Mesh:
+    # Keep the deform layer so geometry samples can name each vertex's groups (#153).
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    return bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph), depsgraph=depsgraph)
+    return bpy.data.meshes.new_from_object(
+        obj.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph
+    )
 
 
 def _materials_of(obj: bpy.types.Object) -> list[bpy.types.Material]:

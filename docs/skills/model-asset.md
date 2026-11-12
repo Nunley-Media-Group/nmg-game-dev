@@ -91,7 +91,7 @@ Each entry in `parts` carries:
 | `bounds` | `min` and `max` corners of the part's world-space bounds, in metres, rounded to 6 decimals |
 | `tris` | Triangles in the evaluated mesh (modifiers applied) |
 | `non_manifold_edges` | Edges that do not have exactly two faces, including boundary and wire edges |
-| `geometry` | The contract geometry findings for the part (see below) |
+| `geometry` | The contract geometry findings for the part, each with `count` and `samples` (see below) |
 
 Each entry in `findings` carries `rule`, `blocking`, `parts`, `message`, and `remediation`. Some
 rules add fields:
@@ -107,6 +107,21 @@ The per-part `geometry` entries are the contract checks: `geometry.loose` (loose
 `geometry.zero_area` (zero-area faces), `geometry.duplicates` (duplicate vertices), and
 `geometry.normals` (faces whose normals are inconsistent or inward). They are reported for reference
 and never block here. `docs/asset-contract.md` and `/finalize-asset` own them.
+
+Each geometry entry carries `count`, the total number of offending elements, and `samples`, a list
+of up to 5 located elements. The samples are the lowest element indices, so the same asset always
+gives the same samples. Each sample has:
+
+- `index`: the vertex index (`geometry.loose`, `geometry.duplicates`) or the face index
+  (`geometry.zero_area`, `geometry.normals`).
+- `position`: the world-space position as three floats rounded to 6 decimals. It is the vertex
+  position, or the face center for a face.
+- `vertex_groups`: the sorted names of the vertex groups the element belongs to. A face lists the
+  groups of its vertices, and a duplicate lists the groups of both vertices in the pair. The list is
+  empty when the object has no vertex groups.
+- `coincides_with`: duplicates only. The index of the vertex the duplicate coincides with.
+
+The entry's `message` keeps the count and names the first sample's position.
 
 ## Blocking rules
 
