@@ -1,8 +1,10 @@
 """Command line for the finalize pipeline (#69).
 
-    python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue}
+    python -m nmg_game_dev.finalize {all,validate,bake,variants,export,export_anims,reimport,
+        import_ue,import_anims}
         --collection N --category C --class K --export-root R
-        [--blend B] [--budgets P] [--device GPU|CPU] [--force] [--json]
+        [--blend B] [--budgets P] [--device GPU|CPU] [--compatible-with C/N ...]
+        [--force] [--json]
 
     python -m nmg_game_dev.finalize reduce --collection N --class C [--blend B] [--budgets P]
         [--device GPU|CPU] [--cage M] [--ray M] [--miss-threshold X] [--parts JSON] [--wait S]
@@ -112,8 +114,10 @@ _STEP_HELP: Final = {
     "bake": "Bake the authored materials.",
     "variants": "Build the Desktop and Mobile variants.",
     "export": "Export the FBX variants and the sidecar.",
+    "export_anims": "Export one animation FBX per clip on the rig.",
     "reimport": "Re-import the exported variants and check them.",
     "import_ue": "Import the variants into Unreal and finish the materials.",
+    "import_anims": "Import the clips as AnimSequences on the Desktop skeleton.",
 }
 
 
@@ -139,6 +143,14 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
         "beside --blend.",
     )
     parser.add_argument("--device", choices=("GPU", "CPU"), default="GPU", help="Bake device.")
+    parser.add_argument(
+        "--compatible-with",
+        action="append",
+        default=[],
+        metavar="CATEGORY/NAME",
+        help="Another character whose Desktop skeleton this character's clips may play on. "
+        "Repeat for each. import_anims registers both directions.",
+    )
     parser.add_argument(
         "--force", action="store_true", help="Rerun every step, ignoring the cache."
     )
@@ -181,6 +193,7 @@ def main(
             blend=args.blend,
             budgets_path=args.budgets,
             device=args.device,
+            compatible_with=args.compatible_with,
             material_variants_path=args.material_variants,
         )
     except MissingArgumentError as error:

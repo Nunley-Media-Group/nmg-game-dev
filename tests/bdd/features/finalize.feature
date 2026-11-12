@@ -4,10 +4,10 @@ Feature: Finalize an authored asset
   So that freeform authoring ends in a contract-compliant asset in UE
 
   @SCN001
-  Scenario: Finalize runs the six steps from an authored collection
+  Scenario: Finalize runs the eight steps from an authored collection
     Given an authored collection "Crate" of class "standard_prop" in category "Props"
     When finalize runs
-    Then the steps validate, bake, variants, export, reimport, and import_ue run in that order
+    Then the steps validate, bake, variants, export, export_anims, reimport, import_ue, and import_anims run in that order
     And the result lists each step and the UE content paths under /Game/Props/Crate/
 
   @SCN003

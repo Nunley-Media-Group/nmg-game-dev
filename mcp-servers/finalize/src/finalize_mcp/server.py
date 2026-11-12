@@ -43,12 +43,15 @@ def finalize_asset(
     material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
     """Finalize an authored collection through every step and import it into Unreal.
 
     Returns {"job_id", "status"} at once. When wait_seconds (0-150) is given and the job finishes in
     time, the result is included. Poll get_finalize_job for progress. material_variants_path names a
     <Name>.material-variants.json declaration; without it, one beside blend is used when present.
+    compatible_with lists <Category>/<Name> characters whose skeleton this character's clips may
+    also play on.
     """
     return _logged(
         _finalize_asset(
@@ -61,6 +64,7 @@ def finalize_asset(
             material_variants_path=material_variants_path,
             force=force,
             wait_seconds=wait_seconds,
+            compatible_with=compatible_with,
         )
     )
 
@@ -77,8 +81,10 @@ def run_finalize_step(
     material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run one step: validate, bake, variants, export, reimport, or import_ue.
+    """Run one step: validate, bake, variants, export, export_anims, reimport, import_ue, or
+    import_anims.
 
     The step runs through the same implementation finalize_asset uses. Earlier steps it depends on
     run first, from the cache when they are already there.
@@ -95,6 +101,7 @@ def run_finalize_step(
             material_variants_path=material_variants_path,
             force=force,
             wait_seconds=wait_seconds,
+            compatible_with=compatible_with,
         )
     )
 

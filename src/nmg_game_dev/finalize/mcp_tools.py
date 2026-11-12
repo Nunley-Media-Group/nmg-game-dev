@@ -45,6 +45,7 @@ def finalize_asset(
     material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
     """Finalize every step for the collection.  Returns the job id and the result, if finished."""
@@ -57,6 +58,7 @@ def finalize_asset(
             blend,
             budgets_path,
             material_variants_path,
+            compatible_with,
         )
     except _InvalidRequestError as error:
         return {"error": error.payload}
@@ -81,6 +83,7 @@ def run_finalize_step(
     material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
     """Run one step through the same implementation ``finalize_asset`` uses."""
@@ -94,6 +97,7 @@ def run_finalize_step(
             blend,
             budgets_path,
             material_variants_path,
+            compatible_with,
         )
     except PipelineError as error:
         return {"error": error_dict(error)}
@@ -173,6 +177,7 @@ def _request(
     blend: str | None,
     budgets_path: str | None,
     material_variants_path: str | None = None,
+    compatible_with: list[str] | None = None,
 ) -> FinalizeRequest:
     try:
         return build_request(
@@ -183,6 +188,7 @@ def _request(
             blend=blend,
             budgets_path=budgets_path,
             material_variants_path=material_variants_path,
+            compatible_with=compatible_with or (),
         )
     except MissingArgumentError as error:
         raise _InvalidRequestError(error.payload()) from error

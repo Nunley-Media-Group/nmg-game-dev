@@ -118,6 +118,7 @@ def build_request(
     blend: str | Path | None = None,
     budgets_path: str | Path | None = None,
     device: str = "GPU",
+    compatible_with: Sequence[str] = (),
     material_variants_path: str | Path | None = None,
 ) -> FinalizeRequest:
     """Validate the arguments into a ``FinalizeRequest``, defaulting the budget file.
@@ -147,6 +148,7 @@ def build_request(
             "budgets_path": budgets,
             "device": device,
             "backlog_path": backlog,
+            "compatible_with": tuple(compatible_with),
             "material_variants_path": declaration,
         }
     )
