@@ -1,17 +1,19 @@
 # Verification Report: Built-in procedural clip library for import_animations
 
-**Date**: 2026-11-11
+**Date**: 2026-11-12
 **Issue**: #136
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify stage)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 7c90b39143d44ee05a34d866e2ba9c1e98152986
+**Verification head**: 4822c979e2a1e095df38eaa6e33e59735d8390ea
 
 ---
 
 ## Executive Summary
 
-The branch adds a pure-Python pose solver (`rig_core/procedural.py`), 24 built-in clip definitions (`rig_core/builtin_clips.py`), a `library="builtin"` path through `import_animations` and `bake_builtin_clip` (`rig_core/retarget.py`), a `library_source` choice on the `nmggamedev.import_animations` operator, documentation, CPython unit tests, and headless Blender tests on two rigs of different proportions and rest arm angles. All 13 acceptance criteria are met and backed by passing tests. All 8 applicable registered gates passed at the verification head, and gate coverage is complete (11 declared, 11 recorded, ceiling none).
+This is a re-verification after deliver's base reconciliation merged `origin/main` (`0b4994d`, which includes #210 and #213) into the #136 branch, producing merge commit `4822c97`. The merge changes no #136 implementation file. It brings in main's edits to `rig_core/rig.py` (validation now gets the collection name, and the view layer is updated before bounds are read) and `tests/blender/rig_fixtures.py` (`build_hero` takes an optional `voxel_size` whose default is unchanged). Both are compatible with the built-in clip path, and the full Blender suite passes on the merged tree.
+
+The branch adds a pure-Python pose solver (`rig_core/procedural.py`), 24 built-in clip definitions (`rig_core/builtin_clips.py`), a `library="builtin"` path through `import_animations` and `bake_builtin_clip` (`rig_core/retarget.py`), a `library_source` choice on the `nmggamedev.import_animations` operator, documentation, CPython unit tests, and headless Blender tests on two rigs of different proportions and rest arm angles. All 13 acceptance criteria are met and backed by passing tests. All 10 applicable registered gates passed at the merged head `4822c979`. Gate coverage is complete: 11 declared, 11 recorded, no ceiling.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -50,7 +52,7 @@ The branch adds a pure-Python pose solver (`rig_core/procedural.py`), 24 built-i
 
 - Runner: `sdlc-verify-steering.mjs --project . --issue 136 --base main --controller-run-id 45d1f08e-7170-40d8-a63b-ee989ef37e03`
 - Artifact: `.nmg-sdlc/verification/136.json`
-- Identity: head `7c90b39143d44ee05a34d866e2ba9c1e98152986`, clean tree, steering `sha256:119992c8…c5096a9`, spec `sha256:dc98e242…9955478`
+- Identity: head `4822c979e2a1e095df38eaa6e33e59735d8390ea`, clean tree, steering `sha256:6db9aabc…d79474d4`, spec `sha256:dc98e242…9955478`
 - Coverage: declared 11, recorded 11, complete `true`, missing/duplicate/unknown none
 - Ceiling: none
 
@@ -166,7 +168,7 @@ Step-implementation code stays in `rig_core/`, matching the existing rig layer. 
 
 - BDD scenarios: 13/13 acceptance criteria covered
 - Step definitions: Implemented as pytest tests named per scenario (`test_scnNNN_*`), as for other Blender-side rig specs
-- Test execution: Pass (`repository.tests` 985 passed, 9 skipped; `gate-blender-headless` 212 passed; `tests/unit/test_builtin_clips.py` 16 passed in a direct rerun)
+- Test execution: Pass (`repository.tests` 1288 passed, 10 skipped; `gate-blender-headless` 315 passed, 4 skipped)
 
 ---
 
@@ -174,21 +176,21 @@ Step-implementation code stays in `rig_core/`, matching the existing rig layer. 
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 985 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1288 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 314 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 198 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 212 passed |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development`: Result Succeeded |
-| `gate-mcp-schema` | Not applicable | No `mcp-servers/**` change |
-| `gate-shellcheck` | Not applicable | No `scripts/**.sh` change |
-| `gate-ship-smoke` | Not applicable | No ship path change |
+| `repository.format` | Pass | `uv run ruff format --check .`: 362 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 235 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 315 passed, 4 skipped |
+| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development -WaitMutex -NoUBA`: Result Succeeded |
+| `gate-mcp-schema` | Pass | `validate-mcp-tools.py`: MCP tools match tools.json for every server |
+| `gate-shellcheck` | Pass | `shellcheck -S style` on every `scripts/**.sh`: exit 0 |
+| `gate-ship-smoke` | Not applicable | No ship path in the diff |
 | `plugin.validate` | Pass | `claude plugin validate .`: Validation passed with warnings |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 8/8 applicable passed, 0 failed, 0 incomplete (3 not applicable). No `repository.nmg-sdlc-smoke` or `project.nmg-sdlc-smoke` validation is declared in `steering/manifest.json`, so no smoke lifecycle evidence is required.
+**Gate Summary**: 10/10 applicable passed, 0 failed, 0 incomplete (1 not applicable). `steering/manifest.json` declares no `repository.nmg-sdlc-smoke` or `project.nmg-sdlc-smoke` validation, so no smoke lifecycle evidence is required.
 
-Note: the runner's `--base main` resolved against the local `main` ref, which differs from `origin/main`, so `gate-ue-compile`, `plugin.validate`, and `plugin.session-smoke` were applicable although this issue's own diff does not touch their paths. They ran and passed.
+Note: the runner's `--base main` resolved against the local `main` ref (`41c5b31`), which is behind `origin/main` (`0b4994d`). That widened the applicable gates to include `gate-ue-compile`, `gate-mcp-schema`, `gate-shellcheck`, `plugin.validate`, and `plugin.session-smoke`, although this issue's own diff against `origin/main` touches none of their paths. They all ran and passed.
 
 ---
 
@@ -213,7 +215,7 @@ Not applicable: the change touches no nmg-sdlc `workflows/` or `agents/` paths.
 | 1 | Low | Spec drift | `rig_core/retarget.py` `bake_builtin_clip` | T003 says keys go on targeted bones only; the code keys every Manny bone (identity for untargeted ones) so a clip never inherits a rotation from the previously played action. AC1 and FR5 still hold, and the docs and docstring state this. | Deliberate, documented, and safer for playback; the spec text could be updated in a follow-up |
 | 2 | Low | Spec drift | `rig_core/builtin_clips.py` `expand` | Design says `loop=True` appends the first pose at the end; the code instead requires authored keys to close and raises otherwise. AC6/FR7 hold. `Down`, `Held`, `Talk`, and `Ride` also set `loop=True`, beyond the four the spec names. | Behavior meets the ACs; no change needed |
 | 3 | Low | Error handling | `rig_core/retarget.py` → `expand` | A non-closing loop clip raises `ValueError`, not a structured `RigError`. | Reachable only through an internal definition defect, which the unit tests catch |
-| 4 | Info | Gate scope | `.nmg-sdlc/verification/136.json` | Base ref `main` is the stale local ref, widening applicable gates. | Extra gates passed; no effect on the result |
+| 4 | Info | Gate scope | `.nmg-sdlc/verification/136.json` | Base ref `main` is the stale local ref (`41c5b31` vs `origin/main` `0b4994d`), widening applicable gates. | Extra gates passed; no effect on the result |
 
 ---
 
