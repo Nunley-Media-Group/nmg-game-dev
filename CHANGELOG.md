@@ -6,67 +6,71 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-12
+
+### Fixed
+
+- Reconcile CHANGELOG release sections after parallel delivery and guard their structure with a test (#223)
+
 ## [0.25.0] - 2026-11-12
 
 ### Changed
 
 - Add a terrain asset class that finalizes Blender heightfields into Unreal Landscapes (#154)
-- Add batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight (#149)
 
-## [0.23.1] - 2026-11-12
-
-### Fixed
-
-- Judge launcher detach in the scaffold scenarios by process state, not a 2-second wall clock (#215)
 ## [0.24.0] - 2026-11-12
-## [0.22.1] - 2026-11-12
-
-### Fixed
-
-- Fix texture job queue: duplicate batch outputs, orphaned running jobs, and runner log location (#211)
 
 ### Added
 
 - Export and import rigged-character animation clips through finalize (#138)
-- Let one finalized asset declare several material variants (#148)
+
+### Changed
+
+- Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
+- Add batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight (#149)
 
 ### Fixed
 
 - Rebuild the committed M_NmgORM master material headlessly so it carries the Tint parameter (#204)
-### Changed
+- Judge launcher detach in the scaffold scenarios by process state, not a 2-second wall clock (#215)
 
-- Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
+## [0.23.0] - 2026-11-11
 
-## [0.22.0] - 2026-11-12
+### Added
 
-### Changed
-
-- Add a built-in procedural clip library to import_animations (#136)
-## [0.23.0] - 2026-11-12
+- Let one finalized asset declare several material variants (#148)
 
 ### Changed
 
 - Report sample locations in geometry contract findings (#153)
-## [0.21.6] - 2026-11-12
+- Add a built-in procedural clip library to import_animations (#136)
 
 ### Fixed
 
 - Fail import_ue when Unreal refuses to rename or consolidate an imported asset (#203)
+- Fix texture job queue: duplicate batch outputs, orphaned running jobs, and runner log location (#211)
 
-- Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
+## [0.22.0] - 2026-11-11
 
 ### Changed
 
+- Add optional ElevenLabs sound-effect and music generation that imports into Unreal (#155)
 - Make texture generation work from the plugin root and queue or batch texture jobs (#143)
-
-## [0.22.0] - 2026-11-11
-## [0.21.5] - 2026-11-12
 
 ### Fixed
 
-- Fix contract UV overlap validation hanging for hours on stacked UVs (#133)
-- Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
 - Fix naming collisions that pass validate and fail after the bake (#142)
+- Fix contract UV overlap validation hanging for hours on stacked UVs (#133)
+- Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
+
+## [0.21.5] - 2026-11-11
+
+### Fixed
+
+- Fix geometry.normals rejecting correctly facing open surfaces on environment pieces (#144)
+- Fix the Blender test runner repointing the user's Blender add-on link and racing across worktrees (#189)
+
+## [0.21.4] - 2026-11-11
 
 ### Changed
 
@@ -74,9 +78,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Fixed
 
-- Fix geometry.normals rejecting correctly facing open surfaces on environment pieces (#144)
+- Fix plugin.session-smoke failing when the Herdr window is too short to show every /mcp server (#193)
+- Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
 
-## [0.21.4] - 2026-11-12
+## [0.21.3] - 2026-11-11
 
 ### Changed
 
@@ -85,29 +90,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Fixed
 
-- Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
-- Fix the Blender test runner repointing the user's Blender add-on link and racing across worktrees (#189)
-- Fix plugin.session-smoke failing when the Herdr window is too short to show every /mcp server (#193)
-
-## [0.21.3] - 2026-11-11
-
-### Fixed
-
-- Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
-- Fix import_ue importing static meshes at 1/100 scale on UE 5.8 (#145)
-- Honour nmg-budgets.json Desktop overrides in contract validation (#134)
-- Fix start-unreal-mcp.sh rebuilding plugins on every launch and failing to relaunch the editor after a config change (#150)
 - Fix import_ue failing the Mobile variant of static assets that export as an LOD group (#146)
-
-### Changed
-
-- Add optional ElevenLabs sound-effect and music generation that imports into Unreal (#155)
+- Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
 
 ## [0.21.2] - 2026-11-11
 
 ### Fixed
 
 - The `variants` step cleans every Mobile mesh it produces with the same routine Desktop cleanup uses, so decimated LODs no longer fail the contract's zero-area, loose, normals, and pivot rules or the re-import triangle count. Desktop cleanup also removes non-manifold-edge and duplicate faces, and the Mobile variant is re-seated on the world origin after decimation (#140)
+- Fix Meshy a-pose arm raise destroying legs on stylized characters (#135)
+- Fix import_ue importing static meshes at 1/100 scale on UE 5.8 (#145)
+- Honour nmg-budgets.json Desktop overrides in contract validation (#134)
+- Fix start-unreal-mcp.sh rebuilding plugins on every launch and failing to relaunch the editor after a config change (#150)
 
 ## [0.21.1] - 2026-11-02
 
