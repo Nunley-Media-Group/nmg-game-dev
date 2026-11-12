@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from nmg_game_dev.texture.contact_sheet import ContactSheet
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.generate import (
     TextureRequest,
@@ -20,7 +21,14 @@ from nmg_game_dev.texture.generate import (
 )
 from nmg_game_dev.texture.hardware import HardwareFacts
 from nmg_game_dev.texture.registry import REGISTRY
-from tests.texture_fakes import APPLE_SILICON_32GB, fake_spawn, make_models, read_log
+from tests.texture_fakes import (
+    APPLE_SILICON_32GB,
+    fake_spawn,
+    make_models,
+    read_log,
+    save_png,
+    synthetic_image,
+)
 
 
 def _run(
@@ -184,3 +192,52 @@ def test_request_round_trips_through_json() -> None:
     original = TextureRequest(prompt="x", seeds=[3], maps=(0.4, 0.6), ao=False, name="n")
     restored = request_from_json(json.loads(json.dumps(request_as_json(original))))
     assert restored == original
+
+
+def test_a_generate_run_refreshes_the_root_sheet_with_every_set(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path
+) -> None:
+    existing = out_root / "rusted-steel"
+    albedo = save_png(synthetic_image(256, seed=2), existing / "z-image-turbo_2_256.png")
+    manifest = {"images": [{"backend": "z-image-turbo", "seed": 2, "path": str(albedo)}]}
+    (existing / "textures.json").write_text(json.dumps(manifest), encoding="utf-8")
+    request = TextureRequest(
+        prompt="oak planks", backend="z-image-turbo", seeds=[4], resolution=256, name="oak-planks"
+    )
+
+    result = _run(request, worker, log, env, out_root)
+
+    sheet = result.contact_sheet
+    assert sheet.cells == 2 and sheet.skipped == ()
+    assert sheet.pages == (out_root / "contact_sheet_001.png",)
+    assert sheet.pages[0].is_file()
+    assert result.as_json()["contact_sheet"] == {
+        "pages": [str(out_root / "contact_sheet_001.png")],
+        "cells": 2,
+        "skipped": [],
+    }
+
+
+def test_a_failed_sheet_build_is_reported_and_the_run_still_succeeds(
+    worker: Path,
+    log: Path,
+    env: dict[str, str],
+    out_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def disk_full(root: Path, *, require_sets: bool) -> ContactSheet:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("nmg_game_dev.texture.generate.build_contact_sheet", disk_full)
+    request = TextureRequest(
+        prompt="burlap", backend="z-image-turbo", seeds=[6], resolution=256, name="burlap"
+    )
+
+    result = _run(request, worker, log, env, out_root)
+
+    assert len(result.images) == 1 and result.images[0].path.exists()
+    assert (out_root / "burlap" / "textures.json").is_file()
+    assert result.contact_sheet.pages == () and result.contact_sheet.cells == 0
+    assert result.contact_sheet.skipped == (
+        {"path": str(out_root), "reason": "OSError: disk full"},
+    )

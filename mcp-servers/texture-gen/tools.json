@@ -36,6 +36,14 @@
         "type": "object",
         "properties": {}
       }
+    },
+    {
+      "name": "texture_contact_sheet",
+      "description": "Rebuild the contact sheet (contact_sheet_NNN.png) at the output root from every texture set, with each albedo tiled 2x2 under its set name, backend, and seed. Returns pages, cells, and skipped albedos, or texture.no_texture_sets when the root holds no sets. Needs no texture model.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
     }
   ]
 }

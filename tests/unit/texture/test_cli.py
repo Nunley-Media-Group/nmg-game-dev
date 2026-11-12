@@ -10,10 +10,20 @@ import numpy as np
 import pytest
 from PIL import Image as PILImage
 
-from nmg_game_dev.texture import generate
+from nmg_game_dev.texture import generate, hardware
 from nmg_game_dev.texture.__main__ import main
 from nmg_game_dev.texture.seamless import is_seamless
 from tests.texture_fakes import APPLE_SILICON_32GB, save_png, synthetic_image
+
+
+def _set_with_albedo(root: Path, name: str) -> None:
+    """A texture set holding one albedo and its manifest (#152)."""
+    albedo = save_png(synthetic_image(256), root / name / "z-image-turbo_1_256.png")
+    manifest = {
+        "name": name,
+        "images": [{"backend": "z-image-turbo", "seed": 1, "path": str(albedo)}],
+    }
+    (root / name / "textures.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 @pytest.fixture
@@ -87,3 +97,50 @@ def test_seamless_missing_input_exits_one_with_remediation(
     err = capsys.readouterr().err
     assert "ERROR [texture.input_missing]" in err
     assert "Remediation: Pass the path of an existing PNG texture." in err
+
+
+def test_sheet_rebuilds_the_root_and_prints_its_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "root"
+    _set_with_albedo(root, "rusted-steel")
+    assert main(["sheet", "--root", str(root)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert set(printed) == {"pages", "cells", "skipped"}
+    assert printed["cells"] == 1 and printed["skipped"] == []
+    assert printed["pages"] == [str(root / "contact_sheet_001.png")]
+    assert (root / "contact_sheet_001.png").is_file()
+
+
+def test_sheet_defaults_to_the_output_root_from_the_environment(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "generated"
+    _set_with_albedo(root, "oak")
+    monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(root))
+    assert main(["sheet"]) == 0
+    assert json.loads(capsys.readouterr().out)["cells"] == 1
+
+
+def test_sheet_on_an_empty_root_exits_one_with_the_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["sheet", "--root", str(tmp_path / "empty")]) == 1
+    err = capsys.readouterr().err
+    assert "ERROR [texture.no_texture_sets]" in err
+    assert "Remediation:" in err
+
+
+def test_sheet_needs_no_backend_or_hardware_probe(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse() -> None:
+        raise AssertionError("the sheet command must not probe the host")
+
+    monkeypatch.setattr(generate, "probe", refuse)
+    monkeypatch.setattr(hardware, "probe", refuse)
+    monkeypatch.delenv("TEXTURE_GEN_MODELS_DIR", raising=False)
+    root = tmp_path / "root"
+    _set_with_albedo(root, "steel")
+    assert main(["sheet", "--root", str(root)]) == 0
+    assert json.loads(capsys.readouterr().out)["cells"] == 1

@@ -10,6 +10,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
 
+### Changed
+
+- Add a contact sheet for reviewing generated tiling textures (#152)
+
 ## [0.21.4] - 2026-11-12
 
 ### Changed
