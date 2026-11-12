@@ -16,6 +16,10 @@ const TRUST_DIALOG = /Do you trust the files in this folder\?|Yes, I trust this 
 const TRUST_ACCEPT_KEYS = Object.freeze(["down", "enter"]);
 const SERVER_FAILED = /✘|\bfailed\b|disconnected|needs authentication/i;
 const SERVER_CONNECTED = /✔|✓|\bconnected\b/i;
+const MORE_ABOVE = /↑\s*\d+\s+more/;
+const MORE_BELOW = /↓\s*\d+\s+more/;
+const KEY_SETTLE_MS = 250;
+const MAX_SCROLL_KEYS = 200;
 
 function bounded(value, size = 8000) {
   const text = String(value ?? "");
@@ -59,14 +63,33 @@ function commandEvidence(summary, output) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-function serverStatus(screen, server) {
-  const line = String(screen ?? "").split("\n").find((text) => text.includes(PLUGIN) && text.includes(server));
-  if (!line) return "missing";
-  if (SERVER_FAILED.test(line)) return "failed";
-  return SERVER_CONNECTED.test(line) ? "connected" : "pending";
+// `row` is the latest /mcp row that names the server, or undefined when no read has shown one.
+function serverStatus(row) {
+  if (row === undefined) return "missing";
+  if (SERVER_FAILED.test(row)) return "failed";
+  return SERVER_CONNECTED.test(row) ? "connected" : "pending";
 }
 
-async function smoke(request) {
+const readVisible = async (pane, signal) =>
+  (await run("herdr", ["pane", "read", pane, "--source", "visible", "--format", "text"], { signal })).stdout;
+
+// Claude Code draws /mcp as a scrolling selection list, so a short tab shows a window of rows with
+// `↑ N more` / `↓ N more` markers. Navigation keys only move the selection, so the pass presses up
+// while the top marker shows and then down while the bottom marker shows, reading after each key.
+async function pageMcpList(pane, { signal, keySettleMs, onRead }) {
+  let screen = await readVisible(pane, signal);
+  onRead(screen);
+  for (const [marker, key] of [[MORE_ABOVE, "up"], [MORE_BELOW, "down"]]) {
+    for (let presses = 0; marker.test(screen) && presses < MAX_SCROLL_KEYS; presses += 1) {
+      if ((await run("herdr", ["pane", "send-keys", pane, key], { signal })).status !== 0) return;
+      await sleep(keySettleMs);
+      screen = await readVisible(pane, signal);
+      onRead(screen);
+    }
+  }
+}
+
+async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
   const { projectRoot, config, identity, signal } = request;
   const expected = Array.isArray(config?.expectConnected) ? config.expectConnected : [];
   const evidence = [];
@@ -95,10 +118,10 @@ async function smoke(request) {
     let trusted = false;
     while (started === null) {
       if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
-      await sleep(POLL_MS);
+      await sleep(pollMs);
       if (trusted || started !== null) continue;
-      const screen = await run("herdr", ["pane", "read", pane, "--source", "visible", "--format", "text"], { signal });
-      if (TRUST_DIALOG.test(String(screen.stdout).replace(/\s+/g, " "))) {
+      const screen = await readVisible(pane, signal);
+      if (TRUST_DIALOG.test(screen.replace(/\s+/g, " "))) {
         trusted = true;
         evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${TRUST_ACCEPT_KEYS.join(" ")} (trust ephemeral project)`,
           await run("herdr", ["pane", "send-keys", pane, ...TRUST_ACCEPT_KEYS], { signal })));
@@ -109,16 +132,27 @@ async function smoke(request) {
     if (started.status !== 0) return finish("failed", "Claude Code session with --plugin-dir did not become ready");
 
     evidence.push(commandEvidence("herdr agent prompt /mcp", await run("herdr", ["agent", "prompt", label, "/mcp"], { signal })));
-    let screen = "";
+    // Every distinct line from every read, in first-seen order, and the latest row naming each server.
+    const lines = new Set();
+    const latest = new Map();
+    const record = (screen) => {
+      for (const line of screen.split("\n")) {
+        if (!line.trim()) continue;
+        lines.add(line);
+        for (const server of expected) {
+          if (line.includes(PLUGIN) && line.includes(server)) latest.set(server, line);
+        }
+      }
+    };
     let statuses = {};
-    for (let poll = 0; poll < MCP_POLLS; poll += 1) {
+    for (let poll = 0; poll < mcpPolls; poll += 1) {
       if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
-      await sleep(POLL_MS);
-      screen = (await run("herdr", ["pane", "read", pane, "--source", "visible", "--format", "text"], { signal })).stdout;
-      statuses = Object.fromEntries(expected.map((server) => [server, serverStatus(screen, server)]));
+      await sleep(pollMs);
+      await pageMcpList(pane, { signal, keySettleMs, onRead: record });
+      statuses = Object.fromEntries(expected.map((server) => [server, serverStatus(latest.get(server))]));
       if (Object.values(statuses).every((status) => status === "connected" || status === "failed")) break;
     }
-    evidence.push({ kind: "artifact", summary: "/mcp screen in the plugin session", artifact: bounded(screen) });
+    evidence.push({ kind: "artifact", summary: "/mcp list rows read in the plugin session", artifact: bounded([...lines].join("\n")) });
     const summary = expected.map((server) => `${PLUGIN}:${server} ${statuses[server]}`).join(", ");
     return Object.values(statuses).every((status) => status === "connected")
       ? finish("passed", `plugin loaded via --plugin-dir; ${summary}`)
@@ -129,10 +163,15 @@ async function smoke(request) {
   }
 }
 
+// The factory is the testability seam: the provider is createSmoke() with the production timings.
+export function createSmoke({ pollMs = POLL_MS, keySettleMs = KEY_SETTLE_MS, mcpPolls = MCP_POLLS } = {}) {
+  return (request) => smoke(request, { pollMs, keySettleMs, mcpPolls });
+}
+
 export const extension = Object.freeze({
   schemaVersion: 1,
   id: "project.plugin-session-smoke",
   providers: Object.freeze({
-    "project.plugin-session-smoke": smoke,
+    "project.plugin-session-smoke": createSmoke(),
   }),
 });
