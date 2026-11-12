@@ -28,7 +28,9 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Measure texel density per material slot and exempt trim-atlas and flat-colour slots (#151)
 
 ### Fixed
+
 - Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
+- Fix the Blender test runner repointing the user's Blender add-on link and racing across worktrees (#189)
 - Fix plugin.session-smoke failing when the Herdr window is too short to show every /mcp server (#193)
 
 ## [0.21.3] - 2026-11-11
