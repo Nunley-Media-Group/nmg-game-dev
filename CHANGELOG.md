@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-12
+
+### Fixed
+
+- Judge launcher detach in the scaffold scenarios by process state, not a 2-second wall clock (#215)
+
 ## [0.22.0] - 2026-11-12
 
 ### Changed
