@@ -6,11 +6,24 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
+
+## [0.21.4] - 2026-11-12
+
+### Changed
+
+- Add estimate_landmarks to propose rig_humanoid landmarks from the mesh (#137)
+- Measure texel density per material slot and exempt trim-atlas and flat-colour slots (#151)
+
+### Fixed
+- Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
+- Fix plugin.session-smoke failing when the Herdr window is too short to show every /mcp server (#193)
 ## [0.21.4] - 2026-11-11
 
 ### Fixed
 
-- Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
 
 ## [0.21.3] - 2026-11-11
 

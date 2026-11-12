@@ -44,7 +44,9 @@ your own judgment. Stop only when the final presentation is written.
 7. Add detail and materials. Look up shader nodes by type, never by name:
    `next(n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED")`. Set Principled inputs by their
    current names, and read enum identifiers at runtime rather than hardcoding them. After each detail
-   or material pass, run the inspection again and fix any new blocking finding.
+   or material pass, run the inspection again and fix any new blocking finding. For an
+   `environment_piece`, set the custom property `nmg_trim_atlas` to `True` on each trim-atlas material
+   (`material["nmg_trim_atlas"] = True`), so its slots are exempt from the per-slot texel density check.
 8. Present the result. Show the final multi-view renders with `look`, and summarize the inspection:
    `passed`, the count of blocking and non-blocking findings, `triangles.total` against
    `triangles.budget`, and the `headroom`. Then point the developer to `/finalize-asset` to bake and
