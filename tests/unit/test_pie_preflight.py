@@ -16,7 +16,7 @@ from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, jobs
 from nmg_game_dev.pipeline.clients.unreal_mcp import UnrealTimeoutError
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import PieMode
-from nmg_game_dev.pipeline.steps import STEP_ORDER, settings_hash
+from nmg_game_dev.pipeline.steps import STEP_ORDER, clip_settings_hash, settings_hash
 from nmg_game_dev.unreal.import_asset import import_variant
 from nmg_game_dev.unreal.preflight import (
     PIE_CHECK_TIMEOUT_S,
@@ -28,6 +28,8 @@ from nmg_game_dev.unreal.retry import RetrySettings
 from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner, dead_pid
 
 Reply = bool | Exception
+
+_CLIP_STEPS = ("export_anims", "import_anims")
 
 
 class _Clock:
@@ -209,4 +211,9 @@ def test_the_pie_options_are_outside_every_cache_settings_hash(tmp_path: Path) -
     assert default.pie_mode == "wait"
     assert default.pie_wait_seconds == 600
     for step in STEP_ORDER:
-        assert settings_hash(step, default, "budgets") == settings_hash(step, changed, "budgets")
+        if step in _CLIP_STEPS:
+            assert clip_settings_hash(step, default) == clip_settings_hash(step, changed)
+        else:
+            assert settings_hash(step, default, "budgets") == settings_hash(
+                step, changed, "budgets"
+            )

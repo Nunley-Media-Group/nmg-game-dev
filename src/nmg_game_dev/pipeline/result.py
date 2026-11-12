@@ -15,8 +15,8 @@ class StepResult(BaseModel):
     """Outcome of one finalize step.
 
     Attributes:
-        step: Step name: ``validate``, ``bake``, ``variants``, ``export``, ``reimport``, or
-            ``import_ue``.
+        step: Step name: ``validate``, ``bake``, ``variants``, ``export``, ``export_anims``,
+            ``reimport``, ``import_ue``, or ``import_anims``.
         cache_hit: ``True`` when the step was served from the content-addressed cache.
         outputs: Step-specific outputs.  Paths are strings.
         summary: One human-readable line.
@@ -42,6 +42,10 @@ class FinalizeResult(BaseModel):
         result_blend: The last mutating step's ``.blend``, used for load-back.
         warnings: Non-fatal problems, each ``{"code", "message", "remediation"}``.  The job still
             succeeds.  For example, ``design.backlog_update_failed``.
+        animations: The clip result (#138), or ``None`` when no clip step ran.  It holds
+            ``content_path`` (``/Game/<Category>/<Name>/Animations`` or ``None`` with no clips),
+            ``clips`` (each ``{name, asset_path, export_cache_hit, import_cache_hit}``), ``stale``
+            (AnimSequences no longer on the rig), and ``compatible`` (skeletons registered).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -52,3 +56,4 @@ class FinalizeResult(BaseModel):
     loaded_back: bool = False
     result_blend: str | None = None
     warnings: list[dict[str, str]] = Field(default_factory=list)
+    animations: dict[str, Any] | None = None

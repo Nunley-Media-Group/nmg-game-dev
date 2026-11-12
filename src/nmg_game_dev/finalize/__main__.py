@@ -1,10 +1,11 @@
 """Command line for the finalize pipeline (#69, #148, #149).
 
-    python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue}
+    python -m nmg_game_dev.finalize {all,validate,bake,variants,export,export_anims,reimport,
+        import_ue,import_anims}
         (--collection N [--collection M ...] | --batch FILE)
         [--category C] [--class K] [--export-root R] [--blend B] [--budgets P]
-        [--material-variants P] [--device GPU|CPU] [--force] [--fail-fast]
-        [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
+        [--material-variants P] [--device GPU|CPU] [--compatible-with C/N ...] [--force]
+        [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
 
     python -m nmg_game_dev.finalize reduce --collection N --class C [--blend B] [--budgets P]
         [--device GPU|CPU] [--cage M] [--ray M] [--miss-threshold X] [--parts JSON] [--wait S]
@@ -17,6 +18,7 @@
 Several ``--collection`` values, or a ``--batch`` file of finalize requests, run as one batch: the
 collections are finalized one at a time, in order, under one lock.  A ``--batch`` entry takes its
 own keys, and the asset options given on the command line fill in any key an entry omits.
+``--material-variants`` and ``--compatible-with`` apply to one collection only.
 
 Exit codes: 0 success; 1 a step or a collection failed (``ERROR [code] message`` and
 ``Remediation:`` on stderr; a batch prints one line per collection); 2 a prerequisite is missing
@@ -121,8 +123,10 @@ _STEP_HELP: Final = {
     "bake": "Bake the authored materials.",
     "variants": "Build the Desktop and Mobile variants.",
     "export": "Export the FBX variants and the sidecar.",
+    "export_anims": "Export one animation FBX per clip on the rig.",
     "reimport": "Re-import the exported variants and check them.",
     "import_ue": "Import the variants into Unreal and finish the materials.",
+    "import_anims": "Import the clips as AnimSequences on the Desktop skeleton.",
 }
 
 
@@ -162,6 +166,14 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
         dest="material_variants",
         help="Material-variants declaration. Defaults to <collection>.material-variants.json "
         "beside --blend. One collection only; a --batch entry sets material_variants_path.",
+    )
+    parser.add_argument(
+        "--compatible-with",
+        action="append",
+        default=[],
+        metavar="CATEGORY/NAME",
+        help="Another character whose Desktop skeleton this character's clips may play on. "
+        "Repeat for each. import_anims registers both directions.",
     )
     parser.add_argument(
         "--force", action="store_true", help="Rerun every step, ignoring the cache."
@@ -236,6 +248,11 @@ def main(
             "--material-variants applies to one --collection; set material_variants_path in "
             "each --batch entry"
         )
+    if is_batch and args.compatible_with:
+        parser.error(
+            "--compatible-with applies to one --collection; set compatible_with in each --batch "
+            "entry"
+        )
 
     steps = STEP_ORDER if args.command == "all" else (args.command,)
     active = service if service is not None else FinalizeService()
@@ -262,6 +279,7 @@ def _run_single_command(
             device=args.device or "GPU",
             pie_mode=args.pie,
             pie_wait_seconds=args.pie_wait_limit,
+            compatible_with=args.compatible_with,
             material_variants_path=args.material_variants,
         )
     except MissingArgumentError as error:

@@ -49,6 +49,7 @@ def finalize_asset(
     lock_wait_seconds: float | None = None,
     pie_mode: str = "wait",
     pie_wait_seconds: float = 600,
+    compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
     """Finalize an authored collection, or a batch, through every step and import it into Unreal.
 
@@ -69,6 +70,8 @@ def finalize_asset(
     get_finalize_job for progress, which reports the batch's current collection and completed count.
     material_variants_path names a <Name>.material-variants.json declaration; without it, one beside
     blend is used when present. In a batch, each request entry sets its own material_variants_path.
+    compatible_with lists <Category>/<Name> characters whose skeleton this character's clips may
+    also play on; in a batch, each request entry sets its own compatible_with.
     """
     return _logged(
         _finalize_asset(
@@ -87,6 +90,7 @@ def finalize_asset(
             lock_wait_seconds=lock_wait_seconds,
             pie_mode=pie_mode,
             pie_wait_seconds=pie_wait_seconds,
+            compatible_with=compatible_with,
         )
     )
 
@@ -107,8 +111,10 @@ def run_finalize_step(
     lock_wait_seconds: float | None = None,
     pie_mode: str = "wait",
     pie_wait_seconds: float = 600,
+    compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run one step: validate, bake, variants, export, reimport, or import_ue.
+    """Run one step: validate, bake, variants, export, export_anims, reimport, import_ue, or
+    import_anims.
 
     The step runs through the same implementation finalize_asset uses. Earlier steps it depends on
     run first, from the cache when they are already there. wait_for_lock, lock_wait_seconds, and
@@ -131,6 +137,7 @@ def run_finalize_step(
             lock_wait_seconds=lock_wait_seconds,
             pie_mode=pie_mode,
             pie_wait_seconds=pie_wait_seconds,
+            compatible_with=compatible_with,
         )
     )
 

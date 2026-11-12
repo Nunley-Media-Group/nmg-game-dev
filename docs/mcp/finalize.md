@@ -20,8 +20,8 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `finalize_asset` | Either `collection` and `export_root`, or `requests` (a batch, exclusive with `collection`). Optional: `category`, `asset_class`, `blend`, `budgets_path`, `material_variants_path`, `force`, `wait_seconds`, `fail_fast`, `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | `{"job_id", "status"}`, plus `result` (a batch's result is `result.batch`) when the job finishes within `wait_seconds`, or `error` when it fails |
-| `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` for one collection, plus `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | The same shape as `finalize_asset`, for one step |
+| `finalize_asset` | Either `collection` and `export_root`, or `requests` (a batch, exclusive with `collection`). Optional: `category`, `asset_class`, `blend`, `budgets_path`, `material_variants_path`, `compatible_with`, `force`, `wait_seconds`, `fail_fast`, `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | `{"job_id", "status"}`, plus `result` (a batch's result is `result.batch`) when the job finishes within `wait_seconds`, or `error` when it fails |
+| `run_finalize_step` | `step` (one of the eight step names), then the same inputs as `finalize_asset` for one collection, plus `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | The same shape as `finalize_asset`, for one step |
 | `reduce_asset` | `collection`, `asset_class`, optional `blend`, `budgets_path`, `device`, `cage_extrusion`, `max_ray_distance`, `miss_threshold`, `parts`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds`. See [reduce_asset](#reduce_asset-139). |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?}` |
 | `list_material_variants` | `category`, `collection` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants or is not in Content |
@@ -30,7 +30,7 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 `material_variants_path` names the asset's `<Name>.material-variants.json` declaration. Without it, a
 `--blend` run uses the file beside the blend when one exists. A session run has no blend, so it declares
 no material variants unless the path is given. In a batch, each `requests` entry sets its own
-`material_variants_path`; the top-level parameter applies to one collection only. A path that does not
+`material_variants_path` and `compatible_with`; those top-level parameters apply to one collection only. A path that does not
 exist returns `finalize.material_variants_not_found`. The format and the rules are in `docs/asset-contract.md` section 4.
 Each variant's `import_ue` result lists the imported instances in `material_variants`, one entry per
 instance, and names any variant parameter the master material lacks in `warnings`.
@@ -48,23 +48,30 @@ from 0 to 1. A job that is waiting for the lock reports `waiting`. An unknown `j
 `category` and `asset_class` are optional on `finalize_asset` and `run_finalize_step`. When one is
 omitted, finalize takes it from the design backlog. See [Backlog fallback](#backlog-fallback).
 
+`compatible_with` is optional. It is a list of `<Category>/<Name>` strings, such as
+`["Characters/Guard"]`, and each item is PascalCase. It names characters whose Desktop skeleton this
+character's animation clips may also play on. `import_anims` registers both directions. Duplicates
+are dropped, and a character may not name itself.
+
 Errors come back as `{"error": {"code", "message", "remediation", "stage"}}`. The server writes
 logs to stderr only, because stdout is the MCP channel.
 
 ## CLI
 
 ```text
-python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue} \
+python -m nmg_game_dev.finalize {all,validate,bake,variants,export,export_anims,reimport,import_ue,import_anims} \
   (--collection Crate [--collection Barrel ...] | --batch FILE) --export-root <dir> \
   [--category Props] [--class standard_prop] [--blend B] [--budgets P] [--material-variants P] \
-  [--device GPU|CPU] [--force] [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] \
-  [--pie-wait-limit S] [--json]
+  [--device GPU|CPU] [--compatible-with Category/Name ...] [--force] [--fail-fast] \
+  [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
 
 python -m nmg_game_dev.finalize material-variants --category Props --collection Crate [--json]
 ```
 
 `--export-root` is required with `--collection`. A `--batch` entry may set its own.
 `--material-variants` applies to a single `--collection`; a `--batch` entry sets `material_variants_path`.
+`--compatible-with` may repeat, once for each character named in [Animation clips](#animation-clips).
+Like `--material-variants`, it applies to a single `--collection`; a `--batch` entry sets `compatible_with`.
 
 `material-variants` prints the rows that `list_material_variants` returns, one line per variant, or the
 JSON array with `--json`. It needs the Unreal MCP endpoint, and it exits `2` when that endpoint is
@@ -185,6 +192,7 @@ Every entry point takes one `FinalizeRequest`:
 | `budgets_path` | Optional `nmg-budgets.json` with budget overrides. |
 | `material_variants_path` | Optional `<Name>.material-variants.json`. Found beside `blend` when omitted (see the tools section). |
 | `device` | `GPU` (default) or `CPU` for the bake. |
+| `compatible_with` | Optional `<Category>/<Name>` characters whose skeleton the clips may also play on (see [Animation clips](#animation-clips)). |
 
 ## Backlog fallback
 
@@ -213,10 +221,48 @@ Finalize runs the steps in this order, and each step can also run alone:
 | `bake` | Blender, writes a copy | Checkpoint to `bake.blend` | Contract texture sets and the bake proof |
 | `variants` | Blender, writes a copy | `bake.blend` to `variants.blend` | Triangle counts per variant and LOD |
 | `export` | Blender, read-only | `variants.blend` to the FBX folders and `nmg-variants.json` | Pre-export contract report, gated by `quality.contract_failed` |
+| `export_anims` | Blender, read-only | `checkpoint.blend` (the session's current actions) to `Animations/A_<Name>_<Clip>.fbx` and `nmg-animations.json` | One FBX per clip, cached per clip. Fails with `finalize.clip_name_invalid` |
 | `reimport` | Blender, factory startup | Exported FBX | Re-import report per variant, gated by `quality.reimport_mismatch` |
 | `import_ue` | Unreal MCP | Exported folders to `/Game/<Category>/<Name>/{Desktop,Mobile}/` | Pivot check, failing with `import_ue.pivot_mismatch` |
+| `import_anims` | Unreal MCP | Clip FBX to `/Game/<Category>/<Name>/Animations/A_<Name>_<Clip>` on the Desktop skeleton | Skeleton and frame-count check against the sidecar, failing with `import_anims.clip_mismatch`. Stale and compatible-skeleton reports |
 
-Load-back sits between `reimport` and `import_ue`. It is not a step in its own right.
+`export_anims` runs after `export`, and `import_anims` runs after `import_ue`. `finalize all` runs
+both. Load-back sits between `reimport` and `import_ue`. It is not a step in its own right.
+
+A character without clips passes through both animation steps. Each reports zero clips, writes
+nothing under `Animations/`, and makes no Unreal call. Every other output is the same as before.
+
+### Animation clips
+
+`export_anims` exports every clip on `SK_<Name>`, which is the rig's provenance clips plus the actions
+held in its slot or NLA tracks. Unrelated actions in the file are not exported.
+
+- **Layout.** `<export_root>/<Category>/<Name>/Animations/A_<Name>_<Clip>.fbx` holds one clip each.
+  Each file has an armature named `Armature`, no mesh, and exactly one clip. The armature and axis
+  settings match the rigged mesh export: `add_leaf_bones` off, deform-only, primary bone axis Y,
+  secondary X.
+- **Sidecar.** `nmg-animations.json` sits beside the FBX files. The top level holds `asset`,
+  `armature` (`Armature`), and `skeleton` (`/Game/<Category>/<Name>/Desktop/SM_<Name>_Skeleton`).
+  Each entry in `clips` holds `name`, `file`, `asset_path`, `frame_start`, `frame_end`,
+  `frame_count`, `fps`, and `source`. The `source` is the provenance `source` dict (`library`,
+  `file`, `sha256`, `skeleton`), or `"authored"` for a clip with no provenance.
+- **Import.** `import_anims` imports each clip as the AnimSequence
+  `/Game/<Category>/<Name>/Animations/A_<Name>_<Clip>` on `SM_<Name>_Skeleton`. It creates no other
+  skeleton, skeletal mesh, or physics asset. It checks each clip's skeleton and frame count against
+  the sidecar. A difference fails the step with `import_anims.clip_mismatch`, which names the clip,
+  the expected value, and the measured value.
+- **Stale sequences.** `import_anims` lists AnimSequences named `A_<Name>_*` that are no longer
+  clips under `stale` in the result. It never deletes them.
+- **Compatible skeletons.** With `compatible_with`, `import_anims` checks each target's Desktop
+  skeleton before it changes anything. A missing target fails with `finalize.skeleton_not_found`,
+  and differing bone names fail with `finalize.skeleton_mismatch`, which lists the differing bones.
+  Otherwise each skeleton gains the other in its `compatible_skeletons`, once, in both directions.
+  Both characters keep their own skeleton assets. The result lists the registered skeletons under
+  `compatible`.
+
+The result's `animations` entry carries `content_path`, `clips` (each with `name`, `asset_path`,
+`export_cache_hit`, and `import_cache_hit`), `stale`, and `compatible`. It is `null` when no clip step
+ran.
 
 `run_finalize_step` returns a result with `step`, `cache_hit`, `outputs`, and `summary`. When a step
 fails, no later step runs, and nothing is imported into Unreal.
@@ -299,6 +345,24 @@ The wait options and the PIE options (`pie_mode`, `pie_wait_seconds`) are not pa
 changing them reuses every cached step. Each batch item is cached under its own asset hash, exactly as a
 single collection is.
 
+The two animation steps are cached per clip, not as a whole, and they do not change the input hash
+of the steps after them:
+
+- **Export.** A clip's key covers its content hash (keyframes through the action's slots, the rig's
+  bones and rest pose, the provenance entry, and the scene frame rate) and the export settings. A
+  change to `Walk` re-exports only `Walk`. `Idle` is served from cache and is not re-exported.
+- **Import.** A clip's key covers its exported output and the Desktop skeleton path. A clip whose
+  sequence already exists is served from cache and is not re-imported. A clip whose sequence has
+  been deleted from the project is imported again.
+- **Mesh steps.** A clip-only change leaves every mesh step's key valid, so the mesh steps stay cache
+  hits.
+- **Probe.** `export_anims` always runs its Blender probe, because the probe lists the clips and
+  their hashes that the keys need. The probe itself is never cached.
+- **Force.** `force` reruns every clip in both steps.
+
+A clip step reports `cache_hit: true` only when every clip was served from cache. A step with no
+clips reports `cache_hit` from the step before it.
+
 ## Environment
 
 | Variable | Default | Used by |
@@ -342,6 +406,11 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `variants.<code>` | Variant generation failed. The code names the cause. | Read the message, fix the mesh or material it names, then rerun. |
 | `import_ue.failed` | The Unreal import call failed, or the editor did not answer any attempt. The message gives the attempts and seconds when every retry timed out. | Check the editor Output Log for the import, then rerun `import_ue`. For timeouts, make sure the editor is responsive. `NMG_GAME_DEV_UE_RETRIES` and `NMG_GAME_DEV_UE_RETRY_DELAY_S` change the retry limits. |
 | `import_ue.pivot_mismatch` | A child part's local bounds differ from the Blender part by more than 0.01 cm. | Fix the pivot in Blender, then rerun finalize with `--force` so the UE content is reimported. |
+| `finalize.clip_name_invalid` | A clip's action name does not match `^[A-Za-z][A-Za-z0-9_]*$`. The message names it. Nothing was exported. | Rename the action to start with a letter and use only letters, digits, and underscores, then rerun. |
+| `finalize.skeleton_not_found` | `import_anims` found no Desktop skeleton for the character, or a `compatible_with` target has none. Nothing was imported or registered. | For the character, run `import_ue` first, then rerun. For a target, finalize that character first, or remove it from `compatible_with`. |
+| `finalize.skeleton_mismatch` | A `compatible_with` target's bone names differ from this character's. The message lists the differing bones. Nothing was registered. | Only register characters rigged with the same bone names. |
+| `import_anims.clip_mismatch` | A clip's AnimSequence has a different skeleton or frame count from the sidecar. The message names the clip, the expected value, and the measured value. | Re-export the clip, then rerun `import_anims` with `force`. |
+| `import_anims.failed` | The Unreal import call for the clips failed, or a non-AnimSequence asset was created. | Check the editor Output Log, confirm the clip FBX files exist, then rerun `import_anims`. |
 | `mcp.blender.unreachable` | The Blender MCP session on `BLENDER_MCP_PORT` is not reachable. | Run `scripts/start-blender-mcp.sh`, then rerun. |
 | `mcp.unreal.unreachable` | The Unreal MCP endpoint on `UE_MCP_PORT` is not reachable. | Run `scripts/start-unreal-mcp.sh`, then rerun `import_ue`. |
 

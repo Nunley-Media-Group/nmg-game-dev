@@ -16,7 +16,13 @@ from pathlib import Path
 import pytest
 
 from nmg_game_dev.finalize import FinalizeService, build_request, default_budgets_path
-from nmg_game_dev.finalize.__main__ import EXIT_FAILED, EXIT_OK, EXIT_PREREQUISITE, main
+from nmg_game_dev.finalize.__main__ import (
+    EXIT_FAILED,
+    EXIT_OK,
+    EXIT_PREREQUISITE,
+    build_parser,
+    main,
+)
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, PipelineError, jobs
 from tests.finalize_fakes import (
     BatchRouter,
@@ -110,7 +116,7 @@ def test_json_flag_prints_the_result_as_json(tmp_path: Path, streams: _Streams) 
     assert code == EXIT_OK
     result = json.loads(streams.out.getvalue())
     assert result["desktop_content_path"] == "/Game/Props/Crate/Desktop"
-    assert [step["step"] for step in result["steps"]][-1] == "import_ue"
+    assert [step["step"] for step in result["steps"]][-1] == "import_anims"
 
 
 def test_a_single_step_runs_its_prerequisites_only(tmp_path: Path, streams: _Streams) -> None:
@@ -429,6 +435,20 @@ def test_wait_limit_without_wait_is_a_usage_error(tmp_path: Path, streams: _Stre
     assert info.value.code == 2
 
 
+def test_compatible_with_on_several_collections_is_a_usage_error(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    argv = _collections_argv(tmp_path, "Alpha", "Beta", extra=("--compatible-with", "Props/Gamma"))
+    with pytest.raises(SystemExit) as info:
+        main(
+            argv,
+            service=_batch_service(tmp_path / "cache")[0],
+            stdout=streams.out,
+            stderr=streams.err,
+        )
+    assert info.value.code == 2
+
+
 def test_collections_need_an_export_root(tmp_path: Path, streams: _Streams) -> None:
     argv = ["all", "--collection", "Alpha", "--category", "Props", "--class", "standard_prop"]
     with pytest.raises(SystemExit) as info:
@@ -439,3 +459,60 @@ def test_collections_need_an_export_root(tmp_path: Path, streams: _Streams) -> N
             stderr=streams.err,
         )
     assert info.value.code == 2
+
+
+def test_export_anims_runs_its_prerequisites_and_no_later_step(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    # AC9 and FR9: the CLI accepts export_anims, which runs validate, bake, variants, then itself.
+    service = _inproc_service(tmp_path / "cache", lambda request: FakeStepRunner(request))
+    code = _run(_argv(tmp_path, command="export_anims"), service, streams)
+
+    assert code == EXIT_OK
+    out = streams.out.getvalue()
+    assert "export_anims:" in out
+    assert "reimport" not in out
+    assert "import_anims" not in out
+
+
+def test_import_anims_is_a_command_and_runs_the_whole_chain(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    # FR9: import_anims is accepted, and it depends on every earlier step.
+    service = _inproc_service(tmp_path / "cache", lambda request: FakeStepRunner(request))
+    code = _run(_argv(tmp_path, command="import_anims"), service, streams)
+
+    assert code == EXIT_OK
+    assert "import_anims:" in streams.out.getvalue()
+    assert "import_ue:" in streams.out.getvalue()
+
+
+def test_compatible_with_repeats_into_the_request(tmp_path: Path) -> None:
+    # FR12: --compatible-with may repeat, and each value lands in the request.
+    args = build_parser().parse_args(
+        [
+            "import_anims",
+            "--collection",
+            "Hero",
+            "--category",
+            "Characters",
+            "--class",
+            "character",
+            "--export-root",
+            str(tmp_path),
+            "--compatible-with",
+            "Characters/Guard",
+            "--compatible-with",
+            "Characters/Villager",
+        ]
+    )
+    assert args.compatible_with == ["Characters/Guard", "Characters/Villager"]
+
+    request = build_request(
+        collection="Hero",
+        category="Characters",
+        asset_class="character",
+        export_root=tmp_path,
+        compatible_with=args.compatible_with,
+    )
+    assert request.compatible_with == ("Characters/Guard", "Characters/Villager")

@@ -36,6 +36,7 @@ BATCH_ENTRY_KEYS: Final = frozenset(
         "device",
         "pie_mode",
         "pie_wait_seconds",
+        "compatible_with",
         "material_variants_path",
     }
 )
@@ -136,6 +137,7 @@ def build_request(
     device: str = "GPU",
     pie_mode: str = "wait",
     pie_wait_seconds: object = DEFAULT_PIE_WAIT_SECONDS,
+    compatible_with: Sequence[str] = (),
     material_variants_path: str | Path | None = None,
 ) -> FinalizeRequest:
     """Validate the arguments into a ``FinalizeRequest``, defaulting the budget file.
@@ -167,6 +169,7 @@ def build_request(
             "backlog_path": backlog,
             "pie_mode": pie_mode,
             "pie_wait_seconds": pie_wait_seconds,
+            "compatible_with": tuple(compatible_with),
             "material_variants_path": declaration,
         }
     )
@@ -224,6 +227,7 @@ def _request_from_entry(entry: object, shared: Mapping[str, object]) -> Finalize
             device=str(merged.get("device") or "GPU"),
             pie_mode=str(merged.get("pie_mode", "wait")),
             pie_wait_seconds=merged.get("pie_wait_seconds", DEFAULT_PIE_WAIT_SECONDS),
+            compatible_with=_compatible_with(merged.get("compatible_with")),
             material_variants_path=_optional_str(merged.get("material_variants_path")),
         )
     except MissingArgumentError as error:
@@ -236,6 +240,14 @@ def _request_from_entry(entry: object, shared: Mapping[str, object]) -> Finalize
 
 def _optional_str(value: object) -> str | None:
     return None if value is None else str(value)
+
+
+def _compatible_with(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise _EntryError("compatible_with must be a list of <Category>/<Name> strings")
+    return tuple(str(item) for item in value)
 
 
 def build_reduce_request(

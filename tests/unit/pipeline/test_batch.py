@@ -275,6 +275,37 @@ def test_an_entry_with_an_unknown_key_names_the_key(tmp_path: Path) -> None:
     assert "unknown key(s): fail_fast" in info.value.message
 
 
+def test_each_entry_carries_its_own_compatible_with(tmp_path: Path) -> None:
+    defaults = {
+        "category": "Characters",
+        "asset_class": "character",
+        "export_root": str(tmp_path / "export"),
+    }
+    hero, guard = build_batch(
+        [
+            {"collection": "Hero", "compatible_with": ["Characters/Guard"]},
+            {"collection": "Guard"},
+        ],
+        defaults=defaults,
+    )
+    assert hero.compatible_with == ("Characters/Guard",)
+    assert guard.compatible_with == ()
+
+
+def test_a_compatible_with_that_is_not_a_list_names_the_entry(tmp_path: Path) -> None:
+    with pytest.raises(PipelineError) as info:
+        build_batch(
+            [{"collection": "Hero", "compatible_with": "Characters/Guard"}],
+            defaults={
+                "category": "Characters",
+                "asset_class": "character",
+                "export_root": str(tmp_path),
+            },
+        )
+    assert info.value.code == "finalize.invalid_batch"
+    assert "index 0: compatible_with must be a list" in info.value.message
+
+
 def test_an_empty_batch_is_refused_before_anything_is_written(tmp_path: Path) -> None:
     cache = tmp_path / "cache"
     with pytest.raises(PipelineError) as info:

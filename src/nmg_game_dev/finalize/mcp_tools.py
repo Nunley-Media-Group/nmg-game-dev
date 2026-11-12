@@ -55,6 +55,7 @@ def finalize_asset(
     lock_wait_seconds: float | None = None,
     pie_mode: str = "wait",
     pie_wait_seconds: float = DEFAULT_PIE_WAIT_SECONDS,
+    compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
     """Finalize one collection, or a batch of ``requests`` in order.
@@ -112,6 +113,7 @@ def finalize_asset(
             pie_mode,
             pie_wait_seconds,
             material_variants_path,
+            compatible_with,
         )
     except _InvalidRequestError as error:
         return {"error": error.payload}
@@ -144,6 +146,7 @@ def run_finalize_step(
     lock_wait_seconds: float | None = None,
     pie_mode: str = "wait",
     pie_wait_seconds: float = DEFAULT_PIE_WAIT_SECONDS,
+    compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
     """Run one step through the same implementation ``finalize_asset`` uses."""
@@ -160,6 +163,7 @@ def run_finalize_step(
             pie_mode,
             pie_wait_seconds,
             material_variants_path,
+            compatible_with,
         )
     except PipelineError as error:
         return {"error": error_dict(error)}
@@ -255,6 +259,7 @@ def _request(
     pie_mode: str,
     pie_wait_seconds: float,
     material_variants_path: str | None = None,
+    compatible_with: list[str] | None = None,
 ) -> FinalizeRequest:
     try:
         return build_request(
@@ -267,6 +272,7 @@ def _request(
             pie_mode=pie_mode,
             pie_wait_seconds=pie_wait_seconds,
             material_variants_path=material_variants_path,
+            compatible_with=compatible_with or (),
         )
     except MissingArgumentError as error:
         raise _InvalidRequestError(error.payload()) from error

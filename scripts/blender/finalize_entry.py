@@ -2,6 +2,8 @@
 
     blender --background <in.blend> --python scripts/blender/finalize_entry.py -- \\
         <validate|bake|variants|export> --job-dir D [--inputs PATH]
+    blender --background <in.blend> --python scripts/blender/finalize_entry.py -- \\
+        export_anims --job-dir D [--inputs PATH]
     blender --background --factory-startup --python scripts/blender/finalize_entry.py -- \\
         reimport --job-dir D [--inputs PATH]
     blender --background <in.blend> --python scripts/blender/finalize_entry.py -- \\
@@ -32,7 +34,7 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADDON_DIR = _REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon"
 _PACKAGE = "nmg_game_dev_blender_addon"
-_STEPS = ("validate", "bake", "variants", "export", "reimport")
+_STEPS = ("validate", "bake", "variants", "export", "export_anims", "reimport")
 _REMEDIATION = "Check the Blender log for the traceback, fix the cause, and rerun."
 
 

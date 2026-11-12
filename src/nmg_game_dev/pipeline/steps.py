@@ -1,10 +1,12 @@
 """Finalize step table: order, kinds, cache settings, blob layout, gates, and envelope handling.
 
-The six steps run in ``STEP_ORDER``.  ``validate``, ``bake``, ``variants``, ``export``, and
-``reimport`` run in Blender (``scripts/blender/finalize_entry.py``); ``import_ue`` runs through the
-Unreal MCP.  Every Blender step returns a JSON envelope that this module checks and converts into
-either outputs or a ``PipelineError``.  ``validate``, ``export``, and ``reimport`` also pass their
-contract reports through ``quality.contract.gate``.
+The steps run in ``STEP_ORDER``.  ``validate``, ``bake``, ``variants``, ``export``, ``reimport``,
+and ``export_anims`` run in Blender (``scripts/blender/finalize_entry.py``); ``import_ue`` and
+``import_anims`` run through the Unreal MCP.  ``export_anims`` and ``import_anims`` are per-clip
+steps (#138): ``pipeline/anims.py`` runs them, and each clip is cached on its own key.  Every
+Blender step returns a JSON envelope that this module checks and converts into either outputs or a
+``PipelineError``.  ``validate``, ``export``, and ``reimport`` also pass their contract reports
+through ``quality.contract.gate``.
 """
 
 from __future__ import annotations
@@ -21,7 +23,16 @@ from nmg_game_dev.quality.contract import gate, load_report
 from .errors import PipelineError
 from .request import FinalizeRequest
 
-StepName = Literal["validate", "bake", "variants", "export", "reimport", "import_ue"]
+StepName = Literal[
+    "validate",
+    "bake",
+    "variants",
+    "export",
+    "export_anims",
+    "reimport",
+    "import_ue",
+    "import_anims",
+]
 StepKind = Literal["blender", "unreal"]
 
 STEP_ORDER: Final[tuple[StepName, ...]] = (
@@ -29,14 +40,16 @@ STEP_ORDER: Final[tuple[StepName, ...]] = (
     "bake",
     "variants",
     "export",
+    "export_anims",
     "reimport",
     "import_ue",
+    "import_anims",
 )
 VARIANTS: Final[tuple[str, ...]] = ("Desktop", "Mobile")
 ENVELOPE_SCHEMA_VERSION: Final = 1
 
 _STEP_VERSION: Final = (
-    "4"  # bumped for #148: validate and export keys include the material-variants declaration
+    "4"  # bumped for #148 (material-variants keys) and #138 (per-clip anim steps)
 )
 _REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 _BUDGET_TABLE: Final = (
@@ -52,11 +65,15 @@ class StepSpec:
         name: Step name.
         kind: ``blender`` runs headless Blender; ``unreal`` calls the Unreal MCP.
         mutates_scene: ``True`` when the step writes a new ``.blend`` that feeds the next step.
+        per_clip: ``True`` when the step is cached per clip and runs through ``pipeline/anims.py``
+            instead of the whole-step cache.  Per-clip steps never change the input hash of the
+            steps after them, so a clip-only change leaves the mesh steps' cache entries valid.
     """
 
     name: StepName
     kind: StepKind
     mutates_scene: bool
+    per_clip: bool = False
 
 
 STEPS: Final[dict[StepName, StepSpec]] = {
@@ -64,8 +81,23 @@ STEPS: Final[dict[StepName, StepSpec]] = {
     "bake": StepSpec("bake", "blender", mutates_scene=True),
     "variants": StepSpec("variants", "blender", mutates_scene=True),
     "export": StepSpec("export", "blender", mutates_scene=False),
+    "export_anims": StepSpec("export_anims", "blender", mutates_scene=False, per_clip=True),
     "reimport": StepSpec("reimport", "blender", mutates_scene=False),
     "import_ue": StepSpec("import_ue", "unreal", mutates_scene=False),
+    "import_anims": StepSpec("import_anims", "unreal", mutates_scene=False, per_clip=True),
+}
+
+# The steps each step needs.  ``import_anims`` needs every other step: the sidecar it checks
+# against comes from ``export_anims``, and the skeleton it imports onto comes from ``import_ue``.
+DEPENDS: Final[dict[StepName, tuple[StepName, ...]]] = {
+    "validate": (),
+    "bake": ("validate",),
+    "variants": ("validate", "bake"),
+    "export": ("validate", "bake", "variants"),
+    "export_anims": ("validate", "bake", "variants"),
+    "reimport": ("validate", "bake", "variants", "export"),
+    "import_ue": ("validate", "bake", "variants", "export", "reimport"),
+    "import_anims": tuple(step for step in STEP_ORDER if step != "import_anims"),
 }
 
 
@@ -82,14 +114,21 @@ def parse_step(step: str) -> StepSpec:
 
 
 def ordered_steps(steps: tuple[str, ...] | list[str]) -> tuple[StepName, ...]:
-    """Return ``steps`` as the canonical execution order, de-duplicated.
+    """Return the dependency closure of ``steps`` in canonical execution order, de-duplicated.
 
-    Requesting a later step always runs every earlier step as well, because each step's input is
-    the previous step's output.  The returned tuple is therefore a prefix of ``STEP_ORDER``.
+    Requesting a step also runs every step it depends on (see ``DEPENDS``).  ``import_ue`` gives the
+    six-step chain it has always had, and ``export_anims`` leaves out ``reimport`` and
+    ``import_ue``.
     """
-    names = [parse_step(step).name for step in steps]
-    last = max(STEP_ORDER.index(name) for name in names) if names else -1
-    return STEP_ORDER[: last + 1]
+    pending = [parse_step(step).name for step in steps]
+    needed: set[StepName] = set()
+    while pending:
+        name = pending.pop()
+        if name in needed:
+            continue
+        needed.add(name)
+        pending.extend(DEPENDS[name])
+    return tuple(name for name in STEP_ORDER if name in needed)
 
 
 def budget_fingerprint(budgets_path: Path | None) -> str:
@@ -144,7 +183,10 @@ def _declared_textures(text: bytes, base: Path) -> list[Path]:
 
 
 def settings_hash(step: StepName, request: FinalizeRequest, budgets: str) -> str:
-    """Return the SHA-256 of the canonical settings that a step's output depends on."""
+    """Return the SHA-256 of the canonical settings that a whole-step output depends on.
+
+    Per-clip steps have no whole-step key; see ``clip_settings_hash``.
+    """
     settings: dict[str, object] = {"step": step, "version": _STEP_VERSION}
     if step == "validate":
         settings |= {"collection": request.collection, "asset_class": request.asset_class}
@@ -174,18 +216,48 @@ def settings_hash(step: StepName, request: FinalizeRequest, budgets: str) -> str
         )
     elif step == "reimport":
         settings["collection"] = request.collection
-    else:  # import_ue
+    elif step == "import_ue":
         settings |= {
             "collection": request.collection,
             "category": request.category,
             "export_root": str(request.export_root),
         }
+    else:
+        raise ValueError(f"{step} is a per-clip step and has no whole-step settings hash")
+    return hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
+
+
+def clip_settings_hash(step: StepName, request: FinalizeRequest, *, options: str = "") -> str:
+    """Return the SHA-256 of the settings a single clip's export or import depends on (#138).
+
+    ``options`` is the fingerprint of the Blender export options that the probe reports, so the
+    export cache follows ``ANIM_EXPORT_OPTIONS`` without the host importing ``bpy``.
+    ``compatible_with`` is not included: registration runs on every ``import_anims``.
+    """
+    settings: dict[str, object] = {
+        "step": step,
+        "version": _STEP_VERSION,
+        "collection": request.collection,
+        "category": request.category,
+        "export_root": str(request.export_root),
+    }
+    if step == "export_anims":
+        settings["options"] = options
+    elif step == "import_anims":
+        settings["skeleton"] = desktop_skeleton_path(request)
+    else:
+        raise ValueError(f"{step} has no per-clip settings hash")
     return hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
 
 
 def ue_destination(request: FinalizeRequest, variant: str) -> str:
     """Return the UE folder for ``variant``: ``/Game/<Category>/<Name>/<Variant>``."""
     return f"/Game/{request.category}/{request.collection}/{variant}"
+
+
+def desktop_skeleton_path(request: FinalizeRequest) -> str:
+    """Return the Desktop skeleton asset: ``/Game/<Category>/<Name>/Desktop/SM_<Name>_Skeleton``."""
+    return f"{ue_destination(request, 'Desktop')}/SM_{request.collection}_Skeleton"
 
 
 def envelope_outputs(step: StepName, envelope: Mapping[str, Any]) -> dict[str, Any]:

@@ -1,9 +1,10 @@
-"""Finalize step runners for the Blender side: validate, bake, variants, export, and reimport (#69).
+"""Finalize step runners for the Blender side: validate, bake, variants, export, export_anims, and
+reimport (#69, #138).
 
 run_step returns the envelope the host reads. Each runner returns (summary, outputs). A
-ContractError, BakeError, VariantError, or BudgetOverrideError becomes a failed envelope whose code
-starts with the step name. Other exceptions propagate to scripts/blender/finalize_entry.py, which
-writes a best-effort envelope and exits 2.
+ContractError, BakeError, VariantError, BudgetOverrideError, or AnimError becomes a failed envelope
+whose code starts with the step name. Other exceptions propagate to
+scripts/blender/finalize_entry.py, which writes a best-effort envelope and exits 2.
 """
 
 from __future__ import annotations
@@ -31,10 +32,19 @@ from ..variants_core.material_variants import export_material_variants
 from ..variants_core.mobile import build_mobile
 from ..variants_core.sidecars import write_sidecars
 from ..variants_core.textures import max_texture_px, source_images
+from . import anims
+from .anims import AnimError
 
 SCHEMA_VERSION: Final = 1
-STEPS: Final[tuple[str, ...]] = ("validate", "bake", "variants", "export", "reimport")
-_SCENE_STEPS: Final = frozenset({"validate", "bake", "variants", "export"})
+STEPS: Final[tuple[str, ...]] = (
+    "validate",
+    "bake",
+    "variants",
+    "export",
+    "export_anims",
+    "reimport",
+)
+_SCENE_STEPS: Final = frozenset({"validate", "bake", "variants", "export", "export_anims"})
 _VARIANTS: Final[tuple[str, ...]] = ("Desktop", "Mobile")
 _DEFAULT_SAMPLES: Final = 32
 
@@ -77,7 +87,7 @@ def run_step(
     _progress(step, 0.0, "started")
     try:
         summary, outputs = runner(request, job, inputs)
-    except (ContractError, BakeError, VariantError, BudgetOverrideError) as error:
+    except (ContractError, BakeError, VariantError, BudgetOverrideError, AnimError) as error:
         _progress(step, 1.0, error.message)
         return _failed(step, _step_code(step, error.code), error.message, error.remediation)
     _progress(step, 1.0, summary)
@@ -234,6 +244,32 @@ def _export(
         }
     )
     return f"{collection}: exported Desktop and Mobile to {variant_root}", outputs
+
+
+def _export_anims(
+    request: Mapping[str, Any], job: Path, inputs: Mapping[str, Any] | None
+) -> tuple[str, dict[str, Any]]:
+    """Probe the rig's clips, or export the named ones (#138).
+
+    ``inputs.mode`` is ``probe`` (the default, which writes nothing) or ``export``, which writes one
+    FBX per name in ``inputs.clips`` into ``<export_root>/<Category>/<Name>/Animations``.
+    """
+    collection = str(request["collection"])
+    mode = str((inputs or {}).get("mode", "probe"))
+    if mode == "probe":
+        report = anims.probe(collection)
+        count = len(report["clips"])
+        return f"{collection}: {count} clip(s) on the rig", report
+    if mode == "export":
+        names = [str(name) for name in (inputs or {}).get("clips", [])]
+        out_dir = Path(str(request["export_root"])) / str(request["category"]) / collection
+        records = anims.export_clips(collection, names, out_dir / anims.ANIMATIONS_DIR)
+        return f"{collection}: exported {len(records)} clip(s)", {"clips": records}
+    raise AnimError(
+        "export_anims.bad_mode",
+        f"export_anims mode {mode!r} is not probe or export.",
+        "Call the step with mode probe or export.",
+    )
 
 
 def _reimport(
@@ -397,5 +433,6 @@ _RUNNERS: Final[dict[str, Runner]] = {
     "bake": _bake,
     "variants": _variants,
     "export": _export,
+    "export_anims": _export_anims,
     "reimport": _reimport,
 }
