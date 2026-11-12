@@ -6,17 +6,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
-## [0.22.0] - 2026-11-12
-
 ### Changed
 
 - Report sample locations in geometry contract findings (#153)
 
+## [0.22.0] - 2026-11-11
 ## [0.21.5] - 2026-11-12
 
 ### Fixed
 
+- Fix contract UV overlap validation hanging for hours on stacked UVs (#133)
 - Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
+- Fix naming collisions that pass validate and fail after the bake (#142)
 
 ### Changed
 
@@ -48,6 +49,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Honour nmg-budgets.json Desktop overrides in contract validation (#134)
 - Fix start-unreal-mcp.sh rebuilding plugins on every launch and failing to relaunch the editor after a config change (#150)
 - Fix import_ue failing the Mobile variant of static assets that export as an LOD group (#146)
+
+### Changed
+
+- Add optional ElevenLabs sound-effect and music generation that imports into Unreal (#155)
 
 ## [0.21.2] - 2026-11-11
 

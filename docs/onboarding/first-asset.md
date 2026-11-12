@@ -41,6 +41,13 @@ one to four reference images, or both, and retexture an authored mesh. Results l
 as the same `<Name>` collection this guide builds. Set `pose` only for characters with limbs. See
 [docs/mcp/meshy.md](../mcp/meshy.md).
 
+## Optional: generated audio
+
+Sound effects and music are optional and come from the official ElevenLabs MCP server, which you run
+with your own key. Onboarding asks for no key. Save the generated file, then call `import_audio` to
+store it under `SourceArt/Audio/` and import it into Unreal as a SoundWave. See
+[docs/mcp/elevenlabs.md](../mcp/elevenlabs.md).
+
 ## 5. Import
 
 Finalize writes both variants into Unreal under `Content/<Category>/<Name>/{Desktop,Mobile}/`, with

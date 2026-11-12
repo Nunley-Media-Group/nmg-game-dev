@@ -13,6 +13,11 @@ viewport or renderer is not done.
 - One root mesh object per variant: `SM_<Name>` (Desktop) and `SM_<Name>_Mobile` (Mobile).
   Split into multiple objects only for parts that must move independently, named
   `SM_<Name>_<Part>`, parented to the root.
+- Each part has its own mesh data: no two mesh objects of one variant may share a mesh
+  datablock. Validate reports `naming.mesh_data` for a shared one; fix it with Object >
+  Relations > Make Single User > Object & Data.
+- Export names each mesh datablock after its object (the `_Mobile` suffix removed, Mobile
+  LOD meshes included), so every FBX mesh carries the name its object has in Unreal.
 - When one request produces several assets, each one is a separate deliverable with
   its own collection at the world origin; overlapping in Blender is expected. Don't
   compose scenes in Blender. Placement and level composition happen in Unreal.

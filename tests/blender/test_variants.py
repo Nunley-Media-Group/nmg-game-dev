@@ -293,3 +293,25 @@ def test_child_parts_export_as_single_lod_level(build_crate) -> None:  # noqa: A
     assert bpy.data.objects["SM_Crate_Mobile"].type == "MESH"
     assert "SM_Crate_Trim_Mobile" in bpy.data.objects
     assert "SM_Crate_Mobile" in bpy.data.objects
+
+
+def test_issue142_mesh_datablocks_export_under_their_object_names(
+    build_crate, reset_scene, tmp_path: Path
+) -> None:  # noqa: ANN001
+    """#142 AC4: a part whose mesh data is SM_Crate_Trim.001 exports with its object's name, and
+    the session's object and mesh names are the same after the export as before it."""
+    build_crate(parts=True)
+    bpy.data.objects["SM_Crate_Trim"].data.name = "SM_Crate_Trim.001"
+    session_before = {obj.name: obj.data.name for obj in bpy.data.objects if obj.type == "MESH"}
+
+    assert _generate(tmp_path) == {"FINISHED"}
+
+    session_after = {name: bpy.data.objects[name].data.name for name in session_before}
+    assert session_after == session_before
+    for variant in ("Desktop", "Mobile"):
+        reset_scene()
+        bpy.ops.import_scene.fbx(filepath=str(_variant_root(tmp_path) / variant / "SM_Crate.fbx"))
+        meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+        assert "SM_Crate_Trim" in {obj.name for obj in meshes}, f"{variant}: {meshes}"
+        for obj in meshes:
+            assert obj.data.name == obj.name, f"{variant}: {obj.name} carries {obj.data.name}"
