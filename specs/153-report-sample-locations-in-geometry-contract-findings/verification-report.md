@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: c4fc67d186b233298d6a76246f73df860997de66
+**Verification head**: dc0bc756494114338caaa790cf3737991345ab4c
 
 ---
 
@@ -22,11 +22,11 @@
 | **Overall** | 4.8 |
 
 ### Implementation Status: Pass
-**Total Issues**: 2 (both Low, not blocking)
+**Total Issues**: 3 (all Low, not blocking)
 
 `geometry_findings` collects the offending elements for each of the four geometry rules. Each finding gets `count` (the full total) and `samples`: up to 5 lowest-index elements, each with its world-space position and vertex-group names, plus `coincides_with` for duplicates. Both callers, contract validation and the spatial inspector, pass the object's world matrix and vertex-group names, and they keep deform layers on the evaluated copy. Detection and `passed` are unchanged.
 
-This re-verification runs at head `c4fc67d`, which merged `origin/main` (#198's naming-collision checks in `validate.py` and `report.py`, #199's UV-overlap rewrite in `uv.py`) into the branch and re-prepared the version (0.23.0). The merge left #153's code unchanged: against `origin/main`, the `validate.py` diff is still only the `geometry_findings` call and the widened annotations. All 11 registered validations recorded terminal results at the verification head: 10 passed and 1 did not apply to this change.
+This re-verification runs at head `dc0bc75`. Deliver's base reconciliation merged `origin/main` at `622181d` into the branch. That brought in #208 (texture generation from the plugin root, plus queued and batched texture jobs) and #210 (`gate-ue-compile` now builds with `-NoUBA`). The earlier deliver attempt stopped because the reconciled head no longer matched the verified head `c4fc67d`. The repair is a fresh run of the full registered gate at the new head, not a replay of the earlier evidence. `git diff c4fc67d dc0bc75` shows no change under `plugins/nmg-game-dev-blender-addon/`, `tests/blender/`, or `docs/skills/`, so #153's implementation is byte-identical to the version verified before. Against `origin/main`, the branch diff is still only #153's files and the version bump to 0.23.0. All 11 registered validations recorded terminal results at the verification head: 10 passed and 1 did not apply to this change.
 
 ---
 
@@ -50,8 +50,8 @@ This re-verification runs at head `c4fc67d`, which merged `origin/main` (#198's 
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/153.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 36e69283-b400-4e48-9fde-c558720014fd`, generated 2026-11-12T05:34:52Z)
-- Identity: head `c4fc67d186b233298d6a76246f73df860997de66`, tree clean, spec hash `sha256:d37c7240…`, steering hash `sha256:754f3665…`
+- Artifact: `.nmg-sdlc/verification/153.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 36e69283-b400-4e48-9fde-c558720014fd`, generated 2026-11-12T05:46:25Z)
+- Identity: head `dc0bc756494114338caaa790cf3737991345ab4c`, tree clean, spec hash `sha256:d37c7240…`, steering hash `sha256:6db9aabc…` (changed by #210's `-NoUBA` edit to `steering/extensions/ue-compile.mjs` and `project-tech.md`)
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown results
 - Ceiling: none
 
@@ -161,9 +161,9 @@ No external input, credentials, network, file I/O, or shell. The new data comes 
 ### Coverage Summary
 
 - Feature file: `specs/153-report-sample-locations-in-geometry-contract-findings/feature.gherkin`, 7 scenarios, all tagged and mapped to headless Blender tests (the tech steering puts Blender add-on acceptance tests in `tests/blender/`)
-- Blender headless suite: 292 passed, 4 skipped (`gate-blender-headless`). The 4 skips are the host-add-on tests in `tests/blender/test_coexistence.py`, which do not touch #153. The suite now also includes #198's and #199's merged Blender tests
+- Blender headless suite: 292 passed, 4 skipped (`gate-blender-headless`). The 4 skips are the host-add-on tests in `tests/blender/test_coexistence.py`, which do not touch #153
 - #144's normals tests in `tests/blender/test_geometry_normals.py` still pass. They compare each message without the location suffix, check that the count is in the message, and check the flagged face's sample index
-- Python unit and BDD suites: 1226 passed, 10 skipped (`repository.tests`)
+- Python unit and BDD suites: 1272 passed, 10 skipped (`repository.tests`; the count now includes #208's merged texture tests)
 - No live Blender or Unreal editor was used
 
 ---
@@ -178,17 +178,17 @@ Exercise testing was not applicable. The change touches no nmg-sdlc plugin `work
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1226 passed, 10 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1272 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 353 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 229 source files |
+| `repository.format` | Pass | `uv run ruff format --check .`: 358 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 234 source files |
 | `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 292 passed, 4 skipped (host-only coexistence tests) |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development`: compiled `DogfoodEditor` against `/Users/Shared/Epic Games/UE_5.8`. The gate applies because the version bump changes the `.uplugin` file |
+| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development -WaitMutex -NoUBA` (the gate as changed by #210): compiled `DogfoodEditor` against `/Users/Shared/Epic Games/UE_5.8`. The gate applies because the version bump changes the `.uplugin` file |
 | `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server. The gate applies because the runner diffs against local `main`, which is behind `origin/main`, so MCP changes other lanes merged count as changed paths |
 | `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0. The gate applies for the same base-ref reason |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
-| `plugin.validate` | Pass | `claude plugin validate .` exited 0. Its only warning is about the untracked lane-local `CLAUDE.local.md` |
-| `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
+| `plugin.validate` | Pass | `claude plugin validate .` exited 0 (passed with warnings) |
+| `plugin.session-smoke` | Pass | Real Herdr smoke: plugin loaded via `--plugin-dir` in an ephemeral project; `nmg-game-dev:blender` connected; tab closed afterwards |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete; 1 not applicable (`gate-ship-smoke`). Coverage complete (11/11 recorded).
 
@@ -229,6 +229,15 @@ None.
 | **Impact** | Minor duplication in test code only |
 | **Reason Not Fixed** | Cosmetic. Could move into a shared fixture module later |
 
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Documentation |
+| **Location** | `CHANGELOG.md` (`## [0.23.0]` section) |
+| **Issue** | The base reconciliation's auto-merge left no blank line between this issue's `- Report sample locations ... (#153)` entry and main's `## [0.21.6]` heading. Main's own CHANGELOG already has out-of-order and adjacent headings (`## [0.21.6]` above `## [0.22.0]`, which sits directly on `## [0.21.5]`) |
+| **Impact** | Cosmetic. The Markdown renders correctly, and the version files agree on 0.23.0 |
+| **Reason Not Fixed** | `CHANGELOG.md` is outside the verify publication scope, which allows writing only `verification-report.md`. Deliver's prepare-version step owns the CHANGELOG |
+
 ---
 
 ## Positive Observations
@@ -266,7 +275,7 @@ None.
 | `docs/skills/model-asset.md` | 0 | FR7 |
 | `tests/blender/test_contract_validate.py` | 1 (Low) | SCN001–SCN005, SCN007 |
 | `tests/blender/test_inspect_spatial.py` | 0 | SCN006, SCN007 |
-| `CHANGELOG.md`, `VERSION`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin` | 0 | Version 0.23.0 (minor), re-prepared after the merge with `origin/main` |
+| `CHANGELOG.md`, `VERSION`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin` | 1 (Low) | Version 0.23.0 (minor; main is at 0.22.0); the merge added a CHANGELOG spacing nit |
 
 ---
 
@@ -274,4 +283,4 @@ None.
 
 **Ready for PR**
 
-All 7 acceptance criteria, 7 functional requirements, and 4 tasks are implemented and covered by passing headless Blender tests. Every applicable registered gate passed at head `c4fc67d186b233298d6a76246f73df860997de66`, after the merge with `origin/main` (#198, #199), with complete coverage. The two remaining findings are Low and do not block.
+All 7 acceptance criteria, 7 functional requirements, and 4 tasks are implemented and covered by passing headless Blender tests. Every applicable registered gate passed at head `dc0bc756494114338caaa790cf3737991345ab4c`, after base reconciliation with `origin/main` `622181d` (#208, #210), with complete coverage. The three remaining findings are Low and do not block.
