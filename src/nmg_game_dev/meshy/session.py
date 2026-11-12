@@ -48,14 +48,19 @@ class MeshySession:
             )
         return state
 
-    def import_glb(self, name: str, path: Path, pose: str | None = None) -> dict[str, Any]:
+    def import_glb(
+        self, name: str, path: Path, pose: str | None = None, raise_arms: bool = True
+    ) -> dict[str, Any]:
         """Import ``path`` as collection ``<name>`` with mesh ``SM_<name>``.
 
-        ``pose`` goes into the payload only when given. ``a-pose`` raises the arms (#106).
+        ``pose`` goes into the payload only when given. ``a-pose`` raises the arms (#106) unless
+        ``raise_arms`` is false, and then the payload carries ``"raise_arms": false`` (#135).
         """
         payload: dict[str, Any] = {"name": name, "path": str(path)}
         if pose is not None:
             payload["pose"] = pose
+        if not raise_arms:
+            payload["raise_arms"] = False
         return self._run("import_glb", payload)
 
     def export_glb(self, name: str, path: Path) -> dict[str, Any]:

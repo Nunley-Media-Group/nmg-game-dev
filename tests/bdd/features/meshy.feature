@@ -165,10 +165,81 @@ Feature: Optional Meshy model generation and retexturing
   Scenario: The job result reports the arm raise
     Given a Meshy generate job with pose a-pose whose session import succeeds
     When the job finishes
-    Then the job result carries arm_raise with left and right drop_before_deg, drop_after_deg, and rotation_deg
+    Then the job result carries arm_raise with left and right detected, shoulder, hand_tip, drop_before_deg, drop_after_deg, and rotation_deg
 
   @SCN019
   Scenario: The raised humanoid passes the neutral-pose check
     Given the raised Hero with shoulder landmarks at the pivots and wrist landmarks on the raised arms
     When rig_core.landmarks.validate runs for a humanoid
     Then it does not report rig.pose_not_neutral
+
+  # #135 spec SCN001–SCN009. Numbered SCN020–SCN028 here, because SCN001–SCN019 are this file's #98,
+  # #105, and #106 scenarios. The geometry needs bpy, so tests/blender/test_meshy_session.py runs the
+  # geometry steps under the #135 tests of the same name; the bindings here check the contract
+  # through the fakes and that the Blender suite defines each test they name.
+
+  @SCN020 @regression
+  Scenario: Legs, boots, and skirt stay put on a stylized character
+    Given a GLB of a stylized character with shoulders at 0.6 H, arms dropped 55 degrees, and wide legs, boots, and a skirt
+    When import_glb imports it as "Hero" with pose a-pose
+    Then every leg, boot, skirt, torso, and head vertex is where normalization left it
+    And only arm vertices have moved
+
+  @SCN021 @regression
+  Scenario: The arm is raised from the detected shoulder
+    Given the stylized character GLB
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each side's drop_before_deg is 55 degrees within 3
+    And each side's drop_after_deg is 48 degrees within 0.5
+
+  @SCN022 @regression
+  Scenario: The shoulder is found at the armpit
+    Given the stylized character GLB with a gap between each arm and the torso
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each reported shoulder lies within 0.03 H of the fixture's true shoulder
+
+  @SCN023 @regression
+  Scenario: Unconnected or out-of-reach geometry does not move
+    Given the stylized character GLB with a detached box outboard of each arm below its hand
+    When import_glb imports it as "Hero" with pose a-pose
+    Then the detached boxes have not moved
+    And every moved vertex lies within the arm's length of its detected shoulder
+
+  @SCN024
+  Scenario: The detected landmarks are reported
+    Given the stylized character GLB
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each side of arm_raise holds detected true, shoulder, and hand_tip as world-space points after the raise
+    And the left points have x greater than 0 and the right points x less than 0, inside the mesh's bounding box
+
+  @SCN025 @regression
+  Scenario: A fused arm is left untouched
+    Given a GLB of the stylized character whose right arm is fused to the torso
+    When import_glb imports it as "Hero" with pose a-pose
+    Then the import succeeds
+    And the right side reports detected false with reason "no_armpit" and rotation_deg 0
+    And no right-side vertex has moved
+    And the left arm's drop is 48 degrees within 0.5
+
+  @SCN026
+  Scenario: The raise can be skipped
+    Given a generate_model request with pose "a-pose" and raise_arms false
+    When the job generates and imports the model
+    Then Meshy receives pose_mode "a-pose"
+    And the import normalizes the mesh and moves no vertex by an arm raise
+    And the job result's arm_raise is null
+
+  @SCN027 @regression
+  Scenario: Realistic humanoids still import correctly
+    Given a GLB of a 1.8 m box humanoid with both arms dropped 55 degrees
+    When import_glb imports it as "Hero" with pose a-pose
+    Then each arm's drop is 48 degrees within 0.5
+    And a side already at 48 degrees or less keeps every vertex and still reports its shoulder
+    And vertex count, face count, connectivity, and face orientation are unchanged
+
+  @SCN028 @regression
+  Scenario: Other poses are unchanged
+    Given a GLB of the box humanoid
+    When import_glb imports it with pose t-pose or with no pose
+    Then no vertex moves
+    And arm_raise is null

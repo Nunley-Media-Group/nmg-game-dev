@@ -25,6 +25,23 @@ class _Scripted:
         return self._result
 
 
+def test_import_glb_sends_raise_arms_false_only_when_the_raise_is_skipped() -> None:
+    """#135 AC7: the import payload carries raise_arms false only when the raise is skipped."""
+    default_client = FakeSession()
+    MeshySession(default_client).import_glb("Knight", Path("/tmp/knight.glb"), pose="a-pose")
+    (default,) = default_client.ops_named("import_glb")
+    assert "raise_arms" not in default
+    assert default["pose"] == "a-pose"
+
+    skipped_client = FakeSession()
+    MeshySession(skipped_client).import_glb(
+        "Knight", Path("/tmp/knight.glb"), pose="a-pose", raise_arms=False
+    )
+    (skipped,) = skipped_client.ops_named("import_glb")
+    assert skipped["raise_arms"] is False
+    assert skipped["pose"] == "a-pose"
+
+
 def test_every_operation_runs_the_meshy_session_script() -> None:
     client = FakeSession(collections=["Crate"])
     session = MeshySession(client)
