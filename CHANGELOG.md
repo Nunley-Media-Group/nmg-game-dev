@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.6] - 2026-11-12
+
+### Fixed
+
+- Fail import_ue when Unreal refuses to rename or consolidate an imported asset (#203)
+
 ## [0.21.5] - 2026-11-12
 
 ### Fixed
