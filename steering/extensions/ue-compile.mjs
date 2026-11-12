@@ -2,11 +2,8 @@
 // with the engine's Build.sh, which compiles the nmg-game-dev UE plugin (its runtime, editor and
 // automation-spec sources) against UE 5.8 without starting the editor. Build output lands in the
 // ignored Binaries/ and Intermediate/ folders, so the tree stays clean. Build.sh changes its own
-// working directory, so the project path is made absolute from the request's projectRoot. The
-// build runs with -NoUBA: the Unreal Build Accelerator keeps one shared session and file cache per
-// user, so builds from several worktrees at once (one per lane) cross their output paths and leave
-// truncated object files that fail at link time. Plain local clang keeps each checkout's build
-// apart. Only Node built-ins are imported, so the steering writer can load this module from its staged copy.
+// working directory, so the project path is made absolute from the request's projectRoot. Only
+// Node built-ins are imported, so the steering writer can load this module from its staged copy.
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -58,7 +55,7 @@ async function compile(request) {
   if (!existsSync(project)) return finish("incomplete", `project not found: ${project}`);
   const target = typeof config?.target === "string" ? config.target : "DogfoodEditor";
 
-  const args = [target, "Mac", "Development", `-Project=${project}`, "-WaitMutex", "-NoUBA"];
+  const args = [target, "Mac", "Development", `-Project=${project}`, "-WaitMutex"];
   const output = await run(buildSh, args, { cwd: projectRoot, signal });
   const errors = `${output.stdout}\n${output.stderr}`.split("\n").filter((line) => ERROR_LINE.test(line)).slice(0, 60).join("\n");
   evidence.push({
