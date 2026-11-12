@@ -3,8 +3,8 @@
 **Date**: 2026-11-11
 **Issue**: #149
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
-**Scope**: Implementation verification against spec
-**Verification head**: c2c4d1c2b0ccc313a020c77e1149206fc83a05bd
+**Scope**: Implementation verification against spec (re-verification after merging `origin/main` at `9337c95`)
+**Verification head**: ac9e7d5db6f3c3e3a93d1c85f0c5862307592718
 
 ---
 
@@ -23,7 +23,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 3 (all Low, none blocking)
 
-All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests that use fakes only. Every registered steering validation that applies to this change passed at the verification head (9 of 9). The two that do not apply (`gate-shellcheck`, `gate-ship-smoke`) were judged so by the deterministic runner.
+All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests that use fakes only. This re-verification covers the head after three `chore: merge origin/main` commits (`db50d80`, `71ac35c`, `ac9e7d5`). Their conflict resolutions keep #149's retry wiring in `import_asset.py`, add the keyword-only `timeout` to the shared and #155 audio Unreal fakes, and keep both sides of `tests/unit/pipeline/test_jobs.py`. None of them changes #149's behavior. Every applicable registered steering validation passed at the verification head (10 of 10). `gate-ship-smoke` does not apply.
 
 ---
 
@@ -47,9 +47,10 @@ All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests 
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/149.json` (base `main`, head `c2c4d1c2b0ccc313a020c77e1149206fc83a05bd`, clean tree)
+- Artifact: `.nmg-sdlc/verification/149.json` (base `main`, head `ac9e7d5db6f3c3e3a93d1c85f0c5862307592718`, clean tree, generated 2026-11-12T05:22:24Z)
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown ids
 - Ceiling: none (`null`)
+- Note: the local `main` ref in this lane worktree lags `origin/main`, so the runner's changed-path set is wider than #149's own diff. That made `gate-shellcheck` applicable, and it passed. Applicability only grew, so no gate was skipped.
 
 ---
 
@@ -164,8 +165,8 @@ This follows the steering layer table. Skill and docs describe the tools. `mcp_t
 ### Coverage Summary
 
 - Feature file: `specs/149-…/feature.gherkin`, 11 scenarios mapped to unit tests in `tests/unit/pipeline/test_batch.py`, `tests/unit/pipeline/test_jobs.py`, `tests/unit/test_unreal_retry.py`, `tests/unit/test_pie_preflight.py`, `tests/unit/test_finalize_cli.py`, `tests/unit/test_finalize_mcp_tools.py`, `tests/unit/test_finalize_docs.py`
-- `repository.tests`: 1066 passed, 9 skipped (`uv run pytest tests/unit tests/bdd -q`)
-- `gate-blender-headless`: 179 passed
+- `repository.tests`: 1323 passed, 10 skipped (`uv run pytest tests/unit tests/bdd -q`)
+- `gate-blender-headless`: 284 passed, 4 skipped
 - All timing uses injected sleep and clock; no live Blender or Unreal editor is contacted
 
 ---
@@ -183,19 +184,19 @@ This follows the steering layer table. Skill and docs describe the tools. `mcp_t
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0; 1066 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0; 1323 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 316 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 204 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 179 passed |
+| `repository.format` | Pass | `uv run ruff format --check .`: 360 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 236 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0; 284 passed, 4 skipped |
 | `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
 | `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json |
-| `gate-shellcheck` | Not applicable | No `scripts/**.sh` changed (runner applicability) |
+| `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0 with no findings |
 | `gate-ship-smoke` | Not applicable | No ship paths changed (runner applicability) |
 | `plugin.validate` | Pass | `claude plugin validate .`: validation passed (with warnings) |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir` in an ephemeral Herdr project; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable; coverage 11/11 complete)
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable; coverage 11/11 complete)
 
 ---
 
@@ -296,4 +297,4 @@ None.
 
 **Ready for PR**
 
-All delivery ACs, FRs, tasks, and scenarios are implemented and tested. The deterministic steering artifact shows complete coverage with no ceiling, and every applicable required validation passed at `c2c4d1c2b0ccc313a020c77e1149206fc83a05bd`. The three Low findings do not block delivery.
+All delivery ACs, FRs, tasks, and scenarios are implemented and tested. The deterministic steering artifact shows complete coverage with no ceiling, and every applicable required validation passed at `ac9e7d5db6f3c3e3a93d1c85f0c5862307592718`. The three Low findings do not block delivery.
