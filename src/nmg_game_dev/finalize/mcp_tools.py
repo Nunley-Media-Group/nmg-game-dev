@@ -1,4 +1,4 @@
-"""The three ``finalize`` MCP tools as plain functions over ``FinalizeService`` (#69).
+"""The ``finalize`` MCP tools (#69) and ``import_audio`` (#155) as plain functions.
 
 ``mcp-servers/finalize`` registers these.  They return plain dicts.  A failure comes back as
 ``{"error": {"code", "message", "remediation", "stage"}}``, and the same error is logged to stderr
@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from nmg_game_dev.audio import import_audio as _import_audio
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER, parse_step
@@ -89,6 +90,17 @@ def get_finalize_job(job_id: str, *, service: FinalizeService | None = None) -> 
     except PipelineError as error:
         return {"error": error_dict(error)}
     return {field: status.get(field) for field in _JOB_FIELDS if field in status}
+
+
+def import_audio(file: str, name: str, kind: str, loop: bool = False) -> dict[str, Any]:
+    """Store a saved sound as a WAV and import it as a SoundWave (#155, AC7).
+
+    Returns the same result JSON as ``python -m nmg_game_dev.audio import``, or ``{"error"}``.
+    """
+    try:
+        return _import_audio(file, name, kind, loop)
+    except PipelineError as error:
+        return {"error": error_dict(error)}
 
 
 class _InvalidRequestError(Exception):
