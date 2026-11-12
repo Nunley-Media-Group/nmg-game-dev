@@ -4,7 +4,8 @@
 **Issue**: #138
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
 **Scope**: Implementation verification against spec
-**Verification head**: 4497464e4034edcebae1d7aa45d2d84d370a6b34
+
+**Verification head**: 6460c5bf2bc7c2e5a971393bcd2553e273ced9ec
 
 ---
 
@@ -12,32 +13,35 @@
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 3 |
+| Spec Compliance | 5 |
 | Architecture (SOLID) | 4 |
 | Security | 5 |
 | Performance | 4 |
-| Testability | 3 |
+| Testability | 4 |
 | Error Handling | 4 |
-| **Overall** | 3.8 |
+| **Overall** | 4.3 |
 
 ### Implementation Status: Fail
-**Total Issues**: 4 (2 High, 2 Medium)
+**Total Issues**: 3 (1 High, 2 Medium)
 
-The step table, Blender clip probe and export, host per-clip cache, UE import program, CLI and MCP
-surfaces, and docs are all in place, and the host unit and BDD suites pass. Two defects block
-delivery:
+Commit `6460c5b` fixed both blockers from the previous verification:
 
-1. **The registered `gate-blender-headless` gate fails (16 tests).** The new
-   `tests/blender/test_finalize_anims.py` calls `bpy.ops.wm.read_factory_settings(use_empty=True)`.
-   That disables the session-scoped `nmg_game_dev_blender_addon`, so every later operator test
-   (`test_inspect_spatial`, `test_rig_operators`, `test_variants`) fails with
-   `Calling operator "bpy.ops.nmggamedev.*" error, could not be found`.
-2. **AC6 does not hold against real Blender.** `export_anims` probes and exports the cached
-   `variants` `.blend`, not the current checkpoint. The asset hash does not cover actions, so after a
-   clip-only change `validate`, `bake`, and `variants` are cache hits and the restored `variants.blend`
-   still holds the old actions. The probe then reports the old clip hash and serves the stale clip
-   from cache. Added clips are also missed. The host tests pass only because `FakeStepRunner`
-   returns probe hashes that do not depend on the input `.blend`.
+- **H1 (headless test pollution) is fixed.** `tests/blender/test_finalize_anims.py` now resets with
+  `read_homefile(use_empty=True)`, and `gate-blender-headless` passes (196 passed).
+- **H2 (AC6 stale clips) is fixed.** `engine.execute` now runs `export_anims` against this run's
+  `checkpoint.blend` instead of the cached `variants` `.blend`. A regression test
+  (`test_clips_are_probed_and_exported_from_the_current_checkpoint`) checks that the probe and export
+  read the checkpoint.
+
+Every acceptance criterion is now met in code and tests. Ten of the 11 registered gates passed or did
+not apply, including `gate-ue-compile`.
+
+The required **`plugin.session-smoke` gate failed**, so the status is Fail. The failure is in the
+project's smoke provider (`steering/extensions/plugin-session-smoke.mjs`) and the host tooling, not in
+#138's code. Herdr 0.9.5's `agent start` reports `agent_not_ready` ("blocked during startup") about
+5 s after Claude Code shows its folder-trust dialog. The provider's trust-accept poll does not get
+there first, so the run stops before it ever loads the plugin. The cause and a tested repair are
+under Remaining Issues H1.
 
 ---
 
@@ -54,17 +58,16 @@ delivery:
 
 ## Delivery Validation
 
-- Local verification: Not complete (`gate-blender-headless` failed; `gate-ue-compile` and `plugin.session-smoke` deferred)
+- Local verification: Not complete (required `plugin.session-smoke` failed)
 - PR evidence: Not required
 
 ---
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/138.json` (head `4497464e4034edcebae1d7aa45d2d84d370a6b34`, tree clean, base `main`)
+- Artifact: `.nmg-sdlc/verification/138.json` (head `6460c5bf2bc7c2e5a971393bcd2553e273ced9ec`, tree clean, base `main`, run `d07f47ec-de6c-4fe0-8483-935880e86b8d`)
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown ids
-- Ceiling: **Fail**. The required `gate-blender-headless` failed. The artifact's own ceiling field reads
-  `Incomplete` because two required gates were deferred, and a required failure caps the status at Fail.
+- Ceiling: **Fail**, because the required `plugin.session-smoke` failed
 
 ---
 
@@ -72,22 +75,22 @@ delivery:
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | One armature-only FBX per clip with rig export settings | Pass | `finalize_core/anims.py` `ANIM_EXPORT_OPTIONS` imports `_RIG_FBX_OPTIONS` and adds `object_types={"ARMATURE"}`; `_export_one` renames the rig to `Armature`. Headless test `test_one_armature_only_fbx_per_clip_and_each_reimports_as_one_clip` passed |
-| AC2 | Provenance clips plus rig-held actions; unrelated actions excluded | Pass | `resolve_clips` (provenance, `animation_data.action`, NLA strips); headless `test_the_clip_set_is_provenance_plus_the_rigs_actions_and_excludes_other` passed |
-| AC3 | Sidecar records real clip data and sources | Pass | `pipeline/anims.py` `_write_sidecar`; `export_clips` sets `source` to the provenance source or `"authored"`; headless sidecar test and host tests passed |
-| AC4 | Clips import as AnimSequences on the Desktop skeleton | Pass (fake UE) | `unreal/import_anims.py` `_import_clip` (`FBXIT_ANIMATION`, Desktop skeleton, non-AnimSequence check); `test_clips_import_as_anim_sequences_on_the_desktop_skeleton` |
-| AC5 | Imported clip checked against the sidecar | Pass (fake UE) | `pipeline/anims.py` `_verify` raises `import_anims.clip_mismatch` naming the clip, expected, and measured values |
-| AC6 | Clips cached individually | **Fail** | Per-clip keys exist (`run_export_anims`), but `engine._run_per_clip` passes `last_blend`, which is the cached `variants.blend`. A clip-only change leaves the asset hash unchanged, so that `.blend` holds the old actions and the probe never sees the change. Passes only with `FakeStepRunner` (see Remaining Issues H2) |
+| AC1 | One armature-only FBX per clip with rig export settings | Pass | `finalize_core/anims.py` `ANIM_EXPORT_OPTIONS` imports `_RIG_FBX_OPTIONS` and adds `object_types={"ARMATURE"}`; the rig is renamed `Armature` for export; headless `test_one_armature_only_fbx_per_clip_and_each_reimports_as_one_clip` passed |
+| AC2 | Provenance clips plus rig-held actions; unrelated actions excluded | Pass | `resolve_clips`; headless `test_the_clip_set_is_provenance_plus_the_rigs_actions_and_excludes_other` passed |
+| AC3 | Sidecar records real clip data and sources | Pass | `pipeline/anims.py` sidecar writer (`asset`, `armature`, `skeleton`, per-clip fields; `source` is the provenance or `"authored"`); headless and host tests passed |
+| AC4 | Clips import as AnimSequences on the Desktop skeleton | Pass (fake UE) | `unreal/import_anims.py` `_import_clip` (`FBXIT_ANIMATION`, Desktop skeleton, rejects any non-AnimSequence) |
+| AC5 | Imported clip checked against the sidecar | Pass (fake UE) | Host verification raises `import_anims.clip_mismatch` naming the clip, expected value, and measured value |
+| AC6 | Clips cached individually | Pass | Per-clip keys in `run_export_anims` and `run_import_anims`. `engine.execute` now passes `checkpoint` to `_run_per_clip`, so a clip-only change is probed from the current scene. Mesh step keys are unchanged. Regression test `test_clips_are_probed_and_exported_from_the_current_checkpoint` |
 | AC7 | Force reruns every clip | Pass | `force` bypasses `cache.get` in both per-clip loops; `test_force_reexports_and_reimports_every_clip` |
-| AC8 | Assets without clips pass through | Pass | Early return with no write in `run_export_anims`; no Unreal call in `run_import_anims`; `test_an_unrigged_asset_passes_through_with_no_clips` |
-| AC9 | New steps run alone | Pass | `DEPENDS` plus the closure in `ordered_steps`; CLI subcommands come from `STEP_ORDER`; MCP step enum; `test_run_step_export_anims_runs_its_prerequisites_and_returns_the_standard_shape`, CLI and MCP tests |
-| AC10 | import_anims needs the Desktop skeleton | Pass (fake UE) | `_raise_blocked` gives `finalize.skeleton_not_found` with the run-`import_ue`-first remediation; the UE program returns before any import |
-| AC11 | Invalid clip name stops the export | Pass | Host raises `finalize.clip_name_invalid` from the probe before any export or sidecar write; headless probe test passed |
-| AC12 | Stale AnimSequences reported, never deleted | Pass (fake UE) | UE program lists `A_<Name>_*` that are not current clips; nothing deletes them |
+| AC8 | Assets without clips pass through | Pass | Early return with no writes in `run_export_anims`; no Unreal call in `run_import_anims` |
+| AC9 | New steps run alone | Pass | `DEPENDS` closure in `ordered_steps`; CLI subcommands from `STEP_ORDER`; MCP step enum; CLI, MCP, and engine tests |
+| AC10 | import_anims needs the Desktop skeleton | Pass (fake UE) | `finalize.skeleton_not_found` with the run-`import_ue`-first remediation; the UE program returns before any import |
+| AC11 | Invalid clip name stops the export | Pass | Raised from the probe before any export or sidecar write |
+| AC12 | Stale AnimSequences reported, never deleted | Pass (fake UE) | Stale `A_<Name>_*` listed; no delete call exists |
 | AC13 | Compatible skeletons registered on request | Pass (fake UE) | `_add_compatible` in both directions; result `compatible` list |
-| AC14 | Compatible registration is idempotent | Pass (fake UE); live risk | Logic is duplicate-free, but `_compatible_paths` compares `str(item)` of UE soft references to plain paths. Not provable without a live editor (Remaining Issues M1) |
+| AC14 | Compatible registration is idempotent | Pass (fake UE); live risk | Duplicate-free logic. A live-editor soft-pointer comparison risk remains (M1) |
 | AC15 | Target must exist and match bone names | Pass (fake UE) | `_check_targets` runs before any import or registration |
-| AC16 | No registration without compatible_with | Pass | Empty `compatible` list skips registration; no call when there are no clips |
+| AC16 | No registration without compatible_with | Pass | Empty `compatible_with` skips registration |
 
 ---
 
@@ -97,11 +100,11 @@ delivery:
 |------|-------------|--------|-------|
 | T001 | Step table, dependencies, request fields | Complete | `steps.py`, `request.py`, `result.py`; `_STEP_VERSION = "4"` |
 | T002 | Blender clip probe and export | Complete | `finalize_core/anims.py`, `finalize_core/steps.py`, `finalize_entry.py` |
-| T003 | Host per-clip export and sidecar | Complete with defect | Wired as designed, but runs on the cached `variants` blend (H2) |
+| T003 | Host per-clip export and sidecar | Complete | Runs against the checkpoint since `6460c5b`. The design text names the `variants` result as input, but the checkpoint holds the same `SK_<Name>`, because the variants step changes only meshes |
 | T004 | Unreal clip import, verification, stale, compatible | Complete | `unreal/import_anims.py`, `pipeline/anims.py` |
 | T005 | CLI and MCP surface | Complete | `gate-mcp-schema` passed |
-| T006 | Documentation | Complete | `docs/mcp/finalize.md` and `SKILL.md` cover everything; the other docs point to them. `plugin.validate` passed |
-| T007 | Tests | Incomplete | Test files exist (named `rigged_animations.feature` and `test_finalize_mcp.py` instead of the names in the task). `gate-blender-headless` fails because of `test_finalize_anims.py` (H1) |
+| T006 | Documentation | Complete | `docs/mcp/finalize.md` updated for the checkpoint input; `plugin.validate` passed |
+| T007 | Tests | Complete | Files are named `rigged_animations.feature` and `test_finalize_mcp.py` rather than the names in the task. Headless gate passes |
 
 ---
 
@@ -111,19 +114,19 @@ delivery:
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 4 | Blender probe and export, host caching, and UE program each sit in their own module |
-| Open/Closed | 4 | `per_clip` flag and `DEPENDS` extend the step table without changing the mesh steps' keys |
+| Single Responsibility | 4 | Blender probe and export, host caching, and the UE program each live in their own module |
+| Open/Closed | 4 | The `per_clip` flag and `DEPENDS` extend the step table without moving mesh step keys |
 | Liskov Substitution | 4 | Per-clip steps return the standard `StepResult` shape |
-| Interface Segregation | 4 | `UnrealClientFactory` is created lazily, only when there is work |
-| Dependency Inversion | 4 | Runner and Unreal client are injected, so fakes can stand in |
+| Interface Segregation | 4 | The Unreal client is created lazily, only when there is work |
+| Dependency Inversion | 4 | Runner and Unreal client are injected, so fakes stand in |
 
 ### Layer Separation
 
-The layering follows `steering/structure.md`. Skill and MCP entries call the pipeline. The pipeline composes steps and owns caching. Step implementations live in `finalize_core/` and `unreal/`. The MCP server only wraps `mcp_tools.py`.
+The layering follows `steering/structure.md`. The skill and MCP entries call the pipeline, which composes the steps and owns caching. The step implementations live in `finalize_core/` and `unreal/`. The MCP server only wraps `mcp_tools.py`.
 
 ### Dependency Flow
 
-`pipeline/anims.py` depends on `unreal/import_anims.py` and `pipeline/steps.py`, and there are no cycles. The Blender side imports `_RIG_FBX_OPTIONS` from `variants_core/export.py`, so the two FBX setting sets cannot drift.
+No cycles. `pipeline/anims.py` depends on `unreal/import_anims.py` and `pipeline/steps.py`. `ANIM_EXPORT_OPTIONS` imports `_RIG_FBX_OPTIONS`, so the rigged mesh export and the clip export cannot drift apart. Reading clips from the checkpoint is sound: nothing in `variants_core/` or `bake_core/` rewrites the `SK_<Name>` armature. Mobile works on copies, and cleanup touches only mesh modifiers.
 
 ---
 
@@ -131,8 +134,8 @@ The layering follows `steering/structure.md`. Skill and MCP entries call the pip
 
 - [x] Authentication: N/A (local tooling)
 - [x] Authorization: N/A
-- [x] Input validation: `compatible_with` validated against `^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$`; clip names validated before any file name is built from them
-- [x] Injection prevention: UE parameters are embedded as a double-encoded JSON string literal and decoded with `json.loads`, so no data reaches the program as code
+- [x] Input validation: `compatible_with` matches `^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$`; clip names are validated before any file name is built
+- [x] Injection prevention: UE parameters are embedded as a JSON string literal and decoded with `json.loads`
 - [x] Data protection: no credentials touched
 
 ---
@@ -140,15 +143,15 @@ The layering follows `steering/structure.md`. Skill and MCP entries call the pip
 ## Performance Assessment
 
 - [x] Async patterns: one probe run plus one export run for all misses; one UE call for all clips
-- [x] Caching: per-clip keys, so unchanged clips are not exported again. AC6 is correct by design but broken by the input `.blend` choice (H2)
-- [x] Resource management: the Unreal client is opened lazily and closed in `finally`
+- [x] Caching: per-clip keys, with clip-only changes now detected from the checkpoint
+- [x] Resource management: the Unreal client opens lazily and closes in `finally`
 - [x] Query optimization: N/A
 
 ---
 
 ## Error Handling Assessment
 
-New codes `finalize.clip_name_invalid`, `finalize.skeleton_not_found`, `finalize.skeleton_mismatch`, `import_anims.clip_mismatch`, `import_anims.failed`, and `export_anims.bad_envelope` all carry a message, remediation, and stage. The UE program always prints one `NMG_RESULT` line and runs every check before it changes anything. `_sampled_keys` falls back to `get_number_of_frames`, which in UE5 can return one less than the sampled key count. That would show up as a false `clip_mismatch` rather than a silent pass (M2).
+The codes `finalize.clip_name_invalid`, `finalize.skeleton_not_found`, `finalize.skeleton_mismatch`, `import_anims.clip_mismatch`, `import_anims.failed`, and `export_anims.bad_envelope` all carry a message, remediation, and stage. The UE program runs every check before it changes anything. `_sampled_keys` falls back to frame-count APIs (M2).
 
 ---
 
@@ -158,16 +161,13 @@ New codes `finalize.clip_name_invalid`, `finalize.skeleton_not_found`, `finalize
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1–AC5 | Yes (SCN001–SCN005) | Yes | Yes |
-| AC6 | Yes (SCN006) | Yes | Yes with fakes; behavior wrong against real Blender (H2) |
-| AC7–AC16 | Yes (SCN007–SCN016) | Yes | Yes |
+| AC1–AC16 | Yes (SCN001–SCN016) | Yes | Yes |
 
 ### Coverage Summary
 
-- Feature files: `tests/bdd/features/rigged_animations.feature`, 16 scenarios
-- Step definitions: Implemented (`tests/bdd/test_rigged_animations_bdd.py`)
-- Unit tests: `tests/unit/pipeline/test_anims.py`, `tests/unit/test_unreal_import_anims.py`, plus updates to steps, engine, CLI, and MCP tests. Unit and BDD totals: 1026 passed, 13 skipped
-- Blender headless: `tests/blender/test_finalize_anims.py` passed by itself; the full suite has 16 failures caused by it (H1)
+- Feature file: `tests/bdd/features/rigged_animations.feature`, 16 scenarios, with steps in `tests/bdd/test_rigged_animations_bdd.py`
+- Unit and BDD: 1027 passed, 13 skipped
+- Blender headless: 196 passed, including `tests/blender/test_finalize_anims.py`
 
 ---
 
@@ -175,7 +175,7 @@ New codes `finalize.clip_name_invalid`, `finalize.skeleton_not_found`, `finalize
 
 | Field | Value |
 |-------|-------|
-| **Reason** | Not applicable. The diff touches no nmg-sdlc `workflows/` or `agents/`. `skills/finalize-asset/SKILL.md` is documentation for this project's own skill, and `plugin.validate` covers it |
+| **Reason** | Not applicable. The diff touches no nmg-sdlc `workflows/` or `agents/`. `skills/finalize-asset/SKILL.md` documents this project's own skill, and `plugin.validate` and `plugin.session-smoke` cover it |
 | **Recommendation** | None |
 
 ---
@@ -184,27 +184,35 @@ New codes `finalize.clip_name_invalid`, `finalize.skeleton_not_found`, `finalize
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1026 passed, 13 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1027 passed, 13 skipped |
 | `repository.lint` | Pass | `ruff check .`: All checks passed |
 | `repository.format` | Pass | `ruff format --check .`: 317 files already formatted |
 | `repository.types` | Pass | `mypy src tests`: no issues in 202 source files |
-| `gate-blender-headless` | **Fail** | `scripts/run-blender-tests.sh`: 16 failed, 180 passed. All failures are `bpy.ops.nmggamedev.* could not be found` / `Scene has no attribute nmg_game_dev` in `test_inspect_spatial`, `test_rig_operators`, `test_variants` |
-| `gate-ue-compile` | Incomplete | Deferred until required local validations pass |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 196 passed |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
 | `gate-mcp-schema` | Pass | MCP tools match `tools.json` for every server |
 | `gate-shellcheck` | Not applicable | No `scripts/**.sh` changed |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
 | `plugin.validate` | Pass | `claude plugin validate .`: passed with warnings |
-| `plugin.session-smoke` | Incomplete | Deferred until required local validations pass |
+| `plugin.session-smoke` | **Fail** | `herdr agent start ... -- --plugin-dir <checkout>` returned `agent_not_ready`: "blocked during startup and is not ready for prompts". No `/mcp` check ran |
 
-**Gate Summary**: 6/9 applicable gates passed, 1 failed, 2 incomplete
+**Gate Summary**: 8/9 applicable gates passed, 1 failed
 
-Root-cause check for `gate-blender-headless`: `test_inspect_spatial.py` alone passes (11 passed). Run after a copy of `test_finalize_anims.py`, its add-on-dependent test fails with `'Scene' object has no attribute 'nmg_game_dev'`. With `read_factory_settings` replaced by `read_homefile(use_empty=True)` in that copy, the test passes. The experiment ran in a temporary directory that was then removed, and the working tree stayed clean.
+### Smoke diagnosis
+
+I reproduced the failure outside the gate in disposable Herdr tabs, each in a fresh `git init` temp project. All the tabs were closed afterwards.
+
+1. With the provider's exact `herdr agent start` arguments, Claude Code shows the folder-trust dialog ("Yes, I trust this folder"). Herdr 0.9.5 exits with status 1 and `agent_not_ready` after about 4.9 s.
+2. The provider (`steering/extensions/plugin-session-smoke.mjs`) accepts the trust dialog only inside a `while (started === null)` loop that polls every 2 s. Once `agent start` has returned, the loop exits, and then `started.status !== 0` fails the gate. The evidence has no "trust ephemeral project" entry, so the poll never saw the dialog before Herdr gave up.
+3. After that `agent_not_ready` result, sending `down enter` to the pane accepted the trust dialog. The session then became ready (`interactive_ready: true`), `herdr agent prompt <label> /mcp` succeeded, and the `/mcp` panel rendered.
+
+This is a defect in the project's smoke provider and its Herdr interaction, not in #138's change. The branch changes only `skills/finalize-asset/SKILL.md` and the plugin manifest version among the smoke's trigger paths.
 
 ---
 
 ## Fixes Applied
 
-None. This worker may write only `verification-report.md`, so code fixes go back to implementation.
+None. This worker may write only `verification-report.md`.
 
 ## Remaining Issues
 
@@ -213,65 +221,53 @@ None. This worker may write only `verification-report.md`, so code fixes go back
 | Field | Value |
 |-------|-------|
 | **Severity** | High (H1) |
-| **Category** | Testing |
-| **Location** | `tests/blender/test_finalize_anims.py:120` |
-| **Issue** | `bpy.ops.wm.read_factory_settings(use_empty=True)` resets preferences and disables the add-on enabled by the session-scoped `enabled_addon` fixture in `tests/blender/conftest.py`. Every later test that uses `nmggamedev` operators or `Scene.nmg_game_dev` then fails |
-| **Impact** | The required `gate-blender-headless` fails (16 tests) |
-| **Fix** | Use `bpy.ops.wm.read_homefile(use_empty=True)`, which was confirmed to keep the add-on registered, or clear the objects and actions with `bpy.data` before each FBX re-import |
-| **Reason Not Fixed** | Outside this verify worker's writable scope (report only) |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High (H2) |
-| **Category** | Architecture / Correctness (AC6, FR7) |
-| **Location** | `src/nmg_game_dev/pipeline/engine.py` (`execute` → `_run_per_clip(run, step, outputs_by_step, last_blend, ...)`) |
-| **Issue** | `export_anims` probes and exports `last_blend`, the `variants` result. `content_hash` (`finalize_core/hashing.py`) does not cover actions. After a clip-only edit, `validate`, `bake`, and `variants` are cache hits, and `_restore_missing` restores the old `variants.blend`, which holds the old actions. The probe returns the old clip hash, so the changed clip is served stale from cache. A clip added after the first finalize is never seen |
-| **Impact** | Unreal silently keeps outdated animations. This contradicts AC6 and the docs ("changing one clip re-imports only that clip") |
-| **Fix** | Run the `export_anims` probe and export against the current checkpoint (`checkpoint.blend`), which holds the session's current actions. `variants_core` changes only meshes, not `SK_<Name>`. Add a host test whose fake probe reads its hashes from the input `.blend` path, so a stale-blend regression fails |
-| **Reason Not Fixed** | Changes source outside this worker's writable scope, and the approved design names the `variants` blend as input, so implementation should decide the fix |
+| **Category** | Verification infrastructure (required gate `plugin.session-smoke`) |
+| **Location** | `steering/extensions/plugin-session-smoke.mjs` (start and trust loop, around lines 88–109) |
+| **Issue** | Herdr 0.9.5 `agent start` fails fast with `agent_not_ready` while Claude Code's trust dialog is up. The provider treats any non-zero `agent start` as failure and never accepts the dialog, so the required gate cannot pass on this host |
+| **Impact** | Verification cannot reach Pass for any change that touches the smoke's paths |
+| **Fix** | When `agent start` returns `agent_not_ready`, read the pane. If `TRUST_DIALOG` matches, send `TRUST_ACCEPT_KEYS`, then wait until the agent is ready (poll `herdr agent list` for `interactive_ready`, or rerun `agent start`), and only then prompt `/mcp`. Accepting the dialog after the blocked result was confirmed by hand to give a ready session. Alternatively, pre-trust the ephemeral project before starting the agent. Then rerun the full registered gate |
+| **Reason Not Fixed** | Outside this worker's writable scope (report only) |
 
 ### Medium Priority
 
 | Field | Value |
 |-------|-------|
 | **Severity** | Medium (M1) |
-| **Category** | Error Handling / Correctness (AC14) |
+| **Category** | Correctness (AC14), live UE only |
 | **Location** | `src/nmg_game_dev/unreal/import_anims.py` `_compatible_paths`, `_add_compatible` |
-| **Issue** | `compatible_skeletons` holds soft object pointers. `str(item).split(".")[0]` may not give the plain asset path in UE Python, so the "already present" check could miss and a duplicate could be appended on each run. Appending `unreal.SoftObjectPath` to that array may also need a `SoftObjectPtr` type |
+| **Issue** | `compatible_skeletons` holds soft object pointers. `str(item).split(".")[0]` may not give the plain asset path in UE Python, so the duplicate check could miss |
 | **Impact** | Possible duplicate registration against a live editor. Fakes cannot show this |
-| **Reason Not Fixed** | Needs live UE evidence, and SDLC work does not touch live editors. Recommend a manual check before release |
+| **Reason Not Fixed** | Needs live UE evidence, and SDLC work does not touch live editors. Check by hand before release |
 
 | Field | Value |
 |-------|-------|
 | **Severity** | Medium (M2) |
-| **Category** | Error Handling |
+| **Category** | Error handling, live UE only |
 | **Location** | `src/nmg_game_dev/unreal/import_anims.py` `_sampled_keys` |
-| **Issue** | It falls back to `get_number_of_frames` / `get_num_frames` when `get_number_of_sampled_keys` is missing. Those return frames, which can be one less than the sidecar's inclusive `frame_count` |
-| **Impact** | Possible false `import_anims.clip_mismatch` against a live editor. It fails closed |
+| **Issue** | It falls back to `get_number_of_frames` / `get_num_frames`, which can be one less than the sidecar's inclusive `frame_count` |
+| **Impact** | Possible false `import_anims.clip_mismatch`. It fails closed |
 | **Reason Not Fixed** | Needs live UE evidence |
 
 ---
 
 ## Positive Observations
 
-- `DEPENDS` keeps the six-step chain for `import_ue` the same as before, and `export_anims` does not pull in `reimport` or `import_ue`.
-- Per-clip steps leave `input_hash` untouched, so the mesh steps' keys are unchanged, as designed.
-- The UE program runs every check (own skeleton, compatible targets, clip measurement) before it registers anything. Stale sequences are reported and never deleted.
-- `ANIM_EXPORT_OPTIONS` imports `_RIG_FBX_OPTIONS` rather than copying them.
+- The H2 fix is small and well commented, and its regression test ties the per-clip steps to the checkpoint path.
+- `DEPENDS` keeps the six-step chain for `import_ue` the same as before.
+- The UE program checks everything before it changes anything, and it never deletes stale sequences.
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- [ ] H1: stop `test_finalize_anims.py` from disabling the add-on, then rerun `gate-blender-headless`
-- [ ] H2: run `export_anims` against the current checkpoint, and add a regression test that ties the fake probe to its input `.blend`
+- [ ] H1: make `plugin-session-smoke.mjs` accept the trust dialog after Herdr reports `agent_not_ready`, then rerun the full registered gate
 
 ### Short Term (Should)
-- [ ] M1 and M2: confirm against UE 5.8 by hand before release (soft-pointer comparison, sampled key count)
+- [ ] M1 and M2: confirm against UE 5.8 by hand before release
 
 ### Long Term (Could)
-- [ ] Bring the T007 test file names back in line with the spec (`rigged_finalize.feature`, `test_finalize_mcp_tools.py`) or update the spec
+- [ ] Update the design's `export_anims` input from the `variants` blend to the checkpoint, and align the T007 test file names
 
 ---
 
@@ -279,18 +275,15 @@ None. This worker may write only `verification-report.md`, so code fixes go back
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `src/nmg_game_dev/pipeline/engine.py` | 1 | H2 |
-| `src/nmg_game_dev/pipeline/anims.py` | 0 | |
-| `src/nmg_game_dev/pipeline/steps.py` | 0 | |
-| `src/nmg_game_dev/pipeline/request.py`, `result.py` | 0 | |
+| `src/nmg_game_dev/pipeline/engine.py` | 0 | H2 from the last report is fixed |
+| `src/nmg_game_dev/pipeline/anims.py`, `steps.py`, `request.py`, `result.py` | 0 | |
 | `src/nmg_game_dev/unreal/import_anims.py` | 2 | M1, M2 |
 | `plugins/nmg-game-dev-blender-addon/finalize_core/anims.py`, `steps.py` | 0 | |
 | `scripts/blender/finalize_entry.py` | 0 | |
 | `src/nmg_game_dev/finalize/__main__.py`, `mcp_tools.py`, `service.py` | 0 | |
 | `mcp-servers/finalize/src/finalize_mcp/server.py`, `tools.json` | 0 | |
-| `tests/blender/test_finalize_anims.py` | 1 | H1 |
-| `tests/finalize_fakes.py` | 0 | The fake probe ignores the input `.blend`, which hides H2 |
-| `docs/*.md`, `skills/finalize-asset/SKILL.md` | 0 | FR15 covered |
+| `tests/blender/test_finalize_anims.py`, `tests/unit/pipeline/test_anims.py` | 0 | H1 from the last report is fixed; checkpoint regression test added |
+| `steering/extensions/plugin-session-smoke.mjs` | 1 | H1 (not part of the #138 diff) |
 
 ---
 
@@ -298,7 +291,6 @@ None. This worker may write only `verification-report.md`, so code fixes go back
 
 **Needs fixes**
 
-The required Blender headless gate fails because of test pollution from the new test (H1). The
-per-clip cache does not detect clip-only changes against real Blender (H2), so AC6 fails. Both are
-small, local fixes. After them, rerun the full registered gate, including the deferred
-`gate-ue-compile` and `plugin.session-smoke`.
+The #138 implementation meets all 16 acceptance criteria, and every code gate passes. The required
+`plugin.session-smoke` gate fails because its provider does not handle Herdr 0.9.5's fail-fast
+`agent_not_ready` on the trust dialog. Repair the provider, then rerun the full registered gate.

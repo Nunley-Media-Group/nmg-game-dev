@@ -357,7 +357,7 @@ def _(blender_mcp):
 | `gate-shellcheck` | `scripts/**.sh` | `shellcheck -S style` on every `scripts/**.sh` (through `find -exec`) | shellcheck |
 | `gate-ship-smoke` | `skills/ship/**`, `src/nmg_game_dev/ship/**`, `scripts/build-*.sh`, `scripts/sign-macos.sh`, `scripts/notarize-macos.sh`, `scripts/verify-cook-manifest.sh`, `scripts/ship-smoke.sh` | `scripts/ship-smoke.sh`: a dry-run ship of the fixture with placeholder credentials; no UE build | — |
 | `plugin.validate` | `.claude-plugin/**`, `.mcp.json`, `skills/**`, `agents/**`, `commands/**`, `hooks/**`, `templates/consumer/**` | `claude plugin validate .` | — |
-| `plugin.session-smoke` | the same paths as `plugin.validate` | extension `project.plugin-session-smoke`: loads this checkout with `--plugin-dir` and checks that its MCP servers connect | Herdr |
+| `plugin.session-smoke` | the same paths as `plugin.validate` | extension `project.plugin-session-smoke`: loads this checkout with `--plugin-dir` in a headless stream-json Claude Code session and polls `mcp_status` until the expected plugin MCP servers connect; it sends no prompt | Claude Code CLI (`claude`) on `PATH` |
 
 ### Not gated yet
 

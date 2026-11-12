@@ -1,21 +1,22 @@
 // Plugin session smoke for nmg-game-dev. It loads this checkout as a Claude Code plugin
-// (`claude --plugin-dir <checkout>`) in a fresh session inside an ephemeral test project, in its
-// own Herdr tab, and passes once every expected plugin MCP server shows as connected in `/mcp`.
-// The tab and the project are removed afterwards. Only Node built-ins are imported, so the
-// steering writer can load this module from its staged copy.
+// (`claude --plugin-dir <checkout>`) in a fresh headless session inside an ephemeral test project
+// and passes once every expected plugin MCP server reports `connected`. The session runs with
+// stream-json input and output, and the smoke asks for server status with `mcp_status` control
+// requests. It never sends a prompt, so no model call is made, and a headless session shows no
+// folder-trust dialog and no terminal UI whose width could truncate server names. The session and
+// the project are removed afterwards. Only Node built-ins are imported, so the steering writer can
+// load this module from its staged copy.
 import { spawn } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const PLUGIN = "nmg-game-dev";
-const START_TIMEOUT_MS = 180000;
+const STATUS_TIMEOUT_MS = 180000;
+const REQUEST_TIMEOUT_MS = 30000;
 const POLL_MS = 2000;
-const MCP_POLLS = 60;
-const TRUST_DIALOG = /Do you trust the files in this folder\?|Yes, I trust this folder|Quick safety check/i;
-const TRUST_ACCEPT_KEYS = Object.freeze(["down", "enter"]);
-const SERVER_FAILED = /✘|\bfailed\b|disconnected|needs authentication/i;
-const SERVER_CONNECTED = /✔|✓|\bconnected\b/i;
+// Servers are registered as soon as the session starts, so a missing server will not appear later.
+const TERMINAL = new Set(["connected", "failed", "needs-auth", "disabled", "missing"]);
 
 function bounded(value, size = 8000) {
   const text = String(value ?? "");
@@ -48,22 +49,71 @@ function run(program, args, { cwd, signal } = {}) {
   });
 }
 
-function herdrResult(output) {
-  if (output?.status !== 0) return null;
-  try { return JSON.parse(output.stdout).result ?? null; } catch { return null; }
-}
-
 function commandEvidence(summary, output) {
   return { kind: "command", summary, artifact: null, stdout: bounded(output?.stdout), stderr: bounded(output?.stderr, 4000) };
 }
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-function serverStatus(screen, server) {
-  const line = String(screen ?? "").split("\n").find((text) => text.includes(PLUGIN) && text.includes(server));
-  if (!line) return "missing";
-  if (SERVER_FAILED.test(line)) return "failed";
-  return SERVER_CONNECTED.test(line) ? "connected" : "pending";
+// A headless Claude Code session driven over stream-json. `request` sends one control request and
+// resolves with its response payload, or null when the session ends or the request times out.
+function startSession(args, { cwd }) {
+  const pending = new Map();
+  const session = { stderr: "", exited: false, exitCode: null, spawnError: null };
+  let buffer = "";
+  let next = 0;
+  const settle = (id, value) => {
+    const entry = pending.get(id);
+    if (!entry) return;
+    pending.delete(id);
+    clearTimeout(entry.timer);
+    entry.done(value);
+  };
+  const child = spawn("claude", args, { cwd, env: process.env, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+  child.on("error", (error) => {
+    session.spawnError = error.message;
+    session.exited = true;
+    for (const id of [...pending.keys()]) settle(id, null);
+  });
+  child.on("close", (code) => {
+    session.exited = true;
+    session.exitCode = code;
+    for (const id of [...pending.keys()]) settle(id, null);
+  });
+  child.stdin.on("error", () => {});
+  child.stderr.on("data", (chunk) => { session.stderr = bounded(session.stderr + chunk, 4000); });
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk;
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line) continue;
+      let message;
+      try { message = JSON.parse(line); } catch { continue; }
+      if (message?.type === "control_response") settle(message.response?.request_id, message.response);
+    }
+  });
+  session.request = (request) => new Promise((done) => {
+    if (session.exited) return done(null);
+    const id = `smoke-${next++}`;
+    const timer = setTimeout(() => settle(id, null), REQUEST_TIMEOUT_MS);
+    pending.set(id, { done, timer });
+    child.stdin.write(`${JSON.stringify({ type: "control_request", request_id: id, request })}\n`);
+  });
+  session.stop = () => {
+    child.stdin.end();
+    if (!session.exited) child.kill("SIGTERM");
+  };
+  return session;
+}
+
+function serverStatuses(servers, expected) {
+  const byName = new Map((Array.isArray(servers) ? servers : []).map((server) => [server?.name, server]));
+  return Object.fromEntries(expected.map((name) => {
+    const server = byName.get(`plugin:${PLUGIN}:${name}`);
+    return [name, server?.source === "plugin" ? String(server.status ?? "unknown") : "missing"];
+  }));
 }
 
 async function smoke(request) {
@@ -74,57 +124,57 @@ async function smoke(request) {
   if (!expected.length) return finish("incomplete", "config.expectConnected names no MCP servers");
 
   const project = realpathSync(mkdtempSync(join(tmpdir(), `${PLUGIN}-smoke-`)));
-  const label = `${PLUGIN}-smoke-${Date.now()}`;
-  let tabId = null;
+  const args = [
+    "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+    // --plugin-dir already wins over a same-named installed copy; the session-only setting also
+    // turns off the nmg-plugins install so the result never depends on what is installed.
+    "--plugin-dir", projectRoot, "--settings", JSON.stringify({ enabledPlugins: { [`${PLUGIN}@nmg-plugins`]: false } }),
+  ];
+  let session = null;
+  const cancel = () => session?.stop();
+  signal?.addEventListener("abort", cancel, { once: true });
   try {
     evidence.push(commandEvidence(`git init (ephemeral test project ${project})`, await run("git", ["init", "-q"], { cwd: project, signal })));
-    const created = await run("herdr", ["tab", "create", "--cwd", project, "--label", label, "--no-focus"], { signal });
-    evidence.push(commandEvidence("herdr tab create", created));
-    tabId = (herdrResult(await run("herdr", ["tab", "list"], { signal }))?.tabs ?? []).find((tab) => tab.label === label)?.tab_id ?? null;
-    if (!tabId) return finish("incomplete", "herdr tab for the plugin session was not created");
-    const pane = (herdrResult(await run("herdr", ["pane", "list"], { signal }))?.panes ?? []).find((entry) => entry.tab_id === tabId)?.pane_id ?? null;
-    if (!pane) return finish("incomplete", `no pane found in herdr tab ${tabId}`);
+    if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
+    session = startSession(args, { cwd: project });
 
-    let started = null;
-    const starting = run("herdr", [
-      "agent", "start", label, "--kind", "claude", "--pane", pane, "--timeout", String(START_TIMEOUT_MS),
-      // --plugin-dir already wins over a same-named installed copy; the session-only setting also
-      // turns off the nmg-plugins install so the result never depends on what is installed.
-      "--", "--plugin-dir", projectRoot, "--settings", JSON.stringify({ enabledPlugins: { "nmg-game-dev@nmg-plugins": false } }),
-    ], { signal }).then((output) => { started = output; });
-    let trusted = false;
-    while (started === null) {
+    const deadline = Date.now() + STATUS_TIMEOUT_MS;
+    let servers = [];
+    let statuses = serverStatuses(servers, expected);
+    let answered = false;
+    while (Date.now() < deadline) {
       if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
-      await sleep(POLL_MS);
-      if (trusted || started !== null) continue;
-      const screen = await run("herdr", ["pane", "read", pane, "--source", "visible", "--format", "text"], { signal });
-      if (TRUST_DIALOG.test(String(screen.stdout).replace(/\s+/g, " "))) {
-        trusted = true;
-        evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${TRUST_ACCEPT_KEYS.join(" ")} (trust ephemeral project)`,
-          await run("herdr", ["pane", "send-keys", pane, ...TRUST_ACCEPT_KEYS], { signal })));
+      const response = await session.request({ subtype: "mcp_status" });
+      if (response?.subtype === "success") {
+        answered = true;
+        servers = response.response?.mcpServers ?? [];
+        statuses = serverStatuses(servers, expected);
+        if (Object.values(statuses).every((status) => TERMINAL.has(status))) break;
       }
-    }
-    await starting;
-    evidence.push(commandEvidence(`herdr agent start ${label} -- --plugin-dir ${projectRoot}`, started));
-    if (started.status !== 0) return finish("failed", "Claude Code session with --plugin-dir did not become ready");
-
-    evidence.push(commandEvidence("herdr agent prompt /mcp", await run("herdr", ["agent", "prompt", label, "/mcp"], { signal })));
-    let screen = "";
-    let statuses = {};
-    for (let poll = 0; poll < MCP_POLLS; poll += 1) {
-      if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
+      if (session.exited) break;
       await sleep(POLL_MS);
-      screen = (await run("herdr", ["pane", "read", pane, "--source", "visible", "--format", "text"], { signal })).stdout;
-      statuses = Object.fromEntries(expected.map((server) => [server, serverStatus(screen, server)]));
-      if (Object.values(statuses).every((status) => status === "connected" || status === "failed")) break;
     }
-    evidence.push({ kind: "artifact", summary: "/mcp screen in the plugin session", artifact: bounded(screen) });
+    evidence.push({
+      kind: "command",
+      summary: `claude ${args.slice(0, 6).join(" ")} --plugin-dir ${projectRoot} (mcp_status control requests)`,
+      artifact: null,
+      stdout: bounded(JSON.stringify(servers.filter((server) => String(server?.name).startsWith(`plugin:${PLUGIN}:`))
+        .map(({ name, status, error, source }) => ({ name, status, error, source })), null, 1)),
+      stderr: bounded(session.spawnError ?? session.stderr, 4000),
+    });
+    if (session.spawnError) return finish("incomplete", `claude CLI could not be started: ${session.spawnError}`);
+    if (!answered) {
+      return finish("failed", session.exited
+        ? `Claude Code session with --plugin-dir exited (code ${session.exitCode}) before reporting MCP status`
+        : "Claude Code session with --plugin-dir did not report MCP status");
+    }
     const summary = expected.map((server) => `${PLUGIN}:${server} ${statuses[server]}`).join(", ");
     return Object.values(statuses).every((status) => status === "connected")
       ? finish("passed", `plugin loaded via --plugin-dir; ${summary}`)
       : finish("failed", `plugin MCP servers not all connected: ${summary}`);
   } finally {
-    if (tabId) evidence.push(commandEvidence(`herdr tab close ${tabId}`, await run("herdr", ["tab", "close", tabId])));
+    signal?.removeEventListener("abort", cancel);
+    session?.stop();
     rmSync(project, { recursive: true, force: true });
   }
 }
