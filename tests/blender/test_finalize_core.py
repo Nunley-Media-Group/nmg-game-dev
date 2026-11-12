@@ -420,3 +420,23 @@ def test_load_back_restores_the_session_when_it_fails_after_appending(
         "Crate_Mobile",
     ]
     assert _leftover_old_names() == []
+
+
+def test_object_snapshot_records_the_mesh_datablock_name(enabled_addon: str) -> None:
+    # A part whose datablock differs from its object name (#145, T001): the snapshot records the
+    # datablock so the UE import can map it back to the part's export name.
+    validate = importlib.import_module(f"{enabled_addon}.contract_core.validate")
+    collection = bpy.data.collections.new("Crate")
+    bpy.context.scene.collection.children.link(collection)
+    mesh = bpy.data.meshes.new("SM_Crate_Lid.001")
+    mesh.from_pydata([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)], [], [(0, 1, 2)])
+    part = bpy.data.objects.new("SM_Crate_Lid", mesh)
+    pivot = bpy.data.objects.new("Pivot", None)
+    collection.objects.link(part)
+    collection.objects.link(pivot)
+
+    part_snapshot = validate.object_snapshot(part, "desktop", 1)
+    empty_snapshot = validate.object_snapshot(pivot, "desktop", 0)
+
+    assert part_snapshot["mesh"] == "SM_Crate_Lid.001"
+    assert empty_snapshot["mesh"] is None

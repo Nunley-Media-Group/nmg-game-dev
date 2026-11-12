@@ -1,0 +1,24 @@
+**Issue**: #202
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/123-register-the-project-verification-gates-and-a-ue-compile-extension-in-steering/
+
+# File: tests/unit/test_ue_compile_gate.py
+# Generated from: specs/202-build-the-ue-compile-gate-without-uba-so-parallel-worktrees-don-t-corrupt-each-other-s-objects/requirements.md
+Feature: gate-ue-compile builds each checkout without UBA
+
+  @SCN001 @regression
+  Scenario: The gate passes -NoUBA to Build.sh
+    Given a fake Build.sh under a temporary UE_ROOT that logs its arguments
+    And a placeholder dogfood .uproject
+    When the project.ue-compile provider runs the engine build for target "DogfoodEditor"
+    Then Build.sh receives "DogfoodEditor", "Mac", "Development", "-Project=<absolute project path>", "-WaitMutex" and "-NoUBA"
+    And the provider returns "passed" with "-NoUBA" in its recorded command
+
+  @SCN002 @regression
+  Scenario: The documented gate command shows -NoUBA and why
+    Given steering/snippets/project-tech.md
+    When a contributor reads the gate-ue-compile row of the Verification Gates table
+    Then the row shows the Build.sh command with "-NoUBA"
+    And it says the flag turns off the Unreal Build Accelerator

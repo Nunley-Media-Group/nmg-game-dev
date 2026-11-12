@@ -13,7 +13,8 @@ from typing import Any
 import bpy
 from mathutils import Vector
 
-from ..utils.budgets import CONTRACT_BUDGETS, BudgetOverrideError, resolve_budget
+from ..utils.budgets import BudgetOverrideError, resolve_budget
+from . import texel
 from .geometry import geometry_findings
 from .report import ContractError, build_report, finding
 from .uv import uv_findings
@@ -21,7 +22,7 @@ from .uv import uv_findings
 LOCATION_TOLERANCE = 1e-5
 ANGLE_TOLERANCE = 1e-5
 PIVOT_TOLERANCE = 1e-3
-TEXEL_DENSITY_MIN: dict[str, float] = {"desktop": 256.0, "mobile": 128.0}
+TEXEL_DENSITY_MIN: dict[str, float] = {"desktop": texel.DESKTOP_MIN, "mobile": texel.MOBILE_MIN}
 ALLOWED_NODE_TYPES = frozenset(
     {
         "TEX_IMAGE",
@@ -87,12 +88,22 @@ def validate_asset(
         objects = sorted(variant_collection.all_objects, key=lambda obj: obj.name)
         objects_by_variant[variant] = objects
         tris: dict[str, int] = {}
+        texel_entries: dict[str, list[dict[str, Any]]] = {}
         findings += _structure_findings(collection, variant, objects, root_name)
         findings += _mesh_findings(
-            collection, variant, asset_class, objects, budgets[variant], root_name, tris
+            collection,
+            variant,
+            asset_class,
+            objects,
+            budgets[variant],
+            root_name,
+            tris,
+            texel_entries,
         )
         for obj in objects:
             snapshot[obj.name] = object_snapshot(obj, variant, tris.get(obj.name, 0))
+            if obj.name in texel_entries:
+                snapshot[obj.name]["texel"] = texel_entries[obj.name]
     if mobile is not None:
         findings += _variant_name_findings(
             objects_by_variant["desktop"], objects_by_variant["mobile"]
@@ -124,6 +135,7 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
     return {
         "variant": variant,
         "type": obj.type,
+        "mesh": obj.data.name if is_mesh else None,
         "parent": obj.parent.name if obj.parent is not None else None,
         "tris": tris,
         "dimensions": _rounded(obj.dimensions),
@@ -141,11 +153,13 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
 
 
 def _budgets(asset_class: str, budgets_path: str | None) -> dict[str, dict[str, int]]:
+    path = budgets_path or None
     try:
-        mobile = resolve_budget(asset_class, budgets_path or None)
+        desktop = resolve_budget(asset_class, path, "desktop")
+        mobile = resolve_budget(asset_class, path, "mobile")
     except BudgetOverrideError as error:
         raise ContractError(error.code, error.message, error.remediation) from error
-    return {"desktop": dict(CONTRACT_BUDGETS[asset_class]["desktop"]), "mobile": mobile}
+    return {"desktop": desktop, "mobile": mobile}
 
 
 def _root_name(collection: str, variant: str) -> str:
@@ -278,6 +292,7 @@ def _mesh_findings(
     budget: dict[str, int],
     root_name: str,
     tris_out: dict[str, int],
+    texel_out: dict[str, list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     meshes = [obj for obj in objects if obj.type == "MESH"]
@@ -285,7 +300,7 @@ def _mesh_findings(
     materials: dict[str, bpy.types.Material] = {}
     images: dict[str, bpy.types.Image] = {}
     for obj in meshes:
-        copy = _evaluated_copy(obj)
+        copy = texel.evaluated_copy(obj)
         try:
             tris_out[obj.name] = triangle_count(copy)
             findings += geometry_findings(
@@ -293,7 +308,7 @@ def _mesh_findings(
             )
             findings += uv_findings(obj.name, copy, check_overlap=not texel_check)
             if texel_check:
-                findings += _texel_findings(obj, copy, variant)
+                findings += _texel_findings(obj, copy, variant, texel_out)
         finally:
             bpy.data.meshes.remove(copy)
         for material in _materials_of(obj):
@@ -401,25 +416,45 @@ def _image_findings(collection: str, image: bpy.types.Image) -> list[dict[str, s
 
 
 def _texel_findings(
-    obj: bpy.types.Object, copy: bpy.types.Mesh, variant: str
+    obj: bpy.types.Object,
+    copy: bpy.types.Mesh,
+    variant: str,
+    entries_out: dict[str, list[dict[str, Any]]],
 ) -> list[dict[str, str]]:
-    uv_area, world_area = _areas(copy)
-    images = [image for material in _materials_of(obj) for image in _images_of(material)]
-    if uv_area <= 0 or world_area <= 0 or not images:
-        return []
-    max_px = max(max(image.size) for image in images)
-    density = max_px * math.sqrt(uv_area / world_area)
+    """Measure each material slot on its own; report the measured slots below the minimum.
+
+    Trim-atlas and flat-colour slots are exempt, and the report still lists them with the reason.
+    A slot's pixel size is the largest image on its material, as validation has always measured.
+    """
     minimum = TEXEL_DENSITY_MIN[variant]
-    if density >= minimum:
-        return []
-    return [
-        finding(
-            "texel.density",
-            obj.name,
-            f"{obj.name} reaches {density:.0f} px/m; environment pieces need at least "
-            f"{minimum:.0f} px/m on {variant}.",
-        )
-    ]
+    findings: list[dict[str, str]] = []
+    entries: list[dict[str, Any]] = []
+    for slot in texel.slot_areas(obj, copy):
+        px = _largest_image_px(slot.material)
+        entry = texel.slot_entry(slot, {variant: px})
+        if entry is None:
+            continue
+        entries.append(entry)
+        if slot.kind != "measured" or px is None:
+            continue
+        measured = texel.density(px, slot.uv_area, slot.world_area)
+        if measured < minimum:
+            findings.append(
+                finding(
+                    "texel.density",
+                    obj.name,
+                    f"{obj.name} slot '{slot.name}' reaches {measured:.0f} px/m; environment "
+                    f"pieces need at least {minimum:.0f} px/m on {variant}.",
+                )
+            )
+    entries_out[obj.name] = entries
+    return findings
+
+
+def _largest_image_px(material: bpy.types.Material | None) -> int | None:
+    if material is None:
+        return None
+    return max((max(image.size) for image in _images_of(material)), default=None)
 
 
 def _budget_findings(
@@ -538,14 +573,6 @@ def _name_set_findings(kind: str, desktop: set[str], mobile: set[str]) -> list[d
     return findings
 
 
-def _evaluated_copy(obj: bpy.types.Object) -> bpy.types.Mesh:
-    # Keep the deform layer so geometry samples can name each vertex's groups (#153).
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    return bpy.data.meshes.new_from_object(
-        obj.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph
-    )
-
-
 def _materials_of(obj: bpy.types.Object) -> list[bpy.types.Material]:
     return [slot.material for slot in obj.material_slots if slot.material is not None]
 
@@ -558,23 +585,6 @@ def _images_of(material: bpy.types.Material) -> list[bpy.types.Image]:
         for node in material.node_tree.nodes
         if node.type == "TEX_IMAGE" and node.image is not None
     ]
-
-
-def _areas(mesh: bpy.types.Mesh) -> tuple[float, float]:
-    """Return (UV area, world area) of the mesh, for the texel density estimate."""
-    layer = mesh.uv_layers[0].data if mesh.uv_layers else None
-    uv_total = 0.0
-    if layer is not None:
-        for poly in mesh.polygons:
-            points = [
-                layer[index].uv
-                for index in range(poly.loop_start, poly.loop_start + poly.loop_total)
-            ]
-            for index in range(1, len(points) - 1):
-                a, b, c = points[0], points[index], points[index + 1]
-                uv_total += abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2
-    world_total = sum(poly.area for poly in mesh.polygons)
-    return uv_total, world_total
 
 
 def _close(values: Any, expected: tuple[float, ...], tolerance: float) -> bool:
