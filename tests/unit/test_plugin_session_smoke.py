@@ -2,8 +2,11 @@
 
 Each test runs the real provider through node with a fake ``herdr`` first on PATH. The fake
 renders a 16-row /mcp list in a tab of configurable height, scrolls it to keep the selection
-visible, moves the selection on up/down keys, and logs the keys it receives. No Claude Code,
-Blender, or Unreal process starts.
+visible, moves the selection on up/down keys (wrapping at either end, as Claude Code does), and
+logs the keys it receives. With ``name_width`` set it draws the narrow-pane list Claude Code
+draws in a ~40-column Herdr tab: names cut to ``plugin:nmg-game…`` and ``enter`` opening a detail
+view that names the server in full, which ``esc`` leaves with the first row selected. No Claude
+Code, Blender, or Unreal process starts.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ _FAKE_HERDR = r"""
 import json
 import os
 import sys
+import textwrap
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -63,13 +67,42 @@ def scroll(selected, top, height, count):
     return top
 
 
+def narrow(row, width):
+    # "plugin:nmg-game-dev:blender ✔ connected" -> "✔ plugin:nmg-game…   3 tools"
+    name, status = row.split(" ", 1)
+    icon = status.split()[0]
+    shown = name if len(name) <= width else name[: width - 1] + "…"
+    return f"{icon} {shown}" + ("   3 tools" if icon == "✔" else "")
+
+
+def detail(row):
+    name, status = row.split(" ", 1)
+    # The real view capitalises the name and wraps it: "Plugin:nmg-game-dev:blender MCP" / "Server".
+    title = textwrap.wrap(f"{name[:1].upper()}{name[1:]} MCP Server", width=34)
+    return "\n".join([
+        "Manage MCP servers",
+        *title,
+        "",
+        f"Status:           {status}",
+        "Config location:  Dynamically",
+        "                  configured",
+        "❯ 1. View tools",
+        "↑/↓ to navigate · Enter to select",
+        "· Esc to back",
+    ]) + "\n"
+
+
 def render(state):
     rows, top, height = state["rows"], state["top"], state["height"]
+    if state.get("detail"):
+        return detail(rows[state["selected"]])
+    width = state.get("name_width")
     above, last = layout(top, height, len(rows))
-    lines = [f"↑ {top} more"] if above else []
+    lines = [f"{len(rows)} servers"]
+    lines += [f"↑ {top} more"] if above else []
     for index in range(top, last):
         mark = "❯ " if index == state["selected"] else "  "
-        lines.append(mark + rows[index])
+        lines.append(mark + (narrow(rows[index], width) if width else rows[index]))
     below = len(rows) - last
     if below:
         lines.append(f"↓ {below} more")
@@ -78,10 +111,17 @@ def render(state):
 
 def press(state, key):
     count = len(state["rows"])
+    if state.get("detail"):
+        if key == "esc":
+            state.update(detail=False, selected=0, top=0)
+        return
+    if key == "enter":
+        state["detail"] = True
+        return
     if key == "up":
-        state["selected"] = max(0, state["selected"] - 1)
+        state["selected"] = (state["selected"] - 1) % count
     elif key == "down":
-        state["selected"] = min(count - 1, state["selected"] + 1)
+        state["selected"] = (state["selected"] + 1) % count
     else:
         return
     state["top"] = scroll(state["selected"], state["top"], state["height"], count)
@@ -108,6 +148,9 @@ if args[:2] == ["pane", "read"]:
     sys.exit(0)
 if args[:2] == ["pane", "send-keys"]:
     state = load()
+    if state.get("refuse_keys"):
+        sys.stderr.write("fake herdr: pane is not accepting keys\n")
+        sys.exit(1)
     for key in args[3:]:
         with KEYS.open("a", encoding="utf-8") as log:
             log.write(key + "\n")
@@ -141,11 +184,17 @@ def _mcp_rows(blender_at: int | None, blender_status: str = "✔ connected") -> 
 
 
 def _smoke(
-    tmp_path: Path, rows: list[str], *, height: int, top: int = 0, selected: int = 0
+    tmp_path: Path,
+    rows: list[str],
+    *,
+    height: int,
+    top: int = 0,
+    selected: int = 0,
+    **screen: Any,
 ) -> tuple[dict[str, Any], list[str]]:
     home = tmp_path / "herdr"
     home.mkdir()
-    config = {"rows": rows, "height": height, "top": top, "selected": selected}
+    config = {"rows": rows, "height": height, "top": top, "selected": selected, **screen}
     (home / "config.json").write_text(json.dumps(config), encoding="utf-8")
     fake = tmp_path / "fake_herdr.py"
     fake.write_text(_FAKE_HERDR, encoding="utf-8")
@@ -231,3 +280,61 @@ def test_a_window_tall_enough_for_the_whole_list_sends_no_keys(tmp_path: Path) -
     assert result["status"] == "passed", result
     assert "nmg-game-dev:blender connected" in result["summary"]
     assert keys == []
+
+
+# The ~40-column Herdr pane of the real gate run: every plugin name is cut to "plugin:nmg-game…".
+_NARROW = 16
+
+
+def _mcp_artifact(result: dict[str, Any]) -> str:
+    artifacts = [entry["artifact"] for entry in result["evidence"] if entry["kind"] == "artifact"]
+    assert len(artifacts) == 1, result["evidence"]
+    return str(artifacts[0])
+
+
+def test_a_connected_server_with_a_truncated_name_is_found_in_its_detail_view(
+    tmp_path: Path,
+) -> None:
+    # AC1: a short, narrow tab; blender's row reads "✔ plugin:nmg-game…   3 tools" below the fold.
+    result, keys = _smoke(tmp_path, _mcp_rows(blender_at=12), height=6, name_width=_NARROW)
+
+    assert result["status"] == "passed", result
+    assert "nmg-game-dev:blender connected" in result["summary"]
+    assert "enter" in keys
+    assert "esc" in keys
+    # AC3: the evidence holds the detail view that named the server.
+    assert "Plugin:nmg-game-dev:blender MCP" in _mcp_artifact(result)
+
+
+def test_a_failed_server_with_a_truncated_name_fails_and_is_named(tmp_path: Path) -> None:
+    # AC2: the failed status is read from blender's detail view.
+    rows = _mcp_rows(blender_at=12, blender_status="✘ failed")
+    result, _ = _smoke(tmp_path, rows, height=6, name_width=_NARROW)
+
+    assert result["status"] == "failed", result
+    assert "nmg-game-dev:blender failed" in result["summary"]
+
+
+def test_a_missing_server_among_truncated_names_is_walked_once(tmp_path: Path) -> None:
+    # AC2: no blender row. The first open also finds the walk's place in the list (esc selects
+    # the first row), so that row is opened twice and every other row once; an unchanged list is
+    # not walked again on the second poll.
+    rows = _mcp_rows(blender_at=None)
+    result, keys = _smoke(tmp_path, rows, height=6, name_width=_NARROW)
+
+    assert result["status"] == "failed", result
+    assert "nmg-game-dev:blender missing" in result["summary"]
+    assert keys.count("enter") == len(rows) + 1
+    assert keys.count("enter") == keys.count("esc")
+
+
+def test_refused_keys_are_recorded_as_paging_stopped_early(tmp_path: Path) -> None:
+    # AC3: the evidence says why rows below the fold were never read.
+    result, keys = _smoke(tmp_path, _mcp_rows(blender_at=12), height=6, refuse_keys=True)
+
+    assert result["status"] == "failed", result
+    assert "nmg-game-dev:blender missing" in result["summary"]
+    assert keys == []
+    refused = [entry for entry in result["evidence"] if "paging stopped early" in entry["summary"]]
+    assert refused, result["evidence"]
+    assert "not accepting keys" in refused[0]["stderr"]

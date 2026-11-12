@@ -20,6 +20,8 @@ const MORE_ABOVE = /↑\s*\d+\s+more/;
 const MORE_BELOW = /↓\s*\d+\s+more/;
 const KEY_SETTLE_MS = 250;
 const MAX_SCROLL_KEYS = 200;
+const PLUGIN_PREFIX = `plugin:${PLUGIN}:`;
+const SERVER_COUNT = /\b(\d+)\s+servers?\b/;
 
 function bounded(value, size = 8000) {
   const text = String(value ?? "");
@@ -76,16 +78,65 @@ const readVisible = async (pane, signal) =>
 // Claude Code draws /mcp as a scrolling selection list, so a short tab shows a window of rows with
 // `↑ N more` / `↓ N more` markers. Navigation keys only move the selection, so the pass presses up
 // while the top marker shows and then down while the bottom marker shows, reading after each key.
-async function pageMcpList(pane, { signal, keySettleMs, onRead }) {
+// `press(key)` sends one key, waits for the screen to settle, and returns false when Herdr refused it.
+async function pageMcpList(pane, { signal, press, onRead }) {
   let screen = await readVisible(pane, signal);
   onRead(screen);
   for (const [marker, key] of [[MORE_ABOVE, "up"], [MORE_BELOW, "down"]]) {
     for (let presses = 0; marker.test(screen) && presses < MAX_SCROLL_KEYS; presses += 1) {
-      if ((await run("herdr", ["pane", "send-keys", pane, key], { signal })).status !== 0) return;
-      await sleep(keySettleMs);
+      if (!(await press(key))) return;
       screen = await readVisible(pane, signal);
       onRead(screen);
     }
+  }
+}
+
+// A narrow pane truncates long /mcp names ("✔ plugin:nmg-game…   9 tools"), so the row no longer
+// names its server. A row is worth opening when its cut-off name could be one of this plugin's.
+function truncatedPluginRow(line) {
+  const name = /(\S+)…/.exec(line ?? "")?.[1];
+  return name !== undefined && name.length >= "plugin:".length
+    && (PLUGIN_PREFIX.startsWith(name) || name.startsWith(PLUGIN_PREFIX));
+}
+
+const selectedRow = (screen) => screen.split("\n").find((line) => line.includes("❯"));
+
+// The detail view names the server in full above its "Status:" line, wrapped to the pane width
+// ("Plugin:nmg-game-dev:blender MCP" / "Server"). Returns one row holding the name and the status,
+// or null when the screen is not a detail view. Lines are joined without spaces so that a name
+// hard-broken across lines reads whole again.
+function detailRow(screen) {
+  const lines = screen.split("\n");
+  const status = lines.findIndex((line) => /^\s*Status:/.test(line));
+  if (status < 0) return null;
+  const start = lines.slice(0, status).findLastIndex((line) => /^\s*plugin:/i.test(line));
+  if (start < 0) return null;
+  return `${lines.slice(start, status).map((line) => line.trim()).join("")} ${lines[status].trim()}`;
+}
+
+// Opens the detail view of every selected row whose name is truncated. Enter opens the detail, and
+// esc returns to the list with its first row selected, so after the first inspection the walk
+// knows its position and returns to it. The list wraps, so `count` down presses visit every row.
+async function inspectTruncatedRows(pane, { signal, press, count, onRead, done }) {
+  let position = null; // rows below the first row, known once an inspection has reset the list
+  for (let step = 0; step <= 2 * count && !done(); step += 1) {
+    const screen = await readVisible(pane, signal);
+    onRead(screen);
+    if (truncatedPluginRow(selectedRow(screen))) {
+      if (!(await press("enter"))) return;
+      const row = detailRow(await readVisible(pane, signal));
+      if (row === null) return;
+      onRead(row);
+      if (!(await press("esc"))) return;
+      if (position === null) {
+        position = 0;
+        continue;
+      }
+      for (let back = 0; back < position; back += 1) if (!(await press("down"))) return;
+    }
+    if (position !== null && position >= count - 1) return;
+    if (!(await press("down"))) return;
+    if (position !== null) position += 1;
   }
 }
 
@@ -135,22 +186,51 @@ async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
     // Every distinct line from every read, in first-seen order, and the latest row naming each server.
     const lines = new Set();
     const latest = new Map();
+    // Truncated rows seen in the current poll (selection mark removed), and the /mcp server count.
+    let truncated = new Set();
+    let serverCount = MAX_SCROLL_KEYS;
     const record = (screen) => {
       for (const line of screen.split("\n")) {
         if (!line.trim()) continue;
         lines.add(line);
+        if (truncatedPluginRow(line)) truncated.add(line.replace("❯", " ").trim());
+        const count = SERVER_COUNT.exec(line);
+        if (count) serverCount = Number(count[1]);
         for (const server of expected) {
           if (line.includes(PLUGIN) && line.includes(server)) latest.set(server, line);
         }
       }
     };
+    // A refused key ends the current pass early; the evidence says so, since the rows not reached
+    // would otherwise only show up as `missing`.
+    const press = async (key) => {
+      const output = await run("herdr", ["pane", "send-keys", pane, key], { signal });
+      if (output.status !== 0) {
+        evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${key} failed; /mcp paging stopped early`, output));
+        return false;
+      }
+      await sleep(keySettleMs);
+      return true;
+    };
+    const settled = (server) => ["connected", "failed"].includes(serverStatus(latest.get(server)));
     let statuses = {};
+    let inspected = null; // the truncated rows the last detail walk ran for
     for (let poll = 0; poll < mcpPolls; poll += 1) {
       if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
       await sleep(pollMs);
-      await pageMcpList(pane, { signal, keySettleMs, onRead: record });
+      truncated = new Set();
+      await pageMcpList(pane, { signal, press, onRead: record });
+      // Walk the detail views only when an expected server is unresolved and the truncated rows
+      // changed since the last walk, so a genuinely missing server does not repeat it every poll.
+      const key = [...truncated].sort().join("\n");
+      if (truncated.size && key !== inspected && !expected.every(settled)) {
+        inspected = key;
+        await inspectTruncatedRows(pane, {
+          signal, press, count: serverCount, onRead: record, done: () => expected.every(settled),
+        });
+      }
       statuses = Object.fromEntries(expected.map((server) => [server, serverStatus(latest.get(server))]));
-      if (Object.values(statuses).every((status) => status === "connected" || status === "failed")) break;
+      if (expected.every(settled)) break;
     }
     evidence.push({ kind: "artifact", summary: "/mcp list rows read in the plugin session", artifact: bounded([...lines].join("\n")) });
     const summary = expected.map((server) => `${PLUGIN}:${server} ${statuses[server]}`).join(", ");
