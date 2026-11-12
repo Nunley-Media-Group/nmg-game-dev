@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
 **Scope**: Implementation verification against spec
 
-**Verification head**: ca9b2d69aaa2846d912d1eb3f5806e6bcde2bc1a
+**Verification head**: 5448dc900dee6531a4fbf11e416f7d1dd8364e50
 
 ---
 
@@ -17,22 +17,18 @@
 | Architecture (SOLID) | 4 |
 | Security | 5 |
 | Performance | 5 |
-| Testability | 3 |
+| Testability | 4 |
 | Error Handling | 4 |
-| **Overall** | 4.3 |
+| **Overall** | 4.5 |
 
 ### Implementation Status: Fail
-**Total Issues**: 4 (1 required gate failure, 1 medium test-harness finding, 2 low findings)
+**Total Issues**: 3 (1 required gate failure, 2 low findings)
 
-Code review finds every #142 acceptance criterion met, and the add-on code is the same as at `0046d43`, where `gate-blender-headless` passed 184 tests. This head changes only the `plugin.session-smoke` provider and the previous report. At this head the required `gate-blender-headless` gate **failed** (10 failed, 174 passed), so the ceiling is **Fail**. `gate-ue-compile` and `plugin.session-smoke` were deferred as `incomplete`.
+The headless-runner fix in `5448dc9` works. `gate-blender-headless` now loads this checkout's add-on and passed 184 tests, including all five #142 regression tests. Code review finds every #142 acceptance criterion met.
 
-Diagnosis: the headless run did not test this checkout's add-on. `tests/blender/_runner.py` links the add-on into Blender's **user** addons directory (`~/Library/Application Support/Blender/5.2/scripts/addons/nmg_game_dev_blender_addon`), and every lane worktree on this host shares that directory. During this run, lane-5's runner re-pointed the link at `lane-5/plugins/nmg-game-dev-blender-addon` (link mtime 17:42). Lane-1 and lane-5 Blender test runs were still active when this was checked. The failures fit foreign code:
+The required `repository.tests` gate **failed** in both full-gate runs at this head, so the ceiling is **Fail**. The only failure in each run was `tests/bdd/steps/test_scaffold.py::test_unreal_launcher_detaches`: run 1 took 2.04 s and run 2 took 2.36 s, against a 2.0 s limit. #142 changes neither that test nor `scripts/start-unreal-mcp.sh`. Run alone, the test passes in about 1 s (3/3 runs). During verification the host load average was 143 to 182, with six lanes running Blender, UE, and pytest at once. With `repository.tests` failed, the runner deferred `gate-ue-compile` and `plugin.session-smoke` as `incomplete`.
 
-- `test_bl_info_version_matches_version_file` failed, so the loaded add-on's version does not match this checkout's `VERSION`.
-- All five #142 regression tests failed, along with four `test_finalize_core` tests. For example, `Desktop: SM_Crate_Trim carries SM_Crate_Trim.001` means the export ran without `_name_meshes`.
-- Tracebacks show the add-on loaded from the shared user-addons path.
-
-The failed required result stands, and this report cannot override it. A verify worker's publication scope allows only this report, so the harness fix belongs to implementation. Re-running the unchanged gate while other lanes run Blender tests would race again.
+A verify worker may publish only this report, so the repair belongs to the controller or implementation.
 
 ---
 
@@ -49,31 +45,30 @@ The failed required result stands, and this report cannot override it. A verify 
 
 ## Delivery Validation
 
-- Local verification: Not complete (required `gate-blender-headless` failed; `gate-ue-compile` and `plugin.session-smoke` deferred)
+- Local verification: Not complete. Required `repository.tests` failed; `gate-ue-compile` and `plugin.session-smoke` were deferred.
 - PR evidence: Not required
 
 ---
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/142.json` (run id `f2045f01-8864-421b-8fe0-b896fbc3a437`, base `main`, head `ca9b2d69aaa2846d912d1eb3f5806e6bcde2bc1a`, tree clean)
-- Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown ids
-- Ceiling: **Fail** (required `gate-blender-headless` failed; the runner's own ceiling field reads `Incomplete` because two later gates were deferred, and the required failure caps the report at Fail)
+- Artifact: `.nmg-sdlc/verification/142.json`, generated `2026-11-12T00:01:13Z` (run id `fad8febb-8ced-49c0-adb9-232ee2552a39`, base `main`, head `5448dc900dee6531a4fbf11e416f7d1dd8364e50`, tree clean)
+- Coverage: 11 declared, 11 recorded, complete `true`; no missing, duplicate, or unknown ids
+- Ceiling: **Fail**. Required `repository.tests` failed. The runner's ceiling field reads `Incomplete` because two later gates were deferred, but a required failure caps the report at Fail.
+- Run 1 (`2026-11-11T23:55:43Z`) recorded the same results. Its only failure was the same test, at 2.04 s.
 
 ---
 
 ## Acceptance Criteria Verification
 
-Status reflects code review. The headless test evidence for this head is invalid, because the run loaded another lane's add-on (see Remaining Issues).
-
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Bake outputs take the contract names when source images already hold them | Pass (code) | `bake_core/rewire.py` `_free_contract_name` runs first in `_image_node`, so the loaded image takes the exact name. Test: `tests/blender/test_bake_unique.py::test_issue142_bake_outputs_take_the_contract_names` |
-| AC2 | Authored materials keep their source images | Pass (code) | Only the holder's name changes; its pixels, packing, and users stay. `_Src` names do not match `_(BC\|N\|ORM)$`. The same test checks the `_Authoring` images and pixels |
-| AC3 | Re-running the bake does not accumulate suffixed images | Pass (code) | Previous outputs move to `_Src2`, … before the new load. Test: `test_issue142_repeated_bake_leaves_no_suffixed_contract_image` |
-| AC4 | Export names mesh datablocks after their objects | Pass (code) | `variants_core/export.py`: `_name_meshes(desktop_objects)` runs before the Desktop FBX. Desktop meshes move to temporary names with their objects. `_name_meshes(mobile_objects)` runs after `_unsuffixed`, before the static and rigged Mobile writes. `finally` restores every name in reverse. Tests: `tests/blender/test_variants.py::test_issue142_mesh_datablocks_export_under_their_object_names`; `tests/unit/test_unreal_import.py` (passed in `repository.tests`) |
-| AC5 | A mesh datablock shared between parts is a validate finding | Pass (code) | `contract_core/validate.py` `_shared_mesh_findings` runs for each variant and is not export-only, so it survives `authored=True`. The remediation is in `report.py` `RULES["naming.mesh_data"]`. Test: `test_issue142_shared_mesh_data_is_one_naming_finding[True/False]` |
-| AC6 | Existing behavior is preserved | Pass (code) | Each new path does nothing when there is no collision: `holder is None`, `obj.data.name == obj.name`, or a group smaller than 2. `repository.tests` passed (970 passed, 9 skipped) |
+| AC1 | Bake outputs take the contract names when source images already hold them | Pass | `bake_core/rewire.py` `_free_contract_name` runs first in `_image_node`, so the loaded image takes the exact name. `tests/blender/test_bake_unique.py::test_issue142_bake_outputs_take_the_contract_names` passed in `gate-blender-headless` |
+| AC2 | Authored materials keep their source images | Pass | The bake renames only the holder image, so its pixels, packing, and users stay. `_Src` names do not match `_(BC\|N\|ORM)$`. The same test checks the `_Authoring` images and their pixels |
+| AC3 | Re-running the bake does not accumulate suffixed images | Pass | Previous outputs move to `_Src2` before the new load. `test_issue142_repeated_bake_leaves_no_suffixed_contract_image` passed |
+| AC4 | Export names mesh datablocks after their objects | Pass | `variants_core/export.py` calls `_name_meshes(desktop_objects)` before the Desktop FBX write. Desktop meshes then move to temporary names with their objects, and `_name_meshes(mobile_objects)` runs after `_unsuffixed`, before the static and rigged Mobile writes. `finally` restores every name in reverse order. `tests/blender/test_variants.py::test_issue142_mesh_datablocks_export_under_their_object_names` passed. `tests/unit/test_unreal_import.py::test_build_import_code_expects_each_desktop_part_under_its_object_name` passed |
+| AC5 | A mesh datablock shared between parts is a validate finding | Pass | `contract_core/validate.py` `_shared_mesh_findings` runs for each variant and is not export-only, so the `authored=True` run reports it. The remediation is in `report.py` `RULES["naming.mesh_data"]`. `test_issue142_shared_mesh_data_is_one_naming_finding[True/False]` passed |
+| AC6 | Existing behavior is preserved | Pass | Each new path does nothing when there is no collision (`holder is None`, `obj.data.name == obj.name`, or a group smaller than 2). All 184 headless Blender tests passed, including the existing bake, variants, and validate suites |
 
 ---
 
@@ -85,8 +80,8 @@ Status reflects code review. The headless test evidence for this head is invalid
 | T002 | Export mesh datablocks under their objects' export names | Complete | `variants_core/export.py` |
 | T003 | Report mesh data shared between parts | Complete | `contract_core/validate.py`, `contract_core/report.py` |
 | T004 | Document the mesh-data rule | Complete | `docs/asset-contract.md` section 1 |
-| T005 | Blender headless regression tests | Complete (written); evidence invalid at this head | Tests exist. The gate run loaded lane-5's add-on, so their results do not reflect this checkout |
-| T006 | Unit check that the snapshot part maps to the exported mesh name | Complete | `tests/unit/test_unreal_import.py`; passed in `repository.tests` |
+| T005 | Blender headless regression tests | Complete | Passed in `gate-blender-headless` (184 passed) |
+| T006 | Unit check that the snapshot part maps to the exported mesh name | Complete | `tests/unit/test_unreal_import.py`; the test passed in `repository.tests`, which failed only on the unrelated launcher timing test |
 
 ---
 
@@ -97,18 +92,18 @@ Status reflects code review. The headless test evidence for this head is invalid
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
 | Single Responsibility | 5 | Each fix is a small helper in the module that owns its step |
-| Open/Closed | 4 | The new rule plugs into the `finding`/`RULES` catalogue; export reuses the `restores` mechanism |
+| Open/Closed | 4 | The new rule plugs into the `finding`/`RULES` catalogue, and export reuses the `restores` mechanism |
 | Liskov Substitution | 5 | Not applicable |
 | Interface Segregation | 4 | Minimal helper signatures |
 | Dependency Inversion | 4 | Direct `bpy.data` use, consistent with the headless-core convention |
 
 ### Layer Separation
 
-The changes stay in the step-implementation layer (`bake_core`, `variants_core`, `contract_core`). Validate does not mutate the scene. Export changes names only for the FBX write.
+The changes stay in the step-implementation layer (`bake_core`, `variants_core`, `contract_core`). Validate does not mutate the scene, and export renames only for the FBX write.
 
 ### Dependency Flow
 
-There are no new imports. The `plugin.session-smoke` provider change (`steering/extensions/plugin-session-smoke.mjs`) still imports only Node built-ins. It now reads server health from `claude --plugin-dir <checkout> mcp list` in the ephemeral project, which prints one line per server, instead of the folded `/mcp` screen.
+#142 adds no new imports to the add-on. `tests/blender/_runner.py` now links the add-on in a private `mkdtemp` directory placed first on `sys.path`, instead of Blender's shared user add-ons directory. It removes any preloaded copy and fails when the import resolves outside this checkout. That is the right isolation for concurrent lanes.
 
 ---
 
@@ -116,7 +111,7 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 
 - [x] Authentication: not applicable
 - [x] Authorization: not applicable
-- [x] Input validation: names come from Blender datablocks; the smoke passes arguments as an argv array (`shell: false`)
+- [x] Input validation: names come from Blender datablocks
 - [x] Injection prevention: no shell interpolation added
 - [x] Data protection: source pixels are renamed, never overwritten
 
@@ -124,9 +119,9 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 
 ## Performance Assessment
 
-- [x] Async patterns: the smoke adds a per-call timeout (`MCP_LIST_TIMEOUT_MS`) and at most 3 `mcp list` attempts
+- [x] Async patterns: not applicable
 - [x] Caching: unchanged
-- [x] Resource management: linear passes over images and objects; the smoke timer is cleared on close and on error
+- [x] Resource management: linear passes over images and objects. The test runner leaves one small temp directory holding a symlink per run (see Low findings)
 - [x] Query optimization: lookups by name and by `as_pointer()`
 
 ---
@@ -137,19 +132,19 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1 | Yes (SCN001) | Yes (headless Blender) | Not proven at this head |
-| AC2 | Yes (SCN002) | Yes | Not proven at this head |
-| AC3 | Yes (SCN003) | Yes | Not proven at this head |
-| AC4 | Yes (SCN004) | Yes (+ unit) | Unit passed; headless not proven |
-| AC5 | Yes (SCN005) | Yes | Not proven at this head |
-| AC6 | Yes (SCN006) | Yes (existing suites) | Unit/BDD passed; headless not proven |
+| AC1 | Yes (SCN001) | Yes (headless Blender) | Yes |
+| AC2 | Yes (SCN002) | Yes | Yes |
+| AC3 | Yes (SCN003) | Yes | Yes |
+| AC4 | Yes (SCN004) | Yes (+ unit) | Yes |
+| AC5 | Yes (SCN005) | Yes | Yes |
+| AC6 | Yes (SCN006) | Yes (existing suites) | Yes |
 
 ### Coverage Summary
 
-- Feature files: 6 scenarios in `feature.gherkin`, realized as headless Blender tests
+- Feature files: 6 scenarios in `feature.gherkin`, implemented as headless Blender tests
 - Step definitions: `tests/blender/` pytest functions
-- Unit tests: 1 new
-- Integration tests: 5 new headless Blender tests (one parametrized ×2)
+- Unit tests: 1 new (passed)
+- Integration tests: 5 new headless Blender tests (one parametrized ×2), all passed
 
 ---
 
@@ -157,7 +152,7 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 
 | Field | Value |
 |-------|-------|
-| **Reason** | No nmg-sdlc `workflows/` or `agents/` paths changed; the exercise does not apply |
+| **Reason** | No nmg-sdlc `workflows/` or `agents/` paths changed, so the exercise does not apply |
 | **Recommendation** | None |
 
 ---
@@ -166,12 +161,12 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 970 passed, 9 skipped |
-| `repository.lint` | Pass | `uv run ruff check .` exited 0 |
-| `repository.format` | Pass | `uv run ruff format --check .` exited 0 |
+| `repository.tests` | **Fail** | `uv run pytest tests/unit tests/bdd -q`: 1 failed, 969 passed, 9 skipped (both runs). `test_unreal_launcher_detaches`: "Script took 2.36s (> 2s)" (run 1: 2.04 s) |
+| `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
+| `repository.format` | Pass | `uv run ruff format --check .`: 309 files already formatted |
 | `repository.types` | Pass | `uv run mypy src tests`: no issues in 197 source files |
-| `gate-blender-headless` | **Fail** | `scripts/run-blender-tests.sh`: 10 failed, 174 passed. Failures include `test_bl_info_version_matches_version_file`, all #142 tests, and 4 `test_finalize_core` tests. The shared user-addons symlink pointed at lane-5's checkout during the run |
-| `gate-ue-compile` | Incomplete | Deferred until required local validations pass |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 184 passed (both runs) |
+| `gate-ue-compile` | Incomplete | Deferred until required local validations pass. It applies because `nmg-game-dev.uplugin` changed (version bump) |
 | `gate-mcp-schema` | Not applicable | No `mcp-servers/**` changes |
 | `gate-shellcheck` | Not applicable | No `scripts/**.sh` changes |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
@@ -196,21 +191,10 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 |-------|-------|
 | **Severity** | Critical (required gate) |
 | **Category** | Testing / verification environment |
-| **Location** | `tests/blender/_runner.py` (links the add-on into `bpy.utils.user_resource("SCRIPTS", path="addons")`); `scripts/run-blender-tests.sh` |
-| **Issue** | `gate-blender-headless` failed because the run loaded another lane's add-on. Every worktree on the host shares Blender's user addons directory. Each runner re-points `nmg_game_dev_blender_addon` at its own checkout, so concurrent lanes overwrite one another's link during a run. At check time the link pointed at `lane-5/plugins/nmg-game-dev-blender-addon` (mtime 17:42), and lane-1 and lane-5 headless runs were active |
-| **Impact** | The required gate caps verification at Fail. Until the harness isolates the add-on per checkout, headless results on this host are not trustworthy |
-| **Reason Not Fixed** | The fix is outside the verify publication scope, which allows only this report. Suggested repair: run each headless test run against its own scripts directory. For example, `run-blender-tests.sh` exports `BLENDER_USER_SCRIPTS` set to a per-run temp dir before launching Blender, and `_runner.py` creates its `addons/` link there, linking or skipping the Blender MCP add-on for the `requires_host` tests. Then re-run the full registered gate |
-
-### Medium Priority
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Medium |
-| **Category** | Testing |
-| **Location** | `tests/blender/_runner.py` |
-| **Issue** | The runner reports pytest results without checking that `nmg_game_dev_blender_addon` resolves to `_ADDON_SRC` for the whole run. A re-pointed link gives misleading failures, or false passes |
-| **Impact** | Foreign-code results can be recorded as this checkout's evidence |
-| **Reason Not Fixed** | Outside the verify publication scope. Isolating the scripts directory (above) removes the cause. A guard that compares the resolved link to `_ADDON_SRC` would also help |
+| **Location** | `tests/bdd/steps/test_scaffold.py:271` (`script_returns_quickly`, 2.0 s wall-clock limit); `scripts/start-unreal-mcp.sh` |
+| **Issue** | `repository.tests` failed on `test_unreal_launcher_detaches`, the AC3 test that the launcher detaches. The launcher returned in 2.04 s and 2.36 s, against a strict 2.0 s limit. In the test environment it starts the project plugin freshness check and build ("Building project plugins (VibeUE, nmg-game-dev)"), which walks this lane's local `fixtures/Plugins` copy. Run alone, the test passes in 0.97 to 1.14 s. During the gate the host load average was 143 to 182 |
+| **Impact** | The required gate caps verification at Fail and defers `gate-ue-compile` and `plugin.session-smoke`. The #142 change does not cause this: the branch touches neither the launcher nor the test |
+| **Reason Not Fixed** | Outside the verify publication scope, which allows only this report. Suggested repairs: (a) merge `origin/main` into the branch. It carries `02597c5` (#184), which stops `start-unreal-mcp.sh` rebuilding plugins on every launch and checks each module against its own source. That may bring the launcher well under the limit, but this is not verified. Or (b) re-run the full gate when lane contention is lower. Or (c) make the AC3 timing check robust to host load in a separate issue. Then re-run the full registered gate at the new head |
 
 ### Low Priority
 
@@ -226,32 +210,32 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 | Field | Value |
 |-------|-------|
 | **Severity** | Low |
-| **Category** | Error Handling |
-| **Location** | `plugins/nmg-game-dev-blender-addon/variants_core/export.py` (Desktop `_rename` of `desktop_meshes`) |
-| **Issue** | If validate is bypassed and two Desktop parts share a mesh, the datablock gets the temporary prefix twice. The reverse restore still returns its original name |
-| **Impact** | No session corruption. Validate's `naming.mesh_data` reports the case first |
-| **Reason Not Fixed** | The behavior is safe and is guarded upstream |
+| **Category** | Resource management |
+| **Location** | `tests/blender/_runner.py` `_install_addon_link` |
+| **Issue** | Each run creates a `nmg-blender-tests-*` temp directory holding one symlink and never removes it; `os._exit` skips cleanup |
+| **Impact** | A few bytes per run in the system temp directory; the OS reclaims them |
+| **Reason Not Fixed** | Harmless; outside the verify publication scope |
 
 ---
 
 ## Positive Observations
 
-- Both fixes keep the session unchanged: source pixels are preserved, and export restores names in reverse inside `finally`.
-- `naming.mesh_data` runs in the `authored=True` pre-bake pass, so it is reported before any long bake.
-- The smoke provider change removes the cause of the previous `plugin.session-smoke` failure: plugin servers folded or truncated in a short `/mcp` pane.
+- Both fixes leave the session unchanged: source pixels are preserved, and export restores names in reverse order inside `finally`.
+- `naming.mesh_data` runs in the `authored=True` pre-bake pass, so the finding appears before any long bake.
+- The runner isolation removes the cross-lane race that invalidated the previous headless run, and it guards the resolved module origin.
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- [ ] Isolate the headless Blender add-on per checkout or run (`BLENDER_USER_SCRIPTS` temp dir, or equivalent), then re-run the full registered gate at the new head.
+- [ ] Get `repository.tests` green at the branch head: merge `origin/main` (#184 launcher fix), or re-run when lane contention drops. Then re-run the full registered gate, including `gate-ue-compile` and `plugin.session-smoke`.
 
 ### Short Term (Should)
 - [ ] Add a rigged-asset variant of the AC4 export test.
 
 ### Long Term (Could)
-- [ ] Skip duplicate datablocks in the Desktop mesh temp-rename.
+- [ ] Make the launcher-detach timing assertion robust to host load.
 
 ---
 
@@ -260,16 +244,17 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 | File | Issues | Notes |
 |------|--------|-------|
 | `plugins/nmg-game-dev-blender-addon/bake_core/rewire.py` | 0 | |
-| `plugins/nmg-game-dev-blender-addon/variants_core/export.py` | 1 (low) | |
+| `plugins/nmg-game-dev-blender-addon/variants_core/export.py` | 0 | |
 | `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | |
 | `plugins/nmg-game-dev-blender-addon/contract_core/report.py` | 0 | |
 | `docs/asset-contract.md` | 0 | |
+| `tests/blender/_runner.py` | 1 (low) | Add-on isolation per run is correct |
 | `tests/blender/test_bake_unique.py` | 0 | |
 | `tests/blender/test_variants.py` | 1 (low) | |
 | `tests/blender/test_contract_validate.py` | 0 | |
 | `tests/unit/test_unreal_import.py` | 0 | |
-| `steering/extensions/plugin-session-smoke.mjs` | 0 | Reads health from `claude mcp list`; not yet exercised, because the gate was deferred |
-| `tests/blender/_runner.py` | 2 (gate, medium) | Not changed by #142; the cause of the invalid headless run |
+| `steering/extensions/plugin-session-smoke.mjs` | 0 | Not exercised; the gate was deferred |
+| `tests/bdd/steps/test_scaffold.py` | 1 (gate) | Not changed by #142; its wall-clock limit failed under host load |
 
 ---
 
@@ -277,4 +262,4 @@ There are no new imports. The `plugin.session-smoke` provider change (`steering/
 
 **Needs fixes**
 
-Code review finds the #142 implementation meets every acceptance criterion. Verification cannot pass while the required `gate-blender-headless` result is failed. That run tested another lane's add-on through the shared Blender user-addons link. Isolate the headless harness per checkout, then re-run the full registered gate before delivery.
+Code review and the headless Blender gate show that the #142 implementation meets every acceptance criterion. Verification cannot pass while the required `repository.tests` result is failed. The only failure is the unrelated launcher timing test, which exceeds 2.0 s under heavy host load. Get it green, preferably by merging `origin/main` with the #184 launcher fix, then re-run the full registered gate before delivery.
