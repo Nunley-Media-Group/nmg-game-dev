@@ -119,7 +119,7 @@ a remediation. A failed run restores the authored materials, UV maps, and render
 | `no_material` | A mesh has no material slots, or an empty slot. | Give every mesh a material in every slot. |
 | `uv_unwrap_failed` | The mesh has no faces, or the unwrap yields no UV area. | Check that the mesh has faces with area. |
 | `uv_missing` | A tiling mesh has no UV map. | Give every mesh at least one UV map. |
-| `not_seamless` | A tiling material's opposite edges differ by more than 0.04. | Make the material periodic across 0 to 1 UV. |
+| `not_seamless` | A channel fails when a tiling material's wrap (the first and last pixel along an axis) differs by more than 1.5× the interior adjacent-pixel difference (minimum 2/255). The message reports the wrap and interior values for each failing channel. | Run `python -m nmg_game_dev.texture seamless <image.png>` on a source texture that does not tile, or make the procedural material periodic across 0 to 1 UV, then rerun. |
 | `texel_density` | A material slot of a mesh is below 256 px/m (Desktop) or 128 px/m (Mobile). Trim-atlas and flat-colour slots are exempt. | Raise the slot's density with more texture resolution or less UV area per meter, or set `nmg_trim_atlas` to `True` on a trim-atlas material. |
 | `material_limit` | A tiling asset has more materials than its Mobile limit. | Reduce the tiling materials to the class limit. |
 | `proof_mismatch` | The baked render differs from the pre-bake render beyond tolerance. | Check the seams, color space, and roughness in the proof renders, fix the material, then rebake. |

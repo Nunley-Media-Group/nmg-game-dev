@@ -1,9 +1,10 @@
-"""CLI: ``python -m nmg_game_dev.texture generate|status|run-job``.
+"""CLI: ``python -m nmg_game_dev.texture generate|status|seamless|run-job``.
 
 ``generate`` runs synchronously and prints the JSON result. ``status`` prints the availability
-of each backend. ``run-job`` is the internal entry the detached job process runs. On
-``TextureGenError`` the CLI prints ``ERROR [<code>]: …`` and ``Remediation: …`` to stderr and
-exits 1. Argument errors exit 2.
+of each backend. ``seamless`` makes an existing PNG tile (#147): it writes the ``make_seamless``
+result in place or to ``--out`` and prints ``{"path", "seamless"}``. ``run-job`` is the internal
+entry the detached job process runs. On ``TextureGenError`` the CLI prints ``ERROR [<code>]: …``
+and ``Remediation: …`` to stderr and exits 1. Argument errors exit 2.
 """
 
 from __future__ import annotations
@@ -15,8 +16,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from PIL import Image as PILImage
+
 from nmg_game_dev.texture import generate, jobs
 from nmg_game_dev.texture.errors import TextureGenError
+from nmg_game_dev.texture.seamless import is_seamless, make_seamless
+
+_SEAMLESS_MODES = ("L", "RGB", "RGBA")
 
 
 def _maps_from_args(args: argparse.Namespace) -> str | tuple[float, float] | None:
@@ -36,6 +43,25 @@ def _maps_from_args(args: argparse.Namespace) -> str | tuple[float, float] | Non
             "Remove one of the two map options.",
         )
     return (args.roughness, args.metallic)
+
+
+def _make_seamless_file(source: Path, out: Path | None) -> dict[str, Any]:
+    """Apply make_seamless to a PNG, write it in place or to ``out``, and report the seam check."""
+    try:
+        with PILImage.open(source) as opened:
+            mode = opened.mode if opened.mode in _SEAMLESS_MODES else "RGB"
+            image = np.asarray(opened.convert(mode))
+    except OSError as error:
+        raise TextureGenError(
+            "texture.input_missing",
+            f"Cannot read the texture at {source}: {error.strerror or error}.",
+            "Pass the path of an existing PNG texture.",
+        ) from error
+    result = make_seamless(image)
+    target = out if out is not None else source
+    target.parent.mkdir(parents=True, exist_ok=True)
+    PILImage.fromarray(result).save(target)
+    return {"path": str(target), "seamless": is_seamless(result)}
 
 
 def _generate_request(args: argparse.Namespace) -> generate.TextureRequest:
@@ -94,6 +120,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("status", help="Print the availability of each backend.")
 
+    tile = sub.add_parser(
+        "seamless",
+        help="Make an existing PNG tile: apply make_seamless in place or to --out.",
+    )
+    tile.add_argument("png", type=Path, help="The PNG texture to make seamless.")
+    tile.add_argument(
+        "--out", type=Path, default=None, help="Write here instead of over the input PNG."
+    )
+
     run_job = sub.add_parser("run-job", help="Internal: run a started job to completion.")
     run_job.add_argument("job_dir", type=Path)
     return parser
@@ -108,6 +143,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(result.as_json(), indent=2, sort_keys=True))
         elif args.command == "status":
             print(json.dumps(generate.backend_status(), indent=2, sort_keys=True))
+        elif args.command == "seamless":
+            print(json.dumps(_make_seamless_file(args.png, args.out), indent=2, sort_keys=True))
         else:
             final = jobs.run_job(args.job_dir)
             print(json.dumps(final, indent=2, sort_keys=True))

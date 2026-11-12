@@ -749,11 +749,11 @@ def _validate_raised(ctx: dict[str, Any]) -> None:
     validate = _rig_landmarks().validate
     drop = float(ctx["drop_deg"])
     # The control: unraised landmarks at 55 degrees must fail the check with the code under test.
-    ctx["unraised_failure"] = validate("humanoid", landmarks(drop), bounding_box(drop))
+    ctx["unraised_failure"] = validate("humanoid", landmarks(drop), bounding_box(drop), "Hero")
     arm_raise = ctx["import"]["arm_raise"]
     raised = raise_arm_landmarks(landmarks(drop), _rotations(arm_raise), _shoulders(arm_raise))
     raised_drop = float(arm_raise["left"]["drop_after_deg"])
-    ctx["failure"] = validate("humanoid", raised, bounding_box(raised_drop))
+    ctx["failure"] = validate("humanoid", raised, bounding_box(raised_drop), "Hero")
 
 
 @then("each arm's drop is 48 degrees within 0.5")
