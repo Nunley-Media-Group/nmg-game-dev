@@ -67,6 +67,20 @@ Its report has `kind`, `asset`, `class`, `gap_tolerance`, `passed`, `parts` (eac
 `bounds`, `tris`, `non_manifold_edges`, and `geometry`), `findings`, and `triangles`
 (`total`, `budget`, `headroom`). `docs/skills/model-asset.md` describes every field and blocking rule.
 
+### Geometry rules for `environment_piece`
+
+An `environment_piece` is often built from many primitives, and the validator's normals and duplicate
+checks decide what passes. Build to these rules, which match what `geometry.normals` and
+`geometry.duplicates` accept:
+
+- Open sheets (floors, roof planes, decals, ground sheets) are allowed where nothing sees underneath.
+  Wind every face of a sheet consistently and make it face the viewer. The check compares neighbouring
+  faces only, so a consistently wound sheet passes wherever it sits.
+- Closed parts must face outward. The check recalculates each closed part on its own and reports the
+  faces that point inward.
+- Touching primitives must either merge by distance so they share vertices, or stay about 0.6 mm
+  apart. Vertices that coincide without merging raise `geometry.duplicates`.
+
 ### Operator alternative
 
 When the add-on's panel is the only path available, run the same inspection from the operator:
