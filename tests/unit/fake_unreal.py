@@ -26,6 +26,8 @@ The fake models the parts of UE 5.8 Interchange that the static import depends o
   It never makes the physics asset: UE 5.8 leaves that out, so the import code makes it through
   ``SkeletalMeshEditorSubsystem.create_physics_asset`` (#141).
 - ``SkeletalMeshEditorSubsystem.import_lod`` records each LOD import (#141).
+- ``FakeWorld.refused_renames`` and ``FakeWorld.refused_consolidations`` make ``rename_asset`` and
+  ``consolidate_assets`` return False, as UE does when it refuses one, and change nothing (#203).
 """
 
 from __future__ import annotations
@@ -337,6 +339,8 @@ class EditorAssetLibrary:
     @staticmethod
     def rename_asset(source: str, destination: str) -> bool:
         world = _active_world()
+        if source in world.refused_renames:
+            return False
         if source not in world.assets:
             raise RuntimeError("asset not found: " + source)
         if destination in world.assets:
@@ -354,6 +358,8 @@ class EditorAssetLibrary:
         asset_to_consolidate_to: _Asset, assets_to_consolidate: list[Any]
     ) -> bool:
         world = _active_world()
+        if any(asset.path in world.refused_consolidations for asset in assets_to_consolidate):
+            return False
         target = asset_to_consolidate_to.path
         for asset in assets_to_consolidate:
             source: str = asset.path
@@ -438,6 +444,10 @@ class FakeWorld:
     The scenario knobs (#141) are plain attributes: ``reported_paths`` picks the subset of created
     meshes that ``imported_object_paths`` lists, ``skeleton_on_import`` turns off the skeleton the
     import makes, and ``physics_folder`` is where ``create_physics_asset`` places its asset.
+
+    The refusal knobs (#203) are sets of asset paths. ``refused_renames`` holds the sources whose
+    ``rename_asset`` returns False, and ``refused_consolidations`` the assets whose
+    ``consolidate_assets`` returns False. Both are empty by default, so no refusal happens.
     """
 
     def __init__(self) -> None:
@@ -453,6 +463,8 @@ class FakeWorld:
         self.physics_folder: str | None = None
         self.create_physics_calls: list[str] = []
         self.lod_imports: list[tuple[str, int, str]] = []
+        self.refused_renames: set[str] = set()
+        self.refused_consolidations: set[str] = set()
 
     def add_fbx(self, path: str, nodes: list[FbxNode]) -> None:
         """Register the FBX scene that the import reads from ``path``. The file must exist too."""
