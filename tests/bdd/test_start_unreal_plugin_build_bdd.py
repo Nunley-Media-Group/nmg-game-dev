@@ -79,7 +79,7 @@ def test_scn005_hook_timeout() -> None:
 
 
 @given(
-    'a project whose plugin "Fake" has Source/ but no Binaries/Mac/UnrealEditor-FakeEditor.dylib'
+    'a project whose plugin "Fake" has Source/ but no Binaries/Mac/libUnrealEditor-FakeEditor.dylib'
 )
 def given_plugin_without_dylib(scn: BuildScenario) -> None:
     scn.dylib = "missing"
@@ -121,10 +121,7 @@ def then_logs_building(scn: BuildScenario) -> None:
     )
 
 
-@then(
-    "Build.sh runs with UnrealEditor Mac Development"
-    " -Project=<uproject> -TargetType=Editor -NoEngineChanges"
-)
+@then("Build.sh runs with Mac Development -Project=<uproject> -TargetType=Editor -NoEngineChanges")
 def then_build_sh_argv(scn: BuildScenario) -> None:
     assert scn.sandbox is not None
     events = read_events(scn.sandbox.events)

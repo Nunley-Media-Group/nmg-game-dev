@@ -7,6 +7,7 @@ baked-style material whose Image Texture nodes sample UVMap through a UV Map nod
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +93,7 @@ def apply_defect(defect: str) -> None:
     elif defect == "position_coords":
         _position_coordinates(bpy.data.materials["M_Crate_Body"])
     elif defect == "mobile_lod0_4000_tris":
-        _replace_with_dense_grid(bpy.data.objects["SM_Crate_Mobile_LOD0"])
+        replace_mesh_with_grid("SM_Crate_Mobile_LOD0", 4000)
     elif defect == "mobile_name_mismatch":
         _rename_mobile("SM_Crate_Mobile", "SM_Krate_Mobile")
     else:
@@ -191,22 +192,46 @@ def _position_coordinates(material: bpy.types.Material) -> None:
         tree.links.new(geometry.outputs["Position"], node.inputs["Vector"])
 
 
-def _replace_with_dense_grid(obj: bpy.types.Object) -> None:
-    """Give obj a 40 x 50 quad grid, which is 4,000 triangles."""
+def replace_mesh_with_grid(object_name: str, triangles: int) -> None:
+    """Give an object a flat, UV-mapped quad grid of exactly ``triangles`` triangles.
+
+    The grid is factored into rows and columns as close to square as the quad count allows, so
+    the UV layout has no overlapping faces. ``triangles`` must be even, since each quad is two.
+    """
+    if triangles <= 0 or triangles % 2:
+        raise ValueError(f"a quad grid needs a positive even triangle count, got {triangles}")
+    obj = bpy.data.objects[object_name]
+    quads = triangles // 2
+    rows = _grid_rows(quads)
     bm = bmesh.new()
-    bmesh.ops.create_grid(bm, x_segments=40, y_segments=50, size=0.5)
+    bmesh.ops.create_grid(bm, x_segments=rows, y_segments=quads // rows, size=0.5)
     bmesh.ops.translate(bm, verts=bm.verts[:], vec=(0.0, 0.0, 0.5))
     uv_layer = bm.loops.layers.uv.new("UVMap")
     for face in bm.faces:
         for loop in face.loops:
             loop[uv_layer].uv = (loop.vert.co.x + 0.5, loop.vert.co.y + 0.5)
-    mesh = bpy.data.meshes.new(f"{obj.name}_dense")
+    mesh = bpy.data.meshes.new(f"{object_name}_grid")
     bm.to_mesh(mesh)
     bm.free()
     mesh.materials.append(obj.data.materials[0])
     old = obj.data
     obj.data = mesh
     bpy.data.meshes.remove(old)
+
+
+def _grid_rows(quads: int) -> int:
+    """The largest divisor of quads that is at most its square root, so rows x columns = quads."""
+    rows = math.isqrt(quads)
+    while quads % rows:
+        rows -= 1
+    return rows
+
+
+def add_trim_material(object_name: str) -> None:
+    """Give an object a second material slot: a plain Principled BSDF with no textures."""
+    material = bpy.data.materials.new("M_Crate_Trim")
+    material.use_nodes = True
+    bpy.data.objects[object_name].data.materials.append(material)
 
 
 def _rename_mobile(old_root: str, new_root: str) -> None:

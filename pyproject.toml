@@ -73,6 +73,12 @@ ignore_missing_imports = true
 module = ["mflux", "mflux.*", "mlx", "mlx.*"]
 ignore_missing_imports = true
 
+# bpy, bmesh, and mathutils ship with Blender's bundled Python. Only the Blender-run e2e fixture
+# builder (tests/e2e/fixtures/build_multipart_fixture.py) imports them (#145).
+[[tool.mypy.overrides]]
+module = ["bpy", "bpy.*", "bmesh", "bmesh.*", "mathutils", "mathutils.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]

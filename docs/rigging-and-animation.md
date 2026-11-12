@@ -9,14 +9,19 @@ into Unreal as a skeletal mesh that works with Manny-based animation.
 
 1. **Declare the body type.** Work it out from the request and your own model.
    Only `humanoid` is auto-rigged.
-2. **Supply landmarks.** Give world-space points in meters for the joints
-   listed below. The tooling checks them and never detects anatomy itself.
-3. **Rig.** Call `rig_humanoid(collection, body_type, landmarks)`. It builds
+2. **Propose landmarks.** Call `estimate_landmarks(collection)`. It reads the
+   collection's mesh and proposes the 19 joints listed below. See
+   [Estimating landmarks](#estimating-landmarks).
+3. **Review and correct.** Compare the proposal with the mesh, and always do
+   this when `confidence` is `low`. Correct every landmark that is wrong, and
+   check each pair named in `warnings`. If the estimate fails, supply all 19
+   joints yourself, as world-space points in meters.
+4. **Rig.** Call `rig_humanoid(collection, body_type, landmarks)`. It builds
    `SK_<Name>` and skins `SM_<Name>` on it.
-4. **Import animations.** Call `import_animations(collection, library_dir)`.
+5. **Import animations.** Call `import_animations(collection, library_dir)`.
    Omit `clips` to bake every clip the library lists.
-5. **Export.** Call `export_rigged(collection, out_dir)`.
-6. **Finalize.** `finalize_asset` exports every clip on `SK_<Name>` as its own FBX under
+6. **Export.** Call `export_rigged(collection, out_dir)`.
+7. **Finalize.** `finalize_asset` exports every clip on `SK_<Name>` as its own FBX under
    `Animations/`, and `import_anims` imports each one into Unreal as an AnimSequence on the
    character's Desktop skeleton. Pass `compatible_with` to let the clips play on another
    character's skeleton. The clip steps are cached per clip, so changing one clip re-imports only
@@ -27,25 +32,55 @@ The functions live in the add-on's `rig_core` package. Call them through
 
 ```python
 from nmg_game_dev_blender_addon.rig_core import (
+    estimate_landmarks,
     export_rigged,
     import_animations,
     rig_humanoid,
 )
 
-landmarks = {
-    "pelvis": [0.0, 0.0, 1.0],
-    "neck": [0.0, 0.0, 1.42],
-    "head_top": [0.0, 0.0, 1.76],
-    # ... all 19 keys in the table below
-}
-result = rig_humanoid("Hero", "humanoid", landmarks)
-if result["status"] == "ok":
-    import_animations("Hero", "/path/to/library")
-    export_rigged("Hero", "/path/to/out")
+proposal = estimate_landmarks("Hero")
+if proposal["status"] == "ok":
+    landmarks = proposal["landmarks"]  # review and correct before rigging
+    result = rig_humanoid("Hero", "humanoid", landmarks)
+    if result["status"] == "ok":
+        import_animations("Hero", "/path/to/library")
+        export_rigged("Hero", "/path/to/out")
 ```
 
 Every function returns a dict with `status`. A failure adds `code`, `message`,
 and `remediation`. Check `status` before you go on to the next step.
+
+## Estimating landmarks
+
+`estimate_landmarks(collection)` proposes the 19 landmarks from the mesh. It
+reads the world-space vertices of every mesh in the collection, the root
+`SM_<Name>` and any accessories, and it changes nothing in the scene. The
+mesh needs vertices spread over its full height. A coarse remesh can leave
+horizontal slices empty, and then the estimate fails with
+`rig.crotch_not_found`.
+
+A successful result carries:
+
+- `landmarks`: all 19 keys from the table below, each `[x, y, z]` in meters,
+  world space.
+- `confidence`: `high` or `low`.
+- `warnings`: a list of strings. It is empty when confidence is `high`.
+
+`high` means every left/right pair mirrors across X to within 5% of the
+character's height. Pass the landmarks to `rig_humanoid` unchanged. `low` means
+at least one pair does not mirror. Each such pair is named in `warnings`, for
+example `shoulder_l/shoulder_r are not mirrored across X within 5% of the
+height`. Each landmark is the measured position on its own side, never an
+average of the two sides. Review and correct the named pairs before rigging.
+
+The estimate needs an A-pose: arms held out and down from the torso, with a
+visible gap under each armpit, and legs apart. Stylized proportions work, with a
+large head and shoulders near 60% of the height. Accessories that stick out
+sideways above the shoulders, such as a hat brim, earrings, or glasses, are
+ignored. A T-pose, or arms fused to the torso, fails with `rig.arms_not_found`.
+A mesh whose legs never split fails with `rig.crotch_not_found`. A collection
+without a root `SM_<Name>` fails with `rig.asset_not_found`. A failure has no
+`landmarks` key.
 
 ## Landmarks
 
@@ -141,6 +176,12 @@ Codes:
 
 - `rig.unsupported_body` (spike): the body type is `quadruped` or `non_biped`.
 - `rig.asset_not_found` (fallback): the collection has no root mesh `SM_<Name>`.
+  Both `estimate_landmarks` and `rig_humanoid` return it, naming the real mesh.
+- `rig.arms_not_found` (fallback, estimate only): no arm on each side can be
+  followed down from an armpit. The pose is a T-pose, or the arms are fused to
+  the torso.
+- `rig.crotch_not_found` (fallback, estimate only): no crotch is found, or the
+  legs do not split below it.
 - `rig.landmarks_missing` (fallback): a landmark is missing, not finite, or not
   `[x, y, z]`, or the operator cannot read the landmarks file.
 - `rig.landmarks_outside_mesh` (fallback): a landmark is outside the mesh's
