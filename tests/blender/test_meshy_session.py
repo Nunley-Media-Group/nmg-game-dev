@@ -494,14 +494,14 @@ def test_the_raised_humanoid_passes_the_neutral_pose_check(
     validate = importlib.import_module(f"{enabled_addon}.rig_core.landmarks").validate
     glb, landmarks = build_humanoid(tmp_path / "hero.glb", drop_deg=55.0)
     _, unraised = _import_and_snapshot(glb, None)
-    failure = validate("humanoid", landmarks, unraised["bbox"])
+    failure = validate("humanoid", landmarks, unraised["bbox"], "Hero")
     assert failure is not None and failure["code"] == "rig.pose_not_neutral"
 
     result, raised = _import_and_snapshot(glb, "a-pose")
     rotations = {side: report["rotation_deg"] for side, report in result["arm_raise"].items()}
     pivots = {side: report["shoulder"] for side, report in result["arm_raise"].items()}
     raised_landmarks = raise_arm_landmarks(landmarks, rotations, pivots)
-    assert validate("humanoid", raised_landmarks, raised["bbox"]) is None
+    assert validate("humanoid", raised_landmarks, raised["bbox"], "Hero") is None
 
 
 # --- #135: a stylized character's arms rise from their detected shoulders -----------------------

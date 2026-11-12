@@ -8,14 +8,17 @@ because stdout is the MCP channel.
 from __future__ import annotations
 
 import logging
+import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from nmg_game_dev.texture import jobs
+from nmg_game_dev.texture import contact_sheet, jobs
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.generate import TextureRequest, backend_status
+from nmg_game_dev.texture.paths import output_root
 
 log = logging.getLogger("texture-gen")
 mcp = FastMCP("texture-gen")
@@ -82,6 +85,18 @@ def texture_backends() -> dict[str, Any]:
         return {"backends": backend_status()}
     except TextureGenError as error:
         return _error(error)
+
+
+@mcp.tool()
+def texture_contact_sheet() -> dict[str, Any]:
+    """Rebuild the contact sheet at the output root from every texture set, with no texture model
+    needed. Returns the page paths, the cell count, and any skipped albedos, or the error
+    texture.no_texture_sets when the output root holds no texture sets."""
+    try:
+        sheet = contact_sheet.build(output_root(os.environ, Path.cwd()), require_sets=True)
+    except TextureGenError as error:
+        return _error(error)
+    return sheet.as_json()
 
 
 def main() -> None:

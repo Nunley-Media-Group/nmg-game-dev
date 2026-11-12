@@ -139,8 +139,12 @@ def reset_scene() -> None:
         bpy.data.actions.remove(action)
 
 
-def build_hero() -> dict[str, list[float]]:
-    """Build collection Hero with mesh SM_Hero and return its landmarks."""
+def build_hero(voxel_size: float = _VOXEL_SIZE) -> dict[str, list[float]]:
+    """Build collection Hero with mesh SM_Hero and return its landmarks.
+
+    voxel_size sets the remesh density. estimate_landmarks slices the mesh at 200 heights, so a
+    slice with no vertices breaks the crotch run. Callers that estimate use a finer size.
+    """
     import bmesh  # noqa: PLC0415
     import bpy  # noqa: PLC0415
 
@@ -158,7 +162,7 @@ def build_hero() -> dict[str, list[float]]:
     obj = bpy.data.objects.new("SM_Hero", mesh)
     collection.objects.link(obj)
     _select_only([obj])
-    mesh.remesh_voxel_size = _VOXEL_SIZE
+    mesh.remesh_voxel_size = voxel_size
     bpy.ops.object.voxel_remesh()
     return {key: list(value) for key, value in HERO_LANDMARKS.items()}
 
