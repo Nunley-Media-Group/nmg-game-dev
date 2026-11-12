@@ -31,7 +31,17 @@ Import order for one variant, run inside the editor:
 
    A rigged asset (its snapshot holds the armature ``SK_<Name>``) imports as a Skeletal Mesh and
    runs neither the build-scale nor the rename step.
+   UE 5.8 lists only the first mesh of a multi-part FBX in ``task.imported_object_paths`` (#141),
+   so the code never reads that list. Each expected mesh is found by name in ``dest``: each name
+   in its snapshot entry's candidate list is tried as ``dest/<name>``, and the first that is an
+   asset of the expected class wins. A multi-part import finds its parts by datablock name, scales
+   and renames them as above, then resolves the expected names, so a renamed part is found under
+   its export name. Other assets in the folder are never bound or reported.
+
    The Desktop variant creates ``SM_<Name>_Skeleton`` and ``SM_<Name>_PhysicsAsset`` in ``dest``.
+   The import must make the skeleton, or it fails. When the import did not make the physics asset,
+   the code creates it with ``SkeletalMeshEditorSubsystem.create_physics_asset``, moves it to
+   ``dest/SM_<Name>_PhysicsAsset`` if UE placed it elsewhere, assigns it, and saves both (#141).
    The Mobile variant reuses those two from ``skeleton_dest`` and imports
    ``SM_<Name>_LOD1.fbx`` and ``SM_<Name>_LOD2.fbx`` as LOD 1 and 2 with
    ``SkeletalMeshEditorSubsystem.import_lod``.
@@ -240,16 +250,74 @@ def _import_fbx(tools, fbx, options):
     task.save = True
     task.options = options
     tools.import_asset_tasks([task])
-    return task
 
 
-def _imported_assets(task, asset_class):
+def _resolve_expected(asset_class):
+    # Each expected mesh is looked up by name in dest, never read from the import task: UE 5.8
+    # lists only the first mesh of a multi-part FBX there (#141). A part with no match is collected,
+    # so one error names every missing part.
+    dest = PARAMS["dest"]
     found = []
-    for object_path in sorted({path.split(".")[0] for path in task.imported_object_paths}):
-        asset = unreal.EditorAssetLibrary.load_asset(object_path)
-        if isinstance(asset, asset_class):
-            found.append((object_path, asset))
+    seen = set()
+    missing = []
+    for candidates in PARAMS["expected_meshes"]:
+        match = None
+        for name in candidates:
+            path = dest + "/" + name
+            if not unreal.EditorAssetLibrary.does_asset_exist(path):
+                continue
+            asset = unreal.EditorAssetLibrary.load_asset(path)
+            if isinstance(asset, asset_class):
+                match = (path, asset)
+                break
+        if match is None:
+            missing.append(candidates[0])
+        elif match[0] not in seen:
+            seen.add(match[0])
+            found.append(match)
+    if missing:
+        kind = "skeletal" if asset_class is unreal.SkeletalMesh else "static"
+        raise RuntimeError("no " + kind + " mesh for snapshot part: " + ", ".join(missing))
     return found
+
+
+def _part_meshes():
+    # A multi-part import names each part after its mesh datablock, because the parts keep their
+    # own pivots. So the parts are found by those names in dest. A datablock UE did not create is
+    # left out, and _resolve_expected reports its part.
+    dest = PARAMS["dest"]
+    parts = []
+    for datablock in sorted(PARAMS["mesh_names"]):
+        path = dest + "/" + _asset_name(datablock)
+        if unreal.EditorAssetLibrary.does_asset_exist(path):
+            mesh = _load(path)
+            if isinstance(mesh, unreal.StaticMesh):
+                parts.append((path, mesh))
+    return parts
+
+
+def _ensure_rig_assets(mesh):
+    # The Desktop rig must hold its skeleton and physics asset in dest. The skeleton has to come
+    # from the import. The physics asset is created when the import did not make it (#141).
+    skeleton = _skeleton_path()
+    if not unreal.EditorAssetLibrary.does_asset_exist(skeleton):
+        raise RuntimeError("skeleton missing after import: " + skeleton)
+    physics = _physics_path()
+    if unreal.EditorAssetLibrary.does_asset_exist(physics):
+        return
+    subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
+    created = subsystem.create_physics_asset(mesh)
+    if created is None:
+        raise RuntimeError("create_physics_asset made no physics asset: " + physics)
+    created_path = created.get_path_name().split(".")[0]
+    if created_path != physics:
+        unreal.EditorAssetLibrary.rename_asset(created_path, physics)
+    if not unreal.EditorAssetLibrary.does_asset_exist(physics):
+        raise RuntimeError("physics asset missing after import: " + physics)
+    physics_asset = _load(physics)
+    mesh.set_editor_property("physics_asset", physics_asset)
+    unreal.EditorAssetLibrary.save_loaded_asset(physics_asset)
+    unreal.EditorAssetLibrary.save_loaded_asset(mesh)
 
 
 def _import_meshes(tools):
@@ -258,20 +326,24 @@ def _import_meshes(tools):
         raise RuntimeError("FBX missing from the variant folder: " + fbx)
     if PARAMS["rigged"]:
         return _import_skeletal(tools, fbx)
-    task = _import_fbx(tools, fbx, _static_options())
-    meshes = _imported_assets(task, unreal.StaticMesh)
-    if not meshes:
-        raise RuntimeError("the FBX imported no static meshes: " + fbx)
-    return meshes
+    _import_fbx(tools, fbx, _static_options())
+    if PARAMS["multi_part"]:
+        # Scale and rename first, so the expected names below are the final names (#145, #141).
+        parts = _part_meshes()
+        _set_build_scale(parts)
+        _rename_to_parts(parts)
+    return _resolve_expected(unreal.StaticMesh)
 
 
 def _import_skeletal(tools, fbx):
     desktop = PARAMS["variant"] == "desktop"
-    task = _import_fbx(tools, fbx, _skeletal_options(desktop))
-    meshes = _imported_assets(task, unreal.SkeletalMesh)
+    _import_fbx(tools, fbx, _skeletal_options(desktop))
+    meshes = _resolve_expected(unreal.SkeletalMesh)
     if len(meshes) != 1:
         raise RuntimeError("the FBX imported " + str(len(meshes)) + " skeletal meshes: " + fbx)
     object_path, mesh = meshes[0]
+    if desktop:
+        _ensure_rig_assets(mesh)
     lod_count = 1
     if not desktop:
         subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
@@ -314,19 +386,15 @@ def _rename_to_parts(meshes):
     export_names = {
         _asset_name(datablock): export for datablock, export in PARAMS["mesh_names"].items()
     }
-    renamed = []
     for object_path, mesh in meshes:
         asset_name = object_path.rsplit("/", 1)[-1]
         export = export_names.get(asset_name)
         if export is None or export == asset_name:
-            renamed.append((object_path, mesh))
             continue
         target = dest + "/" + export
         if unreal.EditorAssetLibrary.does_asset_exist(target):
             unreal.EditorAssetLibrary.consolidate_assets(mesh, [_load(target)])
         unreal.EditorAssetLibrary.rename_asset(object_path, target)
-        renamed.append((target, mesh))
-    return renamed
 
 
 def _bounds(mesh):
@@ -345,13 +413,6 @@ def _skeletal_bounds(mesh):
         "min": [origin.x - extent.x, origin.y - extent.y, origin.z - extent.z],
         "max": [origin.x + extent.x, origin.y + extent.y, origin.z + extent.z],
     }
-
-
-def _check_expected(meshes):
-    names = {path.rsplit("/", 1)[-1] for path, _ in meshes}
-    for candidates in PARAMS["expected_meshes"]:
-        if not any(candidate in names for candidate in candidates):
-            raise RuntimeError("no static mesh for snapshot part: " + candidates[0])
 
 
 def _instance(tools, dest, name, parent):
@@ -426,10 +487,6 @@ def _run():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     _import_textures(tools)
     meshes = _import_meshes(tools)
-    if PARAMS["multi_part"] and not PARAMS["rigged"]:
-        _set_build_scale(meshes)
-        meshes = _rename_to_parts(meshes)
-    _check_expected(meshes)
     _bind_materials(tools, meshes)
     RESULT["ok"] = True
 

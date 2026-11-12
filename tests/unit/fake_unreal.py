@@ -20,6 +20,12 @@ The fake models the parts of UE 5.8 Interchange that the static import depends o
   a run that turns it on.
 - A static LOD group (#146) is one FBX node whose ``lods`` is its LOD count. Interchange makes one
   static mesh from it, and the fake reports that count as ``get_num_lods()``.
+- UE 5.8 lists only the first mesh of a multi-part FBX in ``imported_object_paths``. Which meshes a
+  task reports is set by ``FakeWorld.reported_paths``, so a test can under-report (#141).
+- A skeletal import makes the skeleton ``<Name>_Skeleton`` beside the mesh, unless it is handed one.
+  It never makes the physics asset: UE 5.8 leaves that out, so the import code makes it through
+  ``SkeletalMeshEditorSubsystem.create_physics_asset`` (#141).
+- ``SkeletalMeshEditorSubsystem.import_lod`` records each LOD import (#141).
 """
 
 from __future__ import annotations
@@ -28,12 +34,13 @@ import contextlib
 import io
 import sys
 import types
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import nmg_game_dev.pipeline  # noqa: F401 - load the pipeline first; unreal imports it back
-from nmg_game_dev.unreal import import_variant
+from nmg_game_dev.unreal import import_variant, parse_nmg_result
 
 Triple = tuple[float, float, float]
 
@@ -185,6 +192,18 @@ class SkeletalMesh(_Asset):
         return _Bounds(origin, extent)
 
 
+class Skeleton(_Asset):
+    """The rig a skeletal mesh is built on, made beside the mesh by its import (#141)."""
+
+
+class PhysicsAsset(_Asset):
+    """The physics asset of one skeletal mesh, made by ``create_physics_asset`` (#141)."""
+
+    def get_path_name(self) -> str:
+        """The object path UE returns: the package path, then a dot, then the asset name."""
+        return self.path + "." + self.path.rsplit("/", 1)[-1]
+
+
 class MaterialInstanceConstant(_Asset):
     """A material instance: its parent and the texture bound to each parameter."""
 
@@ -260,13 +279,24 @@ class StaticMeshEditorSubsystem:
 
 
 class SkeletalMeshEditorSubsystem:
-    """``unreal.SkeletalMeshEditorSubsystem``. Skeletal LOD import is not modelled."""
+    """``unreal.SkeletalMeshEditorSubsystem``: physics assets and LOD imports (#141)."""
 
     def __init__(self, world: FakeWorld) -> None:
         self._world = world
 
+    def create_physics_asset(self, mesh: SkeletalMesh) -> PhysicsAsset:
+        """Build ``<mesh>_PhysicsAsset`` beside the mesh, or in ``FakeWorld.physics_folder``."""
+        mesh_folder, mesh_name = mesh.path.rsplit("/", 1)
+        path = (self._world.physics_folder or mesh_folder) + "/" + mesh_name + "_PhysicsAsset"
+        asset = PhysicsAsset(path)
+        self._world.assets[path] = asset
+        self._world.create_physics_calls.append(mesh.path)
+        return asset
+
     def import_lod(self, mesh: SkeletalMesh, level: int, fbx: str) -> int:
-        raise NotImplementedError("the fake does not model skeletal LOD import: " + fbx)
+        """Record the LOD import. The fake keeps no LOD geometry, so it places the asked level."""
+        self._world.lod_imports.append((mesh.path, level, fbx))
+        return level
 
 
 def _require_lod0(lod: int) -> None:
@@ -393,12 +423,21 @@ def _active_world() -> FakeWorld:
     return _ACTIVE[-1]
 
 
+def _every_path(created: list[str]) -> list[str]:
+    """The default report: ``imported_object_paths`` lists every mesh the import made."""
+    return list(created)
+
+
 class FakeWorld:
     """One editor session: its assets, the FBX scenes on disk, and what the import did to them.
 
     It satisfies ``UnrealPythonClient``, so ``import_variant`` and ``build_import_code`` run the
     generated code against it. The tests set up FBX scenes and seed assets, then read the assets,
     saves, build-settings writes, and consolidation redirects back.
+
+    The scenario knobs (#141) are plain attributes: ``reported_paths`` picks the subset of created
+    meshes that ``imported_object_paths`` lists, ``skeleton_on_import`` turns off the skeleton the
+    import makes, and ``physics_folder`` is where ``create_physics_asset`` places its asset.
     """
 
     def __init__(self) -> None:
@@ -408,6 +447,12 @@ class FakeWorld:
         self.build_writes: list[tuple[str, int, Triple]] = []
         self.redirects: dict[str, str] = {}
         self.imported_fbx: list[str] = []
+        self.import_options: list[Any] = []
+        self.reported_paths: Callable[[list[str]], list[str]] = _every_path
+        self.skeleton_on_import = True
+        self.physics_folder: str | None = None
+        self.create_physics_calls: list[str] = []
+        self.lod_imports: list[tuple[str, int, str]] = []
 
     def add_fbx(self, path: str, nodes: list[FbxNode]) -> None:
         """Register the FBX scene that the import reads from ``path``. The file must exist too."""
@@ -446,6 +491,7 @@ class FakeWorld:
             raise RuntimeError("the fake has no FBX scene at " + task.filename)
         self.imported_fbx.append(task.filename)
         options = task.options
+        self.import_options.append(options)
         nodes = self.fbx[task.filename]
         dest = task.destination_path
         created: list[str] = []
@@ -454,6 +500,9 @@ class FakeWorld:
             path = dest + "/" + ue_asset_name(node.name)
             self.assets[path] = SkeletalMesh(path, node)
             created.append(path)
+            # UE makes the skeleton beside the mesh, unless the import is handed one (#141).
+            if self.skeleton_on_import and options.skeleton is None:
+                self.assets[path + "_Skeleton"] = Skeleton(path + "_Skeleton")
         else:
             settings = options.static_mesh_import_data
             if settings.combine_meshes:
@@ -466,7 +515,8 @@ class FakeWorld:
                     raise RuntimeError("asset already exists: " + path)
                 self.assets[path] = StaticMesh(path, node, transform=transform)
                 created.append(path)
-        task.imported_object_paths = [path + "." + path.rsplit("/", 1)[-1] for path in created]
+        reported = self.reported_paths(created)
+        task.imported_object_paths = [path + "." + path.rsplit("/", 1)[-1] for path in reported]
 
     def execute_python_code(self, code: str) -> str:
         """Run UE Python against this world and return what it printed."""
@@ -602,3 +652,12 @@ def run_import(
         report=report,
         skeleton_dest=skeleton_dest,
     )
+
+
+def run_import_code(code: str, scenario: FakeWorld) -> dict[str, Any]:
+    """Run generated import code in ``scenario`` and return its parsed ``NMG_RESULT`` (#141).
+
+    Unlike ``run_import``, a failed import is returned rather than raised, so a test can read the
+    error text the code reported. ``execute_python_code`` installs the fake as ``unreal``.
+    """
+    return parse_nmg_result(scenario.execute_python_code(code))
