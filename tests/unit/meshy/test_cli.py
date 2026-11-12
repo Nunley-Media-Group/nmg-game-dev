@@ -10,6 +10,7 @@ import pytest
 
 from nmg_game_dev.meshy import __main__ as cli
 from nmg_game_dev.meshy import jobs
+from nmg_game_dev.meshy.paths import jobs_root
 from tests.meshy_fakes import (
     ENV,
     TEST_KEY,
@@ -47,6 +48,20 @@ def test_parser_accepts_repeated_images_and_no_texture() -> None:
     )
     assert args.images == ["a.png", "b.jpg"]
     assert args.texture is False
+
+
+def test_no_arm_raise_flag_builds_a_request_with_raise_arms_false(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#135 AC7: generate --no-arm-raise stores raise_arms false; without it the raise stays on."""
+    parser = cli._build_parser()
+    skip = ["generate", "--name", "Knight", "--prompt", "x", "--pose", "a-pose", "--no-arm-raise"]
+    assert parser.parse_args(skip).raise_arms is False
+    assert parser.parse_args(["generate", "--name", "Knight", "--prompt", "x"]).raise_arms is True
+    assert cli.main(skip) == 0
+    job_id = json.loads(capsys.readouterr().out)["job_id"]
+    stored = json.loads((jobs_root(project) / job_id / "request.json").read_text(encoding="utf-8"))
+    assert stored["raise_arms"] is False
 
 
 def test_generate_prints_the_job_id(project: Path, capsys: pytest.CaptureFixture[str]) -> None:

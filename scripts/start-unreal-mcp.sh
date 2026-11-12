@@ -51,9 +51,9 @@ readonly PROJECT
 
 # Source-only project plugins (Plugins/ and AdditionalPluginDirectories, as onboarding installs them)
 # need their editor dylibs compiled before the editor loads them. A fresh checkout has none, and the
-# editor started with -unattended exits on the missing module. So a missing or stale dylib makes the
-# engine's Build.sh build the project's editor target in the foreground, and a failed build stops the
-# launch with the log path and first error.
+# editor started with -unattended exits on the missing module. So a missing or stale module dylib makes
+# the engine's Build.sh build the project's editor target in the foreground. A failed build stops the
+# launch only when a module dylib is missing; otherwise the editor starts on the existing binaries.
 
 # Prints each editor-loaded module name of the .uplugin at $1 that applies to Mac.
 editor_modules() {
@@ -77,27 +77,90 @@ editor_modules() {
   done
 }
 
-# Returns 0 when the .uplugin at $2 (in plugin directory $1) needs an editor build.
+# Prints the editor dylib of module $2 in plugin directory $1: libUnrealEditor-<module>.dylib (UE 5.8 on
+# Mac), or the legacy UnrealEditor-<module>.dylib only when the lib-prefixed file is absent. Prints nothing
+# when neither exists.
+module_binary() {
+  local plugin_dir="$1" module="$2" candidate
+  for candidate in "${plugin_dir}/Binaries/Mac/libUnrealEditor-${module}.dylib" \
+    "${plugin_dir}/Binaries/Mac/UnrealEditor-${module}.dylib"; do
+    if [[ -f "${candidate}" ]]; then
+      echo "${candidate}"
+      return
+    fi
+  done
+}
+
+# Prints the directory of the first <module>.Build.cs under plugin directory $1's Source/, or that
+# Source/ directory when no Build.cs exists. Its files are the module's sources.
+module_source_dir() {
+  local plugin_dir="$1" module="$2" build_cs
+  build_cs="$(find "${plugin_dir}/Source" -name "${module}.Build.cs" -print -quit 2>/dev/null || true)"
+  if [[ -n "${build_cs}" ]]; then
+    dirname "${build_cs}"
+  else
+    echo "${plugin_dir}/Source"
+  fi
+}
+
+# Returns 0 when the .uplugin at $2 (in plugin directory $1) needs an editor build. A module needs one when
+# its binary is missing or a file in its own source directory is newer than that binary. The .uplugin and
+# other modules' sources are not inputs: UBT relinks only the modules whose inputs changed.
 plugin_needs_build() {
-  local plugin_dir="$1" uplugin="$2" name dylib mtime oldest="" oldest_mtime=""
+  local plugin_dir="$1" uplugin="$2" name binary source_dir
   if ! plutil -p "${uplugin}" >/dev/null 2>&1; then
     return 0
   fi
   while IFS= read -r name; do
-    dylib="${plugin_dir}/Binaries/Mac/UnrealEditor-${name}.dylib"
-    if [[ ! -f "${dylib}" ]]; then
+    binary="$(module_binary "${plugin_dir}" "${name}")"
+    if [[ -z "${binary}" ]]; then
       return 0
     fi
-    mtime="$(stat -f %m "${dylib}")"
-    if [[ -z "${oldest}" ]] || (( mtime < oldest_mtime )); then
-      oldest="${dylib}"
-      oldest_mtime="${mtime}"
+    source_dir="$(module_source_dir "${plugin_dir}" "${name}")"
+    if [[ -n "$(find "${source_dir}" -newer "${binary}" -print -quit 2>/dev/null)" ]]; then
+      return 0
     fi
   done < <(editor_modules "${uplugin}")
-  if [[ -z "${oldest}" ]]; then
+  return 1
+}
+
+# Returns 0 when the .uplugin at $2 (in plugin directory $1) parses and every editor-loaded module has a binary.
+plugin_binaries_present() {
+  local plugin_dir="$1" uplugin="$2" name
+  if ! plutil -p "${uplugin}" >/dev/null 2>&1; then
     return 1
   fi
-  [[ -n "$(find "${plugin_dir}/Source" "${uplugin}" -newer "${oldest}" -print -quit 2>/dev/null)" ]]
+  while IFS= read -r name; do
+    if [[ -z "$(module_binary "${plugin_dir}" "${name}")" ]]; then
+      return 1
+    fi
+  done < <(editor_modules "${uplugin}")
+  return 0
+}
+
+# Returns 0 when every project source plugin in source_plugins has its editor binaries.
+all_plugin_binaries_present() {
+  local uplugin
+  for uplugin in "${source_plugins[@]}"; do
+    if ! plugin_binaries_present "$(dirname "${uplugin}")" "${uplugin}"; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+# Prints why Build.sh failed, from BUILD_LOG: the first error: line, else the first Result: Failed line, else
+# the last non-empty line.
+build_failure_reason() {
+  local line
+  line="$(grep -m1 'error:' "${BUILD_LOG}" 2>/dev/null || true)"
+  if [[ -z "${line}" ]]; then
+    line="$(grep -m1 'Result: Failed' "${BUILD_LOG}" 2>/dev/null || true)"
+  fi
+  if [[ -z "${line}" ]]; then
+    line="$(grep -v '^[[:space:]]*$' "${BUILD_LOG}" 2>/dev/null | tail -n1 || true)"
+  fi
+  echo "${line:-build log is empty}"
 }
 
 # Returns 0 when the .uproject lists the plugin named $1 with "Enabled": false.
@@ -149,12 +212,14 @@ project_source_plugins() {
   done
 }
 
+mapfile -t source_plugins < <(project_source_plugins)
+
 build_names=""
-while IFS= read -r uplugin; do
+for uplugin in "${source_plugins[@]}"; do
   if plugin_needs_build "$(dirname "${uplugin}")" "${uplugin}"; then
     build_names+="${build_names:+, }$(basename "${uplugin}" .uplugin)"
   fi
-done < <(project_source_plugins)
+done
 
 if [[ -n "${build_names}" ]]; then
   if [[ ! -x "${BUILD_SH}" ]]; then
@@ -163,13 +228,18 @@ if [[ -n "${build_names}" ]]; then
   fi
   echo "start-unreal-mcp: building project plugins (${build_names}) — log ${BUILD_LOG}" >&2
   build_status=0
-  "${BUILD_SH}" UnrealEditor Mac Development -Project="${PROJECT}" -TargetType=Editor -NoEngineChanges \
+  "${BUILD_SH}" Mac Development -Project="${PROJECT}" -TargetType=Editor -NoEngineChanges \
     >"${BUILD_LOG}" 2>&1 || build_status=$?
   if (( build_status != 0 )); then
-    first_error="$(grep -m1 'error:' "${BUILD_LOG}" || true)"
-    echo "start-unreal-mcp: plugin build failed (exit ${build_status}) — see ${BUILD_LOG}" >&2
-    echo "start-unreal-mcp: first error: ${first_error:-no compiler error found}" >&2
-    exit "${build_status}"
+    reason="$(build_failure_reason)"
+    if all_plugin_binaries_present; then
+      echo "start-unreal-mcp: warning: plugin build failed (exit ${build_status}) — see ${BUILD_LOG}; starting the editor on the existing plugin binaries" >&2
+      echo "start-unreal-mcp: failure reason: ${reason}" >&2
+    else
+      echo "start-unreal-mcp: plugin build failed (exit ${build_status}) — see ${BUILD_LOG}" >&2
+      echo "start-unreal-mcp: failure reason: ${reason}" >&2
+      exit "${build_status}"
+    fi
   fi
 fi
 
