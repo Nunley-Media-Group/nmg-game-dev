@@ -95,6 +95,11 @@ def _validate(
     request: Mapping[str, Any], job: Path, inputs: Mapping[str, Any] | None
 ) -> tuple[str, dict[str, Any]]:
     collection = str(request["collection"])
+
+    def report_progress(fraction: float, message: str) -> None:
+        # run_step emits the 0.0 and 1.0 lines, so the checks map strictly inside (0, 1) (#133).
+        _progress("validate", 0.01 + 0.98 * fraction, message)
+
     # The authored asset is validated without the material rules, which the bake produces (#69).
     report = validate_asset(
         collection,
@@ -102,6 +107,7 @@ def _validate(
         _budgets_path(request),
         authored=True,
         material_variants_path=_material_variants_path(request),
+        progress=report_progress,
     )
     path = job / "validate.report.json"
     _write_json(path, report)

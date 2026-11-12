@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,7 @@ def validate_asset(
     *,
     authored: bool = False,
     material_variants_path: str | None = None,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """Validate <collection> (Desktop) and <collection>_Mobile when it exists.
 
@@ -72,6 +74,9 @@ def validate_asset(
 
     With ``material_variants_path`` (#148), the declaration is checked against the material rules
     and the report gains a ``material_variants`` list. Its findings survive ``authored=True``.
+
+    With ``progress``, it is called before each mesh check with the share of checks already done
+    and a message naming the variant, check, and object (#133). The report does not depend on it.
     """
     budgets = _budgets(asset_class, budgets_path)
     bpy.context.view_layer.update()
@@ -87,6 +92,14 @@ def validate_asset(
     if mobile is not None:
         variants.append(("mobile", mobile))
 
+    mesh_count = sum(
+        1
+        for _, variant_collection in variants
+        for obj in variant_collection.all_objects
+        if obj.type == "MESH"
+    )
+    checks_per_mesh = 3 if asset_class == "environment_piece" else 2
+    units = _CheckUnits(mesh_count * checks_per_mesh, progress)
     findings = _unit_findings()
     snapshot: dict[str, Any] = {}
     objects_by_variant: dict[str, list[bpy.types.Object]] = {}
@@ -107,6 +120,7 @@ def validate_asset(
             root_name,
             tris,
             texel_entries,
+            units,
         )
         for obj in objects:
             snapshot[obj.name] = object_snapshot(obj, variant, tris.get(obj.name, 0))
@@ -380,6 +394,24 @@ def _pivot_findings(root: bpy.types.Object, meshes: list[bpy.types.Object]) -> l
     ]
 
 
+class _CheckUnits:
+    """Reports validate_asset progress one mesh check at a time (#133).
+
+    total is the number of checks validate_asset will run. Each start() call reports the share
+    of checks already started, with a message that names the variant, check, and object.
+    """
+
+    def __init__(self, total: int, progress: Callable[[float, str], None] | None) -> None:
+        self._total = total
+        self._started = 0
+        self._progress = progress
+
+    def start(self, variant: str, check: str, obj_name: str) -> None:
+        if self._progress is not None and self._total:
+            self._progress(self._started / self._total, f"{variant}: {check} check on {obj_name}")
+        self._started += 1
+
+
 def _mesh_findings(
     collection: str,
     variant: str,
@@ -389,19 +421,24 @@ def _mesh_findings(
     root_name: str,
     tris_out: dict[str, int],
     texel_out: dict[str, list[dict[str, Any]]],
+    units: _CheckUnits,
 ) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     meshes = [obj for obj in objects if obj.type == "MESH"]
     texel_check = asset_class == "environment_piece"
+    uv_check = "UV map" if texel_check else "UV overlap"
     materials: dict[str, bpy.types.Material] = {}
     images: dict[str, bpy.types.Image] = {}
     for obj in meshes:
         copy = texel.evaluated_copy(obj)
         try:
             tris_out[obj.name] = triangle_count(copy)
+            units.start(variant, "geometry", obj.name)
             findings += geometry_findings(obj.name, copy)
+            units.start(variant, uv_check, obj.name)
             findings += uv_findings(obj.name, copy, check_overlap=not texel_check)
             if texel_check:
+                units.start(variant, "texel density", obj.name)
                 findings += _texel_findings(obj, copy, variant, texel_out)
         finally:
             bpy.data.meshes.remove(copy)
