@@ -131,6 +131,9 @@ every baked clip:
   named `Armature` inside the FBX, so it does not add an extra root bone.
 - `nmg-animations.json` sits beside the FBX. It lists each clip's name, frame
   range, frame count, fps, and source (library, file, SHA-256, skeleton).
+- A built-in clip's `source` has `library` `"builtin"`, `file` `null`, `skeleton`
+  `"manny"`, and a `sha256` that is the SHA-256 of the clip's pose definition
+  (`docs/rigging-and-animation.md`, Built-in library).
 
 The finalize export places a rigged character in the layout above:
 
