@@ -1,11 +1,11 @@
 # Verification Report: Export and import rigged-character animation clips through finalize
 
-**Date**: 2026-11-11
+**Date**: 2026-11-12
 **Issue**: #138
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
 **Scope**: Implementation verification against spec
 
-**Verification head**: d2e8cf2f8324fd38d53bc7982b4c2c93cfae27c5
+**Verification head**: 40f634b42735b071fe1ee897cddbd62b3669f627
 
 ---
 
@@ -22,22 +22,28 @@
 | **Overall** | 4.5 |
 
 ### Implementation Status: Pass
-**Total Issues**: 6 (all Low, none blocking)
+**Total Issues**: 5 (all Low, none blocking)
 
-This is a fresh verification at `d2e8cf2`, the merge of `origin/main` (through `50f43f3`) into the
-#138 branch. The merge changed none of the #138 implementation files (`src/nmg_game_dev/pipeline/`,
-`src/nmg_game_dev/finalize/`, `src/nmg_game_dev/unreal/import_anims.py`, `finalize_core/`). It took
-main's `plugin.session-smoke` provider from #195 in place of this branch's `1e87224` rewrite. The
-#138 entry sits under `## [Unreleased]` in `CHANGELOG.md`, and `VERSION` matches main (0.21.4). The
-branch is level with its upstream.
+This is a fresh verification at `40f634b`, the merge of `origin/main` (through `16fee52`, #186) into
+the #138 branch. Since the last verified head (`d2e8cf2`) main brought in #186 (material variants),
+#214 (built-in clip library), #192 (per-worktree Blender test runner), and several other fixes.
+The #138 core files (`pipeline/anims.py`, `unreal/import_anims.py`, `finalize_core/anims.py`,
+`pipeline/result.py`) are unchanged by the merge. The merge resolutions were reviewed:
 
-All 16 acceptance criteria are implemented and covered by tests. Ten of the 11 registered validations
-ran and passed, including the real `plugin.session-smoke`. `gate-ship-smoke` does not apply to this
-diff. Coverage is complete, and no ceiling applies.
+- `FinalizeRequest`, `build_request`, the CLI, the MCP tools and server, and `tools.json` carry both
+  `material_variants_path` (#148/#186) and `compatible_with` (#138).
+- `_STEP_VERSION` stays `"4"`. Both sides bumped it from 3; the mesh steps' meaning did not change, and
+  the per-clip keys carry the version too, so no extra bump is needed.
+- `engine.py` keeps the per-clip branch beside #186's material-variant import wiring.
+- The built-in clip library (#214) records provenance with the same `nmg_animations` JSON layout and
+  a `source` dict (`library: builtin`, `file: null`, `sha256`, `skeleton`), which
+  `finalize_core/anims.py` passes through to the sidecar unchanged (AC3).
+- `_RIG_FBX_OPTIONS` in `variants_core/export.py` is unchanged, so `ANIM_EXPORT_OPTIONS` still
+  matches the rigged mesh export (AC1).
 
-The first gate run at this head failed two validations for environmental reasons, not because of
-the #138 code (see "Gate run history"). The full gate was rerun after the cause cleared, and every
-validation passed.
+All 16 acceptance criteria are implemented and covered by tests. All 11 registered validations have
+terminal results: 10 ran and passed, including the real `plugin.session-smoke` and
+`gate-ue-compile`, and `gate-ship-smoke` does not apply. Coverage is complete, and no ceiling applies.
 
 ---
 
@@ -61,8 +67,8 @@ validation passed.
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/138.json`: head `d2e8cf2f8324fd38d53bc7982b4c2c93cfae27c5`, tree clean, base `main`, controller run `fe44b449-3435-4b82-9dc3-980a48a0373f`, generated 2026-11-12T03:46:04Z
-- Steering hash `sha256:795f9897…5c0e4`; spec hash `sha256:1b267fc9…f4ce5`
+- Artifact: `.nmg-sdlc/verification/138.json`: head `40f634b42735b071fe1ee897cddbd62b3669f627`, tree clean, base `main`, controller run `7b3c6714-3e85-40a2-963f-0965cbfac681`, generated 2026-11-12T06:45:32Z
+- Steering hash `sha256:6db9aabc…d474d4`; spec hash `sha256:1b267fc9…f4ce5`
 - Coverage: 11 declared, 11 recorded, complete `true`. No ids are missing, duplicated, or unknown.
 - Ceiling: none (`null`)
 
@@ -185,8 +191,8 @@ finalize, which is acceptable.
 
 - Feature files: 16 scenarios, one per AC, matching `feature.gherkin`
 - Step definitions: implemented
-- Unit and BDD tests: `repository.tests` gave 1186 passed, 13 skipped
-- Headless Blender tests: `gate-blender-headless` gave 254 passed, including all 7 in `tests/blender/test_finalize_anims.py`
+- Unit and BDD tests: `repository.tests` gave 1383 passed, 14 skipped. The #138 subset (`test_anims.py`, `test_unreal_import_anims.py`, `test_rigged_animations_bdd.py`, `test_steps.py`, `test_finalize_cli.py`, `test_finalize_mcp.py`, `test_material_variants_host.py`) gave 123 passed, 0 skipped, with Blender resolvable
+- Headless Blender tests: `gate-blender-headless` gave 345 passed, 4 skipped, including all 7 in `tests/blender/test_finalize_anims.py`
 - Integration/E2E: no live UE run, by design (steering: no live editors in SDLC work). The UE program is checked by compiling it and through fake replies.
 
 ---
@@ -204,37 +210,24 @@ finalize, which is acceptable.
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1186 passed, 13 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1383 passed, 14 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 339 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 215 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 254 passed (Blender 5.2) |
+| `repository.format` | Pass | `uv run ruff format --check .`: exit 0 |
+| `repository.types` | Pass | `uv run mypy src tests`: exit 0 |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 345 passed, 4 skipped (Blender 5.2) |
 | `gate-ue-compile` | Pass | DogfoodEditor compiled against UE 5.8: Result: Succeeded |
 | `gate-mcp-schema` | Pass | `validate-mcp-tools.py`: MCP tools match tools.json for every server under `mcp-servers/` |
 | `gate-shellcheck` | Pass | `shellcheck -S style` on every `scripts/**.sh`: exit 0 |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
-| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed with warnings (directory-listing advisories only) |
+| `plugin.validate` | Pass | `claude plugin validate .`: exit 0 |
 | `plugin.session-smoke` (real smoke) | Pass | Plugin loaded with `--plugin-dir`; `nmg-game-dev:blender` connected |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
 
 ### Gate run history
 
-The first full run at this head (artifact generated 2026-11-12T03:40:33Z) failed two
-validations. The runner then deferred `gate-ue-compile` and `plugin.session-smoke`:
-
-- `gate-blender-headless`: 247 passed and 7 errors. All 7 errors were
-  `ModuleNotFoundError: nmg_game_dev_blender_addon.finalize_core.anims` in the
-  `tests/blender/test_finalize_anims.py` fixtures. `tests/blender/_runner.py` links the add-on
-  through one symlink in Blender's user `scripts/addons` folder, and every lane worktree on this
-  host shares that folder. Lane-4 repointed the symlink to its own checkout at 21:38, during this
-  run. Its checkout has no `finalize_core/anims.py`.
-- `repository.tests`: 1 failed, 1185 passed. `tests/bdd/steps/test_scaffold.py::test_unreal_launcher_detaches`
-  measured 4.03 s against a 2 s bound while the other lanes loaded the host. The test is unrelated
-  to #138.
-
-No source changed. The full gate was rerun once no other headless Blender runner was active, and
-the result above is from that rerun. See R6 under Remaining Issues.
+The first and only full run at this head passed every applicable validation. The previous head's
+shared add-on symlink race (former R6) is fixed on main by #192, which this merge brought in.
 
 ---
 
@@ -245,8 +238,8 @@ the result above is from that rerun. See R6 under Remaining Issues.
 | — | — | — | None in this pass. The verify publication scope allows only this report, and nothing blocking was found | — | — |
 
 Earlier fixes on this branch: `6460c5b` (export clips from the current checkpoint, AC6; headless
-add-on registration). The `1e87224` session-smoke rewrite was superseded by main's #195 provider in
-the `d2e8cf2` merge.
+add-on registration). The `40f634b` merge kept both `material_variants_path` and `compatible_with`
+on every entry point and skipped the per-clip steps in #148's whole-step cache-key test helper.
 
 ## Remaining Issues
 
@@ -268,7 +261,6 @@ None.
 | L3 | Low | Error Handling | `src/nmg_game_dev/unreal/import_anims.py:107` | The non-AnimSequence check runs after `import_asset_tasks`, so a stray asset would already exist when the step fails | The step fails correctly, but the stray asset is left in the folder | Unlikely with `import_mesh=False` and the skeleton set. The design accepts post-check detection |
 | L4 | Low | Spec drift | `src/nmg_game_dev/pipeline/engine.py:190` | `export_anims` reads this run's `checkpoint.blend`, not the variants `.blend` named in design.md | The design text is out of date. The behavior is correct and needed for AC6, and the code comment explains it | The spec files are read-only in verify. Update design.md in a follow-up |
 | L5 | Low | Correctness | `plugins/nmg-game-dev-blender-addon/finalize_core/anims.py` `_slot_of` | An NLA-strip action not assigned to the rig is hashed and exported through its first slot, not the strip's slot | Only matters for multi-slot actions, which `import_animations` does not create | Edge case; out of scope |
-| R6 | Low | Test infrastructure | `tests/blender/_runner.py` `_install_addon_link`, `tests/bdd/steps/test_scaffold.py:271` | The headless add-on link is one shared per-user symlink, so parallel lane worktrees race on it. The launcher-detach test uses a fixed 2 s wall-clock bound | Parallel lanes can fail `gate-blender-headless` or `repository.tests` without any code fault, as in this head's first run | Not in #138's scope, and the verify scope is report-only. Follow-up: point Blender at a per-checkout scripts path (for example `BLENDER_USER_SCRIPTS`) and loosen or isolate the timing bound |
 
 ---
 
@@ -292,7 +284,6 @@ None.
 - [ ] Update design.md to say `export_anims` reads the checkpoint (L4).
 
 ### Long Term (Could)
-- [ ] Give each checkout its own Blender add-on link, and make the launcher timing test robust to host load (R6).
 - [ ] List the error codes in `docs/rigging-and-animation.md` too (L1).
 
 ---
@@ -319,6 +310,6 @@ None.
 **Ready for PR**
 
 Every acceptance criterion passes with code and test evidence. Every applicable registered gate,
-including the real `plugin.session-smoke`, passed at `d2e8cf2f8324fd38d53bc7982b4c2c93cfae27c5`, and
+including the real `plugin.session-smoke`, passed at `40f634b42735b071fe1ee897cddbd62b3669f627`, and
 the verification artifact is complete with no ceiling. The remaining items are low-severity and do
 not block delivery.
