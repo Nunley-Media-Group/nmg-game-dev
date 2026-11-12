@@ -12,6 +12,11 @@ rename) as the job runs and when it ends.
 jobs
 one at a time in submission order, and exits when none remain. A lock whose PID is no longer alive
 is stale and is replaced. A busy queue never refuses a start: the new job waits its turn.
+
+Each running job records its runner's PID in ``runner.json``. When the next runner claims the lock,
+a job still ``running`` whose runner is gone is marked ``failed`` with ``texture.runner_exited``
+(#211 FR2). The runner logs to ``<jobs root>/runner.log``, and each job's ``job.log`` holds only
+that job's output (#211 FR3).
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -40,7 +46,9 @@ JOBS_DIR_NAME = ".jobs"
 LOCK_NAME = "lock"
 STATUS_NAME = "status.json"
 REQUEST_NAME = "request.json"
+RUNNER_NAME = "runner.json"
 LOG_NAME = "job.log"
+RUNNER_LOG_NAME = "runner.log"
 STATES = ("queued", "running", "succeeded", "failed")
 # An unreadable lock this young is a runner still writing it, so it counts as held.
 LOCK_WRITE_GRACE_SECONDS = 10.0
@@ -123,6 +131,23 @@ def _write_status(job_dir: Path, data: Mapping[str, Any]) -> None:
     _write_json_atomic(job_dir / STATUS_NAME, data)
 
 
+def _append_log(path: Path, line: str) -> None:
+    """Append one UTC-timestamped line to a log file (``job.log`` or ``runner.log``)."""
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"{stamp} {line}\n")
+
+
+def _runner_pid(job_dir: Path) -> int | None:
+    """The PID in ``job_dir/runner.json``, or None when the file is missing or unreadable."""
+    try:
+        data = json.loads((job_dir / RUNNER_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    pid = data.get("pid") if isinstance(data, dict) else None
+    return pid if isinstance(pid, int) else None
+
+
 def _total_images(
     requests: Sequence[generate.TextureRequest],
     registry: Mapping[str, BackendSpec],
@@ -182,13 +207,15 @@ def start(
         job_dir,
         {"job_id": job_id, "state": "queued", "completed": 0, "total": total},
     )
-    log = (job_dir / LOG_NAME).open("ab")
+    # The runner drains every queued job, so its output gets the jobs root's runner.log, not this
+    # job's job.log (#211 FR3).
+    runner_log = (jobs / RUNNER_LOG_NAME).open("ab")
     try:
         subprocess.Popen(
             [sys.executable, "-m", "nmg_game_dev.texture", "run-queue", str(jobs)],
             stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=log,
+            stdout=runner_log,
+            stderr=runner_log,
             start_new_session=True,
             cwd=str(work_dir),
             env=env_map,
@@ -197,7 +224,7 @@ def start(
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
     finally:
-        log.close()
+        runner_log.close()
     return job_id
 
 
@@ -239,6 +266,52 @@ def _next_queued(jobs: Path) -> Path | None:
     return min(queued)[2] if queued else None
 
 
+def _recover_orphans(jobs: Path) -> None:
+    """Mark each job left ``running`` by a runner that is no longer alive as failed (#211 FR2).
+
+    A job whose runner PID is alive is left alone, since a ``run-job`` process holds no queue lock.
+    A job with no readable ``runner.json`` has no live runner to wait for, so it is marked failed
+    too. Each recovery is noted in ``runner.log``.
+    """
+    if not jobs.is_dir():
+        return
+    for job_dir in jobs.iterdir():
+        if not job_dir.is_dir():
+            continue
+        try:
+            stored = json.loads((job_dir / STATUS_NAME).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(stored, dict) or stored.get("state") != "running":
+            continue
+        runner = _runner_pid(job_dir)
+        if runner is not None and _pid_alive(runner):
+            continue
+        label = "unknown" if runner is None else str(runner)
+        _write_status(
+            job_dir,
+            {
+                "job_id": job_dir.name,
+                "state": "failed",
+                "completed": stored.get("completed", 0),
+                "total": stored.get("total", 0),
+                "error": {
+                    "code": "texture.runner_exited",
+                    "message": (
+                        f"The texture queue runner (PID {label}) exited while this job was running."
+                    ),
+                    "remediation": (
+                        "Start the job again. Read "
+                        f"{jobs / RUNNER_LOG_NAME} for the runner's last output."
+                    ),
+                },
+            },
+        )
+        _append_log(
+            jobs / RUNNER_LOG_NAME, f"job {job_dir.name} marked failed: runner {label} exited"
+        )
+
+
 def run_queue(
     jobs: Path,
     *,
@@ -251,17 +324,24 @@ def run_queue(
 
     While another live runner holds the lock this returns at once, because that runner picks the
     queued job up. The lock is released and the queue re-checked, so a job queued during the release
-    is not left waiting.
+    is not left waiting. Each time the lock is claimed, orphaned ``running`` jobs are recovered
+    first (#211 FR2). The runner's progress lines go to ``runner.log`` (#211 FR3).
     """
     lock = jobs / LOCK_NAME
+    runner_log = jobs / RUNNER_LOG_NAME
     pid = os.getpid()
     while _claim_lock(lock, pid):
+        _append_log(runner_log, f"runner {pid} started")
         try:
+            _recover_orphans(jobs)
             while (job_dir := _next_queued(jobs)) is not None:
-                run_job(job_dir, env=env, facts=facts, spawn=spawn, registry=registry)
+                _append_log(runner_log, f"job {job_dir.name} running")
+                final = run_job(job_dir, env=env, facts=facts, spawn=spawn, registry=registry)
+                _append_log(runner_log, f"job {job_dir.name} {final['state']}")
         finally:
             _release_lock(lock, pid)
         if _next_queued(jobs) is None:
+            _append_log(runner_log, f"runner {pid} idle")
             return
 
 
@@ -298,18 +378,26 @@ def run_job(
     detached child).
 
     A batch job's succeeded result is ``{"results": [...]}``. Counts cover every image in the job.
+    The job's ``job.log`` gets its start line, its final line, and any crash traceback (#211 FR3).
     """
     env_map = dict(os.environ) if env is None else dict(env)
     job_id = job_dir.name
+    job_log = job_dir / LOG_NAME
+    _append_log(job_log, f"job {job_id} started")
+
+    def finish(final: dict[str, Any]) -> dict[str, Any]:
+        _write_status(job_dir, final)
+        _append_log(job_log, f"job {job_id} {final['state']}")
+        return final
+
     try:
         stored = json.loads((job_dir / REQUEST_NAME).read_text(encoding="utf-8"))
         is_batch = "requests" in stored
         requests = _requests_of(stored)
         root = Path(str(stored["output_root"]))
     except (OSError, ValueError, KeyError, TypeError) as error:
-        final = _crash_status(job_dir, job_id, 0, error)
-        _write_status(job_dir, final)
-        return final
+        _append_log(job_log, traceback.format_exc().rstrip())
+        return finish(_crash_status(job_dir, job_id, 0, error))
 
     try:
         total = _total_images(requests, registry, env_map, facts or probe(), None)
@@ -323,6 +411,9 @@ def run_job(
         )
 
     try:
+        # Recorded before the first running status, so a later runner can tell whether this job's
+        # runner is still alive (#211 FR2).
+        _write_json_atomic(job_dir / RUNNER_NAME, {"pid": os.getpid()})
         progress(0, total)
         result: dict[str, Any]
         if is_batch:
@@ -365,6 +456,6 @@ def run_job(
             },
         }
     except Exception as error:  # noqa: BLE001 - a crashed job must still report a final state
+        _append_log(job_log, traceback.format_exc().rstrip())
         final = _crash_status(job_dir, job_id, total, error)
-    _write_status(job_dir, final)
-    return final
+    return finish(final)
