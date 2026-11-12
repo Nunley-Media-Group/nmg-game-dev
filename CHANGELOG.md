@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-12
+
 ### Added
 
 - Let one finalized asset declare several material variants (#148)
@@ -13,6 +15,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Changed
 
 - Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
+
 ## [0.22.0] - 2026-11-12
 
 ### Changed
