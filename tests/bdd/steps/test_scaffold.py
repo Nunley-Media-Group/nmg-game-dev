@@ -40,6 +40,7 @@ BLENDER_TEST_PORT = "19876"
 UE_TEST_PORT = "18088"
 MISSING_BINARY_TEST_PORT = "29876"
 SLOW_MARKER_NAME = "slow-launcher-marker"
+DETACH_RETURN_LIMIT_SECONDS = 2.0
 
 # A fake Blender or UE editor. It records its argv, then its own PID, then stays alive until the
 # stop file appears, FAKE_CHILD_LIFETIME seconds pass, or 120 s pass, whichever comes first.
@@ -83,6 +84,7 @@ class LauncherRun:
     result: subprocess.CompletedProcess[str] | None
     timed_out: bool
     timeout: int
+    elapsed_seconds: float
 
 
 def _run_launcher(
@@ -92,13 +94,16 @@ def _run_launcher(
     path = script if isinstance(script, pathlib.Path) else REPO_ROOT / "scripts" / script
     env = os.environ.copy()
     env.update(env_overrides)
+    started = time.monotonic()
     try:
         result = subprocess.run(
             ["bash", str(path)], capture_output=True, text=True, env=env, timeout=timeout
         )
     except subprocess.TimeoutExpired:
-        return LauncherRun(result=None, timed_out=True, timeout=timeout)
-    return LauncherRun(result=result, timed_out=False, timeout=timeout)
+        elapsed = time.monotonic() - started
+        return LauncherRun(result=None, timed_out=True, timeout=timeout, elapsed_seconds=elapsed)
+    elapsed = time.monotonic() - started
+    return LauncherRun(result=result, timed_out=False, timeout=timeout, elapsed_seconds=elapsed)
 
 
 def _write_fake_child(path: pathlib.Path) -> None:
@@ -138,7 +143,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 def assert_detached(run: LauncherRun, pid_file: pathlib.Path) -> None:
-    """Pass only when the launcher exited 0 while the fake child it started is still alive."""
+    """Pass only when the launcher exits 0 in under the return limit with its fake child alive."""
     if run.timed_out or run.result is None:
         raise AssertionError(
             f"launcher did not return within {run.timeout} s while its child was running"
@@ -153,6 +158,11 @@ def assert_detached(run: LauncherRun, pid_file: pathlib.Path) -> None:
     if not _pid_alive(pid):
         raise AssertionError(
             f"launcher exited before its child was still running (PID {pid} is gone)"
+        )
+    if run.elapsed_seconds >= DETACH_RETURN_LIMIT_SECONDS:
+        raise AssertionError(
+            f"launcher took {run.elapsed_seconds:.2f} s to return "
+            f"(limit {DETACH_RETURN_LIMIT_SECONDS:.1f} s)"
         )
 
 
@@ -186,8 +196,8 @@ def test_blocking_launcher_fails_when_it_hangs() -> None:
     pass
 
 
-@scenario(FEATURE, "A slow launcher that detaches still passes the detach check (AC3)")
-def test_slow_launcher_passes_when_detached() -> None:
+@scenario(FEATURE, "A slow launcher fails the detach check (AC2)")
+def test_slow_launcher_fails_detach_check() -> None:
     pass
 
 
@@ -405,6 +415,11 @@ def script_exits_while_child_runs(launcher_run: LauncherRun, fake_child: FakeChi
     assert_detached(launcher_run, fake_child.pid)
 
 
+@then("the script returns control to the shell in under two seconds")
+def script_returns_in_under_two_seconds(launcher_run: LauncherRun, fake_child: FakeChild) -> None:
+    assert_detached(launcher_run, fake_child.pid)
+
+
 @then("the script does not block waiting for Blender to finish booting")
 def script_does_not_block(launcher_run: LauncherRun) -> None:
     assert not launcher_run.timed_out, f"launcher blocked past {launcher_run.timeout} s"
@@ -534,9 +549,10 @@ def detach_fails_launcher_hung(synthetic_run: LauncherRun, fake_child: FakeChild
         assert_detached(synthetic_run, fake_child.pid)
 
 
-@then("the detach check passes because it exited 0 while its child was still running")
-def detach_passes_child_running(synthetic_run: LauncherRun, fake_child: FakeChild) -> None:
-    assert_detached(synthetic_run, fake_child.pid)
+@then("the detach check fails because the launcher took longer than two seconds")
+def detach_fails_launcher_too_slow(synthetic_run: LauncherRun, fake_child: FakeChild) -> None:
+    with pytest.raises(AssertionError, match=r"took \d+\.\d+ s to return \(limit 2\.0 s\)"):
+        assert_detached(synthetic_run, fake_child.pid)
 
 
 @then("the launcher finished its 2.5 second delay before detaching")
