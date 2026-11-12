@@ -18,6 +18,7 @@ import bpy
 from ..contract_core.texel import TRIM_ATLAS_PROPERTY
 
 _NUMBER_SUFFIX = re.compile(r"\.\d+$")
+_CONTRACT_TEXTURE = re.compile(r"T_[A-Za-z0-9]+_[A-Za-z0-9]+_(?:BC|N|ORM)")
 
 
 def part_names(sources: Sequence[bpy.types.Material], asset: str, merged: bool) -> list[str]:
@@ -111,10 +112,29 @@ def collapse(meshes: Sequence[bpy.types.Object], material: bpy.types.Material) -
 
 
 def retire(sources: Sequence[bpy.types.Material]) -> None:
-    """Rename authored originals to <name>_Authoring and keep them alive for re-authoring."""
+    """Rename authored originals to <name>_Authoring and keep them alive for re-authoring.
+
+    Images that already carry a contract texture name (a reduce's T_<Name>_Body_BC, for example)
+    are renamed the same way, so the rewired material's new images get those names (#139).
+    """
+    for image in contract_images(sources):
+        image.name = f"{image.name}_Authoring"
     for source in sources:
         source.name = f"{source.name}_Authoring"
         source.use_fake_user = True
+
+
+def contract_images(materials: Sequence[bpy.types.Material]) -> list[bpy.types.Image]:
+    """The images in materials named T_<Name>_<Part>_<BC|N|ORM>, which a new bake would reuse."""
+    found: dict[int, bpy.types.Image] = {}
+    for material in materials:
+        if material.node_tree is None:
+            continue
+        for node in material.node_tree.nodes:
+            image = node.image if node.type == "TEX_IMAGE" else None
+            if image is not None and _CONTRACT_TEXTURE.fullmatch(image.name):
+                found[image.as_pointer()] = image
+    return list(found.values())
 
 
 def _image_node(tree: bpy.types.NodeTree, name: str, path: Path, colorspace: str) -> bpy.types.Node:

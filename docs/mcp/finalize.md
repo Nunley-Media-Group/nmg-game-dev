@@ -22,6 +22,7 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 |------|-------|---------|
 | `finalize_asset` | `collection`, `export_root`, optional `category`, `asset_class`, `blend`, `budgets_path`, `force`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds` |
 | `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` | The same shape as `finalize_asset`, for one step |
+| `reduce_asset` | `collection`, `asset_class`, optional `blend`, `budgets_path`, `device`, `cage_extrusion`, `max_ray_distance`, `miss_threshold`, `parts`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds`. See [reduce_asset](#reduce_asset-139). |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "result"?, "error"?}` |
 
 `wait_seconds` is clamped to 0–150. A value of 0 returns the job id at once. `get_finalize_job`
@@ -100,6 +101,36 @@ Load-back sits between `reimport` and `import_ue`. It is not a step in its own r
 `run_finalize_step` returns a result with `step`, `cache_hit`, `outputs`, and `summary`. When a step
 fails, no later step runs, and nothing is imported into Unreal.
 
+## reduce_asset (#139)
+
+`reduce_asset` reduces a generated collection to its class's Desktop triangle budget and bakes its
+look onto the reduced mesh. It runs as a background job, like finalize, and shares its lock, status,
+and `get_finalize_job`. The originals move to the hidden `<Name>_High` collection, which finalize
+never reads. The reduced `<Name>` then passes `finalize_asset` with no reduce-specific arguments.
+
+| Input | Meaning |
+|-------|---------|
+| `collection` | The asset's collection `<Name>`, PascalCase. |
+| `asset_class` | `small_prop`, `standard_prop`, `hero_prop`, `character`, or `environment_piece`. Any other value, including `terrain`, is refused with `reduce.class_unsupported`. |
+| `blend` | Optional saved `.blend` to reduce instead of the open session. |
+| `budgets_path` | Optional `nmg-budgets.json`. Defaults to the project's file when it exists. |
+| `device` | `GPU` (default) or `CPU`. |
+| `cage_extrusion` | Asset-wide bake cage in metres. Default 0.03. |
+| `max_ray_distance` | Asset-wide bake ray distance in metres. Default 0.10. |
+| `miss_threshold` | Largest unbaked share per part, from 0 to 1. Default 0.01. |
+| `parts` | Per-part overrides keyed by object name: `share` (above 0, at most 1) or `tris` (at least 1), plus optional `cage_extrusion` and `max_ray_distance`. A part takes `share` or `tris`, never both. |
+| `wait_seconds` | Clamped to 0–150. A value of 0 returns the job id at once. |
+
+The result has the same shape from the MCP tool, the CLI (`python -m nmg_game_dev.finalize reduce`),
+the panel operator, and `reduce_core.run_for_mcp`. It holds `state` (`reduced` or `within_budget`),
+the per-part `parts` table with source, target, and final triangles, the cage and ray values each
+part used, `unbaked_share`, the texture paths, a one-line `summary`, and for a job `kind: "reduce"`,
+`loaded_back`, and `result_blend`. The full description is in
+[`docs/skills/reduce-to-budget.md`](../skills/reduce-to-budget.md).
+
+A session run loads the reduced `<Name>` and `<Name>_High` back into Blender only when the session's
+`<Name>` still matches the checkpoint. Otherwise the job fails with `reduce.session_changed`.
+
 ## Job flow and load-back
 
 1. **Checkpoint.** The job saves the open session's scene as a copy, `checkpoint.blend`, and hashes
@@ -159,6 +190,10 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | Code | Meaning | Remediation |
 |------|---------|-------------|
 | `finalize.session_changed` | `<Name>` changed in the session after the checkpoint, so load-back was refused. The export, reimport, and `import_ue` steps still ran. | Read the result `.blend` named in the message. Revert or re-author the session changes, then rerun finalize to load the result back. |
+| `reduce.session_changed` | `<Name>` changed in the session during a reduce job, so the reduced asset was not loaded back. The result `.blend` is named in the message. | Open the result `.blend`, or revert the session changes and rerun `reduce_asset`. |
+| `reduce.bake_misses` | A part's unbaked share is above `miss_threshold`. The scene is unchanged. | Raise `max_ray_distance` or `cage_extrusion` for the part named in the message, then rerun. |
+| `reduce.invalid_request` / `reduce.invalid_override` | An argument or a per-part override is invalid. Nothing starts. | Fix the argument or override named in the message, then rerun. |
+| `reduce.<code>` | Any other reduce refusal, such as `reduce.rigged`, `reduce.class_unsupported`, or `reduce.overrides_exceed_budget`. | See the error table in [`docs/skills/reduce-to-budget.md`](../skills/reduce-to-budget.md#errors). |
 | `finalize.job_crashed` | A background Blender process exited before its step finished. The step is named in the error. | Read `blender-<step>.log` in the job directory. Fix the cause and rerun. The open session is unchanged. |
 | `finalize.job_running` | Another finalize job holds the lock for this cache root. | Wait for it with `get_finalize_job`, or stop it, then rerun. |
 | `finalize.job_not_found` | No job has that id in this cache root. | Use the `job_id` that `finalize_asset` or `run_finalize_step` returned. |

@@ -7,6 +7,7 @@ by the server.  Keeping the logic here lets the tests cover it without the MCP S
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import ValidationError
@@ -15,7 +16,14 @@ from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER, parse_step
 
-from .service import FinalizeService, MissingArgumentError, build_request, clamp_wait, error_dict
+from .service import (
+    FinalizeService,
+    MissingArgumentError,
+    build_reduce_request,
+    build_request,
+    clamp_wait,
+    error_dict,
+)
 
 _JOB_FIELDS = ("job_id", "state", "step", "progress", "message", "result", "error")
 
@@ -123,6 +131,50 @@ def _request(
         ) from error
 
 
+def reduce_asset(
+    *,
+    collection: str,
+    asset_class: str,
+    blend: str | None = None,
+    budgets_path: str | None = None,
+    device: str = "GPU",
+    cage_extrusion: float | None = None,
+    max_ray_distance: float | None = None,
+    miss_threshold: float | None = None,
+    parts: Mapping[str, Mapping[str, Any]] | None = None,
+    wait_seconds: float = 0,
+    service: FinalizeService | None = None,
+) -> dict[str, Any]:
+    """Reduce an over-budget generated collection to its Desktop budget (#139).
+
+    The same implementation as the panel operator, ``reduce_core.run_for_mcp``, and the CLI
+    ``reduce`` command.  Returns the job id at once, or the result within ``wait_seconds``.
+    """
+    try:
+        request = build_reduce_request(
+            collection=collection,
+            asset_class=asset_class,
+            blend=blend,
+            budgets_path=budgets_path,
+            device=device,
+            cage_extrusion=cage_extrusion,
+            max_ray_distance=max_ray_distance,
+            miss_threshold=miss_threshold,
+            parts=parts,
+        )
+    except PipelineError as error:
+        return {"error": error_dict(error)}
+    active = service or FinalizeService()
+    try:
+        job_id = active.start_reduce(request)
+        status = active.status(job_id)
+        if clamp_wait(wait_seconds) > 0:
+            status = active.wait(job_id, timeout_s=clamp_wait(wait_seconds))
+    except PipelineError as error:
+        return {"error": error_dict(error)}
+    return _job_response(job_id, status)
+
+
 def _start(
     service: FinalizeService,
     request: FinalizeRequest,
@@ -138,7 +190,10 @@ def _start(
             status = service.wait(job_id, timeout_s=clamp_wait(wait_seconds))
     except PipelineError as error:
         return {"error": error_dict(error)}
+    return _job_response(job_id, status)
 
+
+def _job_response(job_id: str, status: dict[str, Any]) -> dict[str, Any]:
     response: dict[str, Any] = {"job_id": job_id, "status": status.get("state")}
     if status.get("state") == "succeeded":
         response["result"] = status.get("result")

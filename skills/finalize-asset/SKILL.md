@@ -40,6 +40,13 @@ To run one step, call `run_finalize_step` with `step` set to `validate`, `bake`,
 `reimport`, or `import_ue`. It takes the same inputs and returns a result with `step`, `cache_hit`,
 `outputs`, and `summary`.
 
+When `validate` reports `budget.tris` on a generated asset (a Meshy or similar model whose Desktop
+triangle count is over its class budget), run `reduce_asset` on the collection with its
+`asset_class` before finalizing again. It decimates the parts to the Desktop budget, keeps the
+originals in the hidden `<Name>_High` collection that finalize never reads, and bakes the look onto
+the reduced mesh. Then call `finalize_asset` again. Its result is a job like any other. Details are in
+`docs/skills/reduce-to-budget.md`.
+
 Never call the Blender MCP for a bake, a variant, or an export. Reruns are cheap: unchanged steps are
 cache hits, so rerun after a fix without `force`.
 
@@ -51,7 +58,7 @@ cache hits, so rerun after a fix without `force`.
 - `finalize.job_not_found` → The `job_id` is not in this cache root. Use the id that `finalize_asset` or `run_finalize_step` returned.
 - `finalize.blender_not_found` → Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun.
 - `finalize.collection_not_found` → The session or `--blend` has no collection named `<Name>`. Check the name is PascalCase and matches the collection.
-- `quality.contract_failed` → Read the findings in the contract report. Fix each one in Blender using `docs/asset-contract.md`, then rerun.
+- `quality.contract_failed` → Read the findings in the contract report. Fix each one in Blender using `docs/asset-contract.md`, then rerun. A `budget.tris` finding on a generated asset is fixed with `reduce_asset` instead (see above).
 - `quality.reimport_mismatch` → The exported FBX re-imported differently from its pre-export report. Read the re-import report, fix the export cause, then rerun.
 - `bake.texture.bake_failed` → Read `blender-bake.log`, fix the material it names, then rerun.
 - `variants.<code>` → Read the message, fix the mesh or material it names, then rerun.

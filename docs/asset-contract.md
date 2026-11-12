@@ -10,6 +10,10 @@ viewport or renderer is not done.
 - Each asset lives in its own collection named `<Name>` (PascalCase, e.g. `Lamppost`).
 - That collection contains only what ships. Ground planes, lights, cameras, and
   set dressing go in a separate `<Name>_Preview` collection that is never exported.
+- A reduce run (`docs/skills/reduce-to-budget.md`, #139) may keep the original meshes of a generated
+  asset in a top-level `<Name>_High` collection, hidden in the viewport and in renders, with each
+  object named `<object>_High`. `<Name>_High` is never validated, hashed, or exported. Only `<Name>`
+  and `<Name>_Mobile` are.
 - One root mesh object per variant: `SM_<Name>` (Desktop) and `SM_<Name>_Mobile` (Mobile).
   Split into multiple objects only for parts that must move independently, named
   `SM_<Name>_<Part>`, parented to the root.
@@ -79,7 +83,13 @@ viewport or renderer is not done.
 
 Desktop and Mobile are separate physical assets, both produced in the same session:
 
-- **Desktop**: full quality. Structural cleanup only; no decimation or texture reduction.
+- **Desktop**: full quality. Structural cleanup only; no decimation or texture reduction. The one
+  exception is a reduce run on a generated asset whose Desktop triangle count is over its class
+  budget. Reduce decimates each part to its share of the Desktop budget and rebakes the original's
+  look onto the reduced mesh, one `M_<Name>_Body` material and one `T_<Name>_Body_{BC,N,ORM}` set. It
+  runs before finalize, never inside it. The reduced `<Name>` carries the custom property
+  `nmg_reduced`, and the finalize bake then keeps its atlas layout, including for an
+  `environment_piece`. The originals stay in `<Name>_High`.
 - **Mobile**: within the mobile budget, by decimating the Desktop mesh or by rebuilding at
   lower detail. Textures re-baked or reduced to mobile resolution, materials merged to the
   mobile material limit. Silhouette must still read.

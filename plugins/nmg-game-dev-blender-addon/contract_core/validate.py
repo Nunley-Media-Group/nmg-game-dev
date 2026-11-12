@@ -82,6 +82,8 @@ def validate_asset(
 
     findings = _unit_findings()
     snapshot: dict[str, Any] = {}
+    # A reduced asset keeps one atlas, so an environment piece still gets the overlap check (#139).
+    reduced = bool(asset.get("nmg_reduced"))
     objects_by_variant: dict[str, list[bpy.types.Object]] = {}
     for variant, variant_collection in variants:
         root_name = _root_name(collection, variant)
@@ -99,6 +101,7 @@ def validate_asset(
             root_name,
             tris,
             texel_entries,
+            reduced=reduced,
         )
         for obj in objects:
             snapshot[obj.name] = object_snapshot(obj, variant, tris.get(obj.name, 0))
@@ -293,10 +296,13 @@ def _mesh_findings(
     root_name: str,
     tris_out: dict[str, int],
     texel_out: dict[str, list[dict[str, Any]]],
+    *,
+    reduced: bool = False,
 ) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     meshes = [obj for obj in objects if obj.type == "MESH"]
     texel_check = asset_class == "environment_piece"
+    overlap_check = not texel_check or reduced
     materials: dict[str, bpy.types.Material] = {}
     images: dict[str, bpy.types.Image] = {}
     for obj in meshes:
@@ -304,7 +310,7 @@ def _mesh_findings(
         try:
             tris_out[obj.name] = triangle_count(copy)
             findings += geometry_findings(obj.name, copy)
-            findings += uv_findings(obj.name, copy, check_overlap=not texel_check)
+            findings += uv_findings(obj.name, copy, check_overlap=overlap_check)
             if texel_check:
                 findings += _texel_findings(obj, copy, variant, texel_out)
         finally:
