@@ -60,8 +60,8 @@ def test_naming_contract_operators(enabled_addon: str) -> None:
             and getattr(cls, "bl_idname", "").startswith("nmggamedev.")
         )
     ]
-    assert len(nmg_ops) == 11, (
-        f"Expected exactly 11 nmggamedev.* operators, found {len(nmg_ops)}: {nmg_ops}"
+    assert len(nmg_ops) == 12, (
+        f"Expected exactly 12 nmggamedev.* operators, found {len(nmg_ops)}: {nmg_ops}"
     )
     expected = {
         "nmggamedev.cleanup_desktop",
@@ -71,6 +71,7 @@ def test_naming_contract_operators(enabled_addon: str) -> None:
         "nmggamedev.reimport_check",
         "nmggamedev.render_review",
         "nmggamedev.bake_materials",
+        "nmggamedev.reduce_to_budget",
         "nmggamedev.rig_humanoid",
         "nmggamedev.import_animations",
         "nmggamedev.export_rigged",

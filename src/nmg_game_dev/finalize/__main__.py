@@ -4,6 +4,9 @@
         --collection N --category C --class K --export-root R
         [--blend B] [--budgets P] [--device GPU|CPU] [--force] [--json]
 
+    python -m nmg_game_dev.finalize reduce --collection N --class C [--blend B] [--budgets P]
+        [--device GPU|CPU] [--cage M] [--ray M] [--miss-threshold X] [--parts JSON] [--wait S]
+
     python -m nmg_game_dev.finalize material-variants --category C --collection N [--json]
         (lists the material variants Unreal holds for the asset, #148)
 
@@ -27,6 +30,7 @@ from pydantic import ValidationError
 
 from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
+from nmg_game_dev.pipeline.reduce import parts_from_json
 from nmg_game_dev.pipeline.steps import STEP_ORDER
 from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
@@ -34,6 +38,7 @@ from .mcp_tools import list_material_variants
 from .service import (
     FinalizeService,
     MissingArgumentError,
+    build_reduce_request,
     build_request,
     error_dict,
     is_prerequisite,
@@ -55,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
     for name in STEP_COMMANDS:
         step = commands.add_parser(name, help=_STEP_HELP.get(name, "Run every step (default)."))
         _add_asset_arguments(step)
+    reduce = commands.add_parser(
+        "reduce", help="Reduce an over-budget generated asset to its Desktop budget (#139)."
+    )
+    _add_reduce_arguments(reduce)
+
     listing = commands.add_parser(
         LIST_VARIANTS_COMMAND,
         help="List the material variants Unreal holds for a finalized asset.",
@@ -67,6 +77,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_job.add_argument("job_dir", type=Path)
     return parser
+
+
+def _add_reduce_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--collection", required=True, help="Blender collection, e.g. Crate.")
+    parser.add_argument(
+        "--class",
+        dest="asset_class",
+        required=True,
+        help="Contract class whose Desktop budget applies: small_prop, standard_prop, hero_prop, "
+        "character, or environment_piece.",
+    )
+    parser.add_argument("--blend", help="Reduce this saved .blend instead of the open session.")
+    parser.add_argument("--budgets", help="Budget overrides file. Defaults to nmg-budgets.json.")
+    parser.add_argument("--device", choices=("GPU", "CPU"), default="GPU", help="Bake device.")
+    parser.add_argument("--cage", type=float, help="Cage extrusion in metres (default 0.03).")
+    parser.add_argument("--ray", type=float, help="Max ray distance in metres (default 0.10).")
+    parser.add_argument(
+        "--miss-threshold", type=float, help="Largest unbaked share per part (default 0.01)."
+    )
+    parser.add_argument(
+        "--parts",
+        help="Per-part overrides: a JSON object keyed by part name, e.g. Wall with share 0.4.",
+    )
+    parser.add_argument(
+        "--wait",
+        type=float,
+        help="Seconds to wait for the job before printing its status. Default: until it finishes.",
+    )
 
 
 _STEP_HELP: Final = {
@@ -128,6 +166,8 @@ def main(
         status = jobs.run_job(Path(args.job_dir))
         return EXIT_OK if status.get("state") == "succeeded" else EXIT_FAILED
 
+    if args.command == "reduce":
+        return _run_reduce(args, service, out, err)
     if args.command == LIST_VARIANTS_COMMAND:
         return _list_variants(args, out, err, unreal_client)
 
@@ -177,6 +217,50 @@ def main(
         "stage": "finalize",
     }
     return _report_error(error_payload, args.json, out, err)
+
+
+def _run_reduce(
+    args: argparse.Namespace,
+    service: FinalizeService | None,
+    out: TextIO,
+    err: TextIO,
+) -> int:
+    """Run the reduce job and print its status JSON, the same shape the MCP tool returns (#139)."""
+    try:
+        request = build_reduce_request(
+            collection=args.collection,
+            asset_class=args.asset_class,
+            blend=args.blend,
+            budgets_path=args.budgets,
+            device=args.device,
+            cage_extrusion=args.cage,
+            max_ray_distance=args.ray,
+            miss_threshold=args.miss_threshold,
+            parts=parts_from_json(args.parts),
+        )
+    except PipelineError as error:
+        return _report_error(error_dict(error), False, out, err)
+
+    active = service if service is not None else FinalizeService()
+    timeout = args.wait if args.wait is not None else float("inf")
+    try:
+        job_id = active.start_reduce(request)
+        status = active.wait(job_id, timeout_s=timeout)
+    except PipelineError as error:
+        return _report_error(error_dict(error), False, out, err)
+
+    out.write(json.dumps({"job_id": job_id, **status}, indent=2, sort_keys=True, default=str))
+    out.write("\n")
+    if status.get("state") != "failed":
+        # Succeeded, or still running when --wait ran out; the job id in the output can be polled.
+        return EXIT_OK
+    error_payload: dict[str, Any] = status.get("error") or {
+        "code": "reduce.failed",
+        "message": "The reduce job failed without an error description",
+        "remediation": "Read the job's status.json and blender-reduce.log files.",
+        "stage": "reduce",
+    }
+    return _report_error(error_payload, False, out, err)
 
 
 def _list_variants(

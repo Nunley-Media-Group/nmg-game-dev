@@ -7,6 +7,7 @@ from .generate_variants import NMGGAMEDEV_OT_generate_variants
 from .import_animations import NMGGAMEDEV_OT_import_animations
 from .inspect_spatial import NMGGAMEDEV_OT_inspect_spatial
 from .optimize_mobile import NMGGAMEDEV_OT_optimize_mobile
+from .reduce_to_budget import NMGGAMEDEV_OT_reduce_to_budget
 from .reimport_check import NMGGAMEDEV_OT_reimport_check
 from .render_review import NMGGAMEDEV_OT_render_review
 from .rig_humanoid import NMGGAMEDEV_OT_rig_humanoid
@@ -20,6 +21,7 @@ __all__ = [
     "NMGGAMEDEV_OT_reimport_check",
     "NMGGAMEDEV_OT_render_review",
     "NMGGAMEDEV_OT_bake_materials",
+    "NMGGAMEDEV_OT_reduce_to_budget",
     "NMGGAMEDEV_OT_rig_humanoid",
     "NMGGAMEDEV_OT_import_animations",
     "NMGGAMEDEV_OT_export_rigged",

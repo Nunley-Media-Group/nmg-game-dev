@@ -1,9 +1,9 @@
 """The ``finalize`` MCP server (#69).
 
-Registers five tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
-``get_finalize_job``, ``list_material_variants`` (#148), and ``import_audio`` (#155).  The tool
-logic lives in the package, so the CLI and this server share one implementation.  stdout is the MCP
-channel, so logs go to stderr only.
+Registers six tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
+``reduce_asset`` (#139), ``get_finalize_job``, ``list_material_variants`` (#148), and
+``import_audio`` (#155).  The tool logic lives in the package, so the CLI and this server share one
+implementation.  stdout is the MCP channel, so logs go to stderr only.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from nmg_game_dev.finalize import finalize_asset as _finalize_asset
 from nmg_game_dev.finalize import get_finalize_job as _get_finalize_job
 from nmg_game_dev.finalize import import_audio as _import_audio
 from nmg_game_dev.finalize import list_material_variants as _list_material_variants
+from nmg_game_dev.finalize import reduce_asset as _reduce_asset
 from nmg_game_dev.finalize import run_finalize_step as _run_finalize_step
 
 logger = logging.getLogger("finalize_mcp")
@@ -93,6 +94,42 @@ def run_finalize_step(
             budgets_path=budgets_path,
             material_variants_path=material_variants_path,
             force=force,
+            wait_seconds=wait_seconds,
+        )
+    )
+
+
+@mcp.tool(name="reduce_asset")
+def reduce_asset(
+    collection: str,
+    asset_class: str,
+    blend: str | None = None,
+    budgets_path: str | None = None,
+    device: str = "GPU",
+    cage_extrusion: float | None = None,
+    max_ray_distance: float | None = None,
+    miss_threshold: float | None = None,
+    parts: dict[str, dict[str, Any]] | None = None,
+    wait_seconds: float = 0,
+) -> dict[str, Any]:
+    """Reduce a generated collection to its Desktop triangle budget and bake its look onto it.
+
+    Keeps the originals in the hidden <Name>_High collection. Returns {"job_id", "status"} at once;
+    the result is included when the job finishes within wait_seconds (0-150). Poll
+    get_finalize_job for progress. asset_class is one of small_prop, standard_prop, hero_prop,
+    character, or environment_piece; terrain is refused.
+    """
+    return _logged(
+        _reduce_asset(
+            collection=collection,
+            asset_class=asset_class,
+            blend=blend,
+            budgets_path=budgets_path,
+            device=device,
+            cage_extrusion=cage_extrusion,
+            max_ray_distance=max_ray_distance,
+            miss_threshold=miss_threshold,
+            parts=parts,
             wait_seconds=wait_seconds,
         )
     )

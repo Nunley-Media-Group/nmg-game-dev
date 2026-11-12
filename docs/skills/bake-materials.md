@@ -42,17 +42,22 @@ The operator's fields are `collection_name`, `asset_class`, `out_dir` (a folder 
 
 ## Modes
 
-- **Unique bake** (every class except `environment_piece`). The layout is kept when every mesh has
+- **Unique bake** (every class except an untagged `environment_piece`). The layout is kept when every mesh has
   exactly one `UVMap` inside 0 to 1 and no faces overlap. Otherwise all meshes are unwrapped
   together with one Smart UV Project, into a new layer that becomes `UVMap`.
 - **Merging.** When the authored material count is above the class's Mobile material limit, every
   material bakes into one atlas set `T_<Name>_Body_{BC,N,ORM}` on one non-overlapping layout, and
   every face uses `M_<Name>_Body`. An asset at or under the limit keeps one set per material.
-- **Tiling** (`environment_piece`). Each tiling material bakes onto a temporary 1 m tile whose UVs
-  span 0 to 1. The asset's UVs stay as they are. The bake fails unless the opposite edges of each
-  texture match and each material slot of each mesh meets the texel density minimum (256 px/m
-  Desktop, 128 px/m Mobile). Trim-atlas and flat-colour slots are exempt (`docs/asset-contract.md`
-  §6), and the bake report lists every slot with its densities or its exemption.
+- **Unique bake of a reduced `environment_piece`** (#139). A collection tagged with the custom
+  property `nmg_reduced`, which the reduce step sets, bakes in unique mode even when its class is
+  `environment_piece`. Its atlas layout from reduce is kept, so a layout that is already valid is not
+  unwrapped again, and the UV overlap check applies to it.
+- **Tiling** (`environment_piece`, not tagged `nmg_reduced`). Each tiling material bakes onto a
+  temporary 1 m tile whose UVs span 0 to 1. The asset's UVs stay as they are. The bake fails unless
+  the opposite edges of each texture match and each material slot of each mesh meets the texel
+  density minimum (256 px/m Desktop, 128 px/m Mobile). Trim-atlas and flat-colour slots are exempt
+  (`docs/asset-contract.md` §6), and the bake report lists every slot with its densities or its
+  exemption.
 
 Part names follow `M_<Name>_<Part>`: a material already named that way keeps `<Part>`, one authored
 material otherwise becomes `Body`, and several materials take PascalCase of their names.

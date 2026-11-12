@@ -6,9 +6,12 @@
         reimport --job-dir D [--inputs PATH]
     blender --background <in.blend> --python scripts/blender/finalize_entry.py -- \\
         hash --job-dir D
+    blender --background <in.blend> --python scripts/blender/finalize_entry.py -- \\
+        reduce --job-dir D
 
 D holds request.json (written by the host). A step writes its envelope to D/<step>.json and
-prints NMG_PROGRESS lines on stdout; hash writes D/hash.json. Exit 0 when the step succeeded,
+prints NMG_PROGRESS lines on stdout; hash writes D/hash.json. reduce runs the background reduce
+job (#139) and writes D/reduce.json and D/reduce.blend. Exit 0 when the step succeeded,
 1 when it failed (the envelope is still written), and 2 for an unexpected error after a
 best-effort envelope. The add-on is loaded from its source directory, as contract_entry.py does,
 and nothing is registered.
@@ -51,7 +54,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     argv = argv[argv.index("--") + 1 :] if "--" in argv else []
     parser = argparse.ArgumentParser(prog="finalize_entry")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in (*_STEPS, "hash"):
+    for name in (*_STEPS, "hash", "reduce"):
         command = commands.add_parser(name)
         command.add_argument("--job-dir", required=True)
         command.add_argument("--inputs")
@@ -97,7 +100,11 @@ def main() -> None:
         inputs: dict[str, Any] | None = None
         if args.inputs:
             inputs = json.loads(Path(args.inputs).read_text(encoding="utf-8"))
-        envelope = core.run_step(args.command, request, job, inputs)
+        if args.command == "reduce":
+            reduce_job = importlib.import_module(f"{_PACKAGE}.finalize_core.reduce_job")
+            envelope = reduce_job.run_reduce(request, job)
+        else:
+            envelope = core.run_step(args.command, request, job, inputs)
     except Exception as error:  # noqa: BLE001 - every failure must leave an envelope behind
         traceback.print_exc(file=sys.stderr)
         envelope = {

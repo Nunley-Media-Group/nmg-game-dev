@@ -41,6 +41,26 @@
       }
     },
     {
+      "name": "reduce_asset",
+      "description": "Reduce a generated collection to its Desktop triangle budget and bake its look onto the reduced mesh (#139). The originals move to the hidden <Name>_High collection. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150). terrain is refused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "asset_class": {"type": "string", "description": "small_prop, standard_prop, hero_prop, character, or environment_piece. Any other value, including terrain, is refused with reduce.class_unsupported."},
+          "blend": {"type": ["string", "null"]},
+          "budgets_path": {"type": ["string", "null"]},
+          "device": {"type": "string", "enum": ["GPU", "CPU"], "default": "GPU"},
+          "cage_extrusion": {"type": ["number", "null"], "exclusiveMinimum": 0},
+          "max_ray_distance": {"type": ["number", "null"], "exclusiveMinimum": 0},
+          "miss_threshold": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+          "parts": {"type": ["object", "null"], "additionalProperties": {"type": "object"}},
+          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
+        },
+        "required": ["collection", "asset_class"]
+      }
+    },
+    {
       "name": "import_audio",
       "description": "Import a saved ElevenLabs sound effect or music file into Unreal as a SoundWave. Stores a 16-bit WAV under SourceArt/Audio/<SFX|Music>/ and imports /Game/Audio/<SFX|Music>/SW_<name>. Returns the result, or an error object.",
       "inputSchema": {
