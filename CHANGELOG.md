@@ -6,6 +6,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-12
+
+### Changed
+
+- Report sample locations in geometry contract findings (#153)
 ## [0.21.6] - 2026-11-12
 
 ### Fixed
