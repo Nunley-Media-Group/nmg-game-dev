@@ -6,6 +6,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Make texture generation work from the plugin root and queue or batch texture jobs (#143)
+
+## [0.22.0] - 2026-11-11
 ## [0.21.5] - 2026-11-12
 
 ### Fixed
@@ -42,6 +47,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Honour nmg-budgets.json Desktop overrides in contract validation (#134)
 - Fix start-unreal-mcp.sh rebuilding plugins on every launch and failing to relaunch the editor after a config change (#150)
 - Fix import_ue failing the Mobile variant of static assets that export as an LOD group (#146)
+
+### Changed
+
+- Add optional ElevenLabs sound-effect and music generation that imports into Unreal (#155)
 
 ## [0.21.2] - 2026-11-11
 
