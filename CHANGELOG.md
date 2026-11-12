@@ -10,9 +10,25 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Add batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight (#149)
 
+## [0.23.1] - 2026-11-12
+## [0.24.0] - 2026-11-12
+## [0.22.1] - 2026-11-12
+
+### Fixed
+
+- Fix texture job queue: duplicate batch outputs, orphaned running jobs, and runner log location (#211)
+
 ### Added
 
 - Let one finalized asset declare several material variants (#148)
+
+### Fixed
+
+- Rebuild the committed M_NmgORM master material headlessly so it carries the Tint parameter (#204)
+### Changed
+
+- Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
+
 ## [0.22.0] - 2026-11-12
 
 ### Changed

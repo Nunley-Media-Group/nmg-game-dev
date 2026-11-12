@@ -89,7 +89,11 @@ uv run --project <plugin root> python -m nmg_game_dev.texture generate --batch t
 
 Batch validation runs before anything is generated or queued. If any request is invalid, the command
 exits 1 with `texture.invalid_request`, and the message lists the zero-based index and reason of each
-invalid request.
+invalid request. Requests that resolve to the same output name are refused the same way: a request's
+output name is its `name`, or its prompt when it has no name, slugified. Two requests with one output
+name would write into one folder and overwrite each other. The message names the output name and the
+zero-based indexes of the requests that share it, for example
+`requests 0, 2: output name 'burlap' is used more than once`. Give each request in a batch its own name.
 
 From the agent, use the `texture-gen` MCP tools. `generate_textures` returns a job id at once. Pass
 `prompt` for one texture, or `requests` (a list of request objects with the same fields) for a batch that
@@ -103,6 +107,11 @@ Texture jobs run one at a time, in the order they were submitted. A job started 
 is queued and runs after it, so you do not need to wait before starting it. Its state is `queued` until
 its turn comes. A queued job is not cancelled or reprioritized, and a job that cannot start because a
 dependency is missing is refused at start with `texture.dependencies_missing`, not queued.
+
+If a runner exits while a job is `running`, for example because its process was killed, the next runner
+marks that job `failed` with `texture.runner_exited` when it starts, then runs the queued jobs after it.
+Start the job again. The queue runner logs to `<output root>/.jobs/runner.log`, and each job's `job.log`
+holds only that job's output.
 
 ## Both: comparison sheets
 

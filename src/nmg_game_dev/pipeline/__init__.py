@@ -32,6 +32,7 @@ from .engine import (
     execute,
 )
 from .errors import PipelineError
+from .reduce import PartOptions, ReduceRequest, ReduceSessionChangedError
 from .request import AssetClass, Device, FinalizeRequest
 from .result import FinalizeResult, StepResult
 from .steps import STEP_ORDER, StepName
@@ -45,8 +46,11 @@ __all__ = [
     "FinalizeRequest",
     "FinalizeResult",
     "FinalizeSessionChangedError",
+    "PartOptions",
     "PipelineError",
     "ProgressCallback",
+    "ReduceRequest",
+    "ReduceSessionChangedError",
     "StepName",
     "StepResult",
     "StepRunner",

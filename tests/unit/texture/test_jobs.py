@@ -24,12 +24,19 @@ class _FakeProc:
 
 
 @pytest.fixture
-def spawned(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+def spawn_kwargs() -> list[dict[str, Any]]:
+    """The keyword arguments of each runner spawn, in order (its stdout handle names the log)."""
+    return []
+
+
+@pytest.fixture
+def spawned(monkeypatch: pytest.MonkeyPatch, spawn_kwargs: list[dict[str, Any]]) -> list[list[str]]:
     """Record each runner spawn instead of starting one, so ``start`` only queues."""
     calls: list[list[str]] = []
 
     def popen(argv: list[str], **kwargs: Any) -> _FakeProc:
         calls.append(argv)
+        spawn_kwargs.append(kwargs)
         return _FakeProc()
 
     shim = types.SimpleNamespace(Popen=popen, DEVNULL=subprocess.DEVNULL)
@@ -125,7 +132,12 @@ def test_invalid_request_is_refused_before_a_job_exists(
 def test_a_batch_start_queues_one_job_covering_every_request(
     spawned: list[list[str]], env: dict[str, str], out_root: Path
 ) -> None:
-    requests = [_request(seeds=[1, 2]), _request("flux2-klein-4b", seeds=[3])]
+    requests = [
+        _request(seeds=[1, 2]),
+        TextureRequest(
+            prompt="stone", backend="flux2-klein-4b", seeds=[3], resolution=256, name="stone"
+        ),
+    ]
     job_id = jobs.start(requests, env=env, facts=APPLE_SILICON_32GB, cwd=out_root.parent)
     status = jobs.status(job_id, env=env)
     assert status["state"] == "queued" and status["total"] == 3
@@ -264,3 +276,165 @@ def test_run_job_records_worker_failure(
     assert final["state"] == "failed"
     assert final["error"]["code"] == "texture.worker_failed"
     assert final["error"]["remediation"]
+
+
+def test_a_batch_with_a_shared_output_name_is_refused_before_a_job_exists(
+    spawned: list[list[str]], env: dict[str, str], out_root: Path
+) -> None:
+    requests = [
+        _request(),  # slugifies to burlap
+        TextureRequest(
+            prompt="stone", backend="z-image-turbo", seeds=[2], resolution=256, name="stone"
+        ),
+        TextureRequest(
+            prompt="burlap", backend="flux2-klein-4b", seeds=[3], resolution=256, name="Burlap"
+        ),
+    ]
+    with pytest.raises(TextureGenError) as caught:
+        jobs.start(requests, env=env, facts=APPLE_SILICON_32GB, cwd=out_root.parent)
+    assert caught.value.code == "texture.invalid_request"
+    assert "requests 0, 2: output name 'burlap' is used more than once" in caught.value.message
+    assert not (out_root / ".jobs").exists()
+    assert spawned == []
+
+
+def _mark_running(job_dir: Path, *, completed: int = 0, total: int = 1) -> None:
+    """Leave a job as a runner that died mid-job would: ``running``, with no final state."""
+    status = {"job_id": job_dir.name, "state": "running", "completed": completed, "total": total}
+    (job_dir / "status.json").write_text(json.dumps(status), encoding="utf-8")
+
+
+def test_a_job_orphaned_by_a_dead_runner_is_marked_failed_and_the_queue_moves_on(
+    spawned: list[list[str]], env: dict[str, str], out_root: Path, worker: Path, log: Path
+) -> None:
+    jobs_dir = out_root / ".jobs"
+    orphan = jobs.start(_request(), env=env, facts=APPLE_SILICON_32GB, cwd=out_root.parent)
+    second = jobs.start(
+        TextureRequest(
+            prompt="stone", backend="flux2-klein-4b", seeds=[2], resolution=256, name="stone"
+        ),
+        env=env,
+        facts=APPLE_SILICON_32GB,
+        cwd=out_root.parent,
+    )
+    third = jobs.start(
+        TextureRequest(
+            prompt="oak", backend="z-image-turbo", seeds=[3], resolution=256, name="oak"
+        ),
+        env=env,
+        facts=APPLE_SILICON_32GB,
+        cwd=out_root.parent,
+    )
+    _mark_running(jobs_dir / orphan)
+    (jobs_dir / orphan / "runner.json").write_text(json.dumps({"pid": 999999}), encoding="utf-8")
+    (jobs_dir / "lock").write_text(json.dumps({"pid": 999999}), encoding="utf-8")
+
+    jobs.run_queue(jobs_dir, env=env, facts=APPLE_SILICON_32GB, spawn=fake_spawn(worker, log))
+
+    failed = jobs.status(orphan, env=env)
+    assert failed["state"] == "failed"
+    assert failed["error"]["code"] == "texture.runner_exited"
+    assert "PID 999999" in failed["error"]["message"]
+    assert jobs.status(second, env=env)["state"] == "succeeded"
+    assert jobs.status(third, env=env)["state"] == "succeeded"
+    starts = [e["backend"] for e in read_log(log) if e["event"] == "start"]
+    assert starts == ["flux2-klein-4b", "z-image-turbo"]
+    assert not (jobs_dir / "lock").exists()
+
+
+def test_a_running_job_whose_runner_is_alive_is_left_running(
+    started: tuple[str, TextureRequest],
+    env: dict[str, str],
+    out_root: Path,
+    worker: Path,
+    log: Path,
+) -> None:
+    job_id, _ = started
+    job_dir = out_root / ".jobs" / job_id
+    _mark_running(job_dir)
+    (job_dir / "runner.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    jobs.run_queue(
+        out_root / ".jobs", env=env, facts=APPLE_SILICON_32GB, spawn=fake_spawn(worker, log)
+    )
+    assert jobs.status(job_id, env=env)["state"] == "running"
+    assert read_log(log) == []
+
+
+def test_a_running_job_with_no_runner_record_is_marked_failed_with_an_unknown_pid(
+    started: tuple[str, TextureRequest],
+    env: dict[str, str],
+    out_root: Path,
+    worker: Path,
+    log: Path,
+) -> None:
+    job_id, _ = started
+    _mark_running(out_root / ".jobs" / job_id, completed=1, total=2)
+    jobs.run_queue(
+        out_root / ".jobs", env=env, facts=APPLE_SILICON_32GB, spawn=fake_spawn(worker, log)
+    )
+    status = jobs.status(job_id, env=env)
+    assert status["state"] == "failed"
+    assert status["error"]["code"] == "texture.runner_exited"
+    assert "PID unknown" in status["error"]["message"]
+    assert (status["completed"], status["total"]) == (1, 2)
+    assert str(out_root / ".jobs" / "runner.log") in status["error"]["remediation"]
+
+
+def test_run_job_records_the_pid_of_the_process_that_ran_it(
+    started: tuple[str, TextureRequest],
+    env: dict[str, str],
+    out_root: Path,
+    worker: Path,
+    log: Path,
+) -> None:
+    job_id, _ = started
+    job_dir = out_root / ".jobs" / job_id
+    jobs.run_job(job_dir, env=env, facts=APPLE_SILICON_32GB, spawn=fake_spawn(worker, log))
+    assert json.loads((job_dir / "runner.json").read_text(encoding="utf-8")) == {"pid": os.getpid()}
+
+
+def test_the_runner_writes_its_own_log_and_each_job_log_holds_only_its_job(
+    spawned: list[list[str]],
+    spawn_kwargs: list[dict[str, Any]],
+    env: dict[str, str],
+    out_root: Path,
+    worker: Path,
+    log: Path,
+) -> None:
+    jobs_dir = out_root / ".jobs"
+    first = jobs.start(_request(), env=env, facts=APPLE_SILICON_32GB, cwd=out_root.parent)
+    second = jobs.start(
+        TextureRequest(
+            prompt="stone", backend="flux2-klein-4b", seeds=[2], resolution=256, name="stone"
+        ),
+        env=env,
+        facts=APPLE_SILICON_32GB,
+        cwd=out_root.parent,
+    )
+    assert Path(spawn_kwargs[0]["stdout"].name) == jobs_dir / "runner.log"
+    assert Path(spawn_kwargs[0]["stderr"].name) == jobs_dir / "runner.log"
+
+    jobs.run_queue(jobs_dir, env=env, facts=APPLE_SILICON_32GB, spawn=fake_spawn(worker, log))
+
+    runner_log = (jobs_dir / "runner.log").read_text(encoding="utf-8")
+    assert first in runner_log and second in runner_log
+    first_log = (jobs_dir / first / "job.log").read_text(encoding="utf-8")
+    second_log = (jobs_dir / second / "job.log").read_text(encoding="utf-8")
+    assert first in first_log and second not in first_log
+    assert second in second_log and first not in second_log
+
+
+def test_a_crashed_job_writes_its_traceback_to_its_own_job_log(
+    started: tuple[str, TextureRequest], env: dict[str, str], out_root: Path
+) -> None:
+    job_id, _ = started
+    job_dir = out_root / ".jobs" / job_id
+
+    def crash(batch_file: Path) -> subprocess.CompletedProcess[str]:
+        raise RuntimeError("worker exploded")
+
+    final = jobs.run_job(job_dir, env=env, facts=APPLE_SILICON_32GB, spawn=crash)
+    assert final["error"]["code"] == "texture.job_crashed"
+    job_log = (job_dir / "job.log").read_text(encoding="utf-8")
+    assert "RuntimeError: worker exploded" in job_log
+    assert f"job {job_id} failed" in job_log

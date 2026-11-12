@@ -1,12 +1,13 @@
 """Finalize job lifecycle: start, status, wait, batches, and the detached ``run-job`` body.
 
-Single jobs and batches share this lifecycle (#69, #149).
+Single jobs, batches, and reduce jobs share this lifecycle (#69, #149, #139).
 
 A job lives in ``<cache_root>/jobs/<job_id>/``::
 
-    request.json      the FinalizeRequest (single-collection jobs)
+    request.json      the FinalizeRequest (single jobs) or the ReduceRequest (reduce jobs)
     job.json          {"job_id", "kind", "steps", "force", "wait_for_lock", "lock_wait_s", ...}
-                       (batches add "items" and "fail_fast")
+                       ("kind" is "single", "batch", or "reduce"; batches add "items" and
+                       "fail_fast")
     status.json       {"job_id", "state", "step", "progress", "message", "steps", "batch"?,
                        "result"?, "error"?, "pid"}
     items/<index>-<collection>/   one batch item's files (batch jobs)
@@ -45,6 +46,7 @@ from .blender_proc import StepRunner, SubprocessStepRunner
 from .cache import ArtifactCache, default_cache_root
 from .engine import FinalizeClients, FinalizeSessionChangedError, execute
 from .errors import PipelineError
+from .reduce import REDUCE_STEP, ReduceRequest, ReduceSessionChangedError, execute_reduce
 from .request import FinalizeRequest
 from .result import FinalizeResult
 from .steps import STEP_ORDER
@@ -55,6 +57,7 @@ Clock = Callable[[], float]
 
 TERMINAL_STATES: Final = frozenset({"succeeded", "failed"})
 _ITEM_DONE_STATES: Final = frozenset({"succeeded", "failed", "skipped"})
+REDUCE_KIND: Final = "reduce"
 _LOCK_NAME: Final = "lock"
 _POLL_S: Final = 0.5
 _LOCK_POLL_MIN_S: Final = 2.0
@@ -93,6 +96,27 @@ def start(
         launcher=launcher,
         wait_for_lock=wait_for_lock,
         lock_wait_s=lock_wait_s,
+    )
+
+
+def start_reduce(
+    request: ReduceRequest,
+    *,
+    cache_root: Path | None = None,
+    launcher: Launcher | None = None,
+) -> str:
+    """Create a ``kind: "reduce"`` job (#139), launch it, and return its job id.
+
+    It shares the cache-root lock, the status file, and ``status``/``wait`` with finalize jobs.
+    Raises ``finalize.job_running`` when another live job holds the cache root.
+    """
+    return _submit(
+        {"kind": REDUCE_KIND, "steps": [REDUCE_STEP], "force": False},
+        request_json=request.to_json_dict(),
+        cache_root=cache_root,
+        launcher=launcher,
+        wait_for_lock=False,
+        lock_wait_s=None,
     )
 
 
@@ -241,6 +265,8 @@ def run_job(
         _write_json(job_dir / "status.json", current)
         if job.get("kind") == _BATCH_KIND:
             _run_batch(job_dir, job, current, cache=cache, clients=clients, runner=runner)
+        elif job.get("kind") == REDUCE_KIND:
+            _run_reduce(job_dir, current, clients=clients, runner=runner)
         else:
             _run_single(
                 job_dir,
@@ -440,6 +466,52 @@ def _batch_progress(batch: dict[str, Any], fraction: object) -> float:
     done = float(batch.get("completed") or 0)
     item = float(fraction) if isinstance(fraction, (int, float)) else 0.0
     return min(1.0, (done + item) / total)
+
+
+def _run_reduce(
+    job_dir: Path,
+    current: dict[str, Any],
+    *,
+    clients: FinalizeClients | None,
+    runner: StepRunner | None,
+) -> None:
+    """The body of a reduce job (#139).  Its status and lock match a finalize job's."""
+    request = ReduceRequest.model_validate_json((job_dir / "request.json").read_text("utf-8"))
+
+    def on_progress(event: dict[str, Any]) -> None:
+        current.update(
+            state="running",
+            step=event.get("step"),
+            progress=event.get("progress"),
+            message=event.get("message", ""),
+        )
+        _write_json(job_dir / "status.json", current)
+
+    try:
+        result = execute_reduce(
+            request,
+            job_dir=job_dir,
+            clients=clients,
+            runner=runner,
+            progress=on_progress,
+        )
+    except ReduceSessionChangedError as error:
+        current.update(state="failed", error=_error_dict(error), result=error.result)
+    except PipelineError as error:
+        current.update(state="failed", error=_error_dict(error))
+    except Exception as error:
+        # Every failure must reach status.json, so this catch-all is deliberate.
+        current.update(
+            state="failed",
+            error={
+                "code": "reduce.internal_error",
+                "message": f"Unexpected error: {error}",
+                "remediation": "Report this as a bug with the job's status.json.",
+                "stage": "reduce",
+            },
+        )
+    else:
+        current.update(state="succeeded", result=result, progress=1.0)
 
 
 def _mark_backlog(

@@ -17,6 +17,8 @@ from nmg_game_dev.design import backlog as design_backlog
 from nmg_game_dev.design.paths import backlog_path, project_root
 from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
+from nmg_game_dev.pipeline.reduce import ReduceRequest
+from nmg_game_dev.pipeline.reduce import build_request as build_reduce_validated
 from nmg_game_dev.pipeline.request import DEFAULT_PIE_WAIT_SECONDS, FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER
 
@@ -236,6 +238,37 @@ def _optional_str(value: object) -> str | None:
     return None if value is None else str(value)
 
 
+def build_reduce_request(
+    *,
+    collection: str,
+    asset_class: str,
+    blend: str | Path | None = None,
+    budgets_path: str | Path | None = None,
+    device: str = "GPU",
+    cage_extrusion: float | None = None,
+    max_ray_distance: float | None = None,
+    miss_threshold: float | None = None,
+    parts: Mapping[str, Mapping[str, Any]] | None = None,
+) -> ReduceRequest:
+    """Validate the reduce arguments, defaulting the project's ``nmg-budgets.json`` (#139).
+
+    Raises ``PipelineError`` (``reduce.invalid_request`` or ``reduce.invalid_override``) before
+    any job starts.
+    """
+    budgets = Path(budgets_path) if budgets_path else default_budgets_path()
+    return build_reduce_validated(
+        collection=collection,
+        asset_class=asset_class,
+        blend=blend,
+        budgets_path=budgets,
+        device=device,
+        cage_extrusion=cage_extrusion,
+        max_ray_distance=max_ray_distance,
+        miss_threshold=miss_threshold,
+        parts=parts,
+    )
+
+
 class FinalizeService:
     """Starts, polls, and runs finalize jobs under one cache root.
 
@@ -303,6 +336,10 @@ class FinalizeService:
     def wait(self, job_id: str, *, timeout_s: float) -> dict[str, Any]:
         """Return the job's status once it is terminal, or after ``timeout_s`` seconds."""
         return jobs.wait(job_id, timeout_s=timeout_s, cache_root=self._cache_root)
+
+    def start_reduce(self, request: ReduceRequest) -> str:
+        """Start a reduce job and return its id without waiting (#139)."""
+        return jobs.start_reduce(request, cache_root=self._cache_root, launcher=self._launcher)
 
     def run(
         self,

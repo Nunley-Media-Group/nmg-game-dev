@@ -11,7 +11,7 @@ at a time, in order, under one lock.  The wait and PIE options apply to the whol
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Final
 
 from pydantic import ValidationError
@@ -28,6 +28,7 @@ from .service import (
     FinalizeService,
     MissingArgumentError,
     build_batch,
+    build_reduce_request,
     build_request,
     clamp_wait,
     error_dict,
@@ -284,6 +285,43 @@ def _request(
         ) from error
 
 
+def reduce_asset(
+    *,
+    collection: str,
+    asset_class: str,
+    blend: str | None = None,
+    budgets_path: str | None = None,
+    device: str = "GPU",
+    cage_extrusion: float | None = None,
+    max_ray_distance: float | None = None,
+    miss_threshold: float | None = None,
+    parts: Mapping[str, Mapping[str, Any]] | None = None,
+    wait_seconds: float = 0,
+    service: FinalizeService | None = None,
+) -> dict[str, Any]:
+    """Reduce an over-budget generated collection to its Desktop budget (#139).
+
+    The same implementation as the panel operator, ``reduce_core.run_for_mcp``, and the CLI
+    ``reduce`` command.  Returns the job id at once, or the result within ``wait_seconds``.
+    """
+    try:
+        request = build_reduce_request(
+            collection=collection,
+            asset_class=asset_class,
+            blend=blend,
+            budgets_path=budgets_path,
+            device=device,
+            cage_extrusion=cage_extrusion,
+            max_ray_distance=max_ray_distance,
+            miss_threshold=miss_threshold,
+            parts=parts,
+        )
+    except PipelineError as error:
+        return {"error": error_dict(error)}
+    active = service or FinalizeService()
+    return _finish(lambda: active.start_reduce(request), active, wait_seconds=wait_seconds)
+
+
 def _finish(
     start: Callable[[], str],
     service: FinalizeService,
@@ -298,7 +336,10 @@ def _finish(
             status = service.wait(job_id, timeout_s=clamp_wait(wait_seconds))
     except PipelineError as error:
         return {"error": error_dict(error)}
+    return _job_response(job_id, status)
 
+
+def _job_response(job_id: str, status: dict[str, Any]) -> dict[str, Any]:
     response: dict[str, Any] = {"job_id": job_id, "status": status.get("state")}
     if status.get("state") == "succeeded":
         response["result"] = status.get("result")
