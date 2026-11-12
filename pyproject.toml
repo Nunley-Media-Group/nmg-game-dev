@@ -10,7 +10,17 @@ readme = "CLAUDE.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]
 license = { text = "Proprietary" }
-dependencies = ["pydantic>=2,<3", "numpy==2.4.6", "pillow==13.0.0", "pyyaml==6.0.3"]
+dependencies = [
+  "pydantic>=2,<3",
+  "numpy==2.4.6",
+  "pillow==13.0.0",
+  "pyyaml==6.0.3",
+  # Local texture generation (#143 FR1) runs on Apple Silicon only. Floors, not pins: the lock resolves latest.
+  "mflux>=0.24.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "hf_transfer>=0.1.9; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  # A floor, not a pin: miniaudio tracks latest (#155). Decodes the saved MP3, OGG, and FLAC.
+  "miniaudio>=1.59",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -19,10 +29,11 @@ dev = [
   "ruff>=0.4",
   "mypy>=1.10",
 ]
-# Local texture generation (#7). Only the worker process imports mflux; core installs and CI skip it.
+# Local texture generation (#7). Only the worker process imports mflux; CI skips it because it is
+# not on Linux. The floors match the Apple Silicon core dependencies above (#143 FR1).
 texture-ai = [
-  "mflux==0.24.0",
-  "hf_transfer==0.1.9",
+  "mflux>=0.24.0",
+  "hf_transfer>=0.1.9",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -66,6 +77,11 @@ ignore_missing_imports = true
 # PyYAML ships without type stubs; nmg_game_dev.design.parse is its only importer (#112).
 [[tool.mypy.overrides]]
 module = ["yaml", "yaml.*"]
+ignore_missing_imports = true
+
+# miniaudio ships without type stubs; nmg_game_dev.audio.convert is its only importer (#155).
+[[tool.mypy.overrides]]
+module = ["miniaudio", "miniaudio.*"]
 ignore_missing_imports = true
 
 # mflux and mlx come from the optional texture-ai extra and are imported only by texture/worker.py.

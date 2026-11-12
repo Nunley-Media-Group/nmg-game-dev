@@ -75,3 +75,37 @@ def test_reserve_rejects_a_bad_value() -> None:
     with pytest.raises(TextureGenError) as caught:
         reserve_gb({"TEXTURE_GEN_BLENDER_RESERVE_GB": "lots"})
     assert caught.value.code == "texture.invalid_request"
+
+
+def test_a_missing_module_reports_dependencies_missing_when_everything_else_passes(
+    models: Path,
+) -> None:
+    status = availability(
+        ZIMAGE, APPLE_SILICON_32GB, models, DEFAULT_RESERVE_GB, deps_probe=lambda: "mlx"
+    )
+    assert status == "dependencies_missing"
+
+
+def test_the_platform_memory_and_weights_checks_come_before_the_modules(models: Path) -> None:
+    assert (
+        availability(ZIMAGE, INTEL_LINUX, models, DEFAULT_RESERVE_GB, deps_probe=lambda: "mlx")
+        == "unsupported_platform"
+    )
+    assert (
+        availability(ZIMAGE, APPLE_SILICON_16GB, models, 8.0, deps_probe=lambda: "mlx")
+        == "insufficient_memory"
+    )
+    assert (
+        availability(FLUX, APPLE_SILICON_32GB, None, DEFAULT_RESERVE_GB, deps_probe=lambda: "mlx")
+        == "not_installed"
+    )
+
+
+def test_require_available_raises_the_dependency_error_naming_the_module(models: Path) -> None:
+    with pytest.raises(TextureGenError) as caught:
+        require_available(
+            ZIMAGE, APPLE_SILICON_32GB, models, DEFAULT_RESERVE_GB, deps_probe=lambda: "mflux"
+        )
+    assert caught.value.code == "texture.dependencies_missing"
+    assert "mflux" in caught.value.message
+    assert "uv run --project" in caught.value.remediation

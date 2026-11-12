@@ -59,6 +59,20 @@
       }
     },
     {
+      "name": "import_audio",
+      "description": "Import a saved ElevenLabs sound effect or music file into Unreal as a SoundWave. Stores a 16-bit WAV under SourceArt/Audio/<SFX|Music>/ and imports /Game/Audio/<SFX|Music>/SW_<name>. Returns the result, or an error object.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {"type": "string"},
+          "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "kind": {"type": "string", "enum": ["sfx", "music"]},
+          "loop": {"type": "boolean", "default": false}
+        },
+        "required": ["file", "name", "kind"]
+      }
+    },
+    {
       "name": "get_finalize_job",
       "description": "Return a finalize job's state, step, progress, message, and result or error. An unknown id returns finalize.job_not_found.",
       "inputSchema": {

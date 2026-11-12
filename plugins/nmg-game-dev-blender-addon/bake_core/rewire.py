@@ -115,17 +115,15 @@ def retire(sources: Sequence[bpy.types.Material]) -> None:
     """Rename authored originals to <name>_Authoring and keep them alive for re-authoring.
 
     Images that already carry a contract texture name (a reduce's T_<Name>_Body_BC, for example)
-    are renamed the same way, so the rewired material's new images get those names (#139).
+    move to <name>_Src when the rewired material takes that name (_free_contract_name, #142).
     """
-    for image in contract_images(sources):
-        image.name = f"{image.name}_Authoring"
     for source in sources:
         source.name = f"{source.name}_Authoring"
         source.use_fake_user = True
 
 
 def contract_images(materials: Sequence[bpy.types.Material]) -> list[bpy.types.Image]:
-    """The images in materials named T_<Name>_<Part>_<BC|N|ORM>, which a new bake would reuse."""
+    """The images in materials named T_<Name>_<Part>_<BC|N|ORM>, which a new bake would rename."""
     found: dict[int, bpy.types.Image] = {}
     for material in materials:
         if material.node_tree is None:
@@ -137,7 +135,25 @@ def contract_images(materials: Sequence[bpy.types.Material]) -> list[bpy.types.I
     return list(found.values())
 
 
+def _free_contract_name(name: str) -> None:
+    """Move an image already holding name to the first free <name>_Src, <name>_Src2, ...
+
+    The image keeps its pixels, packing, and users, so a retired authored material still samples
+    it, and the next image can take the exact contract name without a .001 suffix (#142).
+    """
+    holder = bpy.data.images.get(name)
+    if holder is None:
+        return
+    free = f"{name}_Src"
+    number = 2
+    while free in bpy.data.images:
+        free = f"{name}_Src{number}"
+        number += 1
+    holder.name = free
+
+
 def _image_node(tree: bpy.types.NodeTree, name: str, path: Path, colorspace: str) -> bpy.types.Node:
+    _free_contract_name(name)
     image = bpy.data.images.load(str(path), check_existing=False)
     image.name = name
     image.colorspace_settings.name = colorspace

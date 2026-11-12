@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from typing import Any
 
 import bpy
@@ -60,11 +61,15 @@ def validate_asset(
     budgets_path: str | None = None,
     *,
     authored: bool = False,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """Validate <collection> (Desktop) and <collection>_Mobile when it exists.
 
     With ``authored=True`` (the finalize validate step, #69), material and texture rules are
     skipped, because the bake step produces them. The export gate runs the full contract.
+
+    With ``progress``, it is called before each mesh check with the share of checks already done
+    and a message naming the variant, check, and object (#133). The report does not depend on it.
     """
     budgets = _budgets(asset_class, budgets_path)
     bpy.context.view_layer.update()
@@ -80,6 +85,14 @@ def validate_asset(
     if mobile is not None:
         variants.append(("mobile", mobile))
 
+    mesh_count = sum(
+        1
+        for _, variant_collection in variants
+        for obj in variant_collection.all_objects
+        if obj.type == "MESH"
+    )
+    checks_per_mesh = 3 if asset_class == "environment_piece" else 2
+    units = _CheckUnits(mesh_count * checks_per_mesh, progress)
     findings = _unit_findings()
     snapshot: dict[str, Any] = {}
     # A reduced asset keeps one atlas, so an environment piece still gets the overlap check (#139).
@@ -92,6 +105,7 @@ def validate_asset(
         tris: dict[str, int] = {}
         texel_entries: dict[str, list[dict[str, Any]]] = {}
         findings += _structure_findings(collection, variant, objects, root_name)
+        findings += _shared_mesh_findings(objects)
         findings += _mesh_findings(
             collection,
             variant,
@@ -101,6 +115,7 @@ def validate_asset(
             root_name,
             tris,
             texel_entries,
+            units,
             reduced=reduced,
         )
         for obj in objects:
@@ -250,6 +265,31 @@ def _structure_findings(
     return findings
 
 
+def _shared_mesh_findings(objects: list[bpy.types.Object]) -> list[dict[str, str]]:
+    """One naming.mesh_data finding per mesh datablock that two or more mesh objects use (#142).
+
+    Export names each mesh after its object, so a datablock shared by two parts cannot carry both.
+    """
+    users: dict[int, list[bpy.types.Object]] = {}
+    for obj in objects:
+        if obj.type == "MESH":
+            users.setdefault(obj.data.as_pointer(), []).append(obj)
+    findings: list[dict[str, str]] = []
+    for group in users.values():
+        if len(group) < 2:
+            continue
+        mesh_name = group[0].data.name
+        parts = ", ".join(obj.name for obj in group)
+        findings.append(
+            finding(
+                "naming.mesh_data",
+                mesh_name,
+                f"{mesh_name} is shared by {parts}; each part needs its own mesh data.",
+            )
+        )
+    return findings
+
+
 def _basis_problems(obj: bpy.types.Object, check_location: bool) -> list[str]:
     location, rotation, scale = obj.matrix_basis.decompose()
     problems: list[str] = []
@@ -287,6 +327,24 @@ def _pivot_findings(root: bpy.types.Object, meshes: list[bpy.types.Object]) -> l
     ]
 
 
+class _CheckUnits:
+    """Reports validate_asset progress one mesh check at a time (#133).
+
+    total is the number of checks validate_asset will run. Each start() call reports the share
+    of checks already started, with a message that names the variant, check, and object.
+    """
+
+    def __init__(self, total: int, progress: Callable[[float, str], None] | None) -> None:
+        self._total = total
+        self._started = 0
+        self._progress = progress
+
+    def start(self, variant: str, check: str, obj_name: str) -> None:
+        if self._progress is not None and self._total:
+            self._progress(self._started / self._total, f"{variant}: {check} check on {obj_name}")
+        self._started += 1
+
+
 def _mesh_findings(
     collection: str,
     variant: str,
@@ -296,6 +354,7 @@ def _mesh_findings(
     root_name: str,
     tris_out: dict[str, int],
     texel_out: dict[str, list[dict[str, Any]]],
+    units: _CheckUnits,
     *,
     reduced: bool = False,
 ) -> list[dict[str, str]]:
@@ -303,15 +362,19 @@ def _mesh_findings(
     meshes = [obj for obj in objects if obj.type == "MESH"]
     texel_check = asset_class == "environment_piece"
     overlap_check = not texel_check or reduced
+    uv_check = "UV overlap" if overlap_check else "UV map"
     materials: dict[str, bpy.types.Material] = {}
     images: dict[str, bpy.types.Image] = {}
     for obj in meshes:
         copy = texel.evaluated_copy(obj)
         try:
             tris_out[obj.name] = triangle_count(copy)
+            units.start(variant, "geometry", obj.name)
             findings += geometry_findings(obj.name, copy)
+            units.start(variant, uv_check, obj.name)
             findings += uv_findings(obj.name, copy, check_overlap=overlap_check)
             if texel_check:
+                units.start(variant, "texel density", obj.name)
                 findings += _texel_findings(obj, copy, variant, texel_out)
         finally:
             bpy.data.meshes.remove(copy)

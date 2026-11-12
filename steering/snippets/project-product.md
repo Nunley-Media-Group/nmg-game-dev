@@ -97,6 +97,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 - **MCP + skill scaffolding** — the plugin shell and MCP server wiring for Blender (Blender MCP) and Unreal (Epic's native MCP on UE 5.8, expanded by VibeUE).
 - **Asset contract + finalize pipeline** — freeform authoring in Blender, then validate → bake → Desktop/Mobile variants → export → re-import check → UE import, each step also callable by the agent.
 - **Optional Meshy source** — opt-in and paid: text, reference-image, or combined generation and retexture through the `meshy` MCP, used only when a Meshy API key is in the project's git-ignored `.env`. Its results enter the same Blender collection contract as local work.
+- **Optional audio import** — sound effects and music a developer generates with the official ElevenLabs MCP server are stored as WAV under `SourceArt/Audio/` and imported into Unreal as SoundWaves through `import_audio`. No ElevenLabs key or API client ships with the framework.
 - **Texture generation** — local AI texture models (Z-Image Turbo, FLUX.2 klein 4B via mflux) the agent calls while authoring; procedural Blender materials as the fallback; everything baked to contract texture sets and proofed in Blender.
 - **Unreal Engine plugin** — editor-side capability (import, retarget, level dressing, variant routing) AND runtime capability that ships inside the consumer's game binary.
 - **Blender add-on** — authoring-side capability (generation, cleanup, mobile optimization).
@@ -108,7 +109,7 @@ The user elected "everything in v1" — no deferral to a v2 milestone. Prioritie
 
 - Console-specific tooling paths (PlayStation / Xbox / Switch) — not a v1 target.
 - Runtime (play-time) asset generation — generation is authoring-time; what ships is pre-baked.
-- Any cloud-hosted or paid generation service other than the optional Meshy source — generation is local by default: Blender plus local models.
+- Any cloud-hosted or paid generation service other than the optional Meshy source — generation is local by default: Blender plus local models. nmg-game-dev ships no ElevenLabs integration; a developer may run the official ElevenLabs MCP server themselves, and nmg-game-dev imports the audio it saves.
 - A per-asset-type recipe library — the agent authors freeform; the contract defines the target.
 - Composing levels or multi-asset scenes in Blender — that happens in Unreal.
 - A bespoke launcher / storefront — we ship to Apple / Google / (direct download for desktop), not our own distribution.

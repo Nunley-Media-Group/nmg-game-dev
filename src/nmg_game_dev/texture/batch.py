@@ -8,6 +8,7 @@ worker script and records timestamps.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -15,11 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from nmg_game_dev.texture.deps import run_command
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.registry import BackendSpec
 
 Spawn = Callable[[Path], "subprocess.CompletedProcess[str]"]
 TAIL_LINES = 12
+MISSING_MODULE = re.compile(r"No module named '([^']+)'")
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,21 @@ def _parse_timings(stdout: str) -> list[ImageTiming]:
     return timings
 
 
+def _worker_remediation(stderr: str, tail: str) -> str:
+    """Name the module a worker could not import, or else the models and memory causes (#143
+    FR4)."""
+    match = MISSING_MODULE.search(stderr)
+    if match is not None:
+        return (
+            f"The worker cannot import {match.group(1)}. Run texture generation from the plugin "
+            f"root: {run_command()}. Worker stderr tail:\n{tail}"
+        )
+    return (
+        "Check that the models are installed and that the Blender reserve leaves enough memory, "
+        f"then rerun. Worker stderr tail:\n{tail}"
+    )
+
+
 def run_backend_batches(
     batches: Sequence[Batch],
     spawn: Spawn = default_spawn,
@@ -112,12 +130,12 @@ def run_backend_batches(
         batch.batch_file.write_text(json.dumps(batch.as_json(), indent=2), encoding="utf-8")
         proc = spawn(batch.batch_file)
         if proc.returncode != 0:
-            tail = "\n".join((proc.stderr or "").strip().splitlines()[-TAIL_LINES:])
+            stderr = proc.stderr or ""
+            tail = "\n".join(stderr.strip().splitlines()[-TAIL_LINES:])
             raise TextureGenError(
                 "texture.worker_failed",
                 f"The {batch.spec.id} worker exited with code {proc.returncode}.",
-                "Check that the models are installed and that the Blender reserve leaves enough "
-                f"memory, then rerun. Worker stderr tail:\n{tail}",
+                _worker_remediation(stderr, tail),
             )
         results[batch.spec.id] = _parse_timings(proc.stdout or "")
         if on_batch_done is not None:
