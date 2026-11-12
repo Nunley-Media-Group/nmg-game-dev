@@ -15,7 +15,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Fixed
 
-- Measure texel density per material slot and exempt trim-atlas and flat-colour slots (#151)- Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
+- Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
 - Fix the Blender test runner repointing the user's Blender add-on link and racing across worktrees (#189)
 
 ## [0.21.3] - 2026-11-11
