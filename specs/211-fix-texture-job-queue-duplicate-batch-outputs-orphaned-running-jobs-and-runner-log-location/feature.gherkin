@@ -1,0 +1,31 @@
+**Issue**: #211
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/143-make-texture-generation-work-from-the-plugin-root-and-queue-or-batch-texture-jobs/
+
+# File: tests/unit/texture/test_jobs.py
+# Generated from: specs/211-fix-texture-job-queue-duplicate-batch-outputs-orphaned-running-jobs-and-runner-log-location/requirements.md
+Feature: The texture job queue keeps batch outputs, job states, and logs separate
+
+  @SCN001 @regression
+  Scenario: A batch with a duplicate output name is rejected before anything runs
+    Given a batch of requests named "burlap", "stone", and "Burlap"
+    When it is submitted through generate --batch or generate_textures(requests=...)
+    Then it is rejected with texture.invalid_request naming output 'burlap' and requests 0, 2
+    And no job is queued, no worker runs, and no output folder is created
+
+  @SCN002 @regression
+  Scenario: A job orphaned by a dead runner is marked failed and the queue continues
+    Given a job left running by a runner whose PID is dead, and two queued jobs after it
+    And a stale queue lock held by that dead PID
+    When the next queue runner starts
+    Then the orphaned job is failed with texture.runner_exited naming the dead PID
+    And the two queued jobs succeed in submission order
+
+  @SCN003 @regression
+  Scenario: The runner logs to its own file and each job log holds only its job
+    Given two queued texture jobs
+    When the queue runner runs both
+    Then the runner's output is in runner.log under the jobs root, naming both jobs
+    And each job's job.log names only that job

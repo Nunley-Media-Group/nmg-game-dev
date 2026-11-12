@@ -41,6 +41,11 @@ batch = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if os.environ.get("FAKE_WORKER_FAIL") == "1":
     sys.stderr.write("simulated worker crash\\n")
     sys.exit(3)
+if os.environ.get("FAKE_WORKER_MISSING"):
+    sys.stderr.write("Traceback (most recent call last):\\n")
+    module = os.environ['FAKE_WORKER_MISSING']
+    sys.stderr.write(f"ModuleNotFoundError: No module named '{module}'\\n")
+    sys.exit(1)
 
 
 def record(event):
@@ -76,10 +81,19 @@ def write_fake_worker(directory: Path) -> Path:
 
 
 def fake_spawn(
-    worker: Path, log: Path, *, fail: bool = False
+    worker: Path, log: Path, *, fail: bool = False, missing_module: str | None = None
 ) -> Callable[[Path], subprocess.CompletedProcess[str]]:
-    """A ``spawn`` for ``run_backend_batches`` that runs the fake worker as a child process."""
-    env = {**os.environ, "FAKE_WORKER_LOG": str(log), "FAKE_WORKER_FAIL": "1" if fail else "0"}
+    """A ``spawn`` for ``run_backend_batches`` that runs the fake worker as a child process.
+
+    ``missing_module`` makes the worker exit 1 with ``ModuleNotFoundError`` for that module (#143
+    AC3).
+    """
+    env = {
+        **os.environ,
+        "FAKE_WORKER_LOG": str(log),
+        "FAKE_WORKER_FAIL": "1" if fail else "0",
+        "FAKE_WORKER_MISSING": missing_module or "",
+    }
 
     def spawn(batch_file: Path) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
