@@ -2,8 +2,8 @@
 
 A job lives in ``<cache_root>/jobs/<job_id>/``::
 
-    request.json      the FinalizeRequest
-    job.json          {"job_id", "steps", "force"}
+    request.json      the FinalizeRequest (or the ReduceRequest for a reduce job)
+    job.json          {"job_id", "steps", "force"}; a reduce job adds "kind": "reduce" (#139)
     status.json       {"job_id", "state", "step", "progress", "message", "steps", "result"?,
                        "error"?, "pid"}
     checkpoint.blend, <step>.json, <step>.blend, blender-<step>.log, hash.json, ...
@@ -32,6 +32,7 @@ from .blender_proc import StepRunner, SubprocessStepRunner
 from .cache import ArtifactCache, default_cache_root
 from .engine import FinalizeClients, FinalizeSessionChangedError, execute
 from .errors import PipelineError
+from .reduce import REDUCE_STEP, ReduceRequest, ReduceSessionChangedError, execute_reduce
 from .request import FinalizeRequest
 from .result import FinalizeResult
 from .steps import STEP_ORDER
@@ -39,6 +40,7 @@ from .steps import STEP_ORDER
 Launcher = Callable[[Path], int]
 
 TERMINAL_STATES: Final = frozenset({"succeeded", "failed"})
+REDUCE_KIND: Final = "reduce"
 _LOCK_NAME: Final = "lock"
 _POLL_S: Final = 0.5
 
@@ -61,7 +63,39 @@ def start(
 
     Raises ``finalize.job_running`` when another live job holds the cache root.
     """
-    root = jobs_root(cache_root)
+    return _create_job(
+        jobs_root(cache_root),
+        request.to_json_dict(),
+        {"steps": list(steps), "force": force},
+        launcher,
+    )
+
+
+def start_reduce(
+    request: ReduceRequest,
+    *,
+    cache_root: Path | None = None,
+    launcher: Launcher | None = None,
+) -> str:
+    """Create a ``kind: "reduce"`` job (#139), launch it, and return its job id.
+
+    It shares the cache-root lock, the status file, and ``status``/``wait`` with finalize jobs.
+    Raises ``finalize.job_running`` when another live job holds the cache root.
+    """
+    return _create_job(
+        jobs_root(cache_root),
+        request.to_json_dict(),
+        {"kind": REDUCE_KIND, "steps": [REDUCE_STEP], "force": False},
+        launcher,
+    )
+
+
+def _create_job(
+    root: Path,
+    request_payload: dict[str, object],
+    job_fields: dict[str, object],
+    launcher: Launcher | None,
+) -> str:
     root.mkdir(parents=True, exist_ok=True)
     _acquire_lock(root)
 
@@ -69,8 +103,8 @@ def start(
     job_dir = root / job_id
     try:
         job_dir.mkdir(parents=True)
-        _write_json(job_dir / "request.json", request.to_json_dict())
-        _write_json(job_dir / "job.json", {"job_id": job_id, "steps": list(steps), "force": force})
+        _write_json(job_dir / "request.json", request_payload)
+        _write_json(job_dir / "job.json", {"job_id": job_id, **job_fields})
         _write_json(job_dir / "status.json", _status(job_id, "queued", pid=None))
         pid = (launcher or _spawn_run_job)(job_dir)
     except BaseException:
@@ -138,9 +172,12 @@ def run_job(
     The cache root is the job directory's grandparent, so a job always uses the cache it was
     started under.
     """
+    job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    if job.get("kind") == REDUCE_KIND:
+        return _run_reduce_job(job_dir, job, clients=clients, runner=runner)
+
     cache = ArtifactCache(job_dir.parent.parent)
     request = FinalizeRequest.model_validate_json((job_dir / "request.json").read_text("utf-8"))
-    job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
     job_id = str(job["job_id"])
     steps = tuple(str(step) for step in job["steps"])
     force = bool(job["force"])
@@ -195,6 +232,61 @@ def run_job(
     else:
         result = _mark_backlog(request, steps, result)
         current.update(state="succeeded", result=result.model_dump(mode="json"), progress=1.0)
+    finally:
+        _write_json(job_dir / "status.json", current)
+        _release_lock(job_dir.parent, pid=os.getpid())
+    return current
+
+
+def _run_reduce_job(
+    job_dir: Path,
+    job: dict[str, Any],
+    *,
+    clients: FinalizeClients | None,
+    runner: StepRunner | None,
+) -> dict[str, Any]:
+    """The detached body of a reduce job (#139).  Its status and lock match a finalize job's."""
+    request = ReduceRequest.model_validate_json((job_dir / "request.json").read_text("utf-8"))
+    job_id = str(job["job_id"])
+
+    current = _read_status_file(job_dir, job_id)
+    current.update(state="running", pid=os.getpid(), progress=0.0, message="starting")
+    _write_json(job_dir / "status.json", current)
+
+    def on_progress(event: dict[str, Any]) -> None:
+        current.update(
+            state="running",
+            step=event.get("step"),
+            progress=event.get("progress"),
+            message=event.get("message", ""),
+        )
+        _write_json(job_dir / "status.json", current)
+
+    try:
+        result = execute_reduce(
+            request,
+            job_dir=job_dir,
+            clients=clients,
+            runner=runner,
+            progress=on_progress,
+        )
+    except ReduceSessionChangedError as error:
+        current.update(state="failed", error=_error_dict(error), result=error.result)
+    except PipelineError as error:
+        current.update(state="failed", error=_error_dict(error))
+    except Exception as error:
+        # Every failure must reach status.json, so this catch-all is deliberate.
+        current.update(
+            state="failed",
+            error={
+                "code": "reduce.internal_error",
+                "message": f"Unexpected error: {error}",
+                "remediation": "Report this as a bug with the job's status.json.",
+                "stage": "reduce",
+            },
+        )
+    else:
+        current.update(state="succeeded", result=result, progress=1.0)
     finally:
         _write_json(job_dir / "status.json", current)
         _release_lock(job_dir.parent, pid=os.getpid())

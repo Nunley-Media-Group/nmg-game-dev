@@ -84,7 +84,9 @@ def _bake(
     desktop, mobile = _budgets(asset_class, budgets_path)
     desktop_px = desktop["max_texture_px"]
     mobile_px = mobile["max_texture_px"]
-    mode = "tiling" if asset_class == "environment_piece" else "unique"
+    # A reduced environment piece keeps its atlas (#139): only an untagged one tiles.
+    tiled = asset_class == "environment_piece" and not collection.get("nmg_reduced")
+    mode = "tiling" if tiled else "unique"
     meshes = sorted(
         (obj for obj in collection.all_objects if obj.type == "MESH"), key=lambda obj: obj.name
     )
@@ -118,7 +120,7 @@ def _bake(
     names = rewire.part_names(sources, collection_name, merged)
     out.mkdir(parents=True, exist_ok=True)
     with BakeState(collection, meshes) as state:
-        state.track_names(sources)
+        state.track_names([*sources, *rewire.contract_images(sources)])
         state.make_render_enabled()
         device_used = bake.select_device(device)
         bake.configure(samples)
