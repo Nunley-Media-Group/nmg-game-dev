@@ -3,6 +3,6 @@
 from __future__ import annotations
 
 from .blender_session import BlenderSessionClient
-from .unreal_mcp import UnrealMcpClient
+from .unreal_mcp import UnrealMcpClient, UnrealTimeoutError
 
-__all__ = ["BlenderSessionClient", "UnrealMcpClient"]
+__all__ = ["BlenderSessionClient", "UnrealMcpClient", "UnrealTimeoutError"]

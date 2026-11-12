@@ -47,7 +47,7 @@ class FakeEditor:
         self._result = result or {"ok": True, "created": True, "path": REGION_PATH, "error": None}
         self._raises = raises
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         self.calls += 1
         if self._raises is not None:
             raise self._raises

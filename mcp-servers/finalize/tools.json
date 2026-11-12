@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "finalize_asset",
-      "description": "Finalize an authored collection through every step and import it into Unreal. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150).",
+      "description": "Finalize an authored collection, or a batch of requests, through every step and import it into Unreal. Pass exactly one of collection (with export_root) or requests, a list of finalize requests that run one at a time in order under one job lock; the top-level options fill in any key a request omits. fail_fast skips the rest of a batch after a failure, otherwise the rest still run. wait_for_lock waits for another finalize job to release the lock, for at most lock_wait_seconds, instead of failing with finalize.job_running. pie_mode wait (default) or refuse: an import waits up to pie_wait_seconds for Play In Editor to end, or fails with import_ue.editor_busy. Unreal import timeouts are retried with back-off (NMG_GAME_DEV_UE_RETRIES default 4, NMG_GAME_DEV_UE_RETRY_DELAY_S default 20). Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150), and for a batch result.batch lists each collection's state with succeeded, failed, and skipped counts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -14,14 +14,24 @@
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
           "force": {"type": "boolean", "default": false},
-          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
+          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0},
+          "requests": {
+            "type": ["array", "null"],
+            "items": {"type": "object"},
+            "description": "A batch: finalize request objects with the collection keys (collection, category, asset_class, export_root, blend, budgets_path, device, pie_mode, pie_wait_seconds). Exclusive with collection."
+          },
+          "fail_fast": {"type": "boolean", "default": false},
+          "wait_for_lock": {"type": "boolean", "default": false},
+          "lock_wait_seconds": {"type": ["number", "null"], "minimum": 0},
+          "pie_mode": {"type": "string", "enum": ["wait", "refuse"], "default": "wait"},
+          "pie_wait_seconds": {"type": "number", "minimum": 0, "default": 600}
         },
-        "required": ["collection", "export_root"]
+        "required": []
       }
     },
     {
       "name": "run_finalize_step",
-      "description": "Run one finalize step (validate, bake, variants, export, reimport, or import_ue) through the same implementation finalize_asset uses. Returns {job_id, status} at once, or the finished result within wait_seconds (0-150).",
+      "description": "Run one finalize step (validate, bake, variants, export, reimport, or import_ue) through the same implementation finalize_asset uses. Returns {job_id, status} at once, or the finished result within wait_seconds (0-150). wait_for_lock and lock_wait_seconds bound the wait for another job's lock, and the pie options behave as in finalize_asset: import_ue fails with import_ue.editor_busy when Play In Editor stays on. Unreal import timeouts are retried with back-off (NMG_GAME_DEV_UE_RETRIES default 4, NMG_GAME_DEV_UE_RETRY_DELAY_S default 20).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -33,14 +43,18 @@
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
           "force": {"type": "boolean", "default": false},
-          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
+          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0},
+          "wait_for_lock": {"type": "boolean", "default": false},
+          "lock_wait_seconds": {"type": ["number", "null"], "minimum": 0},
+          "pie_mode": {"type": "string", "enum": ["wait", "refuse"], "default": "wait"},
+          "pie_wait_seconds": {"type": "number", "minimum": 0, "default": 600}
         },
         "required": ["step", "collection", "export_root"]
       }
     },
     {
       "name": "get_finalize_job",
-      "description": "Return a finalize job's state, step, progress, message, and result or error. An unknown id returns finalize.job_not_found.",
+      "description": "Return a finalize job's state, step, progress, message, batch progress (total, completed, current collection and index, and each item's state), and result or error. An unknown id returns finalize.job_not_found.",
       "inputSchema": {
         "type": "object",
         "properties": {

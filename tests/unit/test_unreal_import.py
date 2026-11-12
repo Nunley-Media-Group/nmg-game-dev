@@ -33,7 +33,7 @@ class FakeUnreal:
         self.output = output
         self.codes: list[str] = []
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         self.codes.append(code)
         return self.output
 

@@ -15,8 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 AssetClass = Literal["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]
 Device = Literal["GPU", "CPU"]
+PieMode = Literal["wait", "refuse"]
 
 _PASCAL_CASE = r"^[A-Z][A-Za-z0-9]*$"
+DEFAULT_PIE_WAIT_SECONDS = 600.0
 
 
 class FinalizeRequest(BaseModel):
@@ -35,6 +37,10 @@ class FinalizeRequest(BaseModel):
         backlog_path: The design backlog (``docs/design/backlog.json``) when it holds an asset
             entry for ``collection``.  A successful ``finalize_asset`` job marks that entry
             ``finalized``.  It never enters the cache settings.
+        pie_mode: What ``import_ue`` does when the editor is in Play In Editor (#149).  ``wait``
+            polls until PIE ends or ``pie_wait_seconds`` elapses.  ``refuse`` fails at once.
+        pie_wait_seconds: The PIE wait limit for ``wait`` mode.  Like ``pie_mode``, it never
+            enters the cache settings.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -47,6 +53,8 @@ class FinalizeRequest(BaseModel):
     budgets_path: Path | None = None
     device: Device = "GPU"
     backlog_path: Path | None = None
+    pie_mode: PieMode = "wait"
+    pie_wait_seconds: float = Field(default=DEFAULT_PIE_WAIT_SECONDS, ge=0)
 
     def to_json_dict(self) -> dict[str, object]:
         """Return the JSON-serialisable projection written to ``<job_dir>/request.json``."""

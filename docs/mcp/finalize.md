@@ -20,13 +20,14 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `finalize_asset` | `collection`, `export_root`, optional `category`, `asset_class`, `blend`, `budgets_path`, `force`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds` |
-| `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` | The same shape as `finalize_asset`, for one step |
-| `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "result"?, "error"?}` |
+| `finalize_asset` | Either `collection` and `export_root`, or `requests` (a batch, exclusive with `collection`). Optional: `category`, `asset_class`, `blend`, `budgets_path`, `force`, `wait_seconds`, `fail_fast`, `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | `{"job_id", "status"}`, plus `result` (a batch's result is `result.batch`) when the job finishes within `wait_seconds`, or `error` when it fails |
+| `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` for one collection, plus `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | The same shape as `finalize_asset`, for one step |
+| `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?}` |
 
 `wait_seconds` is clamped to 0–150. A value of 0 returns the job id at once. `get_finalize_job`
-reports `state` as `queued`, `running`, `succeeded`, or `failed`, and `progress` as a number from 0
-to 1. An unknown `job_id` returns `finalize.job_not_found`.
+reports `state` as `queued`, `waiting`, `running`, `succeeded`, or `failed`, and `progress` as a number
+from 0 to 1. A job that is waiting for the lock reports `waiting`. An unknown `job_id` returns
+`finalize.job_not_found`.
 
 `category` and `asset_class` are optional on `finalize_asset` and `run_finalize_step`. When one is
 omitted, finalize takes it from the design backlog. See [Backlog fallback](#backlog-fallback).
@@ -38,18 +39,113 @@ logs to stderr only, because stdout is the MCP channel.
 
 ```text
 python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue} \
-  --collection Crate --export-root <dir> [--category Props] [--class standard_prop] \
-  [--blend B] [--budgets P] [--device GPU|CPU] [--force] [--json]
+  (--collection Crate [--collection Barrel ...] | --batch FILE) --export-root <dir> \
+  [--category Props] [--class standard_prop] [--blend B] [--budgets P] [--device GPU|CPU] \
+  [--force] [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
 ```
+
+`--export-root` is required with `--collection`. A `--batch` entry may set its own.
 
 | Exit | Meaning |
 |------|---------|
 | `0` | Success. With `--json`, stdout is the result |
-| `1` | A step failed. stderr shows `ERROR [code] message` and `Remediation: ...` |
-| `2` | A prerequisite is missing: `finalize.blender_not_found` or `mcp.*.unreachable` |
+| `1` | A step or a collection failed. stderr shows `ERROR [code] message` and `Remediation: ...`. A batch prints one line per collection |
+| `2` | A prerequisite is missing (`finalize.blender_not_found` or `mcp.*.unreachable`), or the arguments are wrong |
 
 `python -m nmg_game_dev.finalize run-job <job_dir>` is the internal job runner. The MCP tools and the
 CLI start it for you, so you do not run it by hand.
+
+## Batches
+
+Several collections run as one job. They are finalized one at a time, in the order given, under one job
+lock, which the job keeps until the last collection finishes. Each collection gets its own directory,
+`items/<index>-<collection>/`, so its step cache and design-backlog marking work exactly as they do for a
+single collection.
+
+**CLI.** Repeat `--collection`, or pass `--batch <file.json>`, a JSON array of request objects with the
+`finalize_asset` keys:
+
+```text
+python -m nmg_game_dev.finalize all --collection Crate --collection Barrel --collection Lamp \
+  --category Props --class standard_prop --export-root <dir> [--fail-fast] [--json]
+```
+
+```json
+[
+  {"collection": "Crate", "category": "Props", "asset_class": "standard_prop", "export_root": "<dir>"},
+  {"collection": "Barrel", "category": "Props", "asset_class": "hero_prop", "export_root": "<dir>"}
+]
+```
+
+The asset options on the command line fill in any key an entry leaves out. `--batch` cannot be combined
+with `--collection`.
+
+**MCP.** Pass `requests`, a list of the same objects, to `finalize_asset`. It is exclusive with
+`collection`. The top-level `category`, `asset_class`, `export_root`, `blend`, `budgets_path`, `pie_mode`,
+and `pie_wait_seconds` fill in any key an entry omits.
+
+**Validation first.** Every entry is checked before anything starts. One invalid entry rejects the whole
+batch with `finalize.invalid_batch`. Its message gives each invalid entry's zero-based index and reason,
+and no job directory is written.
+
+**Progress.** `get_finalize_job` reports `batch`: `total`, `completed` (items that reached a final state),
+`current` (the collection running now) and `current_index`, and each item's `state`, one of `pending`,
+`running`, `succeeded`, `failed`, or `skipped`.
+
+**Failures.** A failed collection does not stop the batch unless `--fail-fast` or `fail_fast: true` is
+set. With fail-fast, the remaining collections are reported as `skipped`. A batch whose items all succeed
+ends `succeeded`. Otherwise it ends `failed` with `finalize.batch_failed`, and the message gives the failed
+and skipped counts.
+
+**Result.** The finished job's `result.batch` lists every item with its `collection`, `state`, and, for a
+failure, its `error` (`code`, `message`, `remediation`, `stage`). It also holds the `succeeded`, `failed`,
+and `skipped` counts. The CLI prints one line per collection, such as `Crate: succeeded`, and a failed
+collection's `[code] message (stage)` line under it, then a `Batch:` count line. With `--json` it prints
+`{"batch": ...}`. The exit code is `0` only when every item succeeded, and `1` otherwise.
+
+## Waiting for the lock
+
+Only one finalize job runs per cache root. By default a second start fails at once with
+`finalize.job_running`, and the error names the job that holds the lock. To have finalize wait instead,
+pass `--wait` on the CLI, or `wait_for_lock: true` to `finalize_asset` or `run_finalize_step`. The same
+applies to a batch.
+
+- The job starts in state `waiting`, and its `message` names the holder. Its own process checks for the
+  lock every 2 to 5 seconds, with jitter, and runs as soon as the lock is free. A lock left by a dead
+  process is cleared on each check.
+- `--wait-limit SECONDS` or `lock_wait_seconds` caps the wait. When the limit runs out first, the job
+  fails with `finalize.job_running`, and the message names the job that still holds the lock. Without a
+  limit, the job waits for as long as the holder runs.
+- The MCP call returns at once. Poll `get_finalize_job`, or pass `wait_seconds` (0 to 150) to get the
+  result in the same call when the job finishes in time. The CLI blocks until the job is terminal.
+
+## Unreal import: retries and the PIE preflight
+
+Two checks run around each `import_ue` request, so a busy editor does not fail a run that would have
+succeeded a moment later.
+
+**Retries.** A request that the editor does not answer within the 120 s request timeout is retried. Before
+each retry the pipeline waits 20 s × the retry number, pings the editor with a 10 s timeout, and re-sends
+the same import code only once the ping answers. The default is 4 retries. An import result records
+`attempts`, the number of attempts it took. When every attempt times out, the step fails with
+`import_ue.failed`, and the message gives the number of attempts and the seconds waited. Only timeouts are
+retried. HTTP errors, an unreachable editor (`mcp.unreal.unreachable`), and failures the editor reports
+are not retried.
+
+A re-sent import is safe. The import template replaces existing textures and meshes and reuses existing
+material instances, so a retried import leaves one asset, not a duplicate. The pivot check runs once, on
+the reply that succeeded.
+
+**PIE preflight.** Before each variant's import, finalize asks the editor whether it is in Play In Editor
+(PIE). That check has a 10 s timeout, and a check that times out counts as busy. `pie_mode` decides what
+happens while PIE is on:
+
+- `wait` (the default) checks every 5 seconds until PIE ends, for up to `pie_wait_seconds` (600 by
+  default). On the CLI, `--pie wait` and `--pie-wait-limit`.
+- `refuse` fails at once.
+
+Either way, PIE still on at the limit fails with `import_ue.editor_busy`. No import request is sent while
+PIE is reported.
 
 ## Request
 
@@ -119,8 +215,10 @@ fails, no later step runs, and nothing is imported into Unreal.
    `finalize.job_crashed` naming the step. The open session is unchanged.
 
 Job files live under `<cache_root>/jobs/<job_id>/`: `request.json`, `status.json`,
-`checkpoint.blend`, `<step>.json`, `<step>.blend`, and `blender-<step>.log`. One job runs per cache
-root at a time. A live lock makes a second start fail with `finalize.job_running`.
+`checkpoint.blend`, `<step>.json`, `<step>.blend`, and `blender-<step>.log`. A batch keeps its items in
+`items/<index>-<collection>/`, and its `job.json` holds the item list. One job runs per cache root at a
+time. A second start fails with `finalize.job_running` unless it waits for the lock (see
+[Waiting for the lock](#waiting-for-the-lock)). A batch is one job, so its items hold the lock together.
 
 ## Cache behavior
 
@@ -140,6 +238,10 @@ so the rerun after load-back is also a full hit.
 A change to any mesh, material, or image misses the cache from the first affected step onward. Steps
 before it still hit. `--force` (or `force` on the tools) ignores the cache and reruns every step.
 
+The wait options and the PIE options (`pie_mode`, `pie_wait_seconds`) are not part of any cache key, so
+changing them reuses every cached step. Each batch item is cached under its own asset hash, exactly as a
+single collection is.
+
 ## Environment
 
 | Variable | Default | Used by |
@@ -149,6 +251,8 @@ before it still hit. `--force` (or `force` on the tools) ignores the cache and r
 | `BLENDER_APP` | `/Applications/Blender.app` | Blender app bundle. Its `Contents/MacOS/Blender` is used |
 | `BLENDER_MCP_PORT` | `9876` | The live Blender session, for checkpoint and load-back |
 | `UE_MCP_PORT` | `8000` | The Unreal MCP endpoint for `import_ue` |
+| `NMG_GAME_DEV_UE_RETRIES` | `4` | Retries for an `import_ue` request that times out. Zero disables retries |
+| `NMG_GAME_DEV_UE_RETRY_DELAY_S` | `20` | Base delay in seconds. The wait before retry *k* is this value × *k* |
 
 Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/MacOS/Blender`, then
 `/Applications/Blender.app/Contents/MacOS/Blender`. If none is executable, the job fails with
@@ -160,7 +264,10 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 |------|---------|-------------|
 | `finalize.session_changed` | `<Name>` changed in the session after the checkpoint, so load-back was refused. The export, reimport, and `import_ue` steps still ran. | Read the result `.blend` named in the message. Revert or re-author the session changes, then rerun finalize to load the result back. |
 | `finalize.job_crashed` | A background Blender process exited before its step finished. The step is named in the error. | Read `blender-<step>.log` in the job directory. Fix the cause and rerun. The open session is unchanged. |
-| `finalize.job_running` | Another finalize job holds the lock for this cache root. | Wait for it with `get_finalize_job`, or stop it, then rerun. |
+| `finalize.job_running` | Another finalize job holds the lock for this cache root. With `wait_for_lock`, the wait limit ran out first. The message names the job that holds the lock. | Rerun with `wait_for_lock` (CLI `--wait`) so finalize waits for the lock. If the holder is stuck, check it with `get_finalize_job` and stop its process. |
+| `finalize.invalid_batch` | A batch entry is invalid, or the batch file is not a JSON array. The message gives each invalid entry's zero-based index and reason. Nothing was started. | Fix each listed entry, then rerun the batch. |
+| `finalize.batch_failed` | One or more collections in the batch failed, and the rest may have been skipped. The message gives the counts. | Read each failed collection's `error` in `result.batch`, fix it, then rerun the batch. Collections that already passed are cache hits. |
+| `import_ue.editor_busy` | The editor was in Play In Editor past the PIE wait limit, or `pie_mode` was `refuse`. No import request was sent. | Stop the Play In Editor session, then rerun finalize. |
 | `finalize.job_not_found` | No job has that id in this cache root. | Use the `job_id` that `finalize_asset` or `run_finalize_step` returned. |
 | `finalize.invalid_request` | `category` or `asset_class` is omitted, and no asset entry in `docs/design/backlog.json` supplies it. The message names the argument and the backlog path. | Pass the argument, or add the asset's design doc, run `python -m nmg_game_dev.design sync`, then rerun. |
 | `finalize.blender_not_found` | No Blender executable at `BLENDER_BIN`, `BLENDER_APP`, or `/Applications/Blender.app`. | Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun. |
@@ -169,7 +276,7 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `quality.reimport_mismatch` | An exported FBX re-imported differently from its pre-export report. | Read the re-import report in the job directory, fix the export cause, then rerun. |
 | `bake.texture.bake_failed` | A texture bake failed. | Read `blender-bake.log` and fix the material it names, then rerun. |
 | `variants.<code>` | Variant generation failed. The code names the cause. | Read the message, fix the mesh or material it names, then rerun. |
-| `import_ue.failed` | The Unreal import call failed. | Check the editor Output Log for the import, then rerun `import_ue`. |
+| `import_ue.failed` | The Unreal import call failed, or the editor did not answer any attempt. The message gives the attempts and seconds when every retry timed out. | Check the editor Output Log for the import, then rerun `import_ue`. For timeouts, make sure the editor is responsive. `NMG_GAME_DEV_UE_RETRIES` and `NMG_GAME_DEV_UE_RETRY_DELAY_S` change the retry limits. |
 | `import_ue.pivot_mismatch` | A child part's local bounds differ from the Blender part by more than 0.01 cm. | Fix the pivot in Blender, then rerun finalize with `--force` so the UE content is reimported. |
 | `mcp.blender.unreachable` | The Blender MCP session on `BLENDER_MCP_PORT` is not reachable. | Run `scripts/start-blender-mcp.sh`, then rerun. |
 | `mcp.unreal.unreachable` | The Unreal MCP endpoint on `UE_MCP_PORT` is not reachable. | Run `scripts/start-unreal-mcp.sh`, then rerun `import_ue`. |

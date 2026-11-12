@@ -62,9 +62,13 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
+from collections.abc import Callable
 from typing import Any, Final, NoReturn, Protocol, cast
 
 from nmg_game_dev.pipeline.errors import PipelineError
+
+from .retry import RetrySettings, call_with_retry, retry_settings
 
 _STAGE: Final = "import_ue"
 _RESULT_PREFIX: Final = "NMG_RESULT "
@@ -361,7 +365,7 @@ print("NMG_RESULT " + json.dumps(RESULT, sort_keys=True))
 class UnrealPythonClient(Protocol):
     """The one client surface the import needs. ``UnrealMcpClient`` and test fakes satisfy it."""
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         """Run UE Python in the editor and return the tool's text output."""
         ...
 
@@ -467,10 +471,26 @@ def import_variant(
     name: str,
     report: dict[str, Any],
     skeleton_dest: str | None = None,
+    retry: RetrySettings | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> dict[str, Any]:
-    """Import one variant through ``client``, then check its pivots. Return the UE result."""
+    """Import one variant through ``client``, then check its pivots. Return the UE result.
+
+    A timed-out request is retried with back-off (#149, FR6).  The result records ``attempts``.
+    The pivot check runs once, on the reply that succeeded.
+    """
     code = build_import_code(variant_dir, dest, name, report, skeleton_dest=skeleton_dest)
-    result = parse_nmg_result(client.execute_python_code(code))
+    settings = retry if retry is not None else retry_settings()
+    output, attempts = call_with_retry(
+        client,
+        code,
+        retries=settings.retries,
+        base_delay_s=settings.base_delay_s,
+        sleep=sleep,
+        clock=clock,
+    )
+    result = parse_nmg_result(output)
     if result.get("ok") is not True:
         error_text = result.get("error") or "UE reported no error text"
         raise PipelineError(
@@ -479,6 +499,7 @@ def import_variant(
             remediation=_IMPORT_REMEDIATION,
             stage=_STAGE,
         )
+    result["attempts"] = attempts
     check_pivots(report, result)
     return result
 
