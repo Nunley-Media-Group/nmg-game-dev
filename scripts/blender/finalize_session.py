@@ -6,7 +6,8 @@ The host sets two globals and then exec's this file through the Blender MCP exec
     NMG_PAYLOAD = {"addon_dir": <repo>/plugins/nmg-game-dev-blender-addon, ...}
 
     checkpoint: {"collection": N, "path": P}   saves a copy of the scene to P, returns the hash
-    load_back:  {"result_blend": P, "collection": N, "expected_hash": H}
+    load_back:  {"result_blend": P, "collection": N, "expected_hash": H, "suffixes": [...]}
+                suffixes is optional and defaults to ["", "_Mobile"]; a reduce sends ["", "_High"].
 
 Each run prints exactly one line, NMG_RESULT <json>. Failures come back as
 {"ok": false, "error": {"code", "message", "remediation"}} and never raise into the session.
@@ -56,9 +57,10 @@ def _checkpoint(payload):
 
 def _load_back(payload):
     core = _session_core(payload["addon_dir"])
+    suffixes = tuple(payload.get("suffixes") or ("", "_Mobile"))
     try:
         result = core.load_back(
-            payload["result_blend"], payload["collection"], payload["expected_hash"]
+            payload["result_blend"], payload["collection"], payload["expected_hash"], suffixes
         )
     except core.LoadBackError as error:
         return {

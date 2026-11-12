@@ -41,6 +41,13 @@ To run one step, call `run_finalize_step` with `step` set to `validate`, `bake`,
 `reimport`, or `import_ue`. It takes the same inputs and returns a result with `step`, `cache_hit`,
 `outputs`, and `summary`.
 
+When `validate` reports `budget.tris` on a generated asset (a Meshy or similar model whose Desktop
+triangle count is over its class budget), run `reduce_asset` on the collection with its
+`asset_class` before finalizing again. It decimates the parts to the Desktop budget, keeps the
+originals in the hidden `<Name>_High` collection that finalize never reads, and bakes the look onto
+the reduced mesh. Then call `finalize_asset` again. Its result is a job like any other. Details are in
+`docs/skills/reduce-to-budget.md`.
+
 Never call the Blender MCP for a bake, a variant, or an export. Reruns are cheap: unchanged steps are
 cache hits, so rerun after a fix without `force`.
 
@@ -66,7 +73,7 @@ returns an empty list.
 - `finalize.job_not_found` → The `job_id` is not in this cache root. Use the id that `finalize_asset` or `run_finalize_step` returned.
 - `finalize.blender_not_found` → Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun.
 - `finalize.collection_not_found` → The session or `--blend` has no collection named `<Name>`. Check the name is PascalCase and matches the collection.
-- `quality.contract_failed` → Read the findings in the contract report. Fix each one in Blender using `docs/asset-contract.md`, then rerun. A `material_variant.*` finding names the variant and the rule: fix that entry in `<Name>.material-variants.json`, or the material it names.
+- `quality.contract_failed` → Read the findings in the contract report. Fix each one in Blender using `docs/asset-contract.md`, then rerun. A `budget.tris` finding on a generated asset is fixed with `reduce_asset` instead (see above). A `material_variant.*` finding names the variant and the rule: fix that entry in `<Name>.material-variants.json`, or the material it names.
 - `validate.material_variant.declaration_invalid` → The material-variants file is not valid JSON or not the format in `docs/asset-contract.md` section 4. Fix the file, then rerun.
 - `finalize.material_variants_not_found` → The `material_variants_path` does not exist. Pass the path of an existing declaration, or omit it to use the one beside the `.blend`.
 - `finalize.material_variants_failed` → Unreal could not list the material variants. Read the UE error in the message, confirm the editor is idle, then rerun `list_material_variants`.

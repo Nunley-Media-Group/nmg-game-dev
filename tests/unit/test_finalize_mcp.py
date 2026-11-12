@@ -173,10 +173,11 @@ def test_terrain_is_an_accepted_class_for_the_cli(tmp_path: Path) -> None:
 def test_tools_json_class_enum_matches_the_request_model() -> None:
     """tools.json lists the same asset classes as the finalize request, terrain included (#154)."""
     tools = json.loads(TOOLS_JSON.read_text(encoding="utf-8"))["tools"]
+    # reduce_asset (#139) takes a free-form asset_class and refuses terrain, so it has no enum.
     enums = {
         tool["name"]: tool["inputSchema"]["properties"]["asset_class"]["enum"]
         for tool in tools
-        if "asset_class" in tool["inputSchema"]["properties"]
+        if tool["name"] in ("finalize_asset", "run_finalize_step")
     }
     assert set(enums) == {"finalize_asset", "run_finalize_step"}
     expected = list(get_args(AssetClass))
