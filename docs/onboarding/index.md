@@ -54,6 +54,12 @@ Meshy is an opt-in, paid source of models and retextures. Onboarding asks for no
 add `MESHY_API_KEY=<key>` to the project's `.env`. Onboarding adds `.env` to your `.gitignore`
 (step `gitignore_env`), so the key stays out of git. See [docs/mcp/meshy.md](../mcp/meshy.md).
 
+## Optional: generated audio
+
+Sound effects and music are optional. The official ElevenLabs MCP server generates them, and you run
+it yourself with your own key. Onboarding asks for no key and installs no ElevenLabs server. To bring
+a saved file into Unreal, call `import_audio`. See [docs/mcp/elevenlabs.md](../mcp/elevenlabs.md).
+
 ## Reference
 
 - Asset contract: `docs/asset-contract.md` (installed into your project at
