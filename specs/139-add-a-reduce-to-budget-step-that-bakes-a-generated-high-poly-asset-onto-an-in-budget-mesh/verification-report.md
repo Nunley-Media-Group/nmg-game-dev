@@ -1,10 +1,10 @@
 # Verification Report: Reduce a generated high-poly asset to its Desktop budget and bake its look onto the reduced mesh
 
-**Date**: 2026-11-11
+**Date**: 2026-11-12
 **Issue**: #139
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 41da3d251fea7828b6d15184b80e8a8f2c1ca79b
+**Verification head**: d6d493850aba452aa2e3622e8089270558503329
 
 ---
 
@@ -23,7 +23,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 4 (0 critical, 0 high, 1 medium, 3 low). None blocks delivery.
 
-All 14 acceptance criteria, 12 functional requirements and 7 tasks are implemented. The registered gate ran at the verification head with complete coverage: 11 validations declared, 11 recorded. Ten required validations passed. `gate-ship-smoke` does not apply because the change touches none of its paths. The ceiling is `null`.
+All 14 acceptance criteria, 12 functional requirements and 7 tasks are implemented. This is a re-verification after the branch merged `origin/main` (`ed9fe80`, bringing in #213 and #210) and the version bump `d6d4938`. The only merge conflict in product code, `contract_core/validate.py`, was resolved correctly: #139's keyword-only `reduced` flag still turns on the UV overlap check for a reduced `environment_piece`, alongside #213's `list[dict[str, Any]]` findings and its world-matrix and vertex-group `geometry_findings` call. The reduce code itself is unchanged since the previous verification. The registered gate ran at the verification head with complete coverage: 11 validations declared, 11 recorded. Ten required validations passed, including the headless reduce suites, which now run the reduced assets through #213's stricter geometry checks. `gate-ship-smoke` does not apply because the change touches none of its paths. The ceiling is `null`.
 
 ---
 
@@ -47,8 +47,8 @@ All 14 acceptance criteria, 12 functional requirements and 7 tasks are implement
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/139.json` (from `sdlc-verify-steering.mjs --base main`, controller run `fb2f6688-7369-4680-9af2-9f02264a7004`)
-- Identity: head `41da3d251fea7828b6d15184b80e8a8f2c1ca79b`, clean tree, spec `sha256:2dc809e4…c605`, steering `sha256:754f3665…0584`
+- Artifact: `.nmg-sdlc/verification/139.json` (from `sdlc-verify-steering.mjs --base main`, controller run `80b7ecff-c23d-4716-ad93-54eab44e6ee3`)
+- Identity: head `d6d493850aba452aa2e3622e8089270558503329`, clean tree, spec `sha256:2dc809e4…c605`, steering `sha256:6db9aabc…74d4`
 - Coverage: declared 11, recorded 11, complete `true`; nothing missing, duplicated or unknown
 - Ceiling: `null`. No required validation failed or was incomplete.
 
@@ -187,12 +187,12 @@ SCN001, SCN004, SCN007 and SCN008 change the Blender scene. Their docstring maps
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1326 passed, 10 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1328 passed, 10 skipped |
 | `repository.lint` | Pass | `ruff check .`: All checks passed |
-| `repository.format` | Pass | `ruff format --check .`: 374 files already formatted |
-| `repository.types` | Pass | `mypy src tests`: no issues in 239 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 296 passed, 4 skipped (reduce suites ran) |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against UE 5.8 (applies via the `.uplugin` version bump) |
+| `repository.format` | Pass | `ruff format --check .`: 375 files already formatted |
+| `repository.types` | Pass | `mypy src tests`: no issues in 240 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 304 passed, 4 skipped (`test_reduce.py`, `test_reduce_finalize.py` and the merged #213 suites ran) |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8`: `Result: Succeeded` (applies via the `.uplugin` version bump) |
 | `gate-mcp-schema` | Pass | MCP tools match `tools.json` for every server |
 | `gate-shellcheck` | Pass | exit 0 |
 | `gate-ship-smoke` | Not applicable | No changed path matches its globs |
@@ -207,7 +207,7 @@ SCN001, SCN004, SCN007 and SCN008 change the Blender scene. Their docstring maps
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| — | — | — | None. The verify publication scope allows only this report, so no code fixes were applied | — | — |
+| — | — | — | None. The verify publication scope allows only this report, so no code fixes were applied. The merge resolution in `contract_core/validate.py` was reviewed and needs no change | — | — |
 
 ## Remaining Issues
 
@@ -272,7 +272,7 @@ None.
 | `plugins/nmg-game-dev-blender-addon/reduce_core/transfer.py` | 1 | L2 |
 | `plugins/nmg-game-dev-blender-addon/reduce_core/commit.py` | 0 | |
 | `plugins/nmg-game-dev-blender-addon/bake_core/{bake,core,rewire,state,uv}.py` | 0 | |
-| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | |
+| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Merge resolution with #213 reviewed: `reduced` flag kept, overlap check intact |
 | `plugins/nmg-game-dev-blender-addon/finalize_core/{load_back,reduce_job}.py` | 0 | |
 | `plugins/nmg-game-dev-blender-addon/operators/reduce_to_budget.py`, `panels/main_panel.py` | 0 | |
 | `scripts/blender/finalize_entry.py`, `scripts/blender/finalize_session.py` | 0 | |
@@ -288,4 +288,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion, functional requirement and task has implementation and test evidence. All 10 applicable required validations passed at `41da3d251fea7828b6d15184b80e8a8f2c1ca79b` with complete coverage and no ceiling. The open findings are test-hardening and robustness follow-ups that do not block delivery.
+Every acceptance criterion, functional requirement and task has implementation and test evidence. All 10 applicable required validations passed at `d6d493850aba452aa2e3622e8089270558503329` with complete coverage and no ceiling. The open findings are test-hardening and robustness follow-ups that do not block delivery.
