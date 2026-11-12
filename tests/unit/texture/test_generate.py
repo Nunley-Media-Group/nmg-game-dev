@@ -9,18 +9,30 @@ from typing import Any
 
 import pytest
 
+from nmg_game_dev.texture.contact_sheet import ContactSheet
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.generate import (
     TextureRequest,
     TextureResult,
+    backend_status,
+    batch_from_items,
     request_as_json,
     request_from_json,
     run,
+    run_batch,
+    validate_batch,
     validate_request,
 )
 from nmg_game_dev.texture.hardware import HardwareFacts
 from nmg_game_dev.texture.registry import REGISTRY
-from tests.texture_fakes import APPLE_SILICON_32GB, fake_spawn, make_models, read_log
+from tests.texture_fakes import (
+    APPLE_SILICON_32GB,
+    fake_spawn,
+    make_models,
+    read_log,
+    save_png,
+    synthetic_image,
+)
 
 
 def _run(
@@ -184,3 +196,194 @@ def test_request_round_trips_through_json() -> None:
     original = TextureRequest(prompt="x", seeds=[3], maps=(0.4, 0.6), ao=False, name="n")
     restored = request_from_json(json.loads(json.dumps(request_as_json(original))))
     assert restored == original
+
+
+def test_a_generate_run_refreshes_the_root_sheet_with_every_set(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path
+) -> None:
+    existing = out_root / "rusted-steel"
+    albedo = save_png(synthetic_image(256, seed=2), existing / "z-image-turbo_2_256.png")
+    manifest = {"images": [{"backend": "z-image-turbo", "seed": 2, "path": str(albedo)}]}
+    (existing / "textures.json").write_text(json.dumps(manifest), encoding="utf-8")
+    request = TextureRequest(
+        prompt="oak planks", backend="z-image-turbo", seeds=[4], resolution=256, name="oak-planks"
+    )
+
+    result = _run(request, worker, log, env, out_root)
+
+    sheet = result.contact_sheet
+    assert sheet.cells == 2 and sheet.skipped == ()
+    assert sheet.pages == (out_root / "contact_sheet_001.png",)
+    assert sheet.pages[0].is_file()
+    assert result.as_json()["contact_sheet"] == {
+        "pages": [str(out_root / "contact_sheet_001.png")],
+        "cells": 2,
+        "skipped": [],
+    }
+
+
+def test_a_failed_sheet_build_is_reported_and_the_run_still_succeeds(
+    worker: Path,
+    log: Path,
+    env: dict[str, str],
+    out_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def disk_full(root: Path, *, require_sets: bool) -> ContactSheet:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("nmg_game_dev.texture.generate.build_contact_sheet", disk_full)
+    request = TextureRequest(
+        prompt="burlap", backend="z-image-turbo", seeds=[6], resolution=256, name="burlap"
+    )
+
+    result = _run(request, worker, log, env, out_root)
+
+    assert len(result.images) == 1 and result.images[0].path.exists()
+    assert (out_root / "burlap" / "textures.json").is_file()
+    assert result.contact_sheet.pages == () and result.contact_sheet.cells == 0
+    assert result.contact_sheet.skipped == (
+        {"path": str(out_root), "reason": "OSError: disk full"},
+    )
+
+
+def test_run_refuses_missing_dependencies_before_any_spawn(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path
+) -> None:
+    request = TextureRequest(
+        prompt="burlap", backend="z-image-turbo", seeds=[1], resolution=256, name="burlap"
+    )
+    with pytest.raises(TextureGenError) as caught:
+        run(
+            request,
+            env=env,
+            facts=APPLE_SILICON_32GB,
+            spawn=fake_spawn(worker, log),
+            cwd=out_root.parent,
+            output_root_override=out_root,
+            deps_probe=lambda: "mlx",
+        )
+    assert caught.value.code == "texture.dependencies_missing"
+    assert "mlx" in caught.value.message and "uv run --project" in caught.value.remediation
+    assert not log.exists()
+    assert not (out_root / "burlap").exists()
+
+
+def test_backend_status_reports_dependencies_missing_for_each_available_backend(
+    models: Path,
+) -> None:
+    status = backend_status(
+        env={"TEXTURE_GEN_MODELS_DIR": str(models)},
+        facts=APPLE_SILICON_32GB,
+        deps_probe=lambda: "mlx",
+    )
+    assert status == {
+        "z-image-turbo": "dependencies_missing",
+        "flux2-klein-4b": "dependencies_missing",
+    }
+
+
+def test_a_batch_names_every_invalid_request_by_index_and_starts_nothing(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path
+) -> None:
+    requests = [
+        TextureRequest(prompt="ok", backend="z-image-turbo", seeds=[1], resolution=256),
+        TextureRequest(prompt="   ", backend="z-image-turbo", seeds=[2], resolution=256),
+        TextureRequest(prompt="fine", backend="z-image-turbo", seeds=[3], resolution=256),
+        TextureRequest(prompt="bad size", backend="z-image-turbo", seeds=[4], resolution=300),
+    ]
+    with pytest.raises(TextureGenError) as caught:
+        run_batch(
+            requests,
+            env=env,
+            facts=APPLE_SILICON_32GB,
+            spawn=fake_spawn(worker, log),
+            cwd=out_root.parent,
+            output_root_override=out_root,
+        )
+    error = caught.value
+    assert error.code == "texture.invalid_request"
+    assert "request 1" in error.message and "request 3" in error.message
+    assert "request 0" not in error.message and "request 2" not in error.message
+    assert not log.exists() and not out_root.exists()
+
+
+def test_an_empty_batch_is_invalid() -> None:
+    with pytest.raises(TextureGenError) as caught:
+        validate_batch([])
+    assert caught.value.code == "texture.invalid_request"
+    assert "empty" in caught.value.message.lower()
+
+
+def test_a_batch_loads_each_backend_once_and_counts_every_image(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path
+) -> None:
+    requests = [
+        TextureRequest(
+            prompt="stone", backend="flux2-klein-4b", seeds=[1, 2], resolution=256, name="stone"
+        ),
+        TextureRequest(
+            prompt="wood", backend="flux2-klein-4b", seeds=[3], resolution=256, name="wood"
+        ),
+    ]
+    progress: list[tuple[int, int]] = []
+    batch = run_batch(
+        requests,
+        env=env,
+        facts=APPLE_SILICON_32GB,
+        spawn=fake_spawn(worker, log),
+        cwd=out_root.parent,
+        output_root_override=out_root,
+        on_progress=lambda done, total: progress.append((done, total)),
+    )
+
+    events = read_log(log)
+    assert [e["event"] for e in events] == ["start", "exit"]
+    assert events[0]["items"] == 3
+    assert progress[0] == (0, 3) and progress[-1] == (3, 3)
+    assert [r.name for r in batch.results] == ["stone", "wood"]
+    assert [[img.seed for img in r.images] for r in batch.results] == [[1, 2], [3]]
+    assert (out_root / "stone" / "textures.json").is_file()
+    assert (out_root / "wood" / "textures.json").is_file()
+    payload = batch.as_json()
+    assert list(payload) == ["results"]
+    assert [entry["name"] for entry in payload["results"]] == ["stone", "wood"]
+
+
+def test_every_result_of_a_batch_carries_the_one_contact_sheet_refresh(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path
+) -> None:
+    requests = [
+        TextureRequest(
+            prompt="stone", backend="z-image-turbo", seeds=[1], resolution=256, name="a"
+        ),
+        TextureRequest(prompt="wood", backend="z-image-turbo", seeds=[2], resolution=256, name="b"),
+    ]
+    batch = run_batch(
+        requests,
+        env=env,
+        facts=APPLE_SILICON_32GB,
+        spawn=fake_spawn(worker, log),
+        cwd=out_root.parent,
+        output_root_override=out_root,
+    )
+    sheets = [result.contact_sheet for result in batch.results]
+    assert sheets[0] == sheets[1]
+    assert sheets[0].cells == 2
+    assert sheets[0].pages == (out_root / "contact_sheet_001.png",)
+
+
+def test_a_batch_item_takes_the_request_fields_and_rejects_unknown_or_malformed_ones() -> None:
+    parsed = batch_from_items([{"prompt": "oak", "maps": [0.4, 0.6], "seeds": [3], "name": None}])
+    assert parsed == (TextureRequest(prompt="oak", seeds=[3], maps=(0.4, 0.6)),)
+
+    with pytest.raises(TextureGenError) as caught:
+        batch_from_items([{"prompt": "ok"}, {"prompt": "x", "colour": "red"}, "not an object"])
+    error = caught.value
+    assert error.code == "texture.invalid_request"
+    assert "request 1" in error.message and "request 2" in error.message
+    assert "request 0" not in error.message
+
+    with pytest.raises(TextureGenError) as not_array:
+        batch_from_items({"prompt": "x"})
+    assert not_array.value.code == "texture.invalid_request"

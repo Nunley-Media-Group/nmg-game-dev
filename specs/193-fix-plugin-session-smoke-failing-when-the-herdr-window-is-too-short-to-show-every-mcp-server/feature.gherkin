@@ -1,0 +1,30 @@
+**Issue**: #193
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/123-register-the-project-verification-gates-and-a-ue-compile-extension-in-steering/
+
+# File: tests/unit/test_plugin_session_smoke.py
+# Generated from: specs/193-fix-plugin-session-smoke-failing-when-the-herdr-window-is-too-short-to-show-every-mcp-server/requirements.md
+Feature: plugin.session-smoke reads the whole /mcp list at any window height
+
+  @SCN001 @regression
+  Scenario: A connected server below the fold is found
+    Given a Herdr tab 6 rows tall showing a 16-row /mcp list with a "↓ 10 more" marker
+    And "plugin:nmg-game-dev:blender" is connected in row 13
+    When the project.plugin-session-smoke provider runs with expectConnected ["blender"]
+    Then it pages down through the list
+    And it returns "passed" with "nmg-game-dev:blender connected" in its summary
+
+  @SCN002 @regression
+  Scenario: A missing or failed server still fails and is named
+    Given a paged /mcp list in which "plugin:nmg-game-dev:blender" is absent or marked failed below the fold
+    When the project.plugin-session-smoke provider runs with expectConnected ["blender"]
+    Then it returns "failed"
+    And its summary names "nmg-game-dev:blender" with status "missing" or "failed"
+
+  @SCN003 @regression
+  Scenario: The /mcp artifact holds every inspected row
+    Given a smoke run that paged through a 16-row /mcp list
+    When its evidence is read
+    Then the /mcp artifact contains all 16 server rows

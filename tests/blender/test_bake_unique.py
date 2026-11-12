@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -74,6 +75,27 @@ def _images_in(material: Any) -> dict[str, Any]:
         for node in material.node_tree.nodes
         if node.type == "TEX_IMAGE" and node.image is not None
     }
+
+
+@pytest.fixture()
+def contract(enabled_addon: str) -> Any:
+    return importlib.import_module(f"{enabled_addon}.contract_core")
+
+
+def _contract_named_material(name: str) -> Any:
+    """An authored material whose images already hold the contract names (#142).
+
+    image_material wires T_Crate_Body_BC into Base Color. _N and _ORM are sampled through the same
+    UV Map node, the way an authored material keeps its other channel images.
+    """
+    material = image_material(name, checker_image("T_Crate_Body_BC"))
+    tree = material.node_tree
+    uv = next(node for node in tree.nodes if node.type == "UVMAP")
+    for suffix in ("N", "ORM"):
+        texture = tree.nodes.new("ShaderNodeTexImage")
+        texture.image = checker_image(f"T_Crate_Body_{suffix}")
+        tree.links.new(uv.outputs["UV"], texture.inputs["Vector"])
+    return material
 
 
 def _single_collection_bake(core: Any, tmp_path: Path, budgets: str, kind: str) -> dict[str, Any]:
@@ -268,3 +290,54 @@ def test_ac4_per_material_sets_keep_faces_and_their_own_channels(
     trim_orm.pixels.foreach_get(pixels)
     covered = pixels.reshape(-1, 4)[:, 0] > 0.5
     assert covered.mean() > 0.05, "the second material's AO was not baked"
+
+
+def test_issue142_bake_outputs_take_the_contract_names(
+    core: Any, contract: Any, tmp_path: Path, budgets: str
+) -> None:
+    """#142 AC1, AC2: source images already named T_Crate_Body_<BC|N|ORM> stay as _Src, and the
+    bake's outputs take the exact contract names, so the export gate finds no naming.texture."""
+    build_asset("Crate", [_contract_named_material("M_Crate_Body")])
+    suffixes = ("BC", "N", "ORM")
+    sources = {
+        suffix: np.array(bpy.data.images[f"T_Crate_Body_{suffix}"].pixels[:]) for suffix in suffixes
+    }
+
+    result = core.bake_asset("Crate", "standard_prop", tmp_path / "out", budgets, "CPU", 4)
+
+    assert result["materials"][0]["name"] == "M_Crate_Body"
+    rewired = bpy.data.materials["M_Crate_Body"]
+    assert set(_images_in(rewired)) == {f"T_Crate_Body_{suffix}" for suffix in suffixes}
+    retired = bpy.data.materials["M_Crate_Body_Authoring"]
+    assert set(_images_in(retired)) == {f"T_Crate_Body_{suffix}_Src" for suffix in suffixes}
+    for suffix in suffixes:
+        kept = np.array(bpy.data.images[f"T_Crate_Body_{suffix}_Src"].pixels[:])
+        assert np.array_equal(kept, sources[suffix]), f"{suffix} source pixels changed"
+
+    variants = bpy.ops.nmggamedev.generate_variants(
+        collection_name="Crate",
+        category="Props",
+        asset_class="standard_prop",
+        export_root=str(tmp_path / "export"),
+    )
+    assert variants == {"FINISHED"}
+    report = contract.validate_asset("Crate", "standard_prop", budgets, authored=False)
+    assert [item for item in report["findings"] if item["rule"] == "naming.texture"] == []
+
+
+def test_issue142_repeated_bake_leaves_no_suffixed_contract_image(
+    core: Any, tmp_path: Path, budgets: str
+) -> None:
+    """#142 AC3: baking an already-baked asset again keeps exactly one image per contract name."""
+    build_asset("Crate", [_contract_named_material("M_Crate_Body")])
+    core.bake_asset("Crate", "standard_prop", tmp_path / "first", budgets, "CPU", 4)
+
+    second = core.bake_asset("Crate", "standard_prop", tmp_path / "second", budgets, "CPU", 4)
+
+    assert second["cache_hit"] is False
+    names = [image.name for image in bpy.data.images]
+    for suffix in ("BC", "N", "ORM"):
+        assert names.count(f"T_Crate_Body_{suffix}") == 1, names
+    suffixed = [name for name in names if re.fullmatch(r"T_Crate_Body_(BC|N|ORM)\.\d+", name)]
+    assert suffixed == []
+    assert "T_Crate_Body_BC_Src2" in names

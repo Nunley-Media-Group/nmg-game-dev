@@ -1,0 +1,62 @@
+**Issue**: #151
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_contract_validate.py, tests/blender/test_bake_tiling.py, tests/unit/test_texel_classify.py
+# Generated from: specs/151-measure-texel-density-per-material-slot-and-exempt-trim-atlas-and-flat-colour-slots/requirements.md
+Feature: Measure texel density per material slot and exempt trim-atlas and flat-colour slots
+
+  @SCN001
+  Scenario: Density is measured per material slot
+    Given an environment piece whose mesh has several material slots
+    When contract validation or the tiling bake checks texel density
+    Then each slot's density comes from its own faces and is compared with the variant minimum on its own
+
+  @SCN002
+  Scenario: A mesh dominated by atlas and flat-colour faces passes when its tiling slots are dense enough
+    Given a mesh with a passing tiling slot plus a declared trim-atlas slot and a flat-colour slot covering most of the surface
+    When the density check runs
+    Then no texel-density finding or error is produced for that mesh
+
+  @SCN003
+  Scenario: A failing slot is named
+    Given a mesh with two tiling slots, one above and one below the minimum
+    When the density check runs
+    Then the finding and the bake error name the mesh and the failing slot's material with the measured px/m, minimum, and variant
+
+  @SCN004
+  Scenario: A flat-colour slot is exempt without any marking
+    Given a slot whose faces all have UVs collapsed so its total UV area is effectively zero
+    When the density check runs
+    Then the slot is exempt as flat_colour
+
+  @SCN005
+  Scenario: A trim-atlas slot is exempt when the author declares it
+    Given a material carrying the nmg_trim_atlas marker
+    When the density check runs on a mesh using that material
+    Then the slot is exempt regardless of its measured density
+
+  @SCN006
+  Scenario: An undeclared low-density slot still fails
+    Given an unmarked slot with non-zero UV area below the minimum
+    When the density check runs
+    Then the slot fails and the remediation names raising density or declaring the material trim-atlas
+
+  @SCN007
+  Scenario: The report shows what was measured and what was exempt
+    Given a density check has run on an environment piece
+    When the validation report and the bake report are read
+    Then each slot is listed with its Desktop and Mobile px/m or its exemption reason
+
+  @SCN008
+  Scenario: The declaration holds through finalize and on the Mobile variant
+    Given an asset with a declared trim-atlas material
+    When validate, bake, and variants run and the Mobile variant is validated
+    Then the slot is exempt at every step, including on the baked material and its _Mobile counterpart
+
+  @SCN009
+  Scenario: Single-slot tiling meshes behave as before
+    Given a mesh with one undeclared tiling slot
+    When the density check runs
+    Then it passes or fails at the same density as today with the same code and reason

@@ -44,7 +44,9 @@ your own judgment. Stop only when the final presentation is written.
 7. Add detail and materials. Look up shader nodes by type, never by name:
    `next(n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED")`. Set Principled inputs by their
    current names, and read enum identifiers at runtime rather than hardcoding them. After each detail
-   or material pass, run the inspection again and fix any new blocking finding.
+   or material pass, run the inspection again and fix any new blocking finding. For an
+   `environment_piece`, set the custom property `nmg_trim_atlas` to `True` on each trim-atlas material
+   (`material["nmg_trim_atlas"] = True`), so its slots are exempt from the per-slot texel density check.
 8. Present the result. Show the final multi-view renders with `look`, and summarize the inspection:
    `passed`, the count of blocking and non-blocking findings, `triangles.total` against
    `triangles.budget`, and the `headroom`. Then point the developer to `/finalize-asset` to bake and
@@ -64,6 +66,20 @@ print(json.dumps(report, indent=2))
 Its report has `kind`, `asset`, `class`, `gap_tolerance`, `passed`, `parts` (each with `name`,
 `bounds`, `tris`, `non_manifold_edges`, and `geometry`), `findings`, and `triangles`
 (`total`, `budget`, `headroom`). `docs/skills/model-asset.md` describes every field and blocking rule.
+
+### Geometry rules for `environment_piece`
+
+An `environment_piece` is often built from many primitives, and the validator's normals and duplicate
+checks decide what passes. Build to these rules, which match what `geometry.normals` and
+`geometry.duplicates` accept:
+
+- Open sheets (floors, roof planes, decals, ground sheets) are allowed where nothing sees underneath.
+  Wind every face of a sheet consistently and make it face the viewer. The check compares neighbouring
+  faces only, so a consistently wound sheet passes wherever it sits.
+- Closed parts must face outward. The check recalculates each closed part on its own and reports the
+  faces that point inward.
+- Touching primitives must either merge by distance so they share vertices, or stay about 0.6 mm
+  apart. Vertices that coincide without merging raise `geometry.duplicates`.
 
 ### Operator alternative
 

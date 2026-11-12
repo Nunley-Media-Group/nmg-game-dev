@@ -1,0 +1,86 @@
+**Issue**: #139
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/67-bake-authored-materials-to-contract-compliant-uv-texture-sets/
+
+# File: tests/bdd/features/reduce_to_budget.feature
+# Generated from: specs/139-add-a-reduce-to-budget-step-that-bakes-a-generated-high-poly-asset-onto-an-in-budget-mesh/requirements.md
+Feature: Reduce a generated high-poly asset to its Desktop budget
+
+  @SCN001
+  Scenario: An over-budget asset is reduced into budget with its originals kept
+    Given an unrigged multi-part asset above its Desktop triangle budget
+    When the reduce step runs
+    Then each part keeps its name, transform, origin, and parent
+    And the triangle total is at or below the resolved Desktop budget
+    And the originals sit in the hidden <Name>_High collection, which finalize never reads
+
+  @SCN002
+  Scenario: The budget is split by surface area
+    Given parts with different surface areas and no overrides
+    When the budget is planned
+    Then each part's target is proportional to its area and at least 12 triangles
+
+  @SCN003
+  Scenario: Per-part overrides win and invalid overrides are refused
+    Given overrides for some parts
+    When the budget is planned
+    Then the overridden parts use their values and the rest share the remainder by area
+    And overrides above the budget fail with reduce.overrides_exceed_budget before any change
+
+  @SCN004
+  Scenario: The reduced asset carries one atlas and one baked texture set
+    Given a completed reduce run
+    Then every reduced mesh has one UVMap with no overlap inside 0 to 1
+    And M_<Name>_Body uses T_<Name>_Body_BC, _N, and _ORM at the Desktop texture size
+
+  @SCN005
+  Scenario: Cage and ray distance are configurable per part
+    Given an asset-wide cage and a per-part ray distance
+    When the reduce step runs
+    Then each part reports the cage extrusion and ray distance it used
+
+  @SCN006
+  Scenario: Ray misses are reported and fail above the threshold
+    Given a part whose unbaked share exceeds the miss threshold
+    When the reduce step runs
+    Then it fails with reduce.bake_misses naming the part, its share, and its settings
+    And the scene is unchanged
+
+  @SCN007
+  Scenario: The reduced asset passes finalize
+    Given a reduced standard_prop and a reduced environment_piece
+    When finalize runs validate through reimport
+    Then both pass, and the atlas layout is kept
+
+  @SCN008
+  Scenario: A rerun rebuilds from <Name>_High
+    Given an asset that was already reduced
+    When the reduce step runs again with different settings
+    Then <Name> is rebuilt from <Name>_High, which is neither modified nor duplicated
+
+  @SCN009
+  Scenario: An asset already in budget is left alone
+    Given an asset within its Desktop budget and no <Name>_High
+    When the reduce step runs
+    Then the result state is within_budget and the scene is unchanged
+
+  @SCN010
+  Scenario: A rigged asset or the terrain class is refused
+    Given an asset with an armature, or a request for class terrain
+    When the reduce step runs
+    Then it fails with reduce.rigged or reduce.class_unsupported and the scene is unchanged
+
+  @SCN011
+  Scenario: The MCP job loads the result back only into an unchanged session
+    Given a reduce_asset job started on the open session
+    When the background run finishes and the session's <Name> is unchanged
+    Then <Name> and <Name>_High are loaded back
+    But when the session changed, the job fails with reduce.session_changed and the result .blend path
+
+  @SCN012
+  Scenario: All entry points share one implementation and result shape
+    Given the panel operator, run_for_mcp, the CLI reduce command, and the reduce_asset tool
+    When each runs the same request
+    Then each returns the same result fields

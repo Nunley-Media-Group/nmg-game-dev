@@ -156,6 +156,41 @@ def test_validate_step_writes_the_contract_report(core: Any, tmp_path: Path) -> 
     assert report["passed"] is True, report["findings"]
 
 
+def test_validate_step_prints_per_check_progress_lines(
+    core: Any, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """#133 AC6: validate reports each mesh check between the started and final lines."""
+    build_crate()
+    request = _request(tmp_path)
+    job = _job_dir(tmp_path, request)
+    capfd.readouterr()
+
+    envelope = core.run_step("validate", request, job)
+
+    assert envelope["ok"] is True, envelope["error"]
+    lines = [
+        json.loads(line.split("NMG_PROGRESS ", 1)[1])
+        for line in capfd.readouterr().out.splitlines()
+        if line.startswith("NMG_PROGRESS ")
+    ]
+    assert lines[0] == {
+        "message": "started",
+        "progress": 0.0,
+        "state": "running",
+        "step": "validate",
+    }
+    assert lines[-1]["progress"] == 1.0
+    inner = lines[1:-1]
+    assert inner
+    assert all(line["step"] == "validate" and 0 < line["progress"] < 1 for line in inner)
+    progress = [line["progress"] for line in inner]
+    assert progress == sorted(progress)
+    messages = [line["message"] for line in inner]
+    assert "desktop: UV overlap check on SM_Crate" in messages
+    for name in ("SM_Crate_Mobile_LOD0", "SM_Crate_Mobile_LOD1", "SM_Crate_Mobile_LOD2"):
+        assert f"mobile: UV overlap check on {name}" in messages
+
+
 def test_a_missing_collection_stops_the_step_before_any_work(core: Any, tmp_path: Path) -> None:
     job = _job_dir(tmp_path, _request(tmp_path, collection="Missing"))
 
@@ -420,3 +455,23 @@ def test_load_back_restores_the_session_when_it_fails_after_appending(
         "Crate_Mobile",
     ]
     assert _leftover_old_names() == []
+
+
+def test_object_snapshot_records_the_mesh_datablock_name(enabled_addon: str) -> None:
+    # A part whose datablock differs from its object name (#145, T001): the snapshot records the
+    # datablock so the UE import can map it back to the part's export name.
+    validate = importlib.import_module(f"{enabled_addon}.contract_core.validate")
+    collection = bpy.data.collections.new("Crate")
+    bpy.context.scene.collection.children.link(collection)
+    mesh = bpy.data.meshes.new("SM_Crate_Lid.001")
+    mesh.from_pydata([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)], [], [(0, 1, 2)])
+    part = bpy.data.objects.new("SM_Crate_Lid", mesh)
+    pivot = bpy.data.objects.new("Pivot", None)
+    collection.objects.link(part)
+    collection.objects.link(pivot)
+
+    part_snapshot = validate.object_snapshot(part, "desktop", 1)
+    empty_snapshot = validate.object_snapshot(pivot, "desktop", 0)
+
+    assert part_snapshot["mesh"] == "SM_Crate_Lid.001"
+    assert empty_snapshot["mesh"] is None

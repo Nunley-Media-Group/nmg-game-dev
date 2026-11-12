@@ -60,7 +60,7 @@ class _Part:
     tree: BVHTree
     tri_count: int
     non_manifold: int
-    geometry: list[dict[str, str]]
+    geometry: list[dict[str, Any]]
     lo: Vector
     hi: Vector
 
@@ -144,7 +144,9 @@ def inspect_asset(
 
 def _measure(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> _Part | None:
     """Measure one mesh object from an evaluated copy; None when it has no vertices."""
-    copy = bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph), depsgraph=depsgraph)
+    copy = bpy.data.meshes.new_from_object(
+        obj.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph
+    )
     try:
         if len(copy.vertices) == 0:
             return None
@@ -166,7 +168,9 @@ def _measure(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> _Part | N
             tree=BVHTree.FromPolygons(world, tris),
             tri_count=triangle_count(copy),
             non_manifold=non_manifold,
-            geometry=geometry_findings(obj.name, copy),
+            geometry=geometry_findings(
+                obj.name, copy, obj.matrix_world, [group.name for group in obj.vertex_groups]
+            ),
             lo=lo,
             hi=hi,
         )
