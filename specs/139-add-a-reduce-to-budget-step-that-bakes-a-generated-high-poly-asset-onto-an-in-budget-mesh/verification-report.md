@@ -4,7 +4,7 @@
 **Issue**: #139
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 2e1acd70c2b9269c2e64439a679e82bb70b7063e
+**Verification head**: 7df6180a2bde44b95715f70cdcf4b1668d35f88f
 
 ---
 
@@ -21,9 +21,9 @@
 | **Overall** | 4.3 |
 
 ### Implementation Status: Pass
-**Total Issues**: 5 (0 critical, 0 high, 1 medium, 4 low). None blocks delivery.
+**Total Issues**: 6 (0 critical, 0 high, 2 medium, 4 low). None blocks delivery.
 
-All 14 acceptance criteria, 12 functional requirements and 7 tasks are implemented. This is a re-verification after the branch merged `origin/main` again (`34dd816`, bringing in #186 for #148, material variants), kept #148's `material_variant.*` remediation line in `skills/finalize-asset/SKILL.md` (`2d91c0e`), and bumped the version to 0.24.0 (`2e1acd7`). The merge conflicts were all in shared entry-point files: `finalize_mcp/server.py`, `finalize/__init__.py`, `finalize/__main__.py`, `finalize/mcp_tools.py` and `skills/finalize-asset/SKILL.md`. Each was resolved as a union. `reduce_asset` and `list_material_variants` are both registered on the server, exported from the package, listed in `tools.json`, and given CLI subcommands, and `gate-mcp-schema` passed. No file under `reduce_core/` or `bake_core/`, no reduce host module and no reduce test changed since the previous verification. The registered gate ran at the verification head with complete coverage: 11 validations declared, 11 recorded. Ten required validations passed, including 1381 unit and BDD tests and 350 headless Blender tests, which cover the reduce suites alongside #148's material-variant suites. `gate-ship-smoke` does not apply because the change touches none of its paths. The ceiling is `null`.
+All 14 acceptance criteria, 12 functional requirements and 7 tasks are implemented. This is a re-verification after deliver's base reconciliation merged `origin/main` at `1c11468` into the branch (`7df6180`). The merge brought in #217 (#203, `import_ue` fails when Unreal refuses to rename or consolidate an imported asset) and #218 (#211, texture job queue fixes). Between the previous verification head `2e1acd7` and `7df6180`, the only changed files are `src/nmg_game_dev/texture/{generate,jobs}.py`, `src/nmg_game_dev/unreal/import_asset.py`, their tests and BDD feature, `docs/onboarding/texture-models.md`, other issues' spec reports, `CHANGELOG.md` and this report. None of those files is a #139 implementation or test file, and no reduce, bake, finalize, MCP or version-manifest file changed, so the AC evidence below still holds. The four version files still read 0.24.0, which is ahead of main's 0.23.0. The registered gate ran at the new head with complete coverage: 11 declared, 11 recorded. All 10 applicable required validations passed, including 1401 unit and BDD tests (up from 1381 with the merged #203 and #211 tests) and 350 headless Blender tests. `gate-ship-smoke` does not apply. The ceiling is `null`. The automatic CHANGELOG merge left a stray header that files this issue's entry under `[0.22.1]` (M2). Deliver's version preparation owns that file, and this report's publication scope does not include it.
 
 ---
 
@@ -47,8 +47,8 @@ All 14 acceptance criteria, 12 functional requirements and 7 tasks are implement
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/139.json` (from `sdlc-verify-steering.mjs --base main`, controller run `b2903612-167d-4d93-93fe-3faef18dd9c1`, generated 2026-11-12T06:40:27Z)
-- Identity: head `2e1acd70c2b9269c2e64439a679e82bb70b7063e`, clean tree, spec `sha256:2dc809e4…c605`, steering `sha256:6db9aabc…74d4`
+- Artifact: `.nmg-sdlc/verification/139.json` (from `sdlc-verify-steering.mjs --base main`, controller run `b2903612-167d-4d93-93fe-3faef18dd9c1`, generated 2026-11-12T06:59:23Z)
+- Identity: head `7df6180a2bde44b95715f70cdcf4b1668d35f88f`, clean tree, spec `sha256:2dc809e4…c605`, steering `sha256:6db9aabc…74d4`
 - Coverage: declared 11, recorded 11, complete `true`; nothing missing, duplicated or unknown
 - Ceiling: `null`. No required validation failed or was incomplete.
 
@@ -187,12 +187,12 @@ SCN001, SCN004, SCN007 and SCN008 change the Blender scene. Their docstring maps
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1381 passed, 10 skipped, in 3 min 32 s |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1401 passed, 10 skipped, in 3 min 44 s |
 | `repository.lint` | Pass | `ruff check .`: All checks passed |
 | `repository.format` | Pass | `ruff format --check .`: exit 0 |
 | `repository.types` | Pass | `mypy src tests`: exit 0 |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 350 passed, 4 skipped, in 4 min 16 s (`test_reduce.py`, `test_reduce_finalize.py` and the merged #148 `test_material_variants.py` ran) |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8`: `Result: Succeeded` (applies via the `.uplugin` version bump) |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 350 passed, 4 skipped, in 2 min 03 s (`test_reduce.py`, `test_reduce_finalize.py` and #148's `test_material_variants.py` ran) |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8`: `Result: Succeeded` (applies through the `.uplugin` version bump) |
 | `gate-mcp-schema` | Pass | MCP tools match `tools.json` for every server |
 | `gate-shellcheck` | Pass | exit 0 |
 | `gate-ship-smoke` | Not applicable | No changed path matches its globs |
@@ -207,7 +207,7 @@ SCN001, SCN004, SCN007 and SCN008 change the Blender scene. Their docstring maps
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| — | — | — | None. The verify publication scope allows only this report, so no code fixes were applied. I reviewed the `34dd816` conflict resolutions and the `2d91c0e` follow-up, and none needs a change | — | — |
+| — | — | — | None. The verify publication scope allows only this report, so no code or CHANGELOG fixes were applied. I reviewed the `7df6180` merge: it changes no #139 file except `CHANGELOG.md` (M2) | — | — |
 
 ## Remaining Issues
 
@@ -228,6 +228,16 @@ None.
 | **Issue** | T007 asks for each part's BC to match its source within tolerance, and for the color spaces to be asserted. The test checks only that the images are 256 px and packed and that the BC is not flat |
 | **Impact** | A regression that baked one part's look onto another part's island, or set the wrong color space, would not be caught by the suite |
 | **Reason Not Fixed** | The verify publication scope allows only `verification-report.md`. A temporary headless probe at the previous verification head (created and removed, so the tree stayed clean; the reduce and bake code are unchanged since) confirmed the behavior: BC sRGB, N and ORM Non-Color, and distinct per-part BC means with the Lid image's G < R signature. Follow-up: add these assertions to the suite |
+
+| Field | Value |
+|-------|-------|
+| **ID** | M2 |
+| **Severity** | Medium |
+| **Category** | Documentation / release notes |
+| **Location** | `CHANGELOG.md`, lines 9–10 |
+| **Issue** | The automatic CHANGELOG merge in `7df6180` put main's `## [0.22.1] - 2026-11-12` header directly under the branch's `## [0.24.0] - 2026-11-12` header. `[0.24.0]` is now empty, and the #148 and #139 entries read as part of `[0.22.1]`. Main's CHANGELOG already had out-of-order sections before this merge (`[0.22.0]` above `[0.23.0]` above `[0.21.6]`), so that ordering is not from this branch |
+| **Impact** | The release notes file this issue's change under the wrong version. Code, tests and version manifests are not affected |
+| **Reason Not Fixed** | The verify publication scope allows only `verification-report.md`. Deliver's version preparation owns `CHANGELOG.md` and reruns after this verification. Follow-up there: remove the empty `[0.24.0]` header, or move main's `[0.22.1]` block below the `[0.24.0]` entries so #148 and #139 sit under `[0.24.0]` |
 
 ### Low Priority
 
@@ -251,7 +261,7 @@ None.
 ## Recommendations Summary
 
 ### Before PR (Must)
-- None.
+- None for code. Deliver's version preparation should repair the CHANGELOG headers (M2).
 
 ### Short Term (Should)
 - [ ] Add per-part BC tolerance and color-space assertions to `test_reduce.py` (M1).
@@ -283,7 +293,8 @@ None.
 | `mcp-servers/finalize/src/finalize_mcp/server.py`, `mcp-servers/finalize/tools.json` | 0 | |
 | `tests/blender/test_reduce.py` | 1 | M1 |
 | `docs/*`, `skills/finalize-asset/SKILL.md` | 0 | `quality.contract_failed` keeps both the `budget.tris` → `reduce_asset` line and #148's `material_variant.*` line |
-| `CHANGELOG.md`, `VERSION`, plugin manifests | 0 | 0.24.0 on all four version files. The #139 entry and #148's entry from `[Unreleased]` on main are under `[0.24.0]` |
+| `CHANGELOG.md`, `VERSION`, plugin manifests | 1 | 0.24.0 on all four version files, ahead of main's 0.23.0. M2: after the merge, the #139 and #148 entries sit under a stray `[0.22.1]` header |
+| `src/nmg_game_dev/texture/*`, `src/nmg_game_dev/unreal/import_asset.py` and their tests (merged from main) | 0 | Checked that they don't overlap #139. They are covered by `repository.tests` at the verification head |
 
 ---
 
@@ -291,4 +302,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion, functional requirement and task has implementation and test evidence. All 10 applicable required validations passed at `2e1acd70c2b9269c2e64439a679e82bb70b7063e` with complete coverage and no ceiling. The open findings are test-hardening and robustness follow-ups that do not block delivery.
+Every acceptance criterion, functional requirement and task has implementation and test evidence. All 10 applicable required validations passed at `7df6180a2bde44b95715f70cdcf4b1668d35f88f` with complete coverage and no ceiling. The open findings are test-hardening, robustness and CHANGELOG-layout follow-ups that do not block delivery.
