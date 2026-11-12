@@ -15,6 +15,7 @@ from .import_asset import (
     import_variant,
     parse_nmg_result,
 )
+from .material_variants import list_material_variants
 from .terrain import (
     HEIGHT_TOLERANCE_CM,
     build_terrain_code,
@@ -34,6 +35,7 @@ __all__ = [
     "import_terrain_variant",
     "import_variant",
     "landscape_transform",
+    "list_material_variants",
     "parse_nmg_result",
     "ue_samples",
 ]

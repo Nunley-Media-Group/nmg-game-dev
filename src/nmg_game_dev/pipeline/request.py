@@ -37,6 +37,9 @@ class FinalizeRequest(BaseModel):
         backlog_path: The design backlog (``docs/design/backlog.json``) when it holds an asset
             entry for ``collection``.  A successful ``finalize_asset`` job marks that entry
             ``finalized``.  It never enters the cache settings.
+        material_variants_path: The ``<collection>.material-variants.json`` declaration, given
+            explicitly or found beside ``blend``.  ``None`` means the asset declares no material
+            variants.  Validate and export key their cache on its bytes (#148).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -49,6 +52,7 @@ class FinalizeRequest(BaseModel):
     budgets_path: Path | None = None
     device: Device = "GPU"
     backlog_path: Path | None = None
+    material_variants_path: Path | None = None
 
     def to_json_dict(self) -> dict[str, object]:
         """Return the JSON-serialisable projection written to ``<job_dir>/request.json``."""

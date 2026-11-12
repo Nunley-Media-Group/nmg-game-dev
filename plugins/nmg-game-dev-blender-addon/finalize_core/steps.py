@@ -32,6 +32,7 @@ from ..variants_core.assets import (
 from ..variants_core.cleanup import cleanup_desktop
 from ..variants_core.errors import VariantError
 from ..variants_core.export import export_variants
+from ..variants_core.material_variants import export_material_variants
 from ..variants_core.mobile import build_mobile
 from ..variants_core.sidecars import write_sidecars
 from ..variants_core.textures import check_baked_material, max_texture_px, source_images
@@ -110,6 +111,7 @@ def _validate(
         str(request["asset_class"]),
         _budgets_path(request),
         authored=True,
+        material_variants_path=_material_variants_path(request),
         progress=report_progress,
     )
     path = job / "validate.report.json"
@@ -193,7 +195,12 @@ def _export(
     metrics = _upstream_metrics(inputs, job)
 
     variant_root = Path(export_root) / category / collection
-    report = validate_asset(collection, asset_class, budgets_path)
+    report = validate_asset(
+        collection,
+        asset_class,
+        budgets_path,
+        material_variants_path=_material_variants_path(request),
+    )
     # One validation covers both variants; reimport_check filters the snapshot by variant.
     pre_reports = {}
     for variant in _VARIANTS:
@@ -216,7 +223,14 @@ def _export(
         return summary, outputs
 
     exported = export_variants(collection, category, export_root)
-    payload = _sidecar_payload(collection, category, asset_class, budget, metrics, exported)
+    material_variants = None
+    if "material_variants" in report:
+        material_variants = export_material_variants(
+            collection, variant_root, report["material_variants"]
+        )
+    payload = _sidecar_payload(
+        collection, category, asset_class, budget, metrics, exported, material_variants
+    )
     write_sidecars(variant_root, payload)
     outputs.update(
         {
@@ -396,10 +410,11 @@ def _sidecar_payload(
     budget: Mapping[str, int],
     metrics: Mapping[str, Any],
     exported: Mapping[str, Any],
+    material_variants: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     desktop = metrics["desktop"]
     mobile = metrics["mobile"]
-    return {
+    payload: dict[str, Any] = {
         "name": collection,
         "category": category,
         "class": asset_class,
@@ -421,6 +436,15 @@ def _sidecar_payload(
             "materials": mobile["materials"],
         },
     }
+    # The key exists only when the asset declares material variants (#148, AC4 and AC7).
+    if material_variants is not None:
+        payload["material_variants"] = dict(material_variants)
+    return payload
+
+
+def _material_variants_path(request: Mapping[str, Any]) -> str | None:
+    value = request.get("material_variants_path")
+    return str(value) if value else None
 
 
 def _upstream_metrics(inputs: Mapping[str, Any] | None, job: Path) -> dict[str, Any]:

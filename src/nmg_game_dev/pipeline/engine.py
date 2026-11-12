@@ -342,7 +342,9 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
                 client, request, outputs_by_step["export"]["sidecar"], export
             )
         else:
-            imports, paths = _import_mesh_variants(client, request, export)
+            imports, paths = _import_mesh_variants(
+                client, request, str(outputs_by_step["export"]["sidecar"]), export
+            )
     finally:
         if owned is not None:
             owned.close()
@@ -356,10 +358,13 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
 def _import_mesh_variants(
     client: UnrealPythonRunner,
     request: FinalizeRequest,
+    sidecar: str,
     export: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, str]]:
     imports: dict[str, Any] = {}
     paths: dict[str, str] = {}
+    # Each variant imports its own material variants, which the export sidecar lists (#148).
+    material_variants = _sidecar_material_variants(sidecar)
     # A rigged Mobile reuses the Desktop skeleton and physics asset, so both variants name the
     # Desktop folder, and Desktop is imported first (VARIANTS orders it).
     skeleton_dest = ue_destination(request, "Desktop")
@@ -376,6 +381,7 @@ def _import_mesh_variants(
             name=request.collection,
             report=report,
             skeleton_dest=skeleton_dest,
+            material_variants=material_variants.get(variant.lower(), []),
         )
         paths[variant] = destination
     return imports, paths
@@ -417,6 +423,25 @@ def _import_terrain_variants(
         )
         paths[variant] = destination
     return imports, paths
+
+
+def _sidecar_material_variants(sidecar: str) -> dict[str, list[dict[str, Any]]]:
+    """Return the sidecar's material-variant lists keyed by variant ("desktop" or "mobile").
+
+    A sidecar with no material_variants key, or no sidecar file, declares none (#148, AC4).
+    """
+    path = Path(sidecar)
+    if not path.is_file():
+        return {}
+    payload: Any = json.loads(path.read_text(encoding="utf-8"))
+    declared = payload.get("material_variants") if isinstance(payload, dict) else None
+    if not isinstance(declared, dict):
+        return {}
+    return {
+        str(key): [dict(item) for item in value if isinstance(item, dict)]
+        for key, value in declared.items()
+        if isinstance(value, list)
+    }
 
 
 def _load_back(run: _Run, *, asset_hash: str, result_blend: Path) -> dict[str, Any]:

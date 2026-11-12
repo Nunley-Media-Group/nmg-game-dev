@@ -321,3 +321,83 @@ def _remove_object(obj: Any) -> None:
     bpy.data.objects.remove(obj, do_unlink=True)
     if data is not None and data.users == 0:
         bpy.data.armatures.remove(data)
+
+
+# A second humanoid for the built-in clip tests: longer legs, wider shoulders, and arms that hang
+# 45 degrees below horizontal. Its limbs are capsules, so its arms are not axis-aligned.
+_VARIANT_ARM_DROP_DEG = 45.0
+
+
+def variant_landmarks() -> dict[str, list[float]]:
+    """Landmarks for collection Variant, in the same character space as HERO_LANDMARKS."""
+    cos = math.cos(math.radians(_VARIANT_ARM_DROP_DEG))
+    sin = math.sin(math.radians(_VARIANT_ARM_DROP_DEG))
+    pelvis_z = 1.05
+    marks: dict[str, list[float]] = {
+        "pelvis": [0.0, 0.0, pelvis_z],
+        "neck": [0.0, 0.0, pelvis_z + 0.42],
+        "head_top": [0.0, 0.0, pelvis_z + 0.76],
+    }
+    for side, sign in (("l", 1.0), ("r", -1.0)):
+        shoulder = [sign * 0.26, 0.0, 1.5]
+        elbow = [shoulder[0] + sign * 0.26 * cos, 0.0, shoulder[2] - 0.26 * sin]
+        wrist = [elbow[0] + sign * 0.24 * cos, 0.0, elbow[2] - 0.24 * sin]
+        hand_tip = [wrist[0] + sign * 0.10 * cos, 0.0, wrist[2] - 0.10 * sin]
+        marks[f"shoulder_{side}"] = shoulder
+        marks[f"elbow_{side}"] = elbow
+        marks[f"wrist_{side}"] = wrist
+        marks[f"hand_tip_{side}"] = hand_tip
+        marks[f"hip_{side}"] = [sign * 0.13, 0.0, pelvis_z - 0.05]
+        marks[f"knee_{side}"] = [sign * 0.13, 0.0, 0.55]
+        marks[f"ankle_{side}"] = [sign * 0.13, 0.0, 0.08]
+        marks[f"toe_{side}"] = [sign * 0.13, -0.15, 0.03]
+    return marks
+
+
+def _add_segment(bm: Any, start: list[float], end: list[float], radius: float) -> None:
+    """Add a box of the given radius that runs from start to end, so it follows any direction."""
+    import bmesh  # noqa: PLC0415
+    from mathutils import Matrix, Vector  # noqa: PLC0415
+
+    a = Vector(start)
+    b = Vector(end)
+    direction = b - a
+    cube = bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, vec=(2 * radius, 2 * radius, direction.length), verts=cube["verts"])
+    turn = Vector((0.0, 0.0, 1.0)).rotation_difference(direction).to_matrix().to_4x4()
+    bmesh.ops.transform(bm, matrix=Matrix.Translation((a + b) / 2) @ turn, verts=cube["verts"])
+
+
+def build_variant() -> dict[str, list[float]]:
+    """Build collection Variant with mesh SM_Variant (voxel remeshed) and return its landmarks."""
+    import bmesh  # noqa: PLC0415
+    import bpy  # noqa: PLC0415
+
+    marks = variant_landmarks()
+    head_centre = [0.0, 0.0, marks["head_top"][2] - _HEAD_RADIUS]
+    bm = bmesh.new()
+    _add_segment(bm, marks["pelvis"], marks["neck"], 0.16)
+    _add_segment(bm, marks["hip_l"], marks["hip_r"], 0.12)
+    _add_segment(bm, marks["neck"], head_centre, 0.06)
+    for side in ("l", "r"):
+        _add_segment(bm, marks["neck"], marks[f"shoulder_{side}"], 0.05)
+        _add_segment(bm, marks[f"shoulder_{side}"], marks[f"elbow_{side}"], 0.05)
+        _add_segment(bm, marks[f"elbow_{side}"], marks[f"wrist_{side}"], 0.045)
+        _add_segment(bm, marks[f"wrist_{side}"], marks[f"hand_tip_{side}"], 0.04)
+        _add_segment(bm, marks[f"hip_{side}"], marks[f"knee_{side}"], 0.07)
+        _add_segment(bm, marks[f"knee_{side}"], marks[f"ankle_{side}"], 0.06)
+        _add_segment(bm, marks[f"ankle_{side}"], marks[f"toe_{side}"], 0.05)
+    head = bmesh.ops.create_uvsphere(bm, u_segments=16, v_segments=12, radius=_HEAD_RADIUS)
+    bmesh.ops.translate(bm, vec=tuple(head_centre), verts=head["verts"])
+    mesh = bpy.data.meshes.new("SM_Variant")
+    bm.to_mesh(mesh)
+    bm.free()
+
+    collection = bpy.data.collections.new("Variant")
+    bpy.context.scene.collection.children.link(collection)
+    obj = bpy.data.objects.new("SM_Variant", mesh)
+    collection.objects.link(obj)
+    _select_only([obj])
+    mesh.remesh_voxel_size = _VOXEL_SIZE
+    bpy.ops.object.voxel_remesh()
+    return {key: list(value) for key, value in marks.items()}
