@@ -61,6 +61,36 @@ With `--backend both`, each available model runs in turn, never at the same time
 available is listed under `skipped` with its reason. When both models produce images, a side-by-side
 comparison sheet `<name>_compare.png` labels each image with its backend, seed, and seconds.
 
+## Contact sheet
+
+Every successful `generate` run rebuilds a contact sheet at the output root: `contact_sheet_001.png`,
+`contact_sheet_002.png`, and so on. It shows every albedo of every texture set in the root, so a texture
+whose look does not match its name, or that repeats or seams badly, is visible before you build on it.
+
+- Each cell is the albedo tiled 2x2, with a label strip that names the texture set, then the backend and
+  seed on the line beneath.
+- Cells are ordered by set name, then backend, then seed. A page holds 24 cells in 6 columns and 4 rows.
+  A larger root continues on the next numbered page. Pages left over from an earlier, larger build are
+  removed.
+- Derived maps (`_N`, `_R`, `_M`, `_AO`) and `<name>_compare.png` never appear as cells.
+
+To rebuild the sheet from the current sets without generating, run:
+
+```sh
+python -m nmg_game_dev.texture sheet
+python -m nmg_game_dev.texture sheet --root SourceArt/Textures/Generated
+```
+
+Without `--root` the command reads the same output folder that `generate` writes to. It prints JSON with
+`pages`, `cells`, and `skipped`, and exits 0. The agent can run the same rebuild through the
+`texture_contact_sheet` tool of the `texture-gen` MCP server, which returns the same JSON.
+
+An albedo that is missing or is not a readable image, or a `textures.json` that is not valid JSON, is left
+out of the pages and listed under `skipped` with its `path` and `reason`. The other albedos still appear,
+and the generate run still succeeds. A root with no texture sets is an error on demand: the command prints
+`ERROR [texture.no_texture_sets]` with a `Remediation:` line and exits 1, and the tool returns that error
+code. The rebuild needs no texture model, so it runs even when the weights are not installed.
+
 ## Make a source texture seamless
 
 A texture from another source (a photo, a stock image, or an earlier export) often does not tile. The
@@ -88,6 +118,9 @@ folder holds:
 - `<name>_compare.png`: the comparison sheet, for `both`.
 - `textures.json`: the prompt, style suffix, backend, repo, revision, seed, steps, timing, and paths
   for each image.
+
+The output root, `SourceArt/Textures/Generated/`, also holds the contact sheet pages,
+`contact_sheet_NNN.png`, beside the set folders (see Contact sheet).
 
 The output lives under `SourceArt/`, not `Content/`. Unreal does not auto-import it. Import the textures
 you keep through the asset pipeline.

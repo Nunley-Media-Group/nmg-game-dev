@@ -42,6 +42,7 @@ from tests.unit.fake_unreal import (
     dest_for,
     part,
     run_import,
+    run_import_code,
     stage,
 )
 
@@ -680,7 +681,10 @@ def test_a_rigged_import_keeps_its_size_and_sets_no_build_scale_or_name(tmp_path
     assert result["skeletal_meshes"]["SM_Crate"]["bounds"] == box(800.0)
     assert world.build_writes == []
     assert world.redirects == {}
-    assert sorted(world.assets) == sorted([MASTER_PATH, dest + "/SM_Crate"])
+    # The rig assets are the only additions: the skeleton the import made and the physics asset the
+    # code created (#141). Nothing is renamed or added beside them.
+    rig = [dest + "/SM_Crate_Skeleton", dest + "/SM_Crate_PhysicsAsset"]
+    assert sorted(world.assets) == sorted([MASTER_PATH, dest + "/SM_Crate", *rig])
 
 
 def test_texture_settings_material_binding_and_result_keys_are_unchanged(tmp_path: Path) -> None:
@@ -1000,3 +1004,220 @@ def test_a_single_part_static_mesh_reports_one_lod(tmp_path: Path) -> None:
     result = run_import(world, folder, "desktop", report)
 
     assert result["static_meshes"]["SM_Crate"]["lod_count"] == 1
+
+
+# --- folder resolution and rig assets on the fake (#141) ---------------------------------------
+
+_CVAR = "Interchange.FeatureFlags.Import.FBX"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _only_first_mesh(created: list[str]) -> list[str]:
+    """What UE 5.8 reports for a multi-part FBX: the first mesh alone, in imported_object_paths."""
+    return created[:1]
+
+
+def test_a_multi_part_static_import_returns_every_part(tmp_path: Path) -> None:
+    # AC1, SCN001: three parts, all reported by the task, and each one comes back.
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH),
+        part("desktop", "SM_Crate_Body", SMALL_LOW, SMALL_HIGH),
+        part("desktop", "SM_Crate_Lid", SMALL_LOW, SMALL_HIGH),
+    )
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["ok"] is True
+    assert sorted(result["static_meshes"]) == ["SM_Crate", "SM_Crate_Body", "SM_Crate_Lid"]
+    assert world.static_mesh_paths() == [
+        DESKTOP_DEST + "/SM_Crate",
+        DESKTOP_DEST + "/SM_Crate_Body",
+        DESKTOP_DEST + "/SM_Crate_Lid",
+    ]
+
+
+def test_a_two_part_static_import_returns_both_parts_when_the_task_lists_only_the_first(
+    tmp_path: Path,
+) -> None:
+    # AC7, FR1: both parts are in the folder, but the task lists only SM_Crate.
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH),
+        part("desktop", "SM_Crate_Lid", SMALL_LOW, SMALL_HIGH),
+    )
+    world.reported_paths = _only_first_mesh
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["ok"] is True
+    assert sorted(result["static_meshes"]) == ["SM_Crate", "SM_Crate_Lid"]
+    assert result["static_meshes"]["SM_Crate"]["bounds"] == box(800.0)
+    assert result["static_meshes"]["SM_Crate_Lid"]["bounds"] == box(100.0)
+
+
+def test_expected_meshes_are_resolved_by_name_and_an_unrelated_mesh_is_ignored(
+    tmp_path: Path,
+) -> None:
+    # AC2, SCN002: an unrelated Static Mesh in the folder is neither bound nor reported.
+    world, folder, report = stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH),
+        part("desktop", "SM_Crate_Lid", SMALL_LOW, SMALL_HIGH),
+    )
+    unrelated = FbxNode("SM_Other", "SM_Other", SMALL_LOW, SMALL_HIGH, materials=("M_Crate_Extra",))
+    world.seed_static_mesh(DESKTOP_DEST + "/SM_Other", unrelated, transform=True)
+    world.reported_paths = _only_first_mesh
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert sorted(result["static_meshes"]) == ["SM_Crate", "SM_Crate_Lid"]
+    assert "M_Crate_Extra" not in result["materials"]
+    other = world.static_mesh(DESKTOP_DEST + "/SM_Other")
+    assert other.static_materials[0].material_interface is None
+    assert all("SM_Other" not in path for path, _, _ in world.build_writes)
+
+
+def test_a_rigged_desktop_import_creates_the_missing_physics_asset(tmp_path: Path) -> None:
+    # AC3, SCN003, FR3: the import makes the skeleton but no physics asset, so the code makes it.
+    dest = DESKTOP_DEST
+    world, folder, report = stage(
+        tmp_path, "desktop", part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH), armature=True
+    )
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["ok"] is True
+    assert world.create_physics_calls == [dest + "/SM_Crate"]
+    physics = world.assets[dest + "/SM_Crate_PhysicsAsset"]
+    assert world.assets[dest + "/SM_Crate"].get_editor_property("physics_asset") is physics
+    assert {dest + "/SM_Crate", dest + "/SM_Crate_PhysicsAsset"} <= set(world.saved)
+    skeletal = result["skeletal_meshes"]["SM_Crate"]
+    assert skeletal["skeleton"] == dest + "/SM_Crate_Skeleton"
+    assert skeletal["physics_asset"] == dest + "/SM_Crate_PhysicsAsset"
+
+
+def test_a_created_physics_asset_is_moved_into_the_destination_folder(tmp_path: Path) -> None:
+    # FR3: UE places the new physics asset beside the Desktop folder, so the code moves it to dest.
+    dest = DESKTOP_DEST
+    world, folder, report = stage(
+        tmp_path, "desktop", part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH), armature=True
+    )
+    world.physics_folder = dest + "/Physics"
+
+    run_import(world, folder, "desktop", report)
+
+    assert dest + "/Physics/SM_Crate_PhysicsAsset" not in world.assets
+    physics = world.assets[dest + "/SM_Crate_PhysicsAsset"]
+    assert world.assets[dest + "/SM_Crate"].get_editor_property("physics_asset") is physics
+
+
+def test_a_rigged_desktop_import_without_a_skeleton_fails_naming_it(tmp_path: Path) -> None:
+    # AC3: a missing skeleton fails the import, naming the skeleton path, before any physics asset.
+    world, folder, report = stage(
+        tmp_path, "desktop", part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH), armature=True
+    )
+    world.skeleton_on_import = False
+    code = build_import_code(str(folder), DESKTOP_DEST, "Crate", report)
+
+    result = run_import_code(code, world)
+
+    assert result["ok"] is False
+    assert result["error"] == (
+        "RuntimeError: skeleton missing after import: " + DESKTOP_DEST + "/SM_Crate_Skeleton"
+    )
+    assert world.create_physics_calls == []
+
+
+def test_a_rigged_mobile_import_reuses_the_desktop_skeleton_and_physics_asset(
+    tmp_path: Path,
+) -> None:
+    # AC4, SCN004: the Mobile import in the same editor reuses the Desktop rig and imports LOD1/2.
+    world, desktop_folder, desktop_report = stage(
+        tmp_path, "desktop", part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH), armature=True
+    )
+    run_import(world, desktop_folder, "desktop", desktop_report)
+    mobile_folder = tmp_path / "export" / "Props" / "Crate" / "Mobile"
+    mobile_folder.mkdir(parents=True)
+    for name in ("SM_Crate.fbx", "SM_Crate_LOD1.fbx", "SM_Crate_LOD2.fbx"):
+        (mobile_folder / name).write_bytes(b"")
+    mobile_node, _, _ = part("mobile", "SM_Crate", (-0.5, 0.1, 0.0), (0.5, 0.4, 1.0))
+    world.add_fbx(str(mobile_folder / "SM_Crate.fbx"), [mobile_node])
+
+    result = run_import(
+        world,
+        mobile_folder,
+        "mobile",
+        _report("mobile", _rigged_mobile_snapshot()),
+        skeleton_dest=DESKTOP_DEST,
+    )
+
+    assert result["ok"] is True
+    options = world.import_options[-1]
+    assert options.skeleton is world.assets[DESKTOP_DEST + "/SM_Crate_Skeleton"]
+    assert options.physics_asset is world.assets[DESKTOP_DEST + "/SM_Crate_PhysicsAsset"]
+    assert options.create_physics_asset is False
+    assert [(mesh, level) for mesh, level, _ in world.lod_imports] == [
+        (MOBILE_DEST + "/SM_Crate", 1),
+        (MOBILE_DEST + "/SM_Crate", 2),
+    ]
+    skeletal = result["skeletal_meshes"]["SM_Crate"]
+    assert skeletal["lod_count"] == 3
+    assert skeletal["physics_asset"] == DESKTOP_DEST + "/SM_Crate_PhysicsAsset"
+
+
+def test_a_reimport_reports_the_new_bounds_and_passes_the_pivot_check(tmp_path: Path) -> None:
+    # AC5, SCN005: the folder already holds SM_Crate at the old size, and the import replaces it.
+    dest = DESKTOP_DEST
+    world, folder, report = stage(
+        tmp_path, "desktop", part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH)
+    )
+    old = FbxNode("SM_Crate", "SM_Crate", SMALL_LOW, SMALL_HIGH)
+    world.seed_static_mesh(dest + "/SM_Crate", old, transform=True)
+    assert world.static_mesh(dest + "/SM_Crate").bounds == box(100.0)
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["static_meshes"]["SM_Crate"]["bounds"] == box(800.0)
+    assert world.saved[dest + "/SM_Crate"] == box(800.0)
+    check_pivots(report, result)
+
+
+def test_two_missing_parts_fail_the_import_and_name_both(tmp_path: Path) -> None:
+    # AC6, SCN006, FR5: the snapshot lists two parts the import never made, and both are named.
+    world, folder, report = stage(
+        tmp_path, "desktop", part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH)
+    )
+    for export in ("SM_Crate_Body", "SM_Crate_Lid"):
+        _, key, entry = part("desktop", export, SMALL_LOW, SMALL_HIGH)
+        report["snapshot"][key] = entry
+
+    with pytest.raises(PipelineError) as raised:
+        run_import(world, folder, "desktop", report)
+
+    assert raised.value.code == "import_ue.failed"
+    assert "no static mesh for snapshot part: SM_Crate_Body, SM_Crate_Lid" in raised.value.message
+
+
+def test_no_shipped_file_offers_the_interchange_cvar_as_a_workaround() -> None:
+    # AC9, SCN009, FR6: nothing the repository ships names the cvar, and neither does the code.
+    offenders = []
+    for directory in ("src", "skills", "docs", "scripts", "templates"):
+        root = _REPO_ROOT / directory
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if "__pycache__" in path.parts or not path.is_file():
+                continue
+            if _CVAR.encode() in path.read_bytes():
+                offenders.append(str(path.relative_to(_REPO_ROOT)))
+    assert offenders == []
+    code = build_import_code(VARIANT_DIR, DESKTOP_DEST, "Crate", _report())
+    rigged = build_import_code(
+        VARIANT_DIR, DESKTOP_DEST, "Crate", _report(snapshot=_rigged_desktop_snapshot())
+    )
+    assert "Interchange.FeatureFlags" not in code
+    assert "Interchange.FeatureFlags" not in rigged

@@ -1,16 +1,18 @@
-"""CLI: ``python -m nmg_game_dev.texture generate|status|seamless|run-job``.
+"""CLI: ``python -m nmg_game_dev.texture generate|status|seamless|sheet|run-job``.
 
 ``generate`` runs synchronously and prints the JSON result. ``status`` prints the availability
 of each backend. ``seamless`` makes an existing PNG tile (#147): it writes the ``make_seamless``
-result in place or to ``--out`` and prints ``{"path", "seamless"}``. ``run-job`` is the internal
-entry the detached job process runs. On ``TextureGenError`` the CLI prints ``ERROR [<code>]: …``
-and ``Remediation: …`` to stderr and exits 1. Argument errors exit 2.
+result in place or to ``--out`` and prints ``{"path", "seamless"}``. ``sheet`` rebuilds the root
+contact sheet from the texture sets and prints ``{"pages", "cells", "skipped"}`` (#152). ``run-job``
+is the internal entry the detached job process runs. On ``TextureGenError`` the CLI prints
+``ERROR [<code>]: …`` and ``Remediation: …`` to stderr and exits 1. Argument errors exit 2.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -19,8 +21,9 @@ from typing import Any
 import numpy as np
 from PIL import Image as PILImage
 
-from nmg_game_dev.texture import generate, jobs
+from nmg_game_dev.texture import contact_sheet, generate, jobs
 from nmg_game_dev.texture.errors import TextureGenError
+from nmg_game_dev.texture.paths import output_root
 from nmg_game_dev.texture.seamless import is_seamless, make_seamless
 
 _SEAMLESS_MODES = ("L", "RGB", "RGBA")
@@ -129,6 +132,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--out", type=Path, default=None, help="Write here instead of over the input PNG."
     )
 
+    sheet_cmd = sub.add_parser(
+        "sheet",
+        help="Rebuild contact_sheet_NNN.png at the output root from every texture set.",
+    )
+    sheet_cmd.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Output root holding the texture sets. Default: the project's output folder.",
+    )
+
     run_job = sub.add_parser("run-job", help="Internal: run a started job to completion.")
     run_job.add_argument("job_dir", type=Path)
     return parser
@@ -145,6 +159,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(generate.backend_status(), indent=2, sort_keys=True))
         elif args.command == "seamless":
             print(json.dumps(_make_seamless_file(args.png, args.out), indent=2, sort_keys=True))
+        elif args.command == "sheet":
+            root = args.root if args.root is not None else output_root(os.environ, Path.cwd())
+            sheet = contact_sheet.build(root, require_sets=True)
+            print(json.dumps(sheet.as_json(), indent=2, sort_keys=True))
         else:
             final = jobs.run_job(args.job_dir)
             print(json.dumps(final, indent=2, sort_keys=True))

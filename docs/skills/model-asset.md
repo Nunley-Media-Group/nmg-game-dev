@@ -34,7 +34,9 @@ routing above does not apply to them.
 5. Inspect with `inspect_asset`, and render the review views with `render_review`. Read the renders
    with `look`.
 6. Fix every blocking finding, then repeat step 5 until `passed` is true.
-7. Add detail and materials, and re-run the inspection after each pass.
+7. Add detail and materials, and re-run the inspection after each pass. On an `environment_piece`,
+   set `nmg_trim_atlas` to `True` on each trim-atlas material, so its slots are exempt from the
+   per-slot texel density check (`docs/asset-contract.md` §6).
 8. Present the final renders and the inspection summary, then run `/finalize-asset`.
 
 Skill definition: `skills/model-asset/SKILL.md`. Blender API reference for the loop's calls:
