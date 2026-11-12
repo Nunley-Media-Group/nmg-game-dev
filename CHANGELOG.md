@@ -6,9 +6,16 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-12
+
 ### Added
 
 - Let one finalized asset declare several material variants (#148)
+
+### Fixed
+
+- Rebuild the committed M_NmgORM master material headlessly so it carries the Tint parameter (#204)
+
 ## [0.22.0] - 2026-11-12
 
 ### Changed
