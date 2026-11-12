@@ -19,9 +19,9 @@ editor, and the result is read from the NMG_RESULT line the UE code prints.
 
 ``--headless`` needs no running editor. It builds ``DogfoodEditor`` with ``Build.sh``, then runs
 the same graph code in a separate ``UnrealEditor-Cmd`` process that opens fixtures/dogfood.uproject
-with the MCP plugins disabled, so the process binds no MCP port. Headless mode never constructs
-UnrealMcpClient or opens a connection. ``UE_ROOT`` overrides the engine install (default
-/Users/Shared/Epic Games/UE_5.8).
+with the MCP plugins disabled and tracing off (``-notrace``), so the process binds no MCP port and
+forks no trace server. Headless mode never constructs UnrealMcpClient or opens a connection.
+``UE_ROOT`` overrides the engine install (default /Users/Shared/Epic Games/UE_5.8).
 
 Exit codes: 0 built and saved. 1 UE reported an error, or printed no result line. 2 the Unreal MCP
 endpoint is unreachable (MCP mode). 3 a headless prerequisite is missing, or the DogfoodEditor
@@ -254,6 +254,7 @@ def _build_headless() -> int:
         log = Path(scratch) / "UnrealEditor-Cmd.log"
         # The log is a file, not a pipe. An engine helper (UnrealTraceServer) can outlive the editor
         # and keep an inherited pipe open, which would block a captured run until it closes.
+        # -notrace stops the editor from forking that helper; the wait ends on the editor's exit.
         with log.open("w", encoding="utf-8", errors="replace") as sink:
             run = subprocess.run(
                 [
@@ -262,6 +263,7 @@ def _build_headless() -> int:
                     f"-ExecutePythonScript={script}",
                     f"-DisablePlugins={DISABLED_PLUGINS}",
                     "-EnablePlugins=PythonScriptPlugin",
+                    "-notrace",
                     "-unattended",
                     "-nopause",
                     "-nosplash",

@@ -11,11 +11,15 @@ executing it. The headless tests run the builder against fake ``Build.sh`` and
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib.util
 import json
+import os
+import signal
 import socket
 import struct
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -449,6 +453,7 @@ def make_fake_ue(
     editor_exit: int = 0,
     editor_output: str = SUCCESS_LINE,
     with_editor: bool = True,
+    grandchild_pid_file: Path | None = None,
 ) -> FakeUe:
     fake = FakeUe(
         root=tmp_path / "UE_5.8",
@@ -463,7 +468,12 @@ def make_fake_ue(
     )
     _write_stub(fake.root / "Engine" / "Build" / "BatchFiles" / "Mac" / "Build.sh", build_body)
     if with_editor:
-        editor_body = (
+        # A grandchild that inherits the editor's output and outlives it, as UnrealTraceServer does
+        # after its sponsor exits. Its pid is written so the test can stop it.
+        spawn = ""
+        if grandchild_pid_file is not None:
+            spawn = f'(sleep 300 & echo $! > "{grandchild_pid_file}")\n'
+        editor_body = spawn + (
             _EDITOR_STUB.replace("__LOG__", str(fake.editor_log))
             .replace("__COPY__", str(fake.script_copy))
             .replace("__OUTPUT__", str(output))
@@ -520,6 +530,7 @@ def test_headless_builds_dogfood_then_runs_the_graph_in_a_separate_editor(
     assert Path(editor[0]).is_absolute()
     assert "-DisablePlugins=ModelContextProtocol,EditorToolset,VibeUE" in editor
     assert "-EnablePlugins=PythonScriptPlugin" in editor
+    assert "-notrace" in editor
     for flag in ("-unattended", "-nopause", "-nosplash", "-nullrhi", "-stdout"):
         assert flag in editor
     assert "-FullStdOutLogOutput" in editor
@@ -595,6 +606,45 @@ def test_failed_dogfood_build_exits_3_and_never_runs_the_editor(
 
     assert "[master_material.build_failed] Build.sh exited 2" in capsys.readouterr().err
     assert not fake.editor_log.exists()
+
+
+def _is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def test_headless_returns_when_an_engine_grandchild_keeps_the_output_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    grandchild_pid = tmp_path / "grandchild.pid"
+    fake = make_fake_ue(tmp_path, grandchild_pid_file=grandchild_pid)
+    monkeypatch.setenv("UE_ROOT", str(fake.root))
+    builder = load_builder()
+    guard_network(monkeypatch, builder)
+    exit_codes: list[int] = []
+    # Run on a thread so a runner that waits for the grandchild fails this test instead of hanging.
+    runner = threading.Thread(
+        target=lambda: exit_codes.append(builder.main(["--headless"])), daemon=True
+    )
+
+    runner.start()
+    runner.join(timeout=30)
+    grandchild = (
+        int(grandchild_pid.read_text(encoding="utf-8")) if grandchild_pid.exists() else None
+    )
+    try:
+        assert not runner.is_alive(), "headless mode waited on a grandchild that kept output open"
+        assert exit_codes == [0]
+        # The premise: the grandchild was still alive, holding the output, when the runner returned.
+        assert grandchild is not None and _is_alive(grandchild)
+    finally:
+        if grandchild is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(grandchild, signal.SIGKILL)
+    assert "Built /nmg-game-dev/Materials/M_NmgORM" in capsys.readouterr().out
 
 
 def test_headless_and_url_are_mutually_exclusive() -> None:
