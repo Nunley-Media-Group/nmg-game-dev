@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 4bab2fb272b35f2aaffe3feec94ad42677d78989
+**Verification head**: 10d3520de9888dced98fd332fd6a7241d211bec2
 
 ---
 
@@ -24,7 +24,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 5 (0 Critical, 0 High, 2 Medium, 3 Low), none blocking
 
-All ten acceptance criteria and all nine tasks are met at `4bab2fb`. That commit merges `origin/main` at `50f43f3` (#191, #195, #196, #197) into the #148 branch, so the branch now contains the current `origin/main`. This run verified the merged head again from scratch. The feature:
+All ten acceptance criteria and all nine tasks are met at `10d3520`. Since the last verified head (`4bab2fb`), the branch has merged `origin/main` three times (`35a0337`, `0f0d760`, `10d3520`). Those merges bring in #192, #201, #183, #198 and #199, so the branch now contains the current `origin/main` at `9337c95`. This run verified the merged head again from scratch. The feature:
 
 - Finds `<Name>.material-variants.json` beside the `.blend`, or takes an explicit path.
 - Checks the declaration against eight `material_variant.*` contract rules.
@@ -35,11 +35,17 @@ All ten acceptance criteria and all nine tasks are met at `4bab2fb`. That commit
 - Adds the declaration to the validate and export cache keys.
 - Documents all of the above.
 
-The merge changed `import_asset.py` on main's side: #196 now resolves expected meshes by name in `dest`, because UE 5.8 lists only the first mesh of a multi-part FBX on the import task. The #148 functions `_bind_material_variants` and `_delete_stale_variants` still run after `_bind_materials` in `_run`. The #148 tests pass on the merged `tests/unit/fake_unreal.py`.
+The newly merged changes overlap #148 in five places. Each one was checked:
+
+- `bake_core/rewire.py` (#198): the merge adds `_free_contract_name`, which renames an image that already holds a contract name to `<name>_Src` before the baked image takes that name. It does not change `part_names` or the merge condition that #148's `_material_variant_checks` reuses, so the predicted parts still match the bake.
+- `contract_core/validate.py` (#198, #199): the merge adds the `naming.mesh_data` check and a keyword-only `progress` callback. `material_variants_path` and `_material_variant_checks` are unchanged, and the declaration findings still survive `authored=True`.
+- `finalize_core/steps.py` (#199): `_validate` now passes `progress=report_progress` next to `material_variants_path`. `_export` and `_sidecar_payload` are unchanged.
+- `contract_core/report.py`: the merge adds the `naming.mesh_data` rule and rewords `geometry.normals`. The `material_variant.*` remediations are intact.
+- Finalize MCP (#183): `import_audio` is added beside `list_material_variants` in `mcp_tools.py`, `server.py` and `tools.json`. `gate-mcp-schema` confirms that the tools match `tools.json`, and `plugin.session-smoke` lists the finalize server with 5 tools.
 
 All 11 registered validations are recorded at this exact head and spec identity, and coverage is complete. Ten passed and one does not apply (`gate-ship-smoke`).
 
-This review found one new Medium issue: deleting the whole declaration file leaves stale variant PNGs in the export folders (see Remaining Issues). This verify publication may write only this report, so the issue is recorded for a follow-up rather than fixed here.
+This review found no new issues. The Medium and Low items from the previous verification still apply and are carried forward under Remaining Issues. This verify publication may write only this report, so none of them is fixed here.
 
 ---
 
@@ -63,8 +69,8 @@ This review found one new Medium issue: deleting the whole declaration file leav
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/148.json` (generatedAt `2026-11-12T03:38:41.932Z`, base ref `main`)
-- Identity: head `4bab2fb272b35f2aaffe3feec94ad42677d78989`, clean tree, specHash `sha256:e63bc77a…7164f`, steeringHash `sha256:795f9897…5c0e4`, controller run id `a9d9c51b-e50a-4395-b4f8-db9971ed200e`
+- Artifact: `.nmg-sdlc/verification/148.json` (generatedAt `2026-11-12T05:08:44.158Z`, base ref `main`)
+- Identity: head `10d3520de9888dced98fd332fd6a7241d211bec2`, clean tree, specHash `sha256:e63bc77a…7164f`, steeringHash `sha256:754f3665…0a584`, controller run id `ae3e6bba-0370-442c-b466-f833e34daa1c`
 - Coverage: declared 11, recorded 11, complete `true`; nothing missing, duplicated, or unknown
 - Ceiling: `null`, so the steering evidence does not cap the status
 - This worker ran `sdlc-verify-steering.mjs` fresh at the merged head under this controller run. `sdlc-finalize-verification.mjs` checks the artifact's identity again at publication.
@@ -102,7 +108,7 @@ This review found one new Medium issue: deleting the whole declaration file leav
 | T002 | Export variant textures and sidecar | Complete | `variants_core/material_variants.py` and `finalize_core/steps.py`. The sidecar payload is built in `steps.py` rather than `sidecars.py`; the behaviour is the same |
 | T003 | Host request and cache keys | Complete | `request.py`, `service.py`, `steps.py` (`material_variants_fingerprint`, `_STEP_VERSION = "4"`), the CLI, the MCP server, and `tools.json` |
 | T004 | Tint on M_NmgORM | Complete | The builder is updated and proven with a fake `unreal` module. No live editor was used |
-| T005 | Import and stale deletion | Complete | `import_asset.py` `_bind_material_variants` and `_delete_stale_variants`; `engine.py` `_sidecar_material_variants`. Both still run after #196's merged mesh resolution |
+| T005 | Import and stale deletion | Complete | `import_asset.py` `_bind_material_variants` and `_delete_stale_variants`; `engine.py` `_sidecar_material_variants`. Both still run after #196's mesh resolution, and the later merges do not touch `import_asset.py` |
 | T006 | List from Unreal | Complete | `unreal/material_variants.py`, the MCP tool, and the CLI command |
 | T007 | Documentation | Complete | Asset contract §4, SKILL.md, and `docs/mcp/finalize.md`. The §6 budget table is unchanged |
 | T008 | Blender tests | Complete | `tests/blender/test_material_variants.py` and `contract_fixtures.py`, run by `gate-blender-headless` |
@@ -180,8 +186,8 @@ Host code never imports the add-on. The add-on's `utils/master_material.py` is p
 ### Coverage Summary
 
 - Feature file: 10 scenarios, each mapped to pytest tests named for the scenario
-- Unit and BDD suite (`repository.tests`): 1165 passed, 9 skipped
-- Headless Blender suite (`gate-blender-headless`): 270 passed, including `tests/blender/test_material_variants.py`
+- Unit and BDD suite (`repository.tests`): 1263 passed, 10 skipped
+- Headless Blender suite (`gate-blender-headless`): 307 passed, 4 skipped, including `tests/blender/test_material_variants.py`
 - UE master-material builder: proven against an in-memory fake `unreal` module, with no live editor
 
 ---
@@ -199,17 +205,17 @@ Host code never imports the add-on. The add-on's `utils/master_material.py` is p
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1165 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1263 passed, 10 skipped |
 | `repository.lint` | Pass | `ruff check .`: All checks passed! |
-| `repository.format` | Pass | `ruff format --check .`: files already formatted |
-| `repository.types` | Pass | `mypy src tests`: no issues found in 212 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 270 passed |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
-| `gate-mcp-schema` | Pass | `scripts/validate-mcp-tools.py` exited 0 |
+| `repository.format` | Pass | `ruff format --check .`: 359 files already formatted |
+| `repository.types` | Pass | `mypy src tests`: no issues found in 231 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 307 passed, 4 skipped |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` (Result: Succeeded) |
+| `gate-mcp-schema` | Pass | `scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server |
 | `gate-shellcheck` | Pass | `shellcheck -S style` is clean on every `scripts/**.sh` |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
-| `plugin.validate` | Pass | `claude plugin validate .` exited 0 |
-| `plugin.session-smoke` | Pass | Plugin loaded with `--plugin-dir`; `nmg-game-dev:blender` connected |
+| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed with warnings (directory-profile notes only) |
+| `plugin.session-smoke` | Pass | Plugin loaded with `--plugin-dir`. The required `nmg-game-dev:blender` server connected, and so did finalize (5 tools), meshy and texture-gen. Unreal is not in `expectConnected` |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
 
@@ -233,7 +239,7 @@ None.
 
 | Severity | Category | Location | Issue | Reason Not Fixed |
 |----------|----------|----------|-------|------------------|
-| Medium | Architecture (shipped content) | `plugins/nmg-game-dev-ue-plugin/Content/Materials/M_NmgORM.uasset` | The shipped master material has no `Tint` parameter until someone rebuilds it with `build_master_material.py` in a live UE 5.8 editor. Until then, a parameter-only variant looks like the main material. The import still succeeds and names the missing parameter in `warnings` | SDLC stages never touch the live editor (project rule and T004), and the spec chose fake-module proof for the builder. Needs a follow-up issue |
+| Medium | Architecture (shipped content) | `plugins/nmg-game-dev-ue-plugin/Content/Materials/M_NmgORM.uasset` | The shipped master material has no `Tint` parameter until someone rebuilds it with `build_master_material.py` in a live UE 5.8 editor. Until then, a parameter-only variant looks like the main material. The import still succeeds and names the missing parameter in `warnings` | SDLC stages never touch the live editor (project rule and T004), and the spec chose fake-module proof for the builder. Tracked by #204, whose approved spec rebuilds the asset headlessly |
 | Medium | Correctness (stale cleanup) | `plugins/nmg-game-dev-blender-addon/finalize_core/steps.py` `_export`; `variants_core/material_variants.py` | `T_<Name>_*_BC_*.png` is cleared only inside `export_material_variants`, which runs only when the report has `material_variants`. If an author deletes the whole `<Name>.material-variants.json` (instead of removing entries), the old variant PNGs stay in the Desktop and Mobile export folders, and `_import_textures` imports them again. This contradicts the asset contract's stale-deletion wording for that path. AC9's scenario (removing one entry) works | Outside the AC scope. This verify publication may write only this report. Fix: call the clearing step on every export, and add a Blender test for deleting the whole file |
 
 ### Low Priority
@@ -261,7 +267,7 @@ None.
 - None.
 
 ### Short Term (Should)
-- [ ] Follow-up issue: rebuild `M_NmgORM.uasset` with `Tint` in a live UE 5.8 editor and commit it.
+- [ ] Rebuild `M_NmgORM.uasset` with `Tint` and commit it. Spec #204 (approved on main) covers this with a headless rebuild.
 - [ ] Follow-up issue: clear stale `T_<Name>_*_BC_*.png` on every export, so deleting the declaration file removes variant textures.
 - [ ] Amend the `import_variant` row in `design.md` to show the list shape and `warnings`.
 
@@ -275,14 +281,15 @@ None.
 | File | Issues | Notes |
 |------|--------|-------|
 | `plugins/nmg-game-dev-blender-addon/contract_core/material_variants.py` | 0 | Rules and declaration parsing |
-| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Part prediction and merge reuse |
+| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Part prediction and merge reuse; checked again after the merged #198 and #199 changes |
 | `plugins/nmg-game-dev-blender-addon/contract_core/report.py` | 0 | Rule remediations |
 | `plugins/nmg-game-dev-blender-addon/finalize_core/steps.py` | 1 | Medium: stale PNGs stay when the declaration file is deleted |
 | `plugins/nmg-game-dev-blender-addon/variants_core/material_variants.py` | 0 | Texture export and stale clearing |
 | `plugins/nmg-game-dev-blender-addon/utils/master_material.py` | 0 | Parameter table |
 | `src/nmg_game_dev/finalize/service.py`, `mcp_tools.py`, `__main__.py` | 0 | Discovery, MCP, CLI |
 | `src/nmg_game_dev/pipeline/request.py`, `steps.py`, `engine.py` | 1 | Low: unstructured sidecar decode error |
-| `src/nmg_game_dev/unreal/import_asset.py` | 0 | Variant MIs, tags, stale deletion, and the result list; ordering checked after #196's merged mesh resolution |
+| `src/nmg_game_dev/unreal/import_asset.py` | 0 | Variant MIs, tags, stale deletion, and the result list; ordering checked after #196's mesh resolution |
+| `plugins/nmg-game-dev-blender-addon/bake_core/rewire.py` | 0 | Merged #198 `_free_contract_name`; `part_names` and the merge condition are unchanged |
 | `src/nmg_game_dev/unreal/material_variants.py` | 0 | Tag-based listing |
 | `mcp-servers/finalize/src/finalize_mcp/server.py`, `tools.json` | 0 | New tool and argument |
 | `scripts/unreal/build_master_material.py` | 1 | Medium: the shipped asset is not rebuilt |
@@ -294,4 +301,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion, functional requirement, and task passes, and all registered gates are recorded green at the exact merged head `4bab2fb`. The branch contains the current `origin/main`. The two Medium items are a live-editor content rebuild and a stale-cleanup edge case outside the ACs. Both belong in follow-up issues, and neither blocks delivery.
+Every acceptance criterion, functional requirement, and task passes, and all registered gates are recorded green at the exact merged head `10d3520`. The branch contains the current `origin/main` (`9337c95`), and the merged #192, #201, #183, #198 and #199 changes do not regress any #148 behaviour. The two Medium items are a content rebuild (#204) and a stale-cleanup edge case outside the ACs. Neither blocks delivery.
