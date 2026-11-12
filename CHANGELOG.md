@@ -6,11 +6,13 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
-## [0.22.0] - 2026-11-11
-
 ### Fixed
 
 - Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
+
+### Changed
+
+- Add a contact sheet for reviewing generated tiling textures (#152)
 
 ## [0.21.4] - 2026-11-12
 
@@ -22,10 +24,6 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Fixed
 - Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
 - Fix plugin.session-smoke failing when the Herdr window is too short to show every /mcp server (#193)
-
-### Changed
-
-- Add a contact sheet for reviewing generated tiling textures (#152)
 
 ## [0.21.3] - 2026-11-11
 
