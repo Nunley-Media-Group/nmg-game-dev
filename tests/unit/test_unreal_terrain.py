@@ -28,7 +28,7 @@ from nmg_game_dev.unreal.terrain import (
     landscape_transform,
     ue_samples,
 )
-from tests.unit.fake_unreal import MAIN_MAP, FakeEditor, run_generated_code
+from tests.unit.fake_unreal import MAIN_MAP, FakeWorld, run_generated_code
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _HEIGHTFIELD_PATH = (
@@ -100,7 +100,7 @@ def _write_variant(folder: Path, layers: list[str] | None = None) -> Path:
 class EditorClient:
     """An UnrealPythonClient that runs the UE code against the fake editor."""
 
-    def __init__(self, editor: FakeEditor) -> None:
+    def __init__(self, editor: FakeWorld) -> None:
         self.editor = editor
         self.codes: list[str] = []
 
@@ -111,7 +111,7 @@ class EditorClient:
 
 def _run(
     tmp_path: Path,
-    editor: FakeEditor,
+    editor: FakeWorld,
     *,
     dest: str = DESKTOP_DEST,
     sidecar: dict[str, Any] | None = None,
@@ -129,13 +129,13 @@ def _truth_for(sidecar: dict[str, Any]) -> dict[tuple[float, float], float]:
     return {(point[0], point[1]): point[2] for point in ue_samples(sidecar["samples"])}
 
 
-def _editor(sidecar: dict[str, Any] | None = None) -> FakeEditor:
-    editor = FakeEditor()
+def _editor(sidecar: dict[str, Any] | None = None) -> FakeWorld:
+    editor = FakeWorld()
     editor.sampled_cm = _truth_for(sidecar or _sidecar())
     return editor
 
 
-def _non_save_calls(editor: FakeEditor) -> list[str]:
+def _non_save_calls(editor: FakeWorld) -> list[str]:
     return [call for call in editor.calls if not call.startswith("save_asset:")]
 
 
@@ -355,7 +355,7 @@ def test_an_existing_level_is_replaced(tmp_path: Path) -> None:
     assert result["ok"] is True, result
     calls = _non_save_calls(editor)
     assert calls.index(f"delete_asset:{LEVEL}") < calls.index(f"new_level:{LEVEL}")
-    assert editor.saved == [LEVEL]
+    assert editor.saved_levels == [LEVEL]
     assert editor.open_level == MAIN_MAP
 
 
@@ -367,7 +367,7 @@ def test_the_previous_level_is_restored_after_a_failure(tmp_path: Path) -> None:
 
     assert result["ok"] is False
     assert result["error"] == "RuntimeError: fake failure in import_landscape"
-    assert editor.saved == [LEVEL]
+    assert editor.saved_levels == [LEVEL]
     assert editor.loaded[-1] == MAIN_MAP
     assert editor.open_level == MAIN_MAP
 

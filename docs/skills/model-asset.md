@@ -34,7 +34,9 @@ routing above does not apply to them.
 5. Inspect with `inspect_asset`, and render the review views with `render_review`. Read the renders
    with `look`.
 6. Fix every blocking finding, then repeat step 5 until `passed` is true.
-7. Add detail and materials, and re-run the inspection after each pass.
+7. Add detail and materials, and re-run the inspection after each pass. On an `environment_piece`,
+   set `nmg_trim_atlas` to `True` on each trim-atlas material, so its slots are exempt from the
+   per-slot texel density check (`docs/asset-contract.md` §6).
 8. Present the final renders and the inspection summary, then run `/finalize-asset`.
 
 Skill definition: `skills/model-asset/SKILL.md`. Blender API reference for the loop's calls:
@@ -91,7 +93,7 @@ Each entry in `parts` carries:
 | `bounds` | `min` and `max` corners of the part's world-space bounds, in metres, rounded to 6 decimals |
 | `tris` | Triangles in the evaluated mesh (modifiers applied) |
 | `non_manifold_edges` | Edges that do not have exactly two faces, including boundary and wire edges |
-| `geometry` | The contract geometry findings for the part (see below) |
+| `geometry` | The contract geometry findings for the part, each with `count` and `samples` (see below) |
 
 Each entry in `findings` carries `rule`, `blocking`, `parts`, `message`, and `remediation`. Some
 rules add fields:
@@ -105,8 +107,31 @@ rules add fields:
 
 The per-part `geometry` entries are the contract checks: `geometry.loose` (loose vertices),
 `geometry.zero_area` (zero-area faces), `geometry.duplicates` (duplicate vertices), and
-`geometry.normals` (faces whose normals are inconsistent or inward). They are reported for reference
-and never block here. `docs/asset-contract.md` and `/finalize-asset` own them.
+`geometry.normals`. `geometry.normals` judges each connected island on its own. A closed part must
+have every face pointing outward. An open sheet (an island with boundary edges, such as a floor, roof
+plane, or decal) is checked only for consistent winding between neighbouring faces, so it passes
+wherever it sits. They are reported for reference and never block here. `docs/asset-contract.md` and
+`/finalize-asset` own them.
+
+For an `environment_piece` built from many primitives, follow the rules in `docs/asset-contract.md`
+section 3: open sheets are wound consistently and face the viewer, closed parts face outward, and
+touching primitives either merge by distance so they share vertices or stay about 0.6 mm apart.
+Vertices that coincide without merging raise `geometry.duplicates`.
+
+Each geometry entry carries `count`, the total number of offending elements, and `samples`, a list
+of up to 5 located elements. The samples are the lowest element indices, so the same asset always
+gives the same samples. Each sample has:
+
+- `index`: the vertex index (`geometry.loose`, `geometry.duplicates`) or the face index
+  (`geometry.zero_area`, `geometry.normals`).
+- `position`: the world-space position as three floats rounded to 6 decimals. It is the vertex
+  position, or the face center for a face.
+- `vertex_groups`: the sorted names of the vertex groups the element belongs to. A face lists the
+  groups of its vertices, and a duplicate lists the groups of both vertices in the pair. The list is
+  empty when the object has no vertex groups.
+- `coincides_with`: duplicates only. The index of the vertex the duplicate coincides with.
+
+The entry's `message` keeps the count and names the first sample's position.
 
 ## Blocking rules
 

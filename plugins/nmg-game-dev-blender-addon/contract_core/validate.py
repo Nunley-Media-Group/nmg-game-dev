@@ -8,20 +8,23 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from typing import Any
 
 import bpy
 from mathutils import Vector
 
 from ..utils.budgets import BudgetOverrideError, resolve_budget
+from . import texel
 from .geometry import geometry_findings
 from .report import ContractError, build_report, finding
-from .terrain import TERRAIN_CLASS, TEXEL_DENSITY_MIN, mesh_areas, terrain_check
+from .terrain import TERRAIN_CLASS, terrain_check
 from .uv import uv_findings
 
 LOCATION_TOLERANCE = 1e-5
 ANGLE_TOLERANCE = 1e-5
 PIVOT_TOLERANCE = 1e-3
+TEXEL_DENSITY_MIN: dict[str, float] = {"desktop": texel.DESKTOP_MIN, "mobile": texel.MOBILE_MIN}
 ALLOWED_NODE_TYPES = frozenset(
     {
         "TEX_IMAGE",
@@ -59,11 +62,15 @@ def validate_asset(
     budgets_path: str | None = None,
     *,
     authored: bool = False,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """Validate <collection> (Desktop) and <collection>_Mobile when it exists.
 
     With ``authored=True`` (the finalize validate step, #69), material and texture rules are
     skipped, because the bake step produces them. The export gate runs the full contract.
+
+    With ``progress``, it is called before each mesh check with the share of checks already done
+    and a message naming the variant, check, and object (#133). The report does not depend on it.
     """
     budgets = _budgets(asset_class, budgets_path)
     bpy.context.view_layer.update()
@@ -81,6 +88,14 @@ def validate_asset(
     if mobile is not None:
         variants.append(("mobile", mobile))
 
+    mesh_count = sum(
+        1
+        for _, variant_collection in variants
+        for obj in variant_collection.all_objects
+        if obj.type == "MESH"
+    )
+    checks_per_mesh = 3 if asset_class == "environment_piece" else 2
+    units = _CheckUnits(mesh_count * checks_per_mesh, progress)
     findings = _unit_findings()
     snapshot: dict[str, Any] = {}
     objects_by_variant: dict[str, list[bpy.types.Object]] = {}
@@ -89,12 +104,24 @@ def validate_asset(
         objects = sorted(variant_collection.all_objects, key=lambda obj: obj.name)
         objects_by_variant[variant] = objects
         tris: dict[str, int] = {}
+        texel_entries: dict[str, list[dict[str, Any]]] = {}
         findings += _structure_findings(collection, variant, objects, root_name)
+        findings += _shared_mesh_findings(objects)
         findings += _mesh_findings(
-            collection, variant, asset_class, objects, budgets[variant], root_name, tris
+            collection,
+            variant,
+            asset_class,
+            objects,
+            budgets[variant],
+            root_name,
+            tris,
+            texel_entries,
+            units,
         )
         for obj in objects:
             snapshot[obj.name] = object_snapshot(obj, variant, tris.get(obj.name, 0))
+            if obj.name in texel_entries:
+                snapshot[obj.name]["texel"] = texel_entries[obj.name]
     if mobile is not None:
         findings += _variant_name_findings(
             objects_by_variant["desktop"], objects_by_variant["mobile"]
@@ -150,6 +177,7 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
     return {
         "variant": variant,
         "type": obj.type,
+        "mesh": obj.data.name if is_mesh else None,
         "parent": obj.parent.name if obj.parent is not None else None,
         "tris": tris,
         "dimensions": _rounded(obj.dimensions),
@@ -168,9 +196,10 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
 
 def _budgets(asset_class: str, budgets_path: str | None) -> dict[str, dict[str, int]]:
     """Desktop and Mobile budgets with nmg-budgets.json overrides applied to each variant."""
+    path = budgets_path or None
     try:
-        desktop = resolve_budget(asset_class, budgets_path or None, "desktop")
-        mobile = resolve_budget(asset_class, budgets_path or None)
+        desktop = resolve_budget(asset_class, path, "desktop")
+        mobile = resolve_budget(asset_class, path, "mobile")
     except BudgetOverrideError as error:
         raise ContractError(error.code, error.message, error.remediation) from error
     return {"desktop": desktop, "mobile": mobile}
@@ -261,6 +290,31 @@ def _structure_findings(
     return findings
 
 
+def _shared_mesh_findings(objects: list[bpy.types.Object]) -> list[dict[str, str]]:
+    """One naming.mesh_data finding per mesh datablock that two or more mesh objects use (#142).
+
+    Export names each mesh after its object, so a datablock shared by two parts cannot carry both.
+    """
+    users: dict[int, list[bpy.types.Object]] = {}
+    for obj in objects:
+        if obj.type == "MESH":
+            users.setdefault(obj.data.as_pointer(), []).append(obj)
+    findings: list[dict[str, str]] = []
+    for group in users.values():
+        if len(group) < 2:
+            continue
+        mesh_name = group[0].data.name
+        parts = ", ".join(obj.name for obj in group)
+        findings.append(
+            finding(
+                "naming.mesh_data",
+                mesh_name,
+                f"{mesh_name} is shared by {parts}; each part needs its own mesh data.",
+            )
+        )
+    return findings
+
+
 def _basis_problems(obj: bpy.types.Object, check_location: bool) -> list[str]:
     location, rotation, scale = obj.matrix_basis.decompose()
     problems: list[str] = []
@@ -298,6 +352,24 @@ def _pivot_findings(root: bpy.types.Object, meshes: list[bpy.types.Object]) -> l
     ]
 
 
+class _CheckUnits:
+    """Reports validate_asset progress one mesh check at a time (#133).
+
+    total is the number of checks validate_asset will run. Each start() call reports the share
+    of checks already started, with a message that names the variant, check, and object.
+    """
+
+    def __init__(self, total: int, progress: Callable[[float, str], None] | None) -> None:
+        self._total = total
+        self._started = 0
+        self._progress = progress
+
+    def start(self, variant: str, check: str, obj_name: str) -> None:
+        if self._progress is not None and self._total:
+            self._progress(self._started / self._total, f"{variant}: {check} check on {obj_name}")
+        self._started += 1
+
+
 def _mesh_findings(
     collection: str,
     variant: str,
@@ -306,20 +378,28 @@ def _mesh_findings(
     budget: dict[str, int],
     root_name: str,
     tris_out: dict[str, int],
-) -> list[dict[str, str]]:
-    findings: list[dict[str, str]] = []
+    texel_out: dict[str, list[dict[str, Any]]],
+    units: _CheckUnits,
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
     meshes = [obj for obj in objects if obj.type == "MESH"]
     texel_check = asset_class == "environment_piece"
+    uv_check = "UV map" if texel_check else "UV overlap"
     materials: dict[str, bpy.types.Material] = {}
     images: dict[str, bpy.types.Image] = {}
     for obj in meshes:
-        copy = _evaluated_copy(obj)
+        copy = texel.evaluated_copy(obj)
         try:
             tris_out[obj.name] = triangle_count(copy)
-            findings += geometry_findings(obj.name, copy)
+            units.start(variant, "geometry", obj.name)
+            findings += geometry_findings(
+                obj.name, copy, obj.matrix_world, [group.name for group in obj.vertex_groups]
+            )
+            units.start(variant, uv_check, obj.name)
             findings += uv_findings(obj.name, copy, check_overlap=not texel_check)
             if texel_check:
-                findings += _texel_findings(obj, copy, variant)
+                units.start(variant, "texel density", obj.name)
+                findings += _texel_findings(obj, copy, variant, texel_out)
         finally:
             bpy.data.meshes.remove(copy)
         for material in _materials_of(obj):
@@ -427,25 +507,45 @@ def _image_findings(collection: str, image: bpy.types.Image) -> list[dict[str, s
 
 
 def _texel_findings(
-    obj: bpy.types.Object, copy: bpy.types.Mesh, variant: str
+    obj: bpy.types.Object,
+    copy: bpy.types.Mesh,
+    variant: str,
+    entries_out: dict[str, list[dict[str, Any]]],
 ) -> list[dict[str, str]]:
-    uv_area, world_area = mesh_areas(copy)
-    images = [image for material in _materials_of(obj) for image in _images_of(material)]
-    if uv_area <= 0 or world_area <= 0 or not images:
-        return []
-    max_px = max(max(image.size) for image in images)
-    density = max_px * math.sqrt(uv_area / world_area)
+    """Measure each material slot on its own; report the measured slots below the minimum.
+
+    Trim-atlas and flat-colour slots are exempt, and the report still lists them with the reason.
+    A slot's pixel size is the largest image on its material, as validation has always measured.
+    """
     minimum = TEXEL_DENSITY_MIN[variant]
-    if density >= minimum:
-        return []
-    return [
-        finding(
-            "texel.density",
-            obj.name,
-            f"{obj.name} reaches {density:.0f} px/m; environment pieces need at least "
-            f"{minimum:.0f} px/m on {variant}.",
-        )
-    ]
+    findings: list[dict[str, str]] = []
+    entries: list[dict[str, Any]] = []
+    for slot in texel.slot_areas(obj, copy):
+        px = _largest_image_px(slot.material)
+        entry = texel.slot_entry(slot, {variant: px})
+        if entry is None:
+            continue
+        entries.append(entry)
+        if slot.kind != "measured" or px is None:
+            continue
+        measured = texel.density(px, slot.uv_area, slot.world_area)
+        if measured < minimum:
+            findings.append(
+                finding(
+                    "texel.density",
+                    obj.name,
+                    f"{obj.name} slot '{slot.name}' reaches {measured:.0f} px/m; environment "
+                    f"pieces need at least {minimum:.0f} px/m on {variant}.",
+                )
+            )
+    entries_out[obj.name] = entries
+    return findings
+
+
+def _largest_image_px(material: bpy.types.Material | None) -> int | None:
+    if material is None:
+        return None
+    return max((max(image.size) for image in _images_of(material)), default=None)
 
 
 def _budget_findings(
@@ -562,11 +662,6 @@ def _name_set_findings(kind: str, desktop: set[str], mobile: set[str]) -> list[d
             )
         )
     return findings
-
-
-def _evaluated_copy(obj: bpy.types.Object) -> bpy.types.Mesh:
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    return bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph), depsgraph=depsgraph)
 
 
 def _materials_of(obj: bpy.types.Object) -> list[bpy.types.Material]:

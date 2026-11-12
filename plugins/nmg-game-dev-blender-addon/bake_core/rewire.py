@@ -15,6 +15,8 @@ from pathlib import Path
 
 import bpy
 
+from ..contract_core.texel import TRIM_ATLAS_PROPERTY
+
 _NUMBER_SUFFIX = re.compile(r"\.\d+$")
 
 
@@ -43,9 +45,17 @@ def part_names(sources: Sequence[bpy.types.Material], asset: str, merged: bool) 
     return names
 
 
-def build_material(name: str, asset: str, part: str, paths: dict[str, Path]) -> bpy.types.Material:
-    """A new M_<Name>_<Part> material whose image nodes reference the Desktop PNGs."""
+def build_material(
+    name: str, asset: str, part: str, paths: dict[str, Path], trim_atlas: bool = False
+) -> bpy.types.Material:
+    """A new M_<Name>_<Part> material whose image nodes reference the Desktop PNGs.
+
+    A trim-atlas source keeps its marker (nmg_trim_atlas), so the baked material stays exempt from
+    the per-slot texel density check (contract section 6).
+    """
     material = bpy.data.materials.new(name)
+    if trim_atlas:
+        material[TRIM_ATLAS_PROPERTY] = True
     material.use_nodes = True
     tree = material.node_tree
     nodes = tree.nodes
@@ -107,7 +117,25 @@ def retire(sources: Sequence[bpy.types.Material]) -> None:
         source.use_fake_user = True
 
 
+def _free_contract_name(name: str) -> None:
+    """Move an image already holding name to the first free <name>_Src, <name>_Src2, ...
+
+    The image keeps its pixels, packing, and users, so a retired authored material still samples
+    it, and the next image can take the exact contract name without a .001 suffix (#142).
+    """
+    holder = bpy.data.images.get(name)
+    if holder is None:
+        return
+    free = f"{name}_Src"
+    number = 2
+    while free in bpy.data.images:
+        free = f"{name}_Src{number}"
+        number += 1
+    holder.name = free
+
+
 def _image_node(tree: bpy.types.NodeTree, name: str, path: Path, colorspace: str) -> bpy.types.Node:
+    _free_contract_name(name)
     image = bpy.data.images.load(str(path), check_existing=False)
     image.name = name
     image.colorspace_settings.name = colorspace

@@ -13,6 +13,11 @@ viewport or renderer is not done.
 - One root mesh object per variant: `SM_<Name>` (Desktop) and `SM_<Name>_Mobile` (Mobile).
   Split into multiple objects only for parts that must move independently, named
   `SM_<Name>_<Part>`, parented to the root.
+- Each part has its own mesh data: no two mesh objects of one variant may share a mesh
+  datablock. Validate reports `naming.mesh_data` for a shared one; fix it with Object >
+  Relations > Make Single User > Object & Data.
+- Export names each mesh datablock after its object (the `_Mobile` suffix removed, Mobile
+  LOD meshes included), so every FBX mesh carries the name its object has in Unreal.
 - When one request produces several assets, each one is a separate deliverable with
   its own collection at the world origin; overlapping in Blender is expected. Don't
   compose scenes in Blender. Placement and level composition happen in Unreal.
@@ -31,11 +36,17 @@ viewport or renderer is not done.
 
 ## 3. Geometry
 
-- Normals point outward and are consistent; shading uses custom/auto smoothing,
+- Closed parts have every face pointing outward. Shading uses custom/auto smoothing,
   not unwanted flat facets.
+- Open sheets (floors, roof planes, decals, terrain, ground sheets) are allowed where nothing
+  will see underneath. Wind every face of a sheet consistently and make it face the viewer:
+  `geometry.normals` checks consistent winding between neighbouring faces, and it never compares
+  a sheet with an outside direction, so a sheet passes wherever it sits.
+- Touching primitives, such as an environment piece built from many boxes, either merge by
+  distance so they share vertices, or stay about 0.6 mm apart. Vertices that coincide without
+  merging raise `geometry.duplicates`.
 - No loose vertices, zero-area faces, or duplicate geometry. Visible interpenetration
-  is a defect; hidden interior faces should be removed where practical. Open surfaces
-  (terrain, ground sheets) are fine where nothing will see underneath.
+  is a defect; hidden interior faces should be removed where practical.
 - Triangle counts within the budget for the asset class (section 6).
 
 ## 4. UVs and materials
@@ -46,7 +57,12 @@ viewport or renderer is not done.
     all materials baked into a texture set for that asset.
   - **Tiling** (large environment pieces and terrain layers): UVs may overlap and extend past 0–1 so
     tiling materials and trim sheets repeat across the surface. Each tiling texture is
-    itself seamless.
+    itself seamless: on each axis, the mean absolute difference between the last and first
+    pixel (the wrap) is at most the larger of 1.5 times the mean absolute difference between
+    adjacent pixels and 2/255. Integer images are normalised by their maximum value first (#147).
+    A source texture that does not tile is made seamless with
+    `python -m nmg_game_dev.texture seamless <image.png>`. Texel density is measured per
+    material slot; mark a trim-atlas material with `nmg_trim_atlas` (section 6).
 - Materials must survive FBX export. At export time each material is a Principled
   BSDF fed only by Image Texture nodes sampling `UVMap`, a Normal Map node, and a
   Separate Color node to split ORM. No procedural texture nodes, no
@@ -80,6 +96,11 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
   children are `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and `SM_<Name>_LOD2`. LOD1 and LOD2 are
   50% and 25% of LOD0's triangles. Assets with child parts keep the root mesh `SM_<Name>`
   and their parts, with LOD0 only.
+- In Unreal, a static Mobile LOD group is one Static Mesh `/Game/<Category>/<Name>/Mobile/SM_<Name>`
+  with three LODs: LOD 0, 1, and 2 are the exported `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and
+  `SM_<Name>_LOD2` meshes, and no separate asset is made for them. `import_ue` checks that the
+  Static Mesh's LOD count equals the snapshot's LOD object count, and it checks LOD 0's bounds
+  against `SM_<Name>_LOD0` (#146).
 - A rigged character (its armature `SK_<Name>` is in the collection; see §7) has no LOD
   group. Its Mobile variant is three skinned meshes, `SM_<Name>_Mobile`,
   `SM_<Name>_Mobile_LOD1`, and `SM_<Name>_Mobile_LOD2`, each parented to `SK_<Name>` with an
@@ -111,6 +132,38 @@ Terrain has no triangle budget. Its budget is a heightmap resolution and a layer
 Desktop `heightmap_px` at most 2017, `layers` at most 4; Mobile `heightmap_px` at most 1009,
 `layers` at most 3. Its layers use the same tiling mode and texel density as environment pieces.
 Section 9 gives the terrain rules.
+
+Texel density is measured per material slot. Each slot's faces give their own UV area and world
+area, and the slot is compared with the minimum on its own, so a dense tiling slot is not diluted by
+the atlas and flat-colour faces beside it. Two kinds of slot are exempt, and the reports list each
+exempt slot with its reason:
+
+- **Trim atlas** (`trim_atlas`): a material with the custom property `nmg_trim_atlas` set to `True`.
+  Set it in Material Properties > Custom Properties, or from a script with
+  `material["nmg_trim_atlas"] = True`. The bake and the Mobile variant keep the marker.
+- **Flat colour** (`flat_colour`): every face of the slot has its UVs collapsed onto one point or
+  cell, so the slot's total UV area is at or below 1e-8 UV units². No marker is needed.
+
+An unmarked slot with UV area that falls below the minimum fails. Its remediation names both ways
+out: raise the density, or mark the material as a trim atlas if it is one.
+
+The validation report lists each environment-piece mesh's slots under `snapshot[<object>].texel`,
+with each measured slot's Desktop or Mobile px/m, or its exemption. The bake report lists the same
+per mesh under `texel_density`.
+
+A project-root `nmg-budgets.json` overrides these defaults. It is keyed by asset class. Top-level
+metrics (`tris`, `max_texture_px`, `materials`) override the Mobile budget. A nested `desktop`
+object overrides the Desktop budget that validation uses, so a class can allow a larger Desktop
+variant:
+
+```json
+{
+  "hero_prop": {
+    "tris": 10000,
+    "desktop": { "tris": 300000 }
+  }
+}
+```
 
 ## 7. Export
 

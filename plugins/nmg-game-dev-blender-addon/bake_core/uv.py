@@ -143,17 +143,6 @@ def uv_area(obj: bpy.types.Object, layer_name: str) -> float:
     return total
 
 
-def world_area(obj: bpy.types.Object) -> float:
-    """Sum of the world-space polygon areas, in square meters."""
-    matrix = obj.matrix_world
-    total = 0.0
-    for poly in obj.data.polygons:
-        corners = [matrix @ obj.data.vertices[index].co for index in poly.vertices]
-        for index in range(1, len(corners) - 1):
-            total += (corners[index] - corners[0]).cross(corners[index + 1] - corners[0]).length / 2
-    return total
-
-
 def _polygon_area(points: Sequence[tuple[float, float]]) -> float:
     area = 0.0
     for index in range(len(points)):

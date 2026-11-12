@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from nmg_game_dev.meshy import jobs
+from nmg_game_dev.meshy.paths import jobs_root
 from tests.meshy_fakes import (
     ENV,
     TEST_KEY,
@@ -75,6 +76,22 @@ def test_generate_model_limits_pose_to_limbed_characters() -> None:
     description = _tools()["generate_model"].description or ""
     assert "characters and creatures with limbs" in description
     assert "never for props" in description
+
+
+def test_generate_model_exposes_raise_arms_as_a_boolean_defaulting_true() -> None:
+    """#135 AC7: generate_model declares raise_arms, which defaults to true."""
+    schema = _tools()["generate_model"].inputSchema["properties"]["raise_arms"]
+    assert schema["type"] == "boolean"
+    assert schema["default"] is True
+
+
+def test_generate_model_raise_arms_false_is_stored_on_the_job(project: Path) -> None:
+    result = server.generate_model(name="Knight", prompt="x", pose="a-pose", raise_arms=False)
+    stored = json.loads(
+        (jobs_root(project) / result["job_id"] / "request.json").read_text(encoding="utf-8")
+    )
+    assert stored["raise_arms"] is False
+    assert stored["pose"] == "a-pose"
 
 
 def test_generate_model_returns_a_job_id(project: Path) -> None:

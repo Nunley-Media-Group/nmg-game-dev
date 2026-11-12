@@ -21,12 +21,16 @@ from typing import Any, Final
 import bpy
 
 from ..terrain_core.heightfield import VALID_SIZES, downsample, mobile_size, normalize_weights
+from . import texel
 from .report import finding
 
 TERRAIN_CLASS: Final = "terrain"
 LAYER_PREFIX: Final = "Layer_"
 TEXTURE_SUFFIXES: Final[tuple[str, ...]] = ("BC", "N", "ORM")
-TEXEL_DENSITY_MIN: Final[dict[str, float]] = {"desktop": 256.0, "mobile": 128.0}
+TEXEL_DENSITY_MIN: Final[dict[str, float]] = {
+    "desktop": texel.DESKTOP_MIN,
+    "mobile": texel.MOBILE_MIN,
+}
 SPACING_TOLERANCE: Final = 1e-3
 CENTRE_TOLERANCE: Final = 1e-3
 CLUSTER_TOLERANCE: Final = 1e-3

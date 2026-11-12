@@ -10,6 +10,7 @@ import importlib
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import time
@@ -300,12 +301,18 @@ def uproject_resolves(repo_root: pathlib.Path) -> None:
 
 @when("`scripts/start-unreal-mcp.sh` runs", target_fixture="launcher_run")
 def run_unreal_script(fake_ue_root: pathlib.Path, repo_root: pathlib.Path) -> LauncherRun:
+    # Launch against a copy of the dogfood .uproject with no plugin directories beside it, so the
+    # two-second detach check times the launch, not the plugin build check over fixtures/Plugins.
+    project_dir = fake_ue_root / "project"
+    project_dir.mkdir()
+    project = project_dir / "dogfood.uproject"
+    shutil.copyfile(repo_root / "fixtures" / "dogfood.uproject", project)
     return _run_launcher(
         "start-unreal-mcp.sh",
         {
             "UE_ROOT": str(fake_ue_root),
             "UE_MCP_PORT": UE_TEST_PORT,
-            "UE_PROJECT": str(repo_root / "fixtures" / "dogfood.uproject"),
+            "UE_PROJECT": str(project),
             "FAKE_UE_ARGV_FILE": str(fake_ue_root / "ue-argv.txt"),
         },
     )

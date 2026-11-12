@@ -7,15 +7,20 @@ registers them.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import get_args
 
+import pytest
+
+from nmg_game_dev.audio.__main__ import main as audio_main
 from nmg_game_dev.finalize import (
     FinalizeService,
     finalize_asset,
     get_finalize_job,
+    import_audio,
     run_finalize_step,
 )
 from nmg_game_dev.finalize.__main__ import build_parser
@@ -23,6 +28,9 @@ from nmg_game_dev.finalize.service import clamp_wait
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, jobs
 from nmg_game_dev.pipeline.request import AssetClass
 from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
+
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "audio"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOLS_JSON = REPO_ROOT / "mcp-servers" / "finalize" / "tools.json"
@@ -175,3 +183,96 @@ def test_tools_json_class_enum_matches_the_request_model() -> None:
     assert "terrain" in expected
     for name, enum in enums.items():
         assert enum == expected, name
+
+
+# --- import_audio (#155, AC7) ------------------------------------------------------------------
+
+
+@pytest.fixture
+def audio_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeUnrealPythonClient:
+    """A project root and one fake editor, wired in wherever the audio import builds a client."""
+    root = tmp_path / "project"
+    root.mkdir()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root))
+    fake = FakeUnrealPythonClient(FakeEditor())
+
+    def _factory(*_args: object, **_kwargs: object) -> FakeUnrealPythonClient:
+        return fake
+
+    monkeypatch.setattr("nmg_game_dev.audio.core.UnrealMcpClient", _factory)
+    monkeypatch.setattr("nmg_game_dev.audio.__main__.UnrealMcpClient", _factory)
+    return fake
+
+
+def _saved(tmp_path: Path, name: str, folder: str) -> Path:
+    target = tmp_path / folder / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / name, target)
+    return target
+
+
+def test_import_audio_tool_returns_the_result(
+    tmp_path: Path, audio_env: FakeUnrealPythonClient
+) -> None:
+    src = _saved(tmp_path, "tone.wav", "saved")
+
+    response = import_audio(file=str(src), name="DoorCreak", kind="sfx", loop=True)
+
+    assert response["imported_to_unreal"] is True
+    assert response["unreal_asset"] == "/Game/Audio/SFX/SW_DoorCreak"
+    assert response["looping"] is True
+    assert "error" not in response
+
+
+def test_import_audio_tool_returns_errors_as_an_error_object(
+    tmp_path: Path, audio_env: FakeUnrealPythonClient
+) -> None:
+    response = import_audio(file=str(tmp_path / "gone.wav"), name="DoorCreak", kind="sfx")
+
+    assert set(response) == {"error"}
+    assert response["error"]["code"] == "audio.invalid_request"
+    assert response["error"]["stage"] == "audio"
+    assert response["error"]["remediation"]
+    assert audio_env.codes == []
+
+
+def test_import_audio_tool_and_cli_return_the_same_json(
+    tmp_path: Path,
+    audio_env: FakeUnrealPythonClient,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli_src = _saved(tmp_path, "tone.mp3", "cli")
+    tool_src = _saved(tmp_path, "tone.mp3", "tool")
+    cli_root = tmp_path / "cli-project"
+    cli_root.mkdir()
+
+    assert (
+        audio_main(
+            [
+                "import",
+                "--file",
+                str(cli_src),
+                "--name",
+                "ForestTheme",
+                "--kind",
+                "music",
+                "--project",
+                str(cli_root),
+            ]
+        )
+        == 0
+    )
+    cli_json = json.loads(capsys.readouterr().out)
+
+    # The CLI already imported this name, so the tool runs against an editor that has not seen it.
+    audio_env.editor.assets.clear()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "project"))
+    tool_json = import_audio(file=str(tool_src), name="ForestTheme", kind="music")
+
+    # The two runs stored under different roots, so only the stored path may differ.
+    assert cli_json.pop("source_art") == str(cli_root / "SourceArt/Audio/Music/ForestTheme.wav")
+    assert tool_json.pop("source_art") == str(
+        tmp_path / "project" / "SourceArt/Audio/Music/ForestTheme.wav"
+    )
+    assert cli_json == tool_json

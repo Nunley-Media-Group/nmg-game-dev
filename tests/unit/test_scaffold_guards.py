@@ -288,3 +288,25 @@ def test_claude_md_is_pointer_only(claude_md_text: str) -> None:
     assert len(lines) < 60, (
         f"CLAUDE.md has {len(lines)} lines — likely duplicating steering content"
     )
+
+
+# --- #155: the optional ElevenLabs flow ships no server and no key handling -------------------
+
+
+def test_mcp_json_has_no_elevenlabs_entry(mcp_data: dict[str, Any], mcp_text: str) -> None:
+    assert "elevenlabs" not in mcp_data["mcpServers"], ".mcp.json must not declare ElevenLabs"
+    assert "ELEVENLABS" not in mcp_text, ".mcp.json must not mention ELEVENLABS"
+
+
+@pytest.mark.parametrize("banned", ("api.elevenlabs.io", "ELEVENLABS_API_KEY"))
+def test_no_nmg_module_or_server_calls_elevenlabs(repo_root: pathlib.Path, banned: str) -> None:
+    scanned = [
+        *(repo_root / "src" / "nmg_game_dev").rglob("*.py"),
+        *(repo_root / "mcp-servers").rglob("*.py"),
+    ]
+    offenders = [
+        str(path.relative_to(repo_root))
+        for path in scanned
+        if banned in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"{banned!r} found in {offenders}"

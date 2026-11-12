@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -150,3 +151,54 @@ def test_a_failing_step_writes_a_failed_status_with_the_error(tmp_path: Path) ->
     assert status["state"] == "failed"
     assert status["error"]["code"] == "bake.texture.bake_failed"
     assert status["error"]["stage"] == "bake"
+
+
+def test_a_validate_progress_event_is_in_the_job_status_mid_step(tmp_path: Path) -> None:
+    """#133 AC6 (host): a validate event emitted mid-step is what get_finalize_job reads then."""
+    cache = tmp_path / "cache"
+    request = _request(tmp_path)
+    during: list[dict[str, Any]] = []
+
+    class ValidateProgressRunner(FakeStepRunner):
+        def run_step(
+            self,
+            step: str,
+            *,
+            job_dir: Path,
+            in_blend: Path | None,
+            inputs: Any = None,
+            on_progress: Any = None,
+        ) -> dict[str, Any]:
+            if step == "validate" and on_progress is not None:
+                on_progress(
+                    {
+                        "state": "running",
+                        "step": "validate",
+                        "progress": 0.5,
+                        "message": "desktop: UV overlap check on SM_Crate",
+                    }
+                )
+                during.append(jobs.status(job_dir.name, cache_root=cache))
+            return super().run_step(
+                step,
+                job_dir=job_dir,
+                in_blend=in_blend,
+                inputs=inputs,
+                on_progress=on_progress,
+            )
+
+    def launch(job_dir: Path) -> int:
+        jobs.run_job(
+            job_dir,
+            clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+            runner=ValidateProgressRunner(request),
+        )
+        return _dead_pid()
+
+    jobs.start(request, cache_root=cache, launcher=launch)
+
+    (status,) = during
+    assert status["state"] == "running"
+    assert status["step"] == "validate"
+    assert status["progress"] == 0.5
+    assert status["message"] == "desktop: UV overlap check on SM_Crate"

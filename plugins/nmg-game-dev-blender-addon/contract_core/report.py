@@ -17,6 +17,10 @@ RULES: Final[dict[str, str]] = {
     "scene.units": "Set Scene > Units to Metric with Unit Scale 1.0 (contract section 2).",
     "naming.root": "Name the root SM_<Name> (Mobile: SM_<Name>_Mobile), contract section 1.",
     "naming.part": "Name child parts SM_<Name>_<Part> and parent each one to the root (section 1).",
+    "naming.mesh_data": (
+        "Give each part its own mesh data: select the parts and run Object > Relations > Make "
+        "Single User > Object & Data (contract section 1)."
+    ),
     "naming.material": "Name each material M_<Name>_<Part> (contract section 4).",
     "naming.texture": "Name each image T_<Name>_<Part>_BC, _N, or _ORM (contract section 4).",
     "transform.root_applied": (
@@ -34,7 +38,12 @@ RULES: Final[dict[str, str]] = {
     "geometry.loose": "Delete loose vertices and edges (Mesh > Clean Up > Delete Loose).",
     "geometry.zero_area": "Delete zero-area faces (Mesh > Clean Up > Degenerate Dissolve).",
     "geometry.duplicates": "Merge duplicate vertices (Mesh > Clean Up > Merge by Distance).",
-    "geometry.normals": "Recalculate normals outside (Shift+N) so every face points outward.",
+    "geometry.normals": (
+        "Closed parts: recalculate normals outside (Shift+N) on that part only, so every face "
+        "points outward. Open sheets such as floors, roof planes, and decals: do not recalculate "
+        "outside; flip only the faces wound opposite to their neighbours (Mesh > Normals > Flip), "
+        "so the sheet is wound consistently and faces the viewer."
+    ),
     "uv.single_map": "Keep exactly one UV map on every mesh, named UVMap (contract section 4).",
     "uv.overlap": (
         "Unwrap so UV islands do not overlap; environment pieces use the tiling mode instead "
@@ -56,8 +65,10 @@ RULES: Final[dict[str, str]] = {
     "budget.materials": "Merge materials to the class material limit (contract section 6).",
     "budget.texture_size": "Resize textures to the class maximum (contract section 6).",
     "texel.density": (
-        "Raise texel density to 256 px/m (Desktop) or 128 px/m (Mobile) with more texture "
-        "resolution or less UV area per meter (contract section 6)."
+        "Density is checked per material slot. Raise the slot to 256 px/m (Desktop) or 128 px/m "
+        "(Mobile) with more texture resolution or less UV area per meter, or set the custom "
+        "property nmg_trim_atlas to True on the material if it is a trim atlas (contract "
+        "section 6)."
     ),
     "variants.names_match": (
         "Give each Mobile object, material, and image the Desktop name plus the _Mobile suffix; "

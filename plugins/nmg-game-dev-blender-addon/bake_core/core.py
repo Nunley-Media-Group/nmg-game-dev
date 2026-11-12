@@ -14,6 +14,7 @@ from typing import Any
 
 import bpy
 
+from ..contract_core.texel import is_trim_atlas
 from ..utils.budgets import BudgetOverrideError, resolve_budget
 from . import bake, cache, pack, proof, rewire, tiling, uv
 from .errors import BakeError
@@ -132,6 +133,7 @@ def _bake(
         )
 
         unwrapped = False
+        texel_density: dict[str, list[dict[str, Any]]] = {}
         if mode == "unique":
             groups = uv.faces_of(meshes, _source_map(meshes, sources, merged))
             if not uv.layout_is_valid(meshes, groups.values()):
@@ -140,7 +142,7 @@ def _bake(
             sets = _bake_unique(meshes, sources, names, merged, collection_name, desktop_px)
         else:
             uv.require_uv_layers(meshes)
-            tiling.check_density(meshes, desktop_px, mobile_px)
+            texel_density = tiling.check_density(meshes, desktop_px, mobile_px)
             sets = _bake_tiling(sources, names, collection_name, desktop_px)
 
         for item in sets:
@@ -163,6 +165,7 @@ def _bake(
                 collection_name,
                 item.part,
                 item.paths["desktop"],
+                trim_atlas=any(is_trim_atlas(source) for source in item.sources),
             )
             for source in item.sources:
                 replacements[source.as_pointer()] = material
@@ -200,6 +203,7 @@ def _bake(
             metrics,
             pre_bake,
             baked,
+            texel_density=texel_density,
         )
     cache.write_manifest(out, result)
     return result
@@ -355,6 +359,8 @@ def _result(
     metrics: dict[str, float],
     pre_bake: Path,
     baked: Path,
+    *,
+    texel_density: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
     desktop_paths = [path for item in sets for path in item.paths["desktop"].values()]
     mobile_paths = [path for item in sets for path in item.paths["mobile"].values()]
@@ -393,6 +399,7 @@ def _result(
             "mean_abs_diff": round(metrics["mean_abs_diff"], 6),
             "outlier_ratio": round(metrics["outlier_ratio"], 6),
         },
+        "texel_density": texel_density,
         "summary": (
             f"Baked {count} material{'s' if count != 1 else ''} for {asset} ({asset_class}): "
             f"Desktop {desktop_px} px, Mobile {mobile_px} px, proof diff "
