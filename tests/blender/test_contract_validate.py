@@ -137,6 +137,18 @@ def test_ac2_budget_finding_names_the_mobile_lod0(core: Any) -> None:
     assert "4000" in budget[0]["message"]
 
 
+def test_uv_overlap_defect_reports_the_lower_bound_form(core: Any) -> None:
+    """#133 AC3 / T005: six faces that each cover the full square stop the overlap check early,
+    so the finding says "at least" and still names the limit."""
+    build_crate()
+    apply_defect("uv_overlap")
+    report = core.validate_asset("Crate", "standard_prop")
+
+    (overlap,) = [item for item in report["findings"] if item["rule"] == "uv.overlap"]
+    assert "at least" in overlap["message"]
+    assert "0.5%" in overlap["message"]
+
+
 # ---------------------------------------------------------------------------
 # Scene unchanged: checks run on copies only
 # ---------------------------------------------------------------------------
