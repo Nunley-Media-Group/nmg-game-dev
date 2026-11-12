@@ -31,6 +31,13 @@ The fake models the parts of UE 5.8 Interchange that the static import depends o
 - ``SkeletalMeshEditorSubsystem.import_lod`` records each LOD import (#141).
 - ``FakeWorld.refused_renames`` and ``FakeWorld.refused_consolidations`` make ``rename_asset`` and
   ``consolidate_assets`` return False, as UE does when it refuses one, and change nothing (#203).
+
+The terrain import (#154) runs ``build_terrain_code`` against the same world. The fake adds the
+level subsystems, ``Vector2D``, ``EditorAssetLibrary.delete_asset``, and ``NmgLandscapeLibrary``,
+which stands in for the C++ editor helper. The world records every terrain-relevant call in
+``calls``, in order; a test sets ``fail_on`` to make a named call raise, and ``sampled_cm`` to set
+what ``sample_heights`` returns for each point. ``run_generated_code`` runs code and returns what
+it printed.
 """
 
 from __future__ import annotations
@@ -39,7 +46,7 @@ import contextlib
 import io
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,6 +58,9 @@ Triple = tuple[float, float, float]
 
 _ASSET_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 _CM_PER_METER = 100.0
+
+MAIN_MAP = "/Game/Maps/Main"
+"""The level open when a fake world starts, and the one the terrain import returns to."""
 
 
 def ue_asset_name(text: str) -> str:
@@ -119,6 +129,14 @@ class Vector:
         self.z = float(z)
 
 
+class Vector2D:
+    """``unreal.Vector2D``: two float components."""
+
+    def __init__(self, x: float = 0.0, y: float = 0.0) -> None:
+        self.x = float(x)
+        self.y = float(y)
+
+
 class _Box:
     def __init__(self, low: list[float], high: list[float]) -> None:
         self.min = Vector(*low)
@@ -156,6 +174,14 @@ class _Asset:
 
 class Texture2D(_Asset):
     """A texture imported from a PNG. Its settings are the properties the generated code sets."""
+
+
+class FakeLandscape:
+    """The Landscape actor that ``NmgLandscapeLibrary.import_landscape`` returns (#154)."""
+
+    def __init__(self, level: str, arguments: Mapping[str, Any]) -> None:
+        self.level = level
+        self.arguments = dict(arguments)
 
 
 class StaticMesh(_Asset):
@@ -313,6 +339,135 @@ class SkeletalMeshEditorSubsystem:
         return level
 
 
+class _LevelWorld:
+    """The editor world of one level, as ``get_editor_world`` returns it (#154)."""
+
+    def __init__(self, level: str) -> None:
+        self.level = level
+
+    def get_path_name(self) -> str:
+        return f"{self.level}.{self.level.rsplit('/', 1)[-1]}"
+
+
+class UnrealEditorSubsystem:
+    """``unreal.UnrealEditorSubsystem``: the world of the open level (#154)."""
+
+    def __init__(self, world: FakeWorld) -> None:
+        self._world = world
+
+    def get_editor_world(self) -> _LevelWorld | None:
+        level = self._world.open_level
+        return None if level is None else _LevelWorld(level)
+
+
+class LevelEditorSubsystem:
+    """``unreal.LevelEditorSubsystem``: create, load, and save levels (#154)."""
+
+    def __init__(self, world: FakeWorld) -> None:
+        self._world = world
+
+    def new_level(self, path: str) -> bool:
+        world = self._world
+        world.check(f"new_level:{path}")
+        if path in world.levels:
+            return False
+        world.levels.add(path)
+        world.open_level = path
+        return True
+
+    def load_level(self, path: str) -> bool:
+        world = self._world
+        world.check(f"load_level:{path}")
+        world.loaded.append(path)
+        if path not in world.levels:
+            return False
+        world.open_level = path
+        return True
+
+    def save_current_level(self) -> bool:
+        world = self._world
+        world.check(f"save_current_level:{world.open_level}")
+        world.saved_levels.append(str(world.open_level))
+        return True
+
+
+class NmgLandscapeLibrary:
+    """Stands in for the C++ ``UNmgLandscapeLibrary`` static functions (#154)."""
+
+    @staticmethod
+    def build_layered_material(
+        dest: str,
+        name: str,
+        layers: list[str],
+        bc: list[Texture2D],
+        n: list[Texture2D],
+        orm: list[Texture2D],
+        mapping_scale: float,
+    ) -> _Asset:
+        world = _active_world()
+        world.check("build_layered_material")
+        world.material_args = {
+            "dest": dest,
+            "name": name,
+            "layers": list(layers),
+            "bc": [texture.path for texture in bc],
+            "n": [texture.path for texture in n],
+            "orm": [texture.path for texture in orm],
+            "mapping_scale": mapping_scale,
+        }
+        material = _Asset(dest + "/" + name)
+        world.assets[material.path] = material
+        return material
+
+    @staticmethod
+    def create_layer_info(dest: str, name: str, layer: str) -> _Asset:
+        world = _active_world()
+        world.check(f"create_layer_info:{name}")
+        world.layer_info_args.append({"dest": dest, "name": name, "layer": layer})
+        info = _Asset(dest + "/" + name)
+        info.properties["layer"] = layer
+        world.assets[info.path] = info
+        return info
+
+    @staticmethod
+    def import_landscape(
+        level_world: _LevelWorld,
+        heightmap: str,
+        weightmaps: list[str],
+        layer_infos: list[_Asset],
+        material: _Asset,
+        n: int,
+        location: Vector,
+        scale: Vector,
+    ) -> FakeLandscape:
+        world = _active_world()
+        world.check("import_landscape")
+        world.landscape_args = {
+            "level": level_world.level,
+            "heightmap": heightmap,
+            "weightmaps": list(weightmaps),
+            "layer_infos": [info.path for info in layer_infos],
+            "material": material.path,
+            "n": n,
+            "location": (location.x, location.y, location.z),
+            "scale": (scale.x, scale.y, scale.z),
+        }
+        return FakeLandscape(level_world.level, world.landscape_args)
+
+    @staticmethod
+    def sample_heights(landscape: FakeLandscape, points: list[Vector2D]) -> list[float]:
+        del landscape
+        world = _active_world()
+        world.check("sample_heights")
+        heights: list[float] = []
+        for point in points:
+            key = (point.x, point.y)
+            if key not in world.sampled_cm:
+                raise RuntimeError(f"fake sample_heights has no height for {key}")
+            heights.append(world.sampled_cm[key] + world.sample_offset_cm)
+        return heights
+
+
 def _require_lod0(lod: int) -> None:
     if lod != 0:
         raise RuntimeError("the fake models LOD0 only, got LOD " + str(lod))
@@ -349,7 +504,8 @@ class EditorAssetLibrary:
 
     @staticmethod
     def does_asset_exist(path: str) -> bool:
-        return path in _active_world().assets
+        world = _active_world()
+        return path in world.assets or path in world.levels
 
     @staticmethod
     def does_directory_exist(path: str) -> bool:
@@ -378,6 +534,10 @@ class EditorAssetLibrary:
     @staticmethod
     def delete_asset(path: str) -> bool:
         world = _active_world()
+        world.check(f"delete_asset:{path}")
+        if path in world.levels:
+            world.levels.discard(path)
+            return True
         if path not in world.assets:
             return False
         del world.assets[path]
@@ -388,6 +548,7 @@ class EditorAssetLibrary:
     @staticmethod
     def save_loaded_asset(asset: _Asset) -> bool:
         world = _active_world()
+        world.record(f"save_asset:{asset.path}")
         bounds = asset.bounds if isinstance(asset, (StaticMesh, SkeletalMesh)) else None
         world.saved[asset.path] = bounds
         return True
@@ -432,6 +593,7 @@ class _AssetTools:
         self._world = world
 
     def import_asset_tasks(self, tasks: list[AssetImportTask]) -> None:
+        self._world.check("import_asset_tasks")
         for task in tasks:
             self._world.import_task(task)
 
@@ -465,17 +627,21 @@ UNREAL.__dict__.update(
     EditorAssetLibrary=EditorAssetLibrary,
     FBXImportType=FBXImportType,
     FbxImportUI=FbxImportUI,
+    LevelEditorSubsystem=LevelEditorSubsystem,
     LinearColor=LinearColor,
     MaterialEditingLibrary=MaterialEditingLibrary,
     MaterialInstanceConstant=MaterialInstanceConstant,
     MaterialInstanceConstantFactoryNew=MaterialInstanceConstantFactoryNew,
+    NmgLandscapeLibrary=NmgLandscapeLibrary,
     SkeletalMesh=SkeletalMesh,
     SkeletalMeshEditorSubsystem=SkeletalMeshEditorSubsystem,
     StaticMesh=StaticMesh,
     StaticMeshEditorSubsystem=StaticMeshEditorSubsystem,
     Texture2D=Texture2D,
     TextureCompressionSettings=TextureCompressionSettings,
+    UnrealEditorSubsystem=UnrealEditorSubsystem,
     Vector=Vector,
+    Vector2D=Vector2D,
     get_editor_subsystem=get_editor_subsystem,
 )
 
@@ -504,6 +670,14 @@ class FakeWorld:
     meshes that ``imported_object_paths`` lists, ``skeleton_on_import`` turns off the skeleton the
     import makes, and ``physics_folder`` is where ``create_physics_asset`` places its asset.
 
+    The terrain state (#154): ``levels`` holds the existing level paths (``MAIN_MAP`` starts open),
+    ``open_level`` is the level ``get_editor_world`` reports, and ``calls`` logs every terrain call
+    as ``name`` or ``name:detail``. ``import_files`` and ``import_tasks`` record each import task,
+    ``material_args``, ``layer_info_args``, and ``landscape_args`` the ``NmgLandscapeLibrary``
+    arguments, ``saved_levels`` and ``loaded`` the level saves and loads, ``sampled_cm`` the height
+    ``sample_heights`` returns per ``(x, y)`` point in cm, ``sample_offset_cm`` an error added to
+    every sample, and ``fail_on`` the call names that raise ``RuntimeError``.
+
     The refusal knobs (#203) are sets of asset paths. ``refused_renames`` holds the sources whose
     ``rename_asset`` returns False, and ``refused_consolidations`` the assets whose
     ``consolidate_assets`` returns False. Both are empty by default, so no refusal happens.
@@ -527,6 +701,28 @@ class FakeWorld:
         self.lod_imports: list[tuple[str, int, str]] = []
         self.refused_renames: set[str] = set()
         self.refused_consolidations: set[str] = set()
+        self.levels: set[str] = {MAIN_MAP}
+        self.open_level: str | None = MAIN_MAP
+        self.calls: list[str] = []
+        self.import_files: list[str] = []
+        self.import_tasks: list[dict[str, Any]] = []
+        self.material_args: dict[str, Any] = {}
+        self.layer_info_args: list[dict[str, Any]] = []
+        self.landscape_args: dict[str, Any] = {}
+        self.saved_levels: list[str] = []
+        self.loaded: list[str] = []
+        self.sampled_cm: dict[tuple[float, float], float] = {}
+        self.sample_offset_cm: float = 0.0
+        self.fail_on: set[str] = set()
+
+    def record(self, call: str) -> None:
+        self.calls.append(call)
+
+    def check(self, name: str) -> None:
+        """Record the call, then raise when a test named it in ``fail_on``."""
+        self.record(name)
+        if name in self.fail_on:
+            raise RuntimeError(f"fake failure in {name}")
 
     def add_fbx(self, path: str, nodes: list[FbxNode]) -> None:
         """Register the FBX scene that the import reads from ``path``. The file must exist too."""
@@ -550,6 +746,17 @@ class FakeWorld:
         return sorted(path for path, asset in self.assets.items() if isinstance(asset, StaticMesh))
 
     def import_task(self, task: AssetImportTask) -> None:
+        self.import_files.append(task.filename)
+        self.import_tasks.append(
+            {
+                "filename": task.filename,
+                "destination_path": task.destination_path,
+                "destination_name": task.destination_name,
+                "automated": task.automated,
+                "replace_existing": task.replace_existing,
+                "save": task.save,
+            }
+        )
         if task.filename.lower().endswith(".fbx"):
             self._import_fbx(task)
         elif task.filename.lower().endswith(".png"):
@@ -726,6 +933,11 @@ def run_import(
         report=report,
         skeleton_dest=skeleton_dest,
     )
+
+
+def run_generated_code(code: str, world: FakeWorld) -> str:
+    """Execute UE Python ``code`` against ``world`` and return what it printed (#154)."""
+    return world.execute_python_code(code)
 
 
 def run_import_code(code: str, scenario: FakeWorld) -> dict[str, Any]:

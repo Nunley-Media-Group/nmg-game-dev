@@ -59,7 +59,7 @@ viewport or renderer is not done.
 - Two texturing modes:
   - **Unique bake** (default for props, vehicles, characters): non-overlapping UVs,
     all materials baked into a texture set for that asset.
-  - **Tiling** (large environment pieces): UVs may overlap and extend past 0–1 so
+  - **Tiling** (large environment pieces and terrain layers): UVs may overlap and extend past 0–1 so
     tiling materials and trim sheets repeat across the surface. Each tiling texture is
     itself seamless: on each axis, the mean absolute difference between the last and first
     pixel (the wrap) is at most the larger of 1.5 times the mean absolute difference between
@@ -181,6 +181,8 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
 - Inside the .blend, Mobile objects, materials, and images may carry a suffix to avoid
   name clashes. Exported files never do: object, material, and texture names in the
   Mobile export are identical to the Desktop export.
+- Terrain does not use the rules in this section. Its Mobile variant is derived as section 9
+  describes.
 
 ## 6. Budgets (defaults; a consumer project may override)
 
@@ -193,9 +195,15 @@ Texture sizes are maximums.
 | Hero prop | vehicle, set piece | 40,000 | 10,000 | 4096 | 2048 | 4 / 2 |
 | Character | humanoid, creature | 60,000 | 15,000 | 4096 | 2048 | 4 / 2 |
 | Environment piece | building, grandstand, road or track section | 40,000 | 10,000 | tiling, 2048 per texture | tiling, 1024 per texture | 6 / 3 |
+| Terrain | ground, hillside, valley | n/a | n/a | tiling, 2048 per texture | tiling, 1024 per texture | 4 / 3 |
 
 Environment pieces use the tiling mode and target a texel density of at least
 256 px/m on Desktop and 128 px/m on Mobile instead of a single texture set.
+
+Terrain has no triangle budget. Its budget is a heightmap resolution and a layer count:
+Desktop `heightmap_px` at most 2017, `layers` at most 4; Mobile `heightmap_px` at most 1009,
+`layers` at most 3. Its layers use the same tiling mode and texel density as environment pieces.
+Section 9 gives the terrain rules.
 
 Texel density is measured per material slot. Each slot's faces give their own UV area and world
 area, and the slot is compared with the minimum on its own, so a dense tiling slot is not diluted by
@@ -231,6 +239,7 @@ variant:
 
 ## 7. Export
 
+- Terrain exports PNG heightfields and layer textures instead of FBX. See section 9.
 - FBX, one file per variant, selected objects only, mesh (and armature if rigged) only,
   modifiers applied, smoothing = Face, Apply Scalings = FBX Units Scale, no embedded
   textures. Textures are written as separate PNGs beside the FBX.
@@ -341,3 +350,86 @@ clips"). The contract for them:
    imports the FBX in a fresh headless Blender and compares it with the report written
    before export, using the `reimport.*` rules. A missing texture fails with
    `reimport.texture_missing` and names the file.
+
+## 9. Terrain
+
+Terrain (`asset_class` `terrain`) is a heightfield. Finalize turns each variant into an Unreal
+Landscape instead of a Static Mesh. The §2 origin rule does not apply, because the grid is centered
+on the origin, and terrain does not use the §5 decimation or LOD rules or the §7 FBX export.
+
+### Grid
+
+- The collection `<Name>` holds one mesh object, `SM_<Name>`, and nothing else.
+- The mesh is a regular grid with one vertex per grid point. Its vertex count per side, n, is one of
+  127, 253, 505, 1009, 2017, or 4033.
+- Adjacent vertices are 1 m apart in X and Y, within 1 mm.
+- The grid is centered on the origin: its X and Y extents are symmetric about 0, within 1 mm.
+- The §2 transform rules apply to the root object, so the vertex Z values are heights in metres.
+
+### Layers
+
+- Each layer is a float point attribute named `Layer_<L>`, with a value from 0 to 1 at every vertex.
+  A terrain has at least one layer and at most 4 on Desktop.
+- Each layer `<L>` has a material `M_<Name>_<L>` on the mesh. After the bake, that material uses the
+  tiling texture set `T_<Name>_<L>_BC`, `T_<Name>_<L>_N`, and `T_<Name>_<L>_ORM` (section 4).
+- Layer materials bake in tiling mode. Their texel density, measured with the mesh's `UVMap`, must be
+  at least 256 px/m on Desktop and 128 px/m on Mobile.
+- The validator reports each violation as a finding named by rule: `terrain.structure`,
+  `terrain.resolution_invalid`, `terrain.spacing`, `terrain.not_centered`, `terrain.layer_missing`,
+  `terrain.layer_range`, `terrain.over_budget`, `terrain.layer_texture_missing`, and `texel.density`.
+  A failing terrain exports no file and creates no Unreal asset.
+
+### Mobile variant
+
+Finalize derives the Mobile variant from the Desktop grid in the same run.
+
+- Heightmap: the Mobile size is the largest valid size within the Mobile budget, reached by halving
+  the Desktop size along the valid sizes (2017 becomes 1009). The Mobile grid takes every
+  `stride`-th Desktop sample, so it covers the same extent at a spacing of `stride` metres (2 m from
+  2017 to 1009).
+- Layers: the Mobile variant keeps 3 layers. The layer with the lowest total weight across the grid
+  is dropped. At each vertex its weight is redistributed across the remaining layers in proportion to
+  their weights. Where the remaining weights are all zero, the vertex goes wholly to the remaining
+  layer with the highest total weight.
+- Layer textures are resized to no more than 1024 px.
+
+### Exported files
+
+Each variant folder `<Category>/<Name>/<Variant>/`, where `<Variant>` is `Desktop` or `Mobile`, holds:
+
+- `T_<Name>_Height.png`: the heightmap as a 16-bit grayscale PNG at the variant's size. 0 is the
+  minimum height, 65535 the maximum, and a flat terrain encodes 32768. Row 0 is the Blender +Y edge
+  and column 0 the Blender -X edge.
+- `T_<Name>_Layer_<L>.png`: one 8-bit grayscale weightmap per layer of that variant. The weights are
+  normalized per vertex, and the weightmaps of a variant sum to exactly 255 at every pixel.
+- `T_<Name>_<L>_BC.png`, `T_<Name>_<L>_N.png`, and `T_<Name>_<L>_ORM.png`: each layer's tiling texture
+  set, at the variant's texture maximum (2048 px Desktop, 1024 px Mobile).
+
+No FBX is written. Two sidecars sit in `<Category>/<Name>/`:
+
+- `nmg-variants.json` records `"terrain": true` and, for each variant, its heightmap size, spacing in
+  metres, height range in metres, layer list, texture maximum, and height samples. The samples are
+  nine points and the lowest and highest vertex.
+- `Mobile/nmg-asset.json` records `"class": "terrain"`, `heightmap_px`, the Mobile layer count as
+  `layers`, and `max_texture_px`.
+
+### Unreal import
+
+For each variant, finalize imports into `/Game/<Category>/<Name>/<Variant>/`:
+
+- `T_<Name>_<L>_{BC,N,ORM}`: the layer textures. The Height and weightmap PNGs are read by the
+  Landscape import and are not imported as textures.
+- `M_<Name>_Landscape`: a layered landscape material that blends one layer per weightmap.
+- `LI_<Name>_<L>`: one layer info per layer.
+- `L_<Name>`: the level that holds the Landscape. Re-importing replaces the level.
+
+The Landscape is centered on the origin. Its XY scale is the spacing in centimetres, and its Z scale
+and location reproduce the sidecar's height range. The import samples the Landscape at the sidecar's
+sample points. If any sample differs from the Blender height by more than 5 cm, the step fails with
+`import_ue.terrain_height_mismatch`.
+
+### Re-import check
+
+Terrain's re-import check decodes each variant's PNGs instead of importing an FBX. It checks the
+resolution, the layer files, the per-pixel weight sums of 255, and every decoded height against the
+pre-export heights within 5 cm. Its findings use the rule `reimport.terrain`.

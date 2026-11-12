@@ -32,11 +32,12 @@ Wooden crate by the harbor gate. Free text.
 |-------|----------|------------|------|
 | `type` | yes | all | One of `character`, `vehicle`, `prop`, `environment`, `region`, `mission`, `system`. |
 | `name` | yes | all | Free text. Its asset name is derived from it (section 3). |
-| `asset_class` | yes | `character`, `vehicle`, `prop`, `environment` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`. |
+| `asset_class` | yes | `character`, `vehicle`, `prop`, `environment` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`, `terrain`. Use `terrain` for an `environment` entry that is a heightfield (`docs/asset-contract.md` section 9). |
 | `category` | yes | `character`, `vehicle`, `prop`, `environment` | PascalCase, matching `^[A-Z][A-Za-z0-9]*$`. The Unreal category: finalized content lands in `/Game/<Category>/<Name>/`. |
 | `act` | no | all | Integer, 1 or more. |
 | `depends_on` | no | all | List of other entries' `name` values. |
 | `region` | no | `mission` | The `name` of a `region` entry. |
+| `terrain` | no | `region` | The `name` of an `environment` entry whose `asset_class` is `terrain`. The region's ground is that terrain's Desktop level (section 8). |
 
 The types `character`, `vehicle`, `prop`, and `environment` are asset types. Finalize turns them
 into assets. The types `region`, `mission`, and `system` are scaffolded in Unreal (section 6).
@@ -171,10 +172,12 @@ created <type> <asset_name>: <asset path>
 unchanged <type> <asset_name>: <asset path>
 skipped <type> <asset_name>: <source>
 error design.scaffold_failed <asset_name>: <UE error>
+error design.unknown_reference <asset_name>: <message>
 ```
 
 `skipped` is printed for `orphaned` entries. `created` and `unchanged` both mean the item is now
-`scaffolded`.
+`scaffolded`. A region whose `terrain` names no terrain entry is reported with `design.unknown_reference`
+and does not stop the other items.
 
 ## 7. Exit codes
 
@@ -183,16 +186,21 @@ error design.scaffold_failed <asset_name>: <UE error>
 | `sync` | 0 | The backlog was written. |
 | `sync` | 1 | A design file has an error, or `docs/design/` is missing. Nothing was written. |
 | `scaffold` | 0 | Every item was created, unchanged, or skipped. |
-| `scaffold` | 1 | At least one item failed with `design.scaffold_failed`. The other items still ran. |
+| `scaffold` | 1 | At least one item failed with `design.scaffold_failed` or `design.unknown_reference`. The other items still ran. |
 | `scaffold` | 2 | The Unreal editor is unreachable (`mcp.unreal.unreachable`). |
 
 ## 8. Scaffolded assets
 
 | Type | Asset | Path | Contents |
 |------|-------|------|----------|
-| `region` | Level | `/Game/Levels/<Name>/L_<Name>` | Ground plane, `PlayerStart`, `DirectionalLight`, `SkyLight`. |
+| `region` | Level | `/Game/Levels/<Name>/L_<Name>` | Ground, `PlayerStart`, `DirectionalLight`, `SkyLight`. The ground is a flat plane, or the terrain sublevel described below. |
 | `mission` | Mission data asset (`UNmgMissionDefinition`) | `/Game/Missions/<Name>/DA_<Name>` | `MissionName`, `Act`, `Region`, `DependsOn`, and `DesignDocPath` from the entry. `Act` is 0 when `act` is absent. `Region` and `DependsOn` hold asset names. |
 | `system` | Actor Component Blueprint | `/Game/Systems/<Name>/BPC_<Name>` | The Blueprint only. |
+
+A region with a `terrain` field streams the named terrain's Desktop level in as an always-loaded
+sublevel, `/Game/<Category>/<Name>/Desktop/L_<Name>`, where `<Category>` and `<Name>` are the terrain
+entry's. It spawns no ground plane. A region without `terrain`, or whose terrain level does not exist
+in Unreal yet, gets the flat plane.
 
 Mission assets need the `UNmgMissionDefinition` class from the nmg-game-dev runtime plugin. If the
 editor does not have it, the mission fails with `design.scaffold_failed`.
@@ -207,10 +215,10 @@ Sync reports every error it finds. A sync error exits 1 and leaves the backlog u
 | `design.frontmatter_invalid` | The frontmatter block is not valid YAML. |
 | `design.unknown_type` | `type` is not one of the seven types in section 2. |
 | `design.missing_field` | A required field is absent (section 2). |
-| `design.invalid_field` | A field value breaks its rule in section 2, such as an unknown `asset_class`, a `category` that is not PascalCase, or an `act` that is not an integer of 1 or more. |
+| `design.invalid_field` | A field value breaks its rule in section 2, such as an unknown `asset_class`, a `category` that is not PascalCase, an `act` that is not an integer of 1 or more, or a region's `terrain` that is not a non-empty string. |
 | `design.duplicate_name` | Two entries derive the same `asset_name`. |
 | `design.invalid_name` | `name` does not yield a valid `asset_name` (section 3). |
-| `design.unknown_reference` | A `depends_on` name matches no entry, or a `region` name matches no `region` entry. |
+| `design.unknown_reference` | A `depends_on` name matches no entry, a `region` name matches no `region` entry, or a region's `terrain` names no `environment` entry with `asset_class` `terrain`. Sync reports it, and scaffold reports it for that region. |
 | `design.dir_missing` | `docs/design/` does not exist. Sync exits 1. |
 | `design.scaffold_failed` | Unreal work for one scaffold item failed. The item keeps its status, the other items still run, and scaffold exits 1. |
 | `mcp.unreal.unreachable` | Scaffold could not reach the Unreal MCP endpoint. Scaffold exits 2. |

@@ -84,9 +84,14 @@ def _bake(
     desktop, mobile = _budgets(asset_class, budgets_path)
     desktop_px = desktop["max_texture_px"]
     mobile_px = mobile["max_texture_px"]
-    # A reduced environment piece keeps its atlas (#139): only an untagged one tiles.
-    tiled = asset_class == "environment_piece" and not collection.get("nmg_reduced")
+    # Terrain layers tile like environment pieces (#154). A reduced environment piece keeps its
+    # atlas (#139): only an untagged one tiles. Terrain's material limit is the Desktop one,
+    # because the Mobile layer reduction happens in the variants step.
+    tiled = asset_class == "terrain" or (
+        asset_class == "environment_piece" and not collection.get("nmg_reduced")
+    )
     mode = "tiling" if tiled else "unique"
+    material_limit = desktop["materials"] if asset_class == "terrain" else mobile["materials"]
     meshes = sorted(
         (obj for obj in collection.all_objects if obj.type == "MESH"), key=lambda obj: obj.name
     )
@@ -98,11 +103,11 @@ def _bake(
         )
     sources = inspect_materials(meshes)
     merged = mode == "unique" and len(sources) > mobile["materials"]
-    if mode == "tiling" and len(sources) > mobile["materials"]:
+    if mode == "tiling" and len(sources) > material_limit:
         raise BakeError(
             "material_limit",
-            f"{collection_name} has {len(sources)} tiling materials; the {asset_class} Mobile "
-            f"limit is {mobile['materials']}.",
+            f"{collection_name} has {len(sources)} tiling materials; the {asset_class} limit "
+            f"is {material_limit}.",
             target=collection_name,
         )
 

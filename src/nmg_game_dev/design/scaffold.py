@@ -7,14 +7,17 @@ asset.  The UE result comes back as one ``NMG_RESULT {json}`` line, parsed by
 
 Targets:
 
-- region: level ``/Game/Levels/<Name>/L_<Name>`` with a ground plane, PlayerStart, DirectionalLight,
-  and SkyLight.  The editor returns to the level it had open.
+- region: level ``/Game/Levels/<Name>/L_<Name>`` with PlayerStart, DirectionalLight, and SkyLight.
+  Its ground is a plane, unless the region's ``terrain`` names a terrain entry whose Desktop level
+  ``/Game/<Category>/<Name>/Desktop/L_<Name>`` exists in Unreal.  Then that level streams in as an
+  always-loaded sublevel and no plane is spawned.  The editor returns to the level it had open.
 - mission: ``UNmgMissionDefinition`` data asset ``/Game/Missions/<Name>/DA_<Name>``.
 - system: Actor Component Blueprint ``/Game/Systems/<Name>/BPC_<Name>``.
 
-A ``design.scaffold_failed`` item does not stop the others.  An unreachable editor raises
-``PipelineError`` (``mcp.unreal.unreachable``), and the caller exits 2.  The backlog is written
-once, in a ``finally``, so the entries that did scaffold stay marked.
+A ``design.scaffold_failed`` item does not stop the others.  A region whose ``terrain`` names no
+terrain entry is a ``design.unknown_reference`` item, and it does not stop the others either.  An
+unreachable editor raises ``PipelineError`` (``mcp.unreal.unreachable``), and the caller exits 2.
+The backlog is written once, in a ``finally``, so the entries that did scaffold stay marked.
 """
 
 from __future__ import annotations
@@ -34,21 +37,27 @@ from .paths import backlog_path
 SCAFFOLD_TYPES: Final = ("region", "mission", "system")
 UNREACHABLE: Final = "mcp.unreal.unreachable"
 SCAFFOLD_FAILED: Final = "design.scaffold_failed"
+UNKNOWN_REFERENCE: Final = "design.unknown_reference"
 
 
 @dataclass(frozen=True)
 class ScaffoldLine:
-    """One report line.  ``status`` is created, unchanged, skipped, or error."""
+    """One report line.  ``status`` is created, unchanged, skipped, or error.
+
+    ``code`` is the ``design.*`` code an error line prints.  It defaults to
+    ``design.scaffold_failed``.
+    """
 
     status: str
     entry_type: str
     asset_name: str
     detail: str
+    code: str = SCAFFOLD_FAILED
 
     def text(self) -> str:
         """Return the report line the command prints."""
         if self.status == "error":
-            return f"error {SCAFFOLD_FAILED} {self.asset_name}: {self.detail}"
+            return f"error {self.code} {self.asset_name}: {self.detail}"
         return f"{self.status} {self.entry_type} {self.asset_name}: {self.detail}"
 
 
@@ -72,6 +81,7 @@ def run_scaffold(client: UnrealPythonClient, root: Path, report: ScaffoldReport)
         raise FileNotFoundError(path)
     entries = backlog.load(path)
     names = _asset_names(entries)
+    terrain_levels = _terrain_levels(entries)
     statuses: dict[str, str] = {}
     try:
         for entry in entries:
@@ -82,9 +92,18 @@ def run_scaffold(client: UnrealPythonClient, root: Path, report: ScaffoldReport)
                     ScaffoldLine("skipped", entry.type, entry.asset_name, entry.source)
                 )
                 continue
+            terrain = entry.fields.get("terrain")
+            if entry.type == "region" and terrain is not None and terrain not in terrain_levels:
+                _record_failure(
+                    report,
+                    entry,
+                    f"terrain {terrain!r} names no environment entry with asset_class terrain",
+                    UNKNOWN_REFERENCE,
+                )
+                continue
             try:
                 result = parse_nmg_result(
-                    client.execute_python_code(build_scaffold_code(entry, names))
+                    client.execute_python_code(build_scaffold_code(entry, names, terrain_levels))
                 )
             except PipelineError as error:
                 if error.code == UNREACHABLE:
@@ -109,21 +128,31 @@ def run_scaffold(client: UnrealPythonClient, root: Path, report: ScaffoldReport)
             backlog.update_statuses(path, statuses)
 
 
-def build_scaffold_code(entry: Entry, names: Mapping[str, str]) -> str:
+def build_scaffold_code(
+    entry: Entry, names: Mapping[str, str], terrain_levels: Mapping[str, str]
+) -> str:
     """Return the UE Python that scaffolds one entry and prints one ``NMG_RESULT`` line.
 
     ``names`` maps each entry's name and asset name to its asset name, so a mission's region and
     dependencies are written as asset names, as the mission data asset expects.
+    ``terrain_levels`` maps a terrain entry's name and asset name to its Desktop level path.  A
+    region's ``terrain`` must be one of its keys.
     """
-    constants = _constants(entry, names)
+    constants = _constants(entry, names, terrain_levels)
     assignments = "".join(f"{key} = {value!r}\n" for key, value in constants.items())
     return assignments + _PRELUDE + _BODIES[entry.type] + _EPILOGUE
 
 
-def _constants(entry: Entry, names: Mapping[str, str]) -> dict[str, object]:
+def _constants(
+    entry: Entry, names: Mapping[str, str], terrain_levels: Mapping[str, str]
+) -> dict[str, object]:
     name = entry.asset_name
     if entry.type == "region":
-        return {"PATH": f"/Game/Levels/{name}/L_{name}"}
+        terrain = entry.fields.get("terrain")
+        return {
+            "PATH": f"/Game/Levels/{name}/L_{name}",
+            "TERRAIN_LEVEL": None if terrain is None else terrain_levels[str(terrain)],
+        }
     if entry.type == "mission":
         region = entry.fields.get("region")
         return {
@@ -153,9 +182,24 @@ def _asset_names(entries: list[Entry]) -> dict[str, str]:
     return names
 
 
-def _record_failure(report: ScaffoldReport, entry: Entry, detail: str) -> None:
+def _terrain_levels(entries: list[Entry]) -> dict[str, str]:
+    """Map each terrain entry's name and asset name to its Desktop level path."""
+    levels: dict[str, str] = {}
+    for entry in entries:
+        if entry.type != "environment" or entry.fields.get("asset_class") != "terrain":
+            continue
+        name = entry.asset_name
+        level = f"/Game/{entry.fields['category']}/{name}/Desktop/L_{name}"
+        levels[entry.name] = level
+        levels[name] = level
+    return levels
+
+
+def _record_failure(
+    report: ScaffoldReport, entry: Entry, detail: str, code: str = SCAFFOLD_FAILED
+) -> None:
     report.failed = True
-    report.lines.append(ScaffoldLine("error", entry.type, entry.asset_name, detail))
+    report.lines.append(ScaffoldLine("error", entry.type, entry.asset_name, detail, code))
 
 
 _PRELUDE: Final = """import json
@@ -177,6 +221,7 @@ print("NMG_RESULT " + json.dumps(RESULT))
 """
 
 _REGION_BODY: Final = """def _scaffold():
+    RESULT.update(terrain=None)
     if unreal.EditorAssetLibrary.does_asset_exist(PATH):
         RESULT.update(ok=True, created=False)
         return
@@ -187,11 +232,17 @@ _REGION_BODY: Final = """def _scaffold():
     try:
         if not levels.new_level(PATH):
             raise RuntimeError("LevelEditorSubsystem.new_level failed for " + PATH)
-        ground = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(0, 0, 0))
-        ground.static_mesh_component.set_editor_property(
-            "static_mesh", unreal.EditorAssetLibrary.load_asset("/Engine/BasicShapes/Plane")
-        )
-        ground.set_actor_scale3d(unreal.Vector(100, 100, 1))
+        if TERRAIN_LEVEL is not None and unreal.EditorAssetLibrary.does_asset_exist(TERRAIN_LEVEL):
+            unreal.EditorLevelUtils.add_level_to_world(
+                editor.get_editor_world(), TERRAIN_LEVEL, unreal.LevelStreamingAlwaysLoaded
+            )
+            RESULT.update(terrain=TERRAIN_LEVEL)
+        else:
+            ground = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(0, 0, 0))
+            ground.static_mesh_component.set_editor_property(
+                "static_mesh", unreal.EditorAssetLibrary.load_asset("/Engine/BasicShapes/Plane")
+            )
+            ground.set_actor_scale3d(unreal.Vector(100, 100, 1))
         actors.spawn_actor_from_class(unreal.PlayerStart, unreal.Vector(0, 0, 100))
         actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 0))
         actors.spawn_actor_from_class(unreal.SkyLight, unreal.Vector(0, 0, 0))

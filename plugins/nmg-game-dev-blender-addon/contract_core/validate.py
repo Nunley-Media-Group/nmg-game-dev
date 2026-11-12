@@ -21,6 +21,7 @@ from . import texel
 from .geometry import geometry_findings
 from .material_variants import check_declaration, load_declaration
 from .report import ContractError, build_report, finding
+from .terrain import TERRAIN_CLASS, terrain_check
 from .uv import uv_findings
 
 LOCATION_TOLERANCE = 1e-5
@@ -86,6 +87,8 @@ def validate_asset(
             "scene.collection", collection, f"No collection named '{collection}' is in the file."
         )
         return build_report("contract", collection, asset_class, [missing], {})
+    if asset_class == TERRAIN_CLASS:
+        return _validate_terrain(collection, asset, asset_class, budgets, authored)
 
     variants: list[tuple[str, bpy.types.Collection]] = [("desktop", asset)]
     mobile = bpy.data.collections.get(f"{collection}{MOBILE_SUFFIX}")
@@ -201,6 +204,30 @@ def _source_materials(meshes: list[bpy.types.Object]) -> list[bpy.types.Material
     return distinct
 
 
+def _validate_terrain(
+    collection: str,
+    asset: bpy.types.Collection,
+    asset_class: str,
+    budgets: dict[str, dict[str, int]],
+    authored: bool,
+) -> dict[str, Any]:
+    """The terrain contract (#154): the grid, its layers, and their budgets, with no mesh rules.
+
+    Terrain has no pivot, UV-overlap, or triangle rules. Its checks live in terrain.py, which
+    also builds the terrain object on a passing report. Scene units still apply.
+    """
+    findings = _unit_findings()
+    terrain_items, terrain_object = terrain_check(asset, budgets, authored=authored)
+    findings += terrain_items
+    snapshot: dict[str, Any] = {}
+    root = asset.objects.get(f"SM_{collection}")
+    if root is not None:
+        tris = triangle_count(root.data) if root.type == "MESH" else 0
+        snapshot[root.name] = object_snapshot(root, "desktop", tris)
+    extra = {"terrain": terrain_object} if terrain_object is not None else None
+    return build_report("contract", collection, asset_class, findings, snapshot, extra)
+
+
 def triangle_count(mesh: bpy.types.Mesh) -> int:
     return sum(max(poly.loop_total - 2, 0) for poly in mesh.polygons)
 
@@ -241,6 +268,7 @@ def object_snapshot(obj: bpy.types.Object, variant: str, tris: int) -> dict[str,
 
 
 def _budgets(asset_class: str, budgets_path: str | None) -> dict[str, dict[str, int]]:
+    """Desktop and Mobile budgets with nmg-budgets.json overrides applied to each variant."""
     path = budgets_path or None
     try:
         desktop = resolve_budget(asset_class, path, "desktop")

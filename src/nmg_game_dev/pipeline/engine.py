@@ -15,7 +15,8 @@
 3. Load-back.  For a session run that reaches ``import_ue``, the result replaces the session's
    collections, unless the session changed since the checkpoint.  A refusal lets ``import_ue`` run
    and then fails the run with ``finalize.session_changed``.
-4. UE import.  ``import_ue`` runs only after every earlier step passed.  ``import_anims`` runs
+4. UE import.  ``import_ue`` runs only after every earlier step passed.  A terrain request
+   imports each variant with ``import_terrain_variant``, Desktop first.  ``import_anims`` runs
    after it, against the Desktop skeleton it created.
 
 Errors are ``PipelineError`` with a stable code.  A failing step stops the chain before any later
@@ -33,6 +34,7 @@ from typing import Any, Protocol
 
 from nmg_game_dev.unreal.import_asset import import_variant
 from nmg_game_dev.unreal.preflight import ensure_not_in_pie
+from nmg_game_dev.unreal.terrain import import_terrain_variant
 
 from . import anims
 from .blender_proc import ProgressCallback, StepRunner
@@ -387,6 +389,11 @@ def _run_per_clip(
     *,
     force: bool,
 ) -> dict[str, Any]:
+    if run.request.asset_class == "terrain":
+        # A terrain has no rig, so both clip steps are no-ops: no Blender probe, no Unreal call.
+        if step == "export_anims":
+            return {"clips": [], "content_dir": None, "sidecar": None}
+        return {"clips": [], "content_dir": None, "stale": [], "compatible": []}
     if step == "export_anims":
         return anims.run_export_anims(
             run.request,
@@ -459,32 +466,15 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
     else:
         owned = UnrealMcpClient()
         client = owned
-    imports: dict[str, Any] = {}
-    paths: dict[str, str] = {}
-    # Each variant imports its own material variants, which the export sidecar lists (#148).
-    material_variants = _sidecar_material_variants(str(outputs_by_step["export"]["sidecar"]))
-    # A rigged Mobile reuses the Desktop skeleton and physics asset, so both variants name the
-    # Desktop folder, and Desktop is imported first (VARIANTS orders it).
-    skeleton_dest = ue_destination(request, "Desktop")
     try:
-        for variant in VARIANTS:
-            entry = export[variant]
-            report: dict[str, Any] = json.loads(
-                Path(str(entry["pre_report"])).read_text(encoding="utf-8")
+        if request.asset_class == "terrain":
+            imports, paths = _import_terrain_variants(
+                client, request, outputs_by_step["export"]["sidecar"], export
             )
-            destination = ue_destination(request, variant)
-            # No import request is sent while the editor is in Play In Editor (#149, FR9).
-            ensure_not_in_pie(client, mode=request.pie_mode, wait_s=request.pie_wait_seconds)
-            imports[variant] = import_variant(
-                client,
-                variant_dir=str(entry["dir"]),
-                dest=destination,
-                name=request.collection,
-                report=report,
-                skeleton_dest=skeleton_dest,
-                material_variants=material_variants.get(variant.lower(), []),
+        else:
+            imports, paths = _import_mesh_variants(
+                client, request, str(outputs_by_step["export"]["sidecar"]), export
             )
-            paths[variant] = destination
     finally:
         if owned is not None:
             owned.close()
@@ -493,6 +483,80 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
         "mobile_content_path": paths["Mobile"],
         "imports": imports,
     }
+
+
+def _import_mesh_variants(
+    client: UnrealPythonRunner,
+    request: FinalizeRequest,
+    sidecar: str,
+    export: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    imports: dict[str, Any] = {}
+    paths: dict[str, str] = {}
+    # Each variant imports its own material variants, which the export sidecar lists (#148).
+    material_variants = _sidecar_material_variants(sidecar)
+    # A rigged Mobile reuses the Desktop skeleton and physics asset, so both variants name the
+    # Desktop folder, and Desktop is imported first (VARIANTS orders it).
+    skeleton_dest = ue_destination(request, "Desktop")
+    for variant in VARIANTS:
+        entry = export[variant]
+        report: dict[str, Any] = json.loads(
+            Path(str(entry["pre_report"])).read_text(encoding="utf-8")
+        )
+        destination = ue_destination(request, variant)
+        # No import request is sent while the editor is in Play In Editor (#149, FR9).
+        ensure_not_in_pie(client, mode=request.pie_mode, wait_s=request.pie_wait_seconds)
+        imports[variant] = import_variant(
+            client,
+            variant_dir=str(entry["dir"]),
+            dest=destination,
+            name=request.collection,
+            report=report,
+            skeleton_dest=skeleton_dest,
+            material_variants=material_variants.get(variant.lower(), []),
+        )
+        paths[variant] = destination
+    return imports, paths
+
+
+def _import_terrain_variants(
+    client: UnrealPythonRunner,
+    request: FinalizeRequest,
+    sidecar: str,
+    export: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Build one Landscape level per terrain variant, Desktop first, from the sidecar's fields.
+
+    Both sidecar entries are read before the first Unreal call, so a sidecar that lacks the Mobile
+    entry fails before the Desktop level is touched.
+    """
+    sidecar_data: dict[str, Any] = json.loads(Path(sidecar).read_text(encoding="utf-8"))
+    entries: dict[str, dict[str, Any]] = {}
+    for variant in VARIANTS:
+        entry = sidecar_data.get(variant.lower())
+        if not isinstance(entry, dict):
+            raise PipelineError(
+                code="import_ue.failed",
+                message=f"nmg-variants.json has no {variant.lower()} terrain entry",
+                remediation="Rerun the export step so the terrain sidecar holds both variants.",
+                stage="import_ue",
+            )
+        entries[variant] = entry
+    imports: dict[str, Any] = {}
+    paths: dict[str, str] = {}
+    for variant in VARIANTS:
+        destination = ue_destination(request, variant)
+        # No import request is sent while the editor is in Play In Editor (#149, FR9).
+        ensure_not_in_pie(client, mode=request.pie_mode, wait_s=request.pie_wait_seconds)
+        imports[variant] = import_terrain_variant(
+            client,
+            variant_dir=str(export[variant]["dir"]),
+            dest=destination,
+            name=request.collection,
+            sidecar_variant=entries[variant],
+        )
+        paths[variant] = destination
+    return imports, paths
 
 
 def _sidecar_material_variants(sidecar: str) -> dict[str, list[dict[str, Any]]]:

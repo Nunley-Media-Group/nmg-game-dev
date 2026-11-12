@@ -1,17 +1,25 @@
-"""AC3: each design.* error is reported with its source file, field, and sync line format."""
+"""AC3 and AC6: each design.* error is reported with its source file, field, and sync line format.
+
+The region ``terrain`` field (AC6, FR7) is checked here too: it must be a non-empty string that
+names an ``environment`` entry with ``asset_class`` ``terrain``.
+"""
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
 
-from nmg_game_dev.design.model import DesignError, asset_name
+from nmg_game_dev.design.__main__ import main
+from nmg_game_dev.design.model import ASSET_CLASSES, DesignError, asset_name
 from nmg_game_dev.design.parse import parse_tree
+from nmg_game_dev.design.paths import backlog_path
 
 SRC_OLD_TOWN = "docs/design/regions/old-town.md"
 SRC_CRATE = "docs/design/props/crate.md"
 SRC_MISSION = "docs/design/missions/find-key.md"
+SRC_HARBOR = "docs/design/regions/harbor.md"
 
 REGION = """\
 ---
@@ -30,9 +38,40 @@ category: Props
 ---
 """
 
+TERRAIN = """\
+---
+type: environment
+name: Rolling Hills
+asset_class: terrain
+category: Terrain
+---
+"""
+
+NOT_TERRAIN = """\
+---
+type: environment
+name: Rolling Hills
+asset_class: environment_piece
+category: Environment
+---
+"""
+
+PROP_NAMED_HILLS = """\
+---
+type: prop
+name: Rolling Hills
+asset_class: standard_prop
+category: Props
+---
+"""
+
 
 def _mission(region: str = "Old Town", act: str = "1") -> str:
     return f"---\ntype: mission\nname: Find Key\nact: {act}\nregion: {region}\n---\n"
+
+
+def _region_with_terrain(terrain: str) -> str:
+    return f"---\ntype: region\nname: Old Town\nterrain: {terrain}\n---\n"
 
 
 def _write(root: Path, relative: str, text: str) -> None:
@@ -199,6 +238,74 @@ def test_mission_region_must_name_a_region_entry(tmp_path: Path, region: str) ->
 
     _assert_line(error, "design.unknown_reference", SRC_MISSION, "region")
     assert error.message == f"{region!r} does not name a region entry"
+
+
+def test_terrain_is_one_of_the_asset_classes() -> None:
+    assert "terrain" in ASSET_CLASSES
+
+
+@pytest.mark.parametrize("terrain", ["7", "''", "'   '", "[Rolling Hills]", "null"])
+def test_region_terrain_must_be_a_non_empty_string(tmp_path: Path, terrain: str) -> None:
+    _write(tmp_path, "regions/old-town.md", _region_with_terrain(terrain))
+
+    error = _only(tmp_path)
+
+    _assert_line(error, "design.invalid_field", SRC_OLD_TOWN, "terrain")
+    assert "asset_class terrain" in error.message
+
+
+@pytest.mark.parametrize("terrain", ["Rolling Hills", "RollingHills"])
+def test_region_terrain_naming_a_terrain_entry_is_valid(tmp_path: Path, terrain: str) -> None:
+    _write(tmp_path, "regions/old-town.md", _region_with_terrain(terrain))
+    _write(tmp_path, "environment/rolling-hills.md", TERRAIN)
+
+    entries, errors = parse_tree(tmp_path)
+
+    assert errors == []
+    region = next(entry for entry in entries if entry.type == "region")
+    assert region.fields == {"terrain": terrain}
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        None,
+        ("environment/rolling-hills.md", NOT_TERRAIN),
+        ("props/rolling-hills.md", PROP_NAMED_HILLS),
+    ],
+    ids=["no-entry", "environment-piece", "prop"],
+)
+def test_region_terrain_naming_no_terrain_entry_is_an_unknown_reference(
+    tmp_path: Path, other: tuple[str, str] | None
+) -> None:
+    _write(tmp_path, "regions/old-town.md", _region_with_terrain("Rolling Hills"))
+    if other is not None:
+        _write(tmp_path, *other)
+
+    error = _only(tmp_path)
+
+    _assert_line(error, "design.unknown_reference", SRC_OLD_TOWN, "terrain")
+    assert error.message == "'Rolling Hills' names no environment entry with asset_class terrain"
+
+
+def test_sync_reports_an_invalid_terrain_and_an_unknown_terrain_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "regions/old-town.md", _region_with_terrain("''"))
+    _write(tmp_path, "regions/harbor.md", "---\ntype: region\nname: Harbor\nterrain: Ghost\n---\n")
+    out, err = io.StringIO(), io.StringIO()
+
+    code = main(["sync", "--project", str(tmp_path)], stdout=out, stderr=err)
+
+    lines = out.getvalue().splitlines()
+    assert code == 1
+    assert len(lines) == 2
+    assert lines[0].startswith(f"error design.invalid_field {SRC_OLD_TOWN}: terrain — ")
+    assert lines[1] == (
+        f"error design.unknown_reference {SRC_HARBOR}: terrain — "
+        "'Ghost' names no environment entry with asset_class terrain"
+    )
+    assert not backlog_path(tmp_path).exists()
 
 
 def test_file_with_several_problems_reports_every_one(tmp_path: Path) -> None:

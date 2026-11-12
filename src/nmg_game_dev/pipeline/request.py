@@ -14,7 +14,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-AssetClass = Literal["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]
+AssetClass = Literal[
+    "small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"
+]
 Device = Literal["GPU", "CPU"]
 PieMode = Literal["wait", "refuse"]
 

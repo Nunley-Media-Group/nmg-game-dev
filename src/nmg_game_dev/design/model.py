@@ -19,6 +19,7 @@ ASSET_CLASSES: Final = (
     "hero_prop",
     "character",
     "environment_piece",
+    "terrain",
 )
 PASCAL_CASE: Final = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 _WORD: Final = re.compile(r"[A-Za-z0-9]+")

@@ -14,12 +14,21 @@ def write_sidecars(variant_root: Path, payload: dict[str, Any]) -> None:
     _write_json(variant_root / "nmg-variants.json", payload)
 
     mobile = payload["mobile"]
-    asset = {
-        "class": payload["class"],
-        "tris": mobile["tris"],
-        "max_texture_px": mobile["max_texture_px"],
-        "materials": mobile["materials"],
-    }
+    if payload.get("terrain"):
+        # Terrain (#154): the mobile gate reads heightmap_px, the layer count, and texture size.
+        asset = {
+            "class": payload["class"],
+            "heightmap_px": mobile["heightmap_px"],
+            "layers": len(mobile["layers"]),
+            "max_texture_px": mobile["max_texture_px"],
+        }
+    else:
+        asset = {
+            "class": payload["class"],
+            "tris": mobile["tris"],
+            "max_texture_px": mobile["max_texture_px"],
+            "materials": mobile["materials"],
+        }
     _write_json(variant_root / "Mobile" / "nmg-asset.json", asset)
 
 

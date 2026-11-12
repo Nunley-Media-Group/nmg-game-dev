@@ -21,8 +21,14 @@ public class NmgGameDevEditor : ModuleRules
 
         // UnrealEd is Private per design § Alternatives E — do not promote to Public unless
         // a concrete consumer of the type appears in a public header.
+        // The #154 terrain helper (NmgLandscapeLibrary) builds Landscape, layered materials, and
+        // heightmap PNGs, so these stay Private: no public header in this module exposes them.
         PrivateDependencyModuleNames.AddRange(new string[]
         {
+            "AssetTools",
+            "ImageWrapper",
+            "Landscape",
+            "MaterialEditor",
             "UnrealEd",
         });
     }

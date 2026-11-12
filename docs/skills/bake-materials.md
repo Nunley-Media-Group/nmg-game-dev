@@ -31,7 +31,7 @@ finalize envelope. A refusal surfaces as `bake.texture.bake_failed` with stage `
 | Input | Meaning |
 |-------|---------|
 | `collection` | The asset collection `<Name>` whose meshes carry the authored materials. |
-| `asset_class` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`. Sets the texture sizes and the material limit (§6). |
+| `asset_class` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`, `terrain`. Sets the texture sizes and the material limit (§6). For `terrain`, the material limit is the layer limit. |
 | `out_dir` | Folder that receives `Desktop/`, `Mobile/`, the proof renders, and `bake.json`. |
 | `budgets_path` | Optional `nmg-budgets.json` with overrides (see below). |
 | `device` | `GPU` or `CPU`. `GPU` is used only when Cycles reports a non-CPU device; otherwise `CPU`. |
@@ -42,7 +42,7 @@ The operator's fields are `collection_name`, `asset_class`, `out_dir` (a folder 
 
 ## Modes
 
-- **Unique bake** (every class except an untagged `environment_piece`). The layout is kept when every mesh has
+- **Unique bake** (every class except `terrain` and an untagged `environment_piece`). The layout is kept when every mesh has
   exactly one `UVMap` inside 0 to 1 and no faces overlap. Otherwise all meshes are unwrapped
   together with one Smart UV Project, into a new layer that becomes `UVMap`.
 - **Merging.** When the authored material count is above the class's Mobile material limit, every
@@ -52,15 +52,19 @@ The operator's fields are `collection_name`, `asset_class`, `out_dir` (a folder 
   property `nmg_reduced`, which the reduce step sets, bakes in unique mode even when its class is
   `environment_piece`. Its atlas layout from reduce is kept, so a layout that is already valid is not
   unwrapped again, and the UV overlap check applies to it.
-- **Tiling** (`environment_piece`, not tagged `nmg_reduced`). Each tiling material bakes onto a
-  temporary 1 m tile whose UVs span 0 to 1. The asset's UVs stay as they are. The bake fails unless
-  the opposite edges of each texture match and each material slot of each mesh meets the texel
+- **Tiling** (`terrain`, and `environment_piece` not tagged `nmg_reduced`). Each tiling material bakes
+  onto a temporary 1 m tile whose UVs span 0 to 1. The asset's UVs stay as they are. The bake fails
+  unless the opposite edges of each texture match and each material slot of each mesh meets the texel
   density minimum (256 px/m Desktop, 128 px/m Mobile). Trim-atlas and flat-colour slots are exempt
   (`docs/asset-contract.md` §6), and the bake report lists every slot with its densities or its
   exemption.
+  - For `terrain`, each layer material bakes on its own, and the texel density is measured with the
+    terrain mesh's `UVMap`. Layers are not merged, so each layer keeps its own `T_<Name>_<L>_*` set. The
+    Mobile layer reduction happens in finalize's `variants` step, not in the bake.
 
 Part names follow `M_<Name>_<Part>`: a material already named that way keeps `<Part>`, one authored
-material otherwise becomes `Body`, and several materials take PascalCase of their names.
+material otherwise becomes `Body`, and several materials take PascalCase of their names. For `terrain`,
+`<Part>` is the layer name `<L>`, so the textures are `T_<Name>_<L>_{BC,N,ORM}`.
 
 ## Output
 
@@ -126,7 +130,7 @@ a remediation. A failed run restores the authored materials, UV maps, and render
 | `uv_missing` | A tiling mesh has no UV map. | Give every mesh at least one UV map. |
 | `not_seamless` | A channel fails when a tiling material's wrap (the first and last pixel along an axis) differs by more than 1.5× the interior adjacent-pixel difference (minimum 2/255). The message reports the wrap and interior values for each failing channel. | Run `python -m nmg_game_dev.texture seamless <image.png>` on a source texture that does not tile, or make the procedural material periodic across 0 to 1 UV, then rerun. |
 | `texel_density` | A material slot of a mesh is below 256 px/m (Desktop) or 128 px/m (Mobile). Trim-atlas and flat-colour slots are exempt. | Raise the slot's density with more texture resolution or less UV area per meter, or set `nmg_trim_atlas` to `True` on a trim-atlas material. |
-| `material_limit` | A tiling asset has more materials than its Mobile limit. | Reduce the tiling materials to the class limit. |
+| `material_limit` | A tiling asset has more materials than its limit: the Mobile limit for `environment_piece`, and the Desktop layer limit (4) for `terrain`. | Reduce the tiling materials to the class limit. |
 | `proof_mismatch` | The baked render differs from the pre-bake render beyond tolerance. | Check the seams, color space, and roughness in the proof renders, fix the material, then rebake. |
 | `budget_invalid` | Unknown class, or a texture size that is not a power of two. | Use a listed class and power-of-two sizes. |
 | `collection_missing` | No collection with the given name. | Open the file that holds the asset. |

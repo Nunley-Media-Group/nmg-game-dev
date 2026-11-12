@@ -186,7 +186,7 @@ Every entry point takes one `FinalizeRequest`:
 |-------|---------|
 | `collection` | The asset's collection name `<Name>`, PascalCase. The session (or `--blend`) must hold it. |
 | `category` | Optional. The Unreal category, PascalCase. Content lands in `/Game/<Category>/<Name>/`. When omitted, taken from the design backlog. |
-| `asset_class` | Optional. One of `small_prop`, `standard_prop`, `hero_prop`, `character`, or `environment_piece`. Sets the texture sizes and the material limit. When omitted, taken from the design backlog. |
+| `asset_class` | Optional. One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`, or `terrain`. Sets the texture sizes and the material limit. For `terrain`, it sets the heightmap size and the layer limit. When omitted, taken from the design backlog. |
 | `export_root` | Folder that receives `<Category>/<Name>/Desktop/` and `<Category>/<Name>/Mobile/`. |
 | `blend` | Optional saved `.blend` to finalize instead of the open session. |
 | `budgets_path` | Optional `nmg-budgets.json` with budget overrides. |
@@ -266,6 +266,20 @@ ran.
 
 `run_finalize_step` returns a result with `step`, `cache_hit`, `outputs`, and `summary`. When a step
 fails, no later step runs, and nothing is imported into Unreal.
+
+## Terrain
+
+`asset_class` `terrain` runs the same six steps. Four of them do different work, and each variant
+imports as a Landscape level instead of a Static Mesh. The rules are in `docs/asset-contract.md`
+section 9.
+
+| Step | Terrain |
+|------|---------|
+| `validate` | Runs the `terrain.*` rules and the texel density check in place of the mesh and budget checks. The validation report gains a `terrain` object |
+| `variants` | Derives the Mobile heightmap and layer set from the Desktop grid. No `_Mobile` collection is created |
+| `export` | Writes PNG heightmaps, weightmaps, and layer textures instead of FBX. Writes `nmg-variants.json` with `"terrain": true`, and `Mobile/nmg-asset.json` |
+| `reimport` | Decodes each variant's PNGs and checks them against the pre-export heights. Its findings use the rule `reimport.terrain` |
+| `import_ue` | Imports each variant's layer textures, then creates `M_<Name>_Landscape`, the layer infos, and `L_<Name>` in `/Game/<Category>/<Name>/<Variant>/`. It has no pivot check. It checks sampled Landscape heights against the sidecar within 5 cm |
 
 ## reduce_asset (#139)
 
@@ -401,11 +415,12 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `finalize.material_variants_not_found` | The `material_variants_path` does not exist. | Pass the path of an existing declaration, or omit it to use the one beside the `.blend`. |
 | `validate.material_variant.declaration_invalid` | The material-variants file is not valid JSON, or does not match the format in `docs/asset-contract.md` section 4. | Fix the file, then rerun. |
 | `finalize.material_variants_failed` | Unreal could not list the material variants. The UE error is in the message. | Confirm the editor is idle and the asset is in Content, then rerun `list_material_variants`. |
-| `quality.reimport_mismatch` | An exported FBX re-imported differently from its pre-export report. | Read the re-import report in the job directory, fix the export cause, then rerun. |
+| `quality.reimport_mismatch` | An exported FBX re-imported differently from its pre-export report, or a terrain's PNGs decoded differently from its pre-export heights. | Read the re-import report in the job directory, fix the export cause, then rerun. |
 | `bake.texture.bake_failed` | A texture bake failed. | Read `blender-bake.log` and fix the material it names, then rerun. |
 | `variants.<code>` | Variant generation failed. The code names the cause. | Read the message, fix the mesh or material it names, then rerun. |
 | `import_ue.failed` | The Unreal import call failed, or the editor did not answer any attempt. The message gives the attempts and seconds when every retry timed out. | Check the editor Output Log for the import, then rerun `import_ue`. For timeouts, make sure the editor is responsive. `NMG_GAME_DEV_UE_RETRIES` and `NMG_GAME_DEV_UE_RETRY_DELAY_S` change the retry limits. |
 | `import_ue.pivot_mismatch` | A child part's local bounds differ from the Blender part by more than 0.01 cm. | Fix the pivot in Blender, then rerun finalize with `--force` so the UE content is reimported. |
+| `import_ue.terrain_height_mismatch` | A sampled height of a terrain's Landscape differs from the Blender height by more than 5 cm. | Re-export the terrain, then rerun `import_ue`. If it persists, check the heightmap encoding and the Landscape scale and location. |
 | `finalize.clip_name_invalid` | A clip's action name does not match `^[A-Za-z][A-Za-z0-9_]*$`. The message names it. Nothing was exported. | Rename the action to start with a letter and use only letters, digits, and underscores, then rerun. |
 | `finalize.skeleton_not_found` | `import_anims` found no Desktop skeleton for the character, or a `compatible_with` target has none. Nothing was imported or registered. | For the character, run `import_ue` first, then rerun. For a target, finalize that character first, or remove it from `compatible_with`. |
 | `finalize.skeleton_mismatch` | A `compatible_with` target's bone names differ from this character's. The message lists the differing bones. Nothing was registered. | Only register characters rigged with the same bone names. |

@@ -19,7 +19,7 @@ import bpy
 from ..bake_core import bake, pack, rewire, uv
 from ..bake_core.errors import BakeError
 from ..bake_core.state import datablock_pointers, remove_created
-from ..utils.budgets import ASSET_CLASSES, BudgetOverrideError, resolve_budget
+from ..utils.budgets import ASSET_CLASSES, TERRAIN_CLASS, BudgetOverrideError, resolve_budget
 from ..variants_core.meshes import triangle_count
 from . import commit, decimate, plan, transfer
 from .plan import DEFAULTS, PartStats, ReduceError
@@ -29,6 +29,8 @@ HIGH_SUFFIX = "_High"
 _OVERRIDE_KEYS: tuple[str, ...] = ("share", "tris")
 _SETTING_KEYS: tuple[str, ...] = ("cage_extrusion", "max_ray_distance")
 _TEXTURE_KINDS: tuple[str, ...] = ("BC", "N", "ORM")
+# Terrain (#154) is a heightfield with no triangle budget, so reduce refuses it.
+_REDUCE_CLASSES: tuple[str, ...] = tuple(c for c in ASSET_CLASSES if c != TERRAIN_CLASS)
 
 
 def reduce_asset(
@@ -107,11 +109,11 @@ def _reduce(
             "Open the file that holds the asset, or pass its collection name.",
             target=collection_name,
         )
-    if asset_class not in ASSET_CLASSES:
+    if asset_class not in _REDUCE_CLASSES:
         raise ReduceError(
             "reduce.class_unsupported",
             f"Reduce does not support the {asset_class} asset class.",
-            f"Use one of: {', '.join(ASSET_CLASSES)}.",
+            f"Use one of: {', '.join(_REDUCE_CLASSES)}.",
             target=collection_name,
         )
     high = bpy.data.collections.get(f"{collection_name}{HIGH_SUFFIX}")

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -22,12 +23,17 @@ from nmg_game_dev.finalize import (
     import_audio,
     run_finalize_step,
 )
+from nmg_game_dev.finalize.__main__ import build_parser
 from nmg_game_dev.finalize.service import clamp_wait
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, jobs
+from nmg_game_dev.pipeline.request import AssetClass
 from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
 from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "audio"
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TOOLS_JSON = REPO_ROOT / "mcp-servers" / "finalize" / "tools.json"
 
 
 def _dead_pid() -> int:
@@ -136,6 +142,48 @@ def test_a_failed_job_reports_its_error_when_waited_on(tmp_path: Path) -> None:
     )
     assert response["status"] == "failed"
     assert response["error"]["code"] == "finalize.job_crashed"
+
+
+def test_terrain_is_an_accepted_class_for_the_mcp_tools(tmp_path: Path) -> None:
+    args = _args(tmp_path)
+    args["asset_class"] = "terrain"
+    response = finalize_asset(**args, service=_deferred(tmp_path / "cache"))  # type: ignore[arg-type]
+    assert response["status"] == "queued"
+    assert "error" not in response
+
+
+def test_terrain_is_an_accepted_class_for_run_finalize_step(tmp_path: Path) -> None:
+    args = _args(tmp_path)
+    args["asset_class"] = "terrain"
+    response = run_finalize_step(
+        step="validate",
+        **args,  # type: ignore[arg-type]
+        service=_deferred(tmp_path / "cache"),
+    )
+    assert response["status"] == "queued"
+
+
+def test_terrain_is_an_accepted_class_for_the_cli(tmp_path: Path) -> None:
+    parsed = build_parser().parse_args(
+        ["validate", "--collection", "Ground", "--export-root", str(tmp_path), "--class", "terrain"]
+    )
+    assert parsed.asset_class == "terrain"
+
+
+def test_tools_json_class_enum_matches_the_request_model() -> None:
+    """tools.json lists the same asset classes as the finalize request, terrain included (#154)."""
+    tools = json.loads(TOOLS_JSON.read_text(encoding="utf-8"))["tools"]
+    # reduce_asset (#139) takes a free-form asset_class and refuses terrain, so it has no enum.
+    enums = {
+        tool["name"]: tool["inputSchema"]["properties"]["asset_class"]["enum"]
+        for tool in tools
+        if tool["name"] in ("finalize_asset", "run_finalize_step")
+    }
+    assert set(enums) == {"finalize_asset", "run_finalize_step"}
+    expected = list(get_args(AssetClass))
+    assert "terrain" in expected
+    for name, enum in enums.items():
+        assert enum == expected, name
 
 
 def test_run_finalize_step_accepts_both_clip_steps(tmp_path: Path) -> None:

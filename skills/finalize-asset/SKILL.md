@@ -20,7 +20,7 @@ so this skill never sends a bake, variant, or export through a Blender MCP call.
 
 1. Confirm that the collection `<Name>` exists in the open Blender session, or that a saved `.blend`
    is available. Confirm `category` (PascalCase) and `asset_class` (`small_prop`, `standard_prop`,
-   `hero_prop`, `character`, or `environment_piece`). When either is omitted, both come from the design
+   `hero_prop`, `character`, `environment_piece`, or `terrain`). When either is omitted, both come from the design
    backlog (`docs/design/backlog.json`): the asset entry whose `asset_name` is `<Name>` supplies them
    (for each collection in a batch), and explicit values win. A successful `finalize_asset` marks that
    entry `finalized`. If one is missing and no backlog entry supplies it, stop with an error that names
@@ -43,8 +43,9 @@ so this skill never sends a bake, variant, or export through a Blender MCP call.
    lock reports `state: waiting`. For a batch, `batch` names the collection that is running, and
    `batch.completed` out of `batch.total`, so say which collection is in progress.
 4. On `succeeded`, report each step's `cache_hit`, the Unreal content paths
-   `/Game/<Category>/<Name>/Desktop/` and `/Game/<Category>/<Name>/Mobile/`, and `loaded_back`. If
-   `loaded_back` is false, say that the session was not updated and name the result `.blend` path.
+   `/Game/<Category>/<Name>/Desktop/` and `/Game/<Category>/<Name>/Mobile/`, and `loaded_back`. For
+   `terrain`, the Landscape in each folder is the level `L_<Name>`. If `loaded_back` is false, say that
+   the session was not updated and name the result `.blend` path.
    For a batch, `result.batch` gives each collection's `state` and the `succeeded`, `failed`, and
    `skipped` counts. Each collection's step detail stays in its job directory under
    `items/<index>-<collection>/`, so point the developer there if they need it.
@@ -145,6 +146,7 @@ returns an empty list.
 - `import_ue.failed` → Check the editor Output Log for the import, then rerun `import_ue`.
 - `import_ue.failed` with `Unreal MCP did not answer after N attempts over S s` → The editor timed out on every attempt. The pipeline retries a timed-out request up to 4 times, waiting 20 s × the retry number before each one. Check that the editor is responsive, then rerun. `NMG_GAME_DEV_UE_RETRIES` and `NMG_GAME_DEV_UE_RETRY_DELAY_S` change those limits.
 - `import_ue.pivot_mismatch` → A child part's pivot moved. Fix it in Blender, then rerun with `force: true` so the UE content is reimported.
+- `import_ue.terrain_height_mismatch` → A sampled height of a terrain's Landscape differs from the Blender height by more than 5 cm. Rerun finalize to export the terrain again, then rerun `import_ue`. If the mismatch persists, report it; it is not a grid fault.
 - `finalize.clip_name_invalid` → An action the rig holds has a name that breaks `^[A-Za-z][A-Za-z0-9_]*$`. Nothing was exported. Rename the action to start with a letter and use only letters, digits, and underscores, then rerun.
 - `finalize.skeleton_not_found` → `import_anims` found no Desktop skeleton for the character, or a `compatible_with` target has none. For the character itself, run `import_ue` first, then rerun `import_anims`. For a target, finalize that character first, or remove it from `compatible_with`.
 - `finalize.skeleton_mismatch` → A `compatible_with` target's bone names differ from this character's. The message lists the differing bones. Only register characters rigged with the same bone names, then rerun.

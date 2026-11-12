@@ -64,14 +64,28 @@ Each Mobile variant is `Content/<Category>/<Name>/Mobile/nmg-asset.json`. Finali
 { "class": "standard_prop", "tris": 2800, "max_texture_px": 1024, "materials": 1 }
 ```
 
-`class` is one of `small_prop`, `standard_prop`, `hero_prop`, `character`, or `environment_piece`.
-The defaults come from the Mobile column of `docs/asset-contract.md` §6.
+`class` is one of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`, or
+`terrain`. The defaults come from the Mobile column of `docs/asset-contract.md` §6.
+
+A terrain variant's file holds `heightmap_px`, `layers`, and `max_texture_px` in place of `tris` and
+`materials`. `layers` is the layer count:
+
+```json
+{ "class": "terrain", "heightmap_px": 1009, "layers": 3, "max_texture_px": 1024 }
+```
 
 A project-root `nmg-budgets.json` overrides individual metrics. Values merge per metric over the
 defaults. An unknown class or metric is an error.
 
 ```json
 { "standard_prop": { "tris": 5000 } }
+```
+
+For `terrain`, the metrics are `heightmap_px`, `layers`, and `max_texture_px`. A `heightmap_px`
+override must be 127, 253, 505, 1009, 2017, or 4033:
+
+```json
+{ "terrain": { "heightmap_px": 505, "layers": 2 } }
 ```
 
 ## Release layout
@@ -101,7 +115,7 @@ Engine install.
 |---|---|---|
 | `ship.env_missing` | A required variable is unset | Set the named variable |
 | `ship.unknown_target`, `ship.project_missing` | Bad target or `--project` path | Fix the argument |
-| `ship.mobile_budget_exceeded` | A Mobile variant is over budget | Reduce the asset, or raise the budget |
+| `ship.mobile_budget_exceeded` | A Mobile variant is over budget. A terrain variant reports each over-budget metric | Reduce the asset, or raise the budget |
 | `ship.budget_report_missing` | A Mobile folder has no `nmg-asset.json` | Finalize the named asset |
 | `ship.budget_report_invalid` | A report is malformed | Rewrite the report |
 | `ship.budget_override_invalid` | `nmg-budgets.json` is invalid | Fix or delete the file |

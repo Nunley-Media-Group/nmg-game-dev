@@ -14,9 +14,11 @@ import json
 from pathlib import Path
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-AssetClass = Literal["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]
+AssetClass = Literal[
+    "small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"
+]
 
 ASSET_CLASSES: Final[tuple[str, ...]] = (
     "small_prop",
@@ -24,17 +26,37 @@ ASSET_CLASSES: Final[tuple[str, ...]] = (
     "hero_prop",
     "character",
     "environment_piece",
+    "terrain",
 )
-BUDGET_METRICS: Final[tuple[str, ...]] = ("tris", "max_texture_px", "materials")
+TERRAIN_CLASS: Final = "terrain"
+MESH_METRICS: Final[tuple[str, ...]] = ("tris", "max_texture_px", "materials")
+TERRAIN_METRICS: Final[tuple[str, ...]] = ("heightmap_px", "layers", "max_texture_px")
+BUDGET_METRICS: Final[tuple[str, ...]] = (
+    "tris",
+    "max_texture_px",
+    "materials",
+    "heightmap_px",
+    "layers",
+)
+# Mirrors terrain_core/heightfield.VALID_SIZES (#154). The add-on core cannot be imported from
+# src/, so tests/unit/quality/test_mobile_budgets.py asserts the two tuples match.
+VALID_HEIGHTMAP_SIZES: Final[tuple[int, ...]] = (127, 253, 505, 1009, 2017, 4033)
 
-# asset-contract.md §6, Mobile column.
+# asset-contract.md §6, Mobile column. Terrain (#154) is budgeted by heightmap, layers, and texture.
 DEFAULT_MOBILE_BUDGETS: Final[dict[str, dict[str, int]]] = {
     "small_prop": {"tris": 500, "max_texture_px": 512, "materials": 1},
     "standard_prop": {"tris": 3000, "max_texture_px": 1024, "materials": 1},
     "hero_prop": {"tris": 10000, "max_texture_px": 2048, "materials": 2},
     "character": {"tris": 15000, "max_texture_px": 2048, "materials": 2},
     "environment_piece": {"tris": 10000, "max_texture_px": 1024, "materials": 3},
+    "terrain": {"heightmap_px": 1009, "layers": 3, "max_texture_px": 1024},
 }
+
+
+def metrics_for(asset_class: str) -> tuple[str, ...]:
+    """The metrics a class is budgeted and reported by: terrain has no tris or materials."""
+    return TERRAIN_METRICS if asset_class == TERRAIN_CLASS else MESH_METRICS
+
 
 REPORT_NAME: Final = "nmg-asset.json"
 OVERRIDES_NAME: Final = "nmg-budgets.json"
@@ -84,14 +106,28 @@ class MobileBudgetAudit(BaseModel):
 
 
 class _AssetReport(BaseModel):
-    """The per-asset report shape. Extra keys are ignored; metric values must be integers."""
+    """The per-asset report shape. Extra keys are ignored; metric values must be integers.
+
+    A mesh class needs tris, max_texture_px, and materials. Terrain (#154) needs heightmap_px,
+    layers, and max_texture_px, so each metric is optional here and the validator below requires
+    the ones the class uses.
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
     asset_class: AssetClass = Field(alias="class")
-    tris: int = Field(strict=True, ge=0)
-    max_texture_px: int = Field(strict=True, ge=0)
-    materials: int = Field(strict=True, ge=0)
+    tris: int | None = Field(default=None, strict=True, ge=0)
+    max_texture_px: int | None = Field(default=None, strict=True, ge=0)
+    materials: int | None = Field(default=None, strict=True, ge=0)
+    heightmap_px: int | None = Field(default=None, strict=True, ge=0)
+    layers: int | None = Field(default=None, strict=True, ge=0)
+
+    @model_validator(mode="after")
+    def _requires_the_class_metrics(self) -> _AssetReport:
+        missing = [name for name in metrics_for(self.asset_class) if getattr(self, name) is None]
+        if missing:
+            raise ValueError(f"a {self.asset_class} report needs {', '.join(missing)}")
+        return self
 
 
 def check_mobile_budgets(project_root: Path) -> MobileBudgetAudit:
@@ -167,22 +203,23 @@ def _read_overrides(path: Path) -> dict[str, dict[str, int]]:
             raise ValueError(f"{asset_class} must map metric names to integers")
         overrides[asset_class] = {}
         for metric, value in metrics.items():
-            if metric not in BUDGET_METRICS:
+            if metric not in metrics_for(asset_class):
                 raise ValueError(f"unknown metric {metric!r} for {asset_class}")
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{asset_class}.{metric} must be a non-negative integer")
+            if metric == "heightmap_px" and value not in VALID_HEIGHTMAP_SIZES:
+                raise ValueError(
+                    f"{asset_class}.heightmap_px must be one of "
+                    f"{', '.join(str(size) for size in VALID_HEIGHTMAP_SIZES)}"
+                )
             overrides[asset_class][metric] = value
     return overrides
 
 
 def _over_budget(subject: str, report: _AssetReport, budget: dict[str, int]) -> list[BudgetFinding]:
-    values = {
-        "tris": report.tris,
-        "max_texture_px": report.max_texture_px,
-        "materials": report.materials,
-    }
     findings: list[BudgetFinding] = []
-    for metric, value in values.items():
+    for metric in metrics_for(report.asset_class):
+        value = getattr(report, metric)
         limit = budget[metric]
         if value <= limit:
             continue
@@ -217,8 +254,9 @@ def _invalid_report(subject: str, error: Exception) -> BudgetFinding:
         subject=subject,
         message=f"{subject}: Mobile/{REPORT_NAME} is malformed ({_reason(error)})",
         remediation=(
-            f"Rewrite {subject}'s Mobile/{REPORT_NAME} with class, tris, max_texture_px, and "
-            f"materials, or finalize {subject} to write it again."
+            f"Rewrite {subject}'s Mobile/{REPORT_NAME} with its class and the metrics for that "
+            "class (tris, max_texture_px, and materials; terrain: heightmap_px, layers, and "
+            f"max_texture_px), or finalize {subject} to write it again."
         ),
     )
 

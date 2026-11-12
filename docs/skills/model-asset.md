@@ -63,7 +63,7 @@ print(report["passed"], report["findings"])
 | Input | Meaning |
 |-------|---------|
 | `collection` | The asset collection `<Name>`. Its mesh parts are inspected, including parts in nested collections. |
-| `asset_class` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`. Sets the Desktop triangle budget (contract section 6). |
+| `asset_class` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`, `terrain`. Sets the Desktop triangle budget (contract section 6). `terrain` has no triangle budget; its rules are in contract section 9. |
 | `budgets_path` | Optional `nmg-budgets.json`. A `desktop` object in a class's overrides changes the budget this inspection uses. |
 | `gap_tolerance` | Metres within which two parts count as touching. Default `0.001` (1 mm). |
 
@@ -172,7 +172,7 @@ message.
 | Code | Meaning | Remediation |
 |------|---------|-------------|
 | `inspect.collection_missing` | The open file has no collection with the given name | Pass the exact name of `<Name>`, or create the collection |
-| `inspect.unknown_asset_class` | The `asset_class` is not in the contract budgets | Use one of the five classes listed above |
+| `inspect.unknown_asset_class` | The `asset_class` is not in the contract budgets | Use one of the six classes listed above |
 | `variants.budget_override_invalid` | `nmg-budgets.json` is unreadable or has an invalid value | Fix the file named in the message, or pass no budget path |
 
 ## Related

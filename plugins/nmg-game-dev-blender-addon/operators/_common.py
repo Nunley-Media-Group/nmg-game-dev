@@ -13,6 +13,7 @@ ASSET_CLASS_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("hero_prop", "Hero prop", "Vehicle, set piece"),
     ("character", "Character", "Humanoid, creature"),
     ("environment_piece", "Environment piece", "Building, road or track section (tiling)"),
+    ("terrain", "Terrain", "Landscape heightfield with paint layers (#154)"),
 )
 
 

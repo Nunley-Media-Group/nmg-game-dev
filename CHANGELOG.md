@@ -6,8 +6,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-12
+
 ### Changed
 
+- Add a terrain asset class that finalizes Blender heightfields into Unreal Landscapes (#154)
 - Add batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight (#149)
 
 ## [0.23.1] - 2026-11-12

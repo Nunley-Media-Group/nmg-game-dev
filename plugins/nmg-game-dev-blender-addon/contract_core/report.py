@@ -6,6 +6,7 @@ importing each other (design § Data / Storage Changes).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Final
 
 RULES: Final[dict[str, str]] = {
@@ -73,6 +74,37 @@ RULES: Final[dict[str, str]] = {
         "Give each Mobile object, material, and image the Desktop name plus the _Mobile suffix; "
         "LOD objects add _LOD0 to _LOD2 (contract section 5)."
     ),
+    "terrain.structure": (
+        "Keep only the terrain mesh SM_<Name> in the terrain collection, with no other objects "
+        "and no transform on it (terrain contract, docs/asset-contract.md)."
+    ),
+    "terrain.resolution_invalid": (
+        "Rebuild the grid as n x n vertices, one per grid point, with n one of 127, 253, 505, "
+        "1009, 2017, or 4033 (terrain contract)."
+    ),
+    "terrain.spacing": (
+        "Space the grid vertices exactly 1 m apart along X and Y (terrain contract)."
+    ),
+    "terrain.not_centered": (
+        "Center the grid on the origin so its X and Y extents are symmetric about 0 "
+        "(terrain contract)."
+    ),
+    "terrain.layer_missing": (
+        "Add at least one Layer_<LayerName> float point attribute, with weights from 0 to 1, to "
+        "the grid (terrain contract)."
+    ),
+    "terrain.layer_range": (
+        "Clamp every Layer_<LayerName> attribute to values from 0 to 1 (terrain contract)."
+    ),
+    "terrain.over_budget": (
+        "Reduce the grid to the Desktop heightmap_px and layers and the texture maximum in the "
+        "terrain budget, or set a justified override in nmg-budgets.json (contract section 6)."
+    ),
+    "terrain.layer_texture_missing": (
+        "Map each layer to a material M_<Name>_<LayerName> on the grid; after the bake, that "
+        "material must also carry the T_<Name>_<LayerName>_BC, _N, and _ORM images (terrain "
+        "contract)."
+    ),
     "material_variant.name": (
         "Name each material variant in PascalCase letters and digits, and pick a name so that "
         "<Part>_<Variant> is not another part's name (contract section 4)."
@@ -113,6 +145,11 @@ RULES: Final[dict[str, str]] = {
     "reimport.dimensions": "Re-export without changing scale or geometry, then validate again.",
     "reimport.pivot": "Re-export with child-part pivots unchanged from the pre-export report.",
     "reimport.tris": "Re-export with the same triangle count as the pre-export report.",
+    "reimport.terrain": (
+        "Re-export the terrain so the heightmap, weightmaps, and layer textures match the "
+        "pre-export report: resolution, layer files, weights summing to 255, and heights within "
+        "0.05 m (terrain contract, section 7)."
+    ),
     "reimport.skin_missing": (
         "Re-export the rigged variant with the armature and its skin: every mesh needs an "
         "Armature modifier or armature parent, and vertex groups (#102)."
@@ -141,9 +178,13 @@ def build_report(
     asset_class: str,
     findings: list[dict[str, str]],
     snapshot: dict[str, Any],
+    extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Assemble the shared report shape; passed is true exactly when there are no findings."""
-    return {
+    """Assemble the shared report shape; passed is true exactly when there are no findings.
+
+    ``extra`` holds class-specific keys, such as the terrain object (#154), merged into the report.
+    """
+    report: dict[str, Any] = {
         "kind": kind,
         "asset": asset,
         "class": asset_class,
@@ -151,3 +192,6 @@ def build_report(
         "findings": findings,
         "snapshot": snapshot,
     }
+    if extra:
+        report.update(extra)
+    return report

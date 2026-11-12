@@ -150,8 +150,8 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--class",
         dest="asset_class",
-        help="small_prop, standard_prop, hero_prop, character, or environment_piece. Defaults to "
-        "the design backlog entry's asset_class.",
+        help="small_prop, standard_prop, hero_prop, character, environment_piece, or terrain. "
+        "Defaults to the design backlog entry's asset_class.",
     )
     parser.add_argument(
         "--export-root",
