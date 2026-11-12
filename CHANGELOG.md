@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-11-12
+
+### Fixed
+
+- Fix texture job queue: duplicate batch outputs, orphaned running jobs, and runner log location (#211)
+
 ### Added
 
 - Let one finalized asset declare several material variants (#148)

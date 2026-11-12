@@ -315,6 +315,46 @@ def test_an_empty_batch_is_invalid() -> None:
     assert "empty" in caught.value.message.lower()
 
 
+def _duplicate_name_batch() -> list[TextureRequest]:
+    """Requests 0 and 2 slugify to the same output name, ``burlap`` (#211 AC1)."""
+    return [
+        TextureRequest(
+            prompt="burlap weave", backend="z-image-turbo", seeds=[1], resolution=256, name="burlap"
+        ),
+        TextureRequest(
+            prompt="stone", backend="z-image-turbo", seeds=[2], resolution=256, name="stone"
+        ),
+        TextureRequest(
+            prompt="burlap again", backend="z-image-turbo", seeds=[3], resolution=256, name="Burlap"
+        ),
+    ]
+
+
+def test_validate_batch_refuses_requests_that_share_an_output_name() -> None:
+    with pytest.raises(TextureGenError) as caught:
+        validate_batch(_duplicate_name_batch())
+    assert caught.value.code == "texture.invalid_request"
+    assert "requests 0, 2: output name 'burlap' is used more than once" in caught.value.message
+
+
+def test_run_batch_refuses_shared_output_names_before_any_worker_or_folder(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path
+) -> None:
+    with pytest.raises(TextureGenError) as caught:
+        run_batch(
+            _duplicate_name_batch(),
+            env=env,
+            facts=APPLE_SILICON_32GB,
+            spawn=fake_spawn(worker, log),
+            cwd=out_root.parent,
+            output_root_override=out_root,
+        )
+    assert caught.value.code == "texture.invalid_request"
+    assert "requests 0, 2: output name 'burlap' is used more than once" in caught.value.message
+    assert not log.exists()
+    assert not (out_root / "burlap").exists()
+
+
 def test_a_batch_loads_each_backend_once_and_counts_every_image(
     worker: Path, log: Path, env: dict[str, str], out_root: Path
 ) -> None:

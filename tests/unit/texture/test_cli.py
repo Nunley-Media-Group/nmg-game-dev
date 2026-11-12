@@ -201,6 +201,32 @@ def test_an_invalid_batch_exits_one_and_names_each_bad_index(
     assert "request 1" in err and "request 2" in err and "request 0" not in err
 
 
+def test_a_batch_with_a_shared_output_name_exits_one_and_names_the_indexes(
+    apple: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out_root = tmp_path / "out"
+    monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(out_root))
+    batch_file = tmp_path / "shared.json"
+    batch_file.write_text(
+        json.dumps(
+            [
+                {"prompt": "burlap weave", "name": "burlap"},
+                {"prompt": "stone", "name": "stone"},
+                {"prompt": "burlap again", "name": "Burlap"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert main(["generate", "--batch", str(batch_file)]) == 1
+    err = capsys.readouterr().err
+    assert "ERROR [texture.invalid_request]" in err
+    assert "requests 0, 2" in err and "'burlap'" in err
+    assert not (out_root / "burlap").exists()
+
+
 def test_a_batch_file_that_is_not_an_array_exits_one(
     apple: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
