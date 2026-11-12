@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.21.5] - 2026-11-12
+
 ### Fixed
 
 - Fix geometry.normals rejecting correctly facing open surfaces on environment pieces (#144)
