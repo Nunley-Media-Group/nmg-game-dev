@@ -720,6 +720,10 @@ def test_texture_settings_material_binding_and_result_keys_are_unchanged(tmp_pat
         "static_meshes",
         "skeletal_meshes",
         "error",
+        # #148 adds the variant instances, the stale assets it removed, and warnings.
+        "material_variants",
+        "removed",
+        "warnings",
     }
     assert result["textures"] == [
         dest + "/T_Crate_Body_BC",

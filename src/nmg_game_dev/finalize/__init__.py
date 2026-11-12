@@ -9,6 +9,7 @@ from .mcp_tools import (
     finalize_asset,
     get_finalize_job,
     import_audio,
+    list_material_variants,
     reduce_asset,
     run_finalize_step,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "finalize_asset",
     "get_finalize_job",
     "import_audio",
+    "list_material_variants",
     "reduce_asset",
     "run_finalize_step",
 ]

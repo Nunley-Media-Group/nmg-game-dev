@@ -9,14 +9,17 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import bpy
 from mathutils import Vector
 
+from ..bake_core.rewire import part_names
 from ..utils.budgets import BudgetOverrideError, resolve_budget
 from . import texel
 from .geometry import geometry_findings
+from .material_variants import check_declaration, load_declaration
 from .report import ContractError, build_report, finding
 from .uv import uv_findings
 
@@ -61,12 +64,16 @@ def validate_asset(
     budgets_path: str | None = None,
     *,
     authored: bool = False,
+    material_variants_path: str | None = None,
     progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """Validate <collection> (Desktop) and <collection>_Mobile when it exists.
 
     With ``authored=True`` (the finalize validate step, #69), material and texture rules are
     skipped, because the bake step produces them. The export gate runs the full contract.
+
+    With ``material_variants_path`` (#148), the declaration is checked against the material rules
+    and the report gains a ``material_variants`` list. Its findings survive ``authored=True``.
 
     With ``progress``, it is called before each mesh check with the share of checks already done
     and a message naming the variant, check, and object (#133). The report does not depend on it.
@@ -126,9 +133,72 @@ def validate_asset(
         findings += _variant_name_findings(
             objects_by_variant["desktop"], objects_by_variant["mobile"]
         )
+    material_variants: list[dict[str, Any]] | None = None
+    if material_variants_path is not None:
+        variant_findings, material_variants = _material_variant_checks(
+            collection,
+            asset_class,
+            budgets,
+            Path(material_variants_path),
+            objects_by_variant["desktop"],
+        )
+        findings += variant_findings
     if authored:
         findings = [item for item in findings if not item["rule"].startswith(_EXPORT_ONLY_RULES)]
-    return build_report("contract", collection, asset_class, findings, snapshot)
+    report = build_report("contract", collection, asset_class, findings, snapshot)
+    if material_variants is not None:
+        report["material_variants"] = material_variants
+    return report
+
+
+def _material_variant_checks(
+    collection: str,
+    asset_class: str,
+    budgets: dict[str, dict[str, int]],
+    path: Path,
+    desktop: list[bpy.types.Object],
+) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    """Check the declaration against the materials the bake will produce from the Desktop meshes.
+
+    The predicted parts and the merge decision come from the bake's own rules (bake_core.core):
+    unique mode merges every authored material into Body when there are more of them than the
+    Mobile material budget, and tiling mode never merges. A baked asset already holds its
+    M_<Name>_<Part> materials, so the same prediction returns those parts.
+    """
+    entries = load_declaration(path)
+    sources = _source_materials([obj for obj in desktop if obj.type == "MESH"])
+    mode = "tiling" if asset_class == "environment_piece" else "unique"
+    merged = mode == "unique" and len(sources) > budgets["mobile"]["materials"]
+    parts = part_names(sources, collection, merged)
+    body = f"M_{collection}_Body"
+    merged_sources = frozenset(source.name for source in sources if merged and source.name != body)
+    # The Desktop base colour is the existing T_<Name>_<Part>_BC on a baked asset, and the bake's
+    # Desktop size otherwise.
+    images = {image.name: image for material in sources for image in _images_of(material)}
+    main_px: dict[str, int] = {}
+    for part in parts:
+        image = images.get(f"T_{collection}_{part}_BC")
+        main_px[part] = (
+            max(image.size) if image is not None else budgets["desktop"]["max_texture_px"]
+        )
+    return check_declaration(
+        collection,
+        path,
+        entries,
+        parts=parts,
+        merged_sources=merged_sources,
+        main_px=main_px,
+    )
+
+
+def _source_materials(meshes: list[bpy.types.Object]) -> list[bpy.types.Material]:
+    """The distinct materials of meshes in first-use order, which is the bake's source order."""
+    distinct: list[bpy.types.Material] = []
+    for obj in meshes:
+        for slot in obj.material_slots:
+            if slot.material is not None and slot.material not in distinct:
+                distinct.append(slot.material)
+    return distinct
 
 
 def triangle_count(mesh: bpy.types.Mesh) -> int:

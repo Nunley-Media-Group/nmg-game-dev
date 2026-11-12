@@ -6,12 +6,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
-## [0.24.0] - 2026-11-12
+### Added
+
+- Let one finalized asset declare several material variants (#148)
 
 ### Changed
 
 - Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
+## [0.22.0] - 2026-11-12
 
+### Changed
+
+- Add a built-in procedural clip library to import_animations (#136)
 ## [0.23.0] - 2026-11-12
 
 ### Changed

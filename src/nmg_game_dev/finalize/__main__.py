@@ -7,6 +7,9 @@
     python -m nmg_game_dev.finalize reduce --collection N --class C [--blend B] [--budgets P]
         [--device GPU|CPU] [--cage M] [--ray M] [--miss-threshold X] [--parts JSON] [--wait S]
 
+    python -m nmg_game_dev.finalize material-variants --category C --collection N [--json]
+        (lists the material variants Unreal holds for the asset, #148)
+
     python -m nmg_game_dev.finalize run-job <job_dir>        (internal: the background job body)
 
 Exit codes: 0 success; 1 a step failed (``ERROR [code] message`` and ``Remediation:`` on stderr);
@@ -29,7 +32,9 @@ from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.reduce import parts_from_json
 from nmg_game_dev.pipeline.steps import STEP_ORDER
+from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
+from .mcp_tools import list_material_variants
 from .service import (
     FinalizeService,
     MissingArgumentError,
@@ -40,6 +45,7 @@ from .service import (
 )
 
 STEP_COMMANDS: Final = ("all", *STEP_ORDER)
+LIST_VARIANTS_COMMAND: Final = "material-variants"
 EXIT_OK: Final = 0
 EXIT_FAILED: Final = 1
 EXIT_PREREQUISITE: Final = 2
@@ -58,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
         "reduce", help="Reduce an over-budget generated asset to its Desktop budget (#139)."
     )
     _add_reduce_arguments(reduce)
+
+    listing = commands.add_parser(
+        LIST_VARIANTS_COMMAND,
+        help="List the material variants Unreal holds for a finalized asset.",
+    )
+    listing.add_argument("--category", required=True, help="Content category, e.g. Props.")
+    listing.add_argument("--collection", required=True, help="Asset name, e.g. Crate.")
+    listing.add_argument("--json", action="store_true", help="Print the rows as JSON on stdout.")
     run_job = commands.add_parser(
         "run-job", help="Internal: run a job directory in the background."
     )
@@ -118,6 +132,12 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--export-root", required=True, help="Directory for the exported variants.")
     parser.add_argument("--blend", help="Finalize this saved .blend instead of the open session.")
     parser.add_argument("--budgets", help="Budget overrides file. Defaults to nmg-budgets.json.")
+    parser.add_argument(
+        "--material-variants",
+        dest="material_variants",
+        help="Material-variants declaration. Defaults to <collection>.material-variants.json "
+        "beside --blend.",
+    )
     parser.add_argument("--device", choices=("GPU", "CPU"), default="GPU", help="Bake device.")
     parser.add_argument(
         "--force", action="store_true", help="Rerun every step, ignoring the cache."
@@ -131,8 +151,13 @@ def main(
     service: FinalizeService | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    unreal_client: UnrealPythonClient | None = None,
 ) -> int:
-    """Run the command and return its exit code."""
+    """Run the command and return its exit code.
+
+    ``unreal_client`` replaces the Unreal MCP connection for ``material-variants``, so tests can
+    run the command without an editor.
+    """
     out = stdout if stdout is not None else sys.stdout
     err = stderr if stderr is not None else sys.stderr
     args = build_parser().parse_args(argv)
@@ -143,6 +168,8 @@ def main(
 
     if args.command == "reduce":
         return _run_reduce(args, service, out, err)
+    if args.command == LIST_VARIANTS_COMMAND:
+        return _list_variants(args, out, err, unreal_client)
 
     steps = STEP_ORDER if args.command == "all" else (args.command,)
     try:
@@ -154,9 +181,12 @@ def main(
             blend=args.blend,
             budgets_path=args.budgets,
             device=args.device,
+            material_variants_path=args.material_variants,
         )
     except MissingArgumentError as error:
         return _report_error(error.payload(), args.json, out, err)
+    except PipelineError as error:
+        return _report_error(error_dict(error), args.json, out, err)
     except ValidationError as error:
         return _report_error(
             {
@@ -231,6 +261,32 @@ def _run_reduce(
         "stage": "reduce",
     }
     return _report_error(error_payload, False, out, err)
+
+
+def _list_variants(
+    args: argparse.Namespace,
+    out: TextIO,
+    err: TextIO,
+    unreal_client: UnrealPythonClient | None,
+) -> int:
+    rows = list_material_variants(
+        category=args.category,
+        collection=args.collection,
+        client=unreal_client,
+    )
+    if isinstance(rows, dict):
+        return _report_error(rows["error"], args.json, out, err)
+    if args.json:
+        out.write(json.dumps(rows, indent=2, sort_keys=True) + "\n")
+        return EXIT_OK
+    if not rows:
+        out.write(f"{args.collection} has no material variants in Unreal.\n")
+    for row in rows:
+        out.write(
+            f"{row['name']}  {row['material']}  Desktop: {row['desktop'] or '-'}  "
+            f"Mobile: {row['mobile'] or '-'}\n"
+        )
+    return EXIT_OK
 
 
 def _print_success(status: dict[str, Any], as_json: bool, out: TextIO) -> None:

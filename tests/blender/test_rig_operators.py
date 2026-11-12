@@ -136,3 +136,21 @@ def test_ac4_import_operator_cancels_on_unknown_clip(rig_core: Any, tmp_path: Pa
 
     assert outcome == {"CANCELLED"}
     assert _stored_result()["code"] == "anim.clip_not_found"
+
+
+def test_scn013_import_operator_bakes_the_builtin_library_and_finishes(rig_core: Any) -> None:
+    reset_scene()
+    assert rig_core.rig_humanoid("Hero", "humanoid", build_hero())["status"] == "ok"
+
+    outcome = _run_operator(
+        bpy.ops.nmggamedev.import_animations,
+        collection_name="Hero",
+        library_source="BUILTIN",
+        clips="Idle, Walk",
+    )
+
+    assert outcome == {"FINISHED"}
+    stored = _stored_result()
+    assert stored["status"] == "ok"
+    assert [clip["name"] for clip in stored["clips"]] == ["Idle", "Walk"]
+    assert bpy.data.actions.get("Idle") is not None

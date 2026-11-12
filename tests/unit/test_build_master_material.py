@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILDER_PATH = REPO_ROOT / "scripts" / "unreal" / "build_master_material.py"
@@ -156,9 +160,11 @@ def test_skeletal_mesh_usage_is_enabled_before_recompile() -> None:
     assert skeletal_flag_before_recompile(builder_tree())
 
 
-def test_channel_wiring_and_parameter_names_are_unchanged() -> None:
+def test_normal_and_orm_wiring_is_unchanged_and_base_color_is_the_tinted_product() -> None:
+    # Base Color now comes from the Multiply node (#148, FR6), so the BaseColor sampler feeds that
+    # node instead of Base Color directly. Normal and ORM keep their channels.
     assert channel_wiring(builder_tree()) == [
-        ("base", "RGB", "unreal.MaterialProperty.MP_BASE_COLOR"),
+        ("tinted", "", "unreal.MaterialProperty.MP_BASE_COLOR"),
         ("normal", "RGB", "unreal.MaterialProperty.MP_NORMAL"),
         ("orm", "R", "unreal.MaterialProperty.MP_AMBIENT_OCCLUSION"),
         ("orm", "G", "unreal.MaterialProperty.MP_ROUGHNESS"),
@@ -174,3 +180,211 @@ def test_shipped_asset_references_default_textures_and_skeletal_usage() -> None:
     data = shipped_asset_bytes()
     for needle in (NORMAL_DEFAULT, MASKS_DEFAULT, "bUsedWithSkeletalMesh"):
         assert needle.encode() in data, f"{needle} missing from M_NmgORM.uasset"
+
+
+# --- the builder's UE code, run against an in-memory fake `unreal` module (#148) ---------------
+
+MASTER_PARAMETERS_PATH = (
+    REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon" / "utils" / "master_material.py"
+)
+VECTOR_EXPRESSION = "unreal.MaterialExpressionVectorParameter"
+MULTIPLY_EXPRESSION = "unreal.MaterialExpressionMultiply"
+
+
+class _Namespace:
+    """Enum-like namespace whose attributes are their dotted names, as the builder reads them."""
+
+    def __init__(self, prefix: str) -> None:
+        self._prefix = prefix
+
+    def __getattr__(self, name: str) -> str:
+        return f"{self._prefix}.{name}"
+
+
+class _Node:
+    """A material expression the builder created, with the properties the builder set."""
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+        self.properties: dict[str, Any] = {}
+
+    def set_editor_property(self, name: str, value: Any) -> None:
+        self.properties[name] = value
+
+
+class _Record:
+    """What the builder created and connected. Connections are (source, output, target, input)."""
+
+    def __init__(self) -> None:
+        self.nodes: list[_Node] = []
+        self.connections: list[tuple[Any, str, Any, Any]] = []
+
+
+class _Color:
+    def __init__(self, r: float, g: float, b: float, a: float) -> None:
+        self.values = (r, g, b, a)
+
+
+def _fake_unreal(record: _Record) -> ModuleType:
+    module = ModuleType("unreal")
+
+    class Texture:
+        pass
+
+    class Material:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def set_editor_property(self, name: str, value: Any) -> None:
+            _ = (name, value)
+
+    class MaterialEditingLibrary:
+        @staticmethod
+        def create_material_expression(material: Any, kind: str, x: float, y: float) -> _Node:
+            _ = (material, x, y)
+            node = _Node(kind)
+            record.nodes.append(node)
+            return node
+
+        @staticmethod
+        def connect_material_expressions(source: Any, output: str, target: Any, pin: str) -> None:
+            record.connections.append((source, output, target, pin))
+
+        @staticmethod
+        def connect_material_property(source: Any, output: str, prop: str) -> None:
+            record.connections.append((source, output, None, prop))
+
+        @staticmethod
+        def recompile_material(material: Any) -> None:
+            _ = material
+
+    class EditorAssetLibrary:
+        @staticmethod
+        def does_asset_exist(path: str) -> bool:
+            _ = path
+            return False
+
+        @staticmethod
+        def load_asset(path: str) -> Any:
+            return Texture() if path.startswith("/Engine/") else None
+
+        @staticmethod
+        def save_loaded_asset(asset: Any) -> None:
+            _ = asset
+
+    class _AssetTools:
+        @staticmethod
+        def create_asset(name: str, package: str, kind: Any, factory: Any) -> Material:
+            _ = (package, kind, factory)
+            return Material(name)
+
+    class AssetToolsHelpers:
+        @staticmethod
+        def get_asset_tools() -> _AssetTools:
+            return _AssetTools()
+
+    class LinearColor(_Color):
+        pass
+
+    module.Texture = Texture  # type: ignore[attr-defined]
+    module.Material = Material  # type: ignore[attr-defined]
+    module.MaterialEditingLibrary = MaterialEditingLibrary  # type: ignore[attr-defined]
+    module.EditorAssetLibrary = EditorAssetLibrary  # type: ignore[attr-defined]
+    module.AssetToolsHelpers = AssetToolsHelpers  # type: ignore[attr-defined]
+    module.LinearColor = LinearColor  # type: ignore[attr-defined]
+    module.MaterialSamplerType = _Namespace("unreal.MaterialSamplerType")  # type: ignore[attr-defined]
+    module.MaterialProperty = _Namespace("unreal.MaterialProperty")  # type: ignore[attr-defined]
+    # Every other unreal.<Name> the builder reads (expression classes) is its own name. The factory
+    # is called, so it is a callable that returns a placeholder.
+    module.__dict__["MaterialFactoryNew"] = lambda: "unreal.MaterialFactoryNew()"
+    module.__dict__["__getattr__"] = lambda name: f"unreal.{name}"
+    return module
+
+
+def load_master_parameters() -> dict[str, str]:
+    spec = importlib.util.spec_from_file_location("master_material_table", MASTER_PARAMETERS_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    table: dict[str, str] = module.MASTER_PARAMETERS
+    return table
+
+
+def run_builder_under_fake_unreal(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> tuple[dict[str, Any], _Record]:
+    record = _Record()
+    monkeypatch.setitem(sys.modules, "unreal", _fake_unreal(record))
+    exec(  # noqa: S102 - the builder's own UE code, run against the fake module
+        compile(load_builder()._MATERIAL_CODE, "<M_NmgORM builder>", "exec"),
+        {"__name__": "m_nmg_orm_builder"},
+    )
+    printed = capsys.readouterr().out
+    line = next(line for line in printed.splitlines() if line.startswith("NMG_RESULT "))
+    result: dict[str, Any] = json.loads(line[len("NMG_RESULT ") :])
+    return result, record
+
+
+def _by_parameter(record: _Record, parameter: str) -> _Node:
+    return next(node for node in record.nodes if node.properties.get("parameter_name") == parameter)
+
+
+def _of_kind(record: _Record, kind: str) -> list[_Node]:
+    return [node for node in record.nodes if node.kind == kind]
+
+
+def test_builder_code_runs_under_the_fake_unreal_and_reports_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result, _record = run_builder_under_fake_unreal(monkeypatch, capsys)
+
+    assert result == {"ok": True, "asset": "/nmg-game-dev/Materials/M_NmgORM", "error": None}
+
+
+def test_tint_is_the_vector_parameter_with_a_white_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _result, record = run_builder_under_fake_unreal(monkeypatch, capsys)
+
+    tints = _of_kind(record, VECTOR_EXPRESSION)
+    assert [node.properties["parameter_name"] for node in tints] == ["Tint"]
+    assert tints[0].properties["default_value"].values == (1.0, 1.0, 1.0, 1.0)
+
+
+def test_master_parameter_table_matches_the_vector_parameters_the_builder_creates(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _result, record = run_builder_under_fake_unreal(monkeypatch, capsys)
+
+    recorded = {node.properties["parameter_name"] for node in _of_kind(record, VECTOR_EXPRESSION)}
+    declared = {name for name, kind in load_master_parameters().items() if kind == "vector"}
+    assert recorded == declared == {"Tint"}
+
+
+def test_base_color_is_the_base_color_sampler_times_tint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _result, record = run_builder_under_fake_unreal(monkeypatch, capsys)
+
+    base = _by_parameter(record, "BaseColor")
+    tint = _of_kind(record, VECTOR_EXPRESSION)[0]
+    products = _of_kind(record, MULTIPLY_EXPRESSION)
+    assert len(products) == 1
+    product = products[0]
+    assert (base, "RGB", product, "A") in record.connections
+    assert (tint, "", product, "B") in record.connections
+    assert (product, "", None, "unreal.MaterialProperty.MP_BASE_COLOR") in record.connections
+    assert (base, "RGB", None, "unreal.MaterialProperty.MP_BASE_COLOR") not in record.connections
+
+
+def test_normal_and_orm_channels_still_feed_their_material_properties(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _result, record = run_builder_under_fake_unreal(monkeypatch, capsys)
+
+    normal = _by_parameter(record, "Normal")
+    orm = _by_parameter(record, "ORM")
+    assert (normal, "RGB", None, "unreal.MaterialProperty.MP_NORMAL") in record.connections
+    assert (orm, "R", None, "unreal.MaterialProperty.MP_AMBIENT_OCCLUSION") in record.connections
+    assert (orm, "G", None, "unreal.MaterialProperty.MP_ROUGHNESS") in record.connections
+    assert (orm, "B", None, "unreal.MaterialProperty.MP_METALLIC") in record.connections
