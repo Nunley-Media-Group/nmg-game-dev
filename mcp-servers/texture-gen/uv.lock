@@ -1579,6 +1579,8 @@ wheels = [
 name = "nmg-game-dev"
 source = { editable = "../../" }
 dependencies = [
+    { name = "hf-transfer", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "mflux", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "miniaudio" },
     { name = "numpy" },
     { name = "pillow" },
@@ -1594,8 +1596,10 @@ texture-ai = [
 
 [package.metadata]
 requires-dist = [
-    { name = "hf-transfer", marker = "extra == 'texture-ai'", specifier = "==0.1.9" },
-    { name = "mflux", marker = "extra == 'texture-ai'", specifier = "==0.24.0" },
+    { name = "hf-transfer", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=0.1.9" },
+    { name = "hf-transfer", marker = "extra == 'texture-ai'", specifier = ">=0.1.9" },
+    { name = "mflux", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=0.24.0" },
+    { name = "mflux", marker = "extra == 'texture-ai'", specifier = ">=0.24.0" },
     { name = "miniaudio", specifier = ">=1.59" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "numpy", specifier = "==2.4.6" },
