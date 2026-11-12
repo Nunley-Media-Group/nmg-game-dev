@@ -10,7 +10,15 @@ readme = "CLAUDE.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]
 license = { text = "Proprietary" }
-dependencies = ["pydantic>=2,<3", "numpy==2.4.6", "pillow==13.0.0", "pyyaml==6.0.3"]
+dependencies = [
+  "pydantic>=2,<3",
+  "numpy==2.4.6",
+  "pillow==13.0.0",
+  "pyyaml==6.0.3",
+  # Local texture generation (#143 FR1) runs on Apple Silicon only. Floors, not pins: the lock resolves latest.
+  "mflux>=0.24.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "hf_transfer>=0.1.9; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -19,10 +27,11 @@ dev = [
   "ruff>=0.4",
   "mypy>=1.10",
 ]
-# Local texture generation (#7). Only the worker process imports mflux; core installs and CI skip it.
+# Local texture generation (#7). Only the worker process imports mflux; CI skips it because it is
+# not on Linux. The floors match the Apple Silicon core dependencies above (#143 FR1).
 texture-ai = [
-  "mflux==0.24.0",
-  "hf_transfer==0.1.9",
+  "mflux>=0.24.0",
+  "hf_transfer>=0.1.9",
 ]
 
 [tool.hatch.build.targets.wheel]
