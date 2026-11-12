@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-12
+
 ### Changed
 
 - Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
