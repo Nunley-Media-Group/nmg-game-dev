@@ -5,15 +5,11 @@
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Defect-fix verification against the approved spec
 
-**Verification head**: f7d88836b161e06a55f94ff59e76651cc91d097d
+**Verification head**: 68934cdba21be74bb37f507415ecf494e895baf8
 
 ---
 
 ## Executive Summary
-
-The fix removes `-NoUBA` from both `Build.sh` callers: the `project.ue-compile` gate provider and `scripts/unreal/build_master_material.py --headless`. It also reverts the `gate-ue-compile` documentation row. The unit tests for both callers now assert the exact default argument list and that `-NoUBA` is absent. All four ACs pass. All 11 registered validations are recorded: the 8 that apply passed, and `gate-mcp-schema`, `gate-shellcheck` and `gate-ship-smoke` do not apply to this change.
-
-The implement stage did not run the real UE 5.8 `Build.sh`. It proved the change only against the fake `Build.sh` used by the unit tests. This verify stage did run the real build. Because the change touches `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` (the version bump), the registered `gate-ue-compile` gate applied. It ran `/Users/Shared/Epic Games/UE_5.8/Engine/Build/BatchFiles/Mac/Build.sh DogfoodEditor Mac Development -Project=<checkout>/fixtures/dogfood.uproject -WaitMutex` with no `-NoUBA`. The result was `Result: Succeeded` in 12.93 s. The build was incremental: the plugin's C++ sources did not change, so it did not recompile the whole plugin. UBT wrote a `Trace.uba` file, which confirms the build used the default toolchain with the Unreal Build Accelerator on. No live Blender or Unreal Editor session was opened or driven.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -26,8 +22,11 @@ The implement stage did not run the real UE 5.8 `Build.sh`. It proved the change
 | **Overall** | 5.0 |
 
 ### Implementation Status: Pass
-**Verification type**: defect fix
 **Total Issues**: 0
+
+Change type: defect fix. Head `68934cd` merges origin/main (#230) and carries the 0.25.3 version bump.
+
+The fix removes `-NoUBA` from the `project.ue-compile` provider and from `_build_headless()` in `scripts/unreal/build_master_material.py`. It reverts the `gate-ue-compile` documentation row and rewrites both unit tests so that they require the default argument list and reject `-NoUBA`. The registered `gate-ue-compile` run at this head called `Build.sh DogfoodEditor Mac Development -Project=<abs>/fixtures/dogfood.uproject -WaitMutex` against UE 5.8 and compiled, which confirms AC1 against the real engine. All 8 applicable registered validations passed. The other 3 do not apply to this change.
 
 ---
 
@@ -35,7 +34,7 @@ The implement stage did not run the real UE 5.8 `Build.sh`. It proved the change
 
 - Active issue: #227
 - Spec: `specs/227-build-the-ue-compile-gate-with-the-default-toolchain-again-drop-nouba`
-- Manifest: implicit single issue
+- Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
 - Delivery: AC [AC1, AC2, AC3, AC4]; FR [FR1, FR2, FR3, FR4]; tasks [T001, T002, T003]; scenarios [SCN001, SCN002, SCN003, SCN004]
 - Regression: AC []; FR []; scenarios []
@@ -51,11 +50,10 @@ The implement stage did not run the real UE 5.8 `Build.sh`. It proved the change
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --issue 227 --base main --controller-run-id 0a81c5bd-e091-499a-bab9-e2a7f6a59569`
-- Artifact: `.nmg-sdlc/verification/227.json`, generated 2026-11-12T15:12:44Z
-- Identity: head `f7d88836b161e06a55f94ff59e76651cc91d097d`, clean tree, spec hash `sha256:c1ccf98b…`, steering hash `sha256:7db2c1fd…`
-- Coverage: declared 11, recorded 11, complete `true`; missing, duplicate and unknown are all empty
-- Ceiling: `null`. No required validation failed or was incomplete.
+- Artifact: `.nmg-sdlc/verification/227.json` (`sdlc-verify-steering.mjs --base main --controller-run-id c8c10ae0-0b58-4978-8b00-fe444cbadbfb`)
+- Identity: head `68934cdba21be74bb37f507415ecf494e895baf8`, tree clean, steering `sha256:7db2c1fd…b5bc93`, spec `sha256:c1ccf98b…94433c`
+- Coverage: declared 11, recorded 11, complete `true`, with nothing missing, duplicated, or unknown
+- Ceiling: none (`null`)
 
 ---
 
@@ -63,20 +61,20 @@ The implement stage did not run the real UE 5.8 `Build.sh`. It proved the change
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | The gate builds with the default toolchain | Pass | `steering/extensions/ue-compile.mjs:58` sets `args` to `[target, "Mac", "Development", `-Project=${project}`, "-WaitMutex"]`. The `-NoUBA` comment block is removed. `test_gate_passes_default_arguments_to_build_sh` (`tests/unit/test_ue_compile_gate.py:40`) runs the real provider against a fake `Build.sh` and passed. The real `gate-ue-compile` command evidence for this head shows the same five arguments. |
-| AC2 | Docs match | Pass | `steering/snippets/project-tech.md:355`: the row reads `Build.sh DogfoodEditor Mac Development -WaitMutex`. It no longer mentions `-NoUBA`, the Unreal Build Accelerator, or parallel worktrees, and its "Applies when" and "Host prerequisite" cells are unchanged. `test_documented_gate_row_shows_default_build` (`tests/unit/test_ue_compile_gate.py:87-94`) guards it. |
-| AC3 | The argument test guards the default build | Pass | `tests/unit/test_ue_compile_gate.py:75-84`: an exact list-equality check on the logged arguments, which also rules out `-NoUBA`; `status == "passed"`; and `"-NoUBA" not in commands[0]["summary"]`. |
-| AC4 | The headless master-material build uses the default toolchain | Pass | `scripts/unreal/build_master_material.py:228-237`: `_build_headless()` passes `DogfoodEditor, Mac, Development, -Project=<DOGFOOD_PROJECT>, -WaitMutex`. `tests/unit/test_build_master_material.py:519-527` asserts that exact list and `"-NoUBA" not in fake.build_args()`. The editor-argument assertions are unchanged. |
+| AC1 | The gate builds with the default toolchain | Pass | `steering/extensions/ue-compile.mjs` `compile()`: `args = [target, "Mac", "Development", \`-Project=${project}\`, "-WaitMutex"]`, and the `-NoUBA` comment block is gone. In the live registered `gate-ue-compile` run, the command evidence was `Build.sh DogfoodEditor Mac Development -Project=…/fixtures/dogfood.uproject -WaitMutex` and the status was passed |
+| AC2 | Docs match | Pass | The `gate-ue-compile` row in `steering/snippets/project-tech.md` reads `Build.sh DogfoodEditor Mac Development -WaitMutex`, with no `-NoUBA`, Unreal Build Accelerator, or parallel worktrees. Its "Applies when" and "Host prerequisite" cells are unchanged. `test_documented_gate_row_shows_default_build` asserts this |
+| AC3 | The argument test guards the default build | Pass | `tests/unit/test_ue_compile_gate.py::test_gate_passes_default_arguments_to_build_sh` asserts that the logged argument list exactly equals the 5 default arguments, which excludes `-NoUBA`. It also asserts `"-NoUBA" not in commands[0]["summary"]` and `status == "passed"`. It is still skipped off macOS |
+| AC4 | The headless master-material build uses the default toolchain | Pass | `scripts/unreal/build_master_material.py` `_build_headless()` no longer passes `-NoUBA`. `tests/unit/test_build_master_material.py::test_headless_builds_dogfood_then_runs_the_graph_in_a_separate_editor` asserts the exact list and `"-NoUBA" not in fake.build_args()`. Its editor-argument assertions are unchanged |
 
-### Reproduction Check (defect path)
+### Reproduction check
 
-| Step | Before (#202/#204) | After (this head) |
-|------|--------------------|-------------------|
-| 1-2: provider `Build.sh` args with a fake engine | ended with `-NoUBA` | exactly `DogfoodEditor Mac Development -Project=<abs> -WaitMutex` |
-| 3: `gate-ue-compile` documentation row | documented `-NoUBA` and the UBA/parallel-worktree reason | documents the default build only |
-| 4: `build_master_material.py --headless` `Build.sh` args | ended with `-NoUBA` | exactly the default five arguments |
+| Step | Before (#202 / #204) | After (this head) |
+|------|----------------------|-------------------|
+| 1–2: `uv run pytest tests/unit/test_ue_compile_gate.py -q` | Logged arguments ended in `-NoUBA`, and the test required it | Logged arguments are exactly `DogfoodEditor Mac Development -Project=<abs> -WaitMutex`; the test passes |
+| 3: `gate-ue-compile` row | Documented `-NoUBA` and the parallel-worktree reason | Documents the default build only |
+| 4: `uv run pytest tests/unit/test_build_master_material.py -q` | The headless build passed `-NoUBA` | Default arguments; the test passes |
 
-`grep -rn NoUBA steering scripts src plugins docs` returns no matches. The only remaining mentions are the negative assertions and the docstring in the two unit tests.
+`uv run pytest tests/unit/test_ue_compile_gate.py tests/unit/test_build_master_material.py -q` gave 24 passed. `grep -rn NoUBA steering scripts tests src skills docs` now matches only the negative assertions and the docstring history note in the tests.
 
 ---
 
@@ -84,45 +82,26 @@ The implement stage did not run the real UE 5.8 `Build.sh`. It proved the change
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Build with the default toolchain arguments and document them | Complete | `ue-compile.mjs` and the `project-tech.md` row |
-| T002 | Guard the default build in the gate unit test | Complete | The tests were renamed as the design specifies and pass. The provider test still skips off macOS. |
-| T003 | Build the headless master material with the default toolchain | Complete | `_build_headless()` and its test changed; the full repository gates passed |
+| T001 | Build with the default toolchain arguments and document them | Complete | Provider args and the doc row are reverted; `ue-compile.mjs` contains neither `NoUBA` nor `Unreal Build Accelerator` |
+| T002 | Guard the default build in the gate unit test | Complete | Both tests are renamed and rewritten as the design specifies; the docstring cites #227 |
+| T003 | Build the headless master material with the default toolchain | Complete | The `-NoUBA` entry is removed and an absence assertion is added; the repository gates are green |
 
 ---
 
 ## Architecture Assessment (defect path: blast radius)
 
-The fix is small: about 10 changed source and test lines. Following `defect-path.md`, the review focused on blast radius instead of running the full checklist suite.
+The change is about 10 changed lines across 5 files, so this review uses the defect path's blast-radius questions instead of the full SOLID table. Each score above records that the change introduces no finding in that area.
 
-- **Other callers on the changed path**: `compile()` in `ue-compile.mjs` is reached only through the `project.ue-compile` provider registered in `steering/manifest.json`. `_build_headless()` is reached only through `build_master_material.py --headless`. No other code builds `Build.sh` argument lists.
-- **Public contract change**: none. The provider's evidence shape, status values, macOS check, `UE_ROOT` resolution and error parsing are unchanged. The script's exit codes, editor arguments and live-MCP mode are unchanged.
-- **Silent data changes**: none. The only change is to build-tool flags: UBT now uses its default executor (UBA). The build output location is still the checkout's own `Intermediate/` and `Binaries/` folders.
-- **Minimal-change check**: compared with `origin/main`, the branch changes 14 files: 5 fix files, 4 version files, `CHANGELOG.md` and the 4 #227 spec files. The 4 #226 spec files appear only in `git diff main...HEAD` because the local `main` ref is behind `origin/main`, which already contains commit `0d4cc8b` (`docs: approve spec for #226 (#228)`). They are not part of this change. The version bump to 0.25.2 (patch, `bug` label) and its CHANGELOG entry are the controller's delivery preparation. No unrelated refactors.
+- **Other callers on the changed path.** Only the `gate-ue-compile` registration in `steering/manifest.json` calls the `project.ue-compile` provider. `--headless` mode alone calls `_build_headless()`. The live-MCP mode, the editor launch arguments, and `plugin-session-smoke.mjs` are untouched.
+- **Public contract change.** None. The provider's request and result shapes, the macOS check, `UE_ROOT` resolution, error-line parsing, and the evidence format are unchanged. Only the argument list passed to `Build.sh` differs, which is the intended fix.
+- **Silent data changes.** None. Engine builds return to UnrealBuildTool's default executor. Nothing is persisted or reinterpreted.
+- **Security.** Arguments are still passed as an argv array without a shell, and the change adds no new inputs, secrets, or paths.
+- **Performance.** UBA is the default executor again, so builds can use the accelerator. There is no runtime-module impact.
+- **Error handling.** The `finish("incomplete", …)` paths for a missing project or engine, and the failed-build parsing, are unchanged.
 
-| Area | Score | Notes |
-|------|-------|-------|
-| SOLID | 5 | The change stays inside each function; no responsibilities move |
-| Security | 5 | `spawn(..., shell: false)` and `subprocess.run` with an argument list are unchanged; no new inputs |
-| Performance | 5 | Returns to UBT's default, faster executor |
-| Testability | 5 | Both callers are covered by fake-engine unit tests with exact argument assertions |
-| Error Handling | 5 | Failure paths (`build_failed`, `incomplete` off macOS or with no engine) are untouched |
+### Minimal-change check
 
----
-
-## Security Assessment
-
-- [x] Authentication: not applicable
-- [x] Authorization: not applicable
-- [x] Input validation: unchanged (`target` still falls back to `DogfoodEditor` when config is not a string)
-- [x] Injection prevention: no shell; argument arrays only
-- [x] Data protection: no credentials involved
-
-## Performance Assessment
-
-- [x] Async patterns: unchanged
-- [x] Caching: UBA's default cache is used again
-- [x] Resource management: unchanged
-- [x] Query optimization: not applicable
+`git diff origin/main...HEAD` contains the five fix files, the #227 verification report, and the version bump to 0.25.3 with its CHANGELOG entry (`VERSION`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin`). That bump is part of the delivery stage. The diff against local `main` also lists #226 spec and scaffold-test files. Those came in when origin/main (#230) was merged into this branch, and the diff against origin/main does not include them. The branch contains no unrelated refactors.
 
 ---
 
@@ -130,26 +109,20 @@ The fix is small: about 10 changed source and test lines. Following `defect-path
 
 ### BDD Scenarios
 
-The spec's `feature.gherkin` maps each `@regression` scenario to an executable unit test, as its header records (`# File: tests/unit/test_ue_compile_gate.py`).
+| Acceptance Criterion | Has Scenario | Has Test | Passes |
+|---------------------|-------------|-----------|--------|
+| AC1 | SCN001 (`@regression`) | `test_gate_passes_default_arguments_to_build_sh` | Yes |
+| AC2 | SCN002 (`@regression`) | `test_documented_gate_row_shows_default_build` | Yes |
+| AC3 | SCN003 (`@regression`) | `test_gate_passes_default_arguments_to_build_sh` | Yes |
+| AC4 | SCN004 (`@regression`) | `test_headless_builds_dogfood_then_runs_the_graph_in_a_separate_editor` | Yes |
 
-| Scenario | AC | Executable test | Passes |
-|----------|----|-----------------|--------|
-| SCN001 | AC1 | `test_gate_passes_default_arguments_to_build_sh` | Yes |
-| SCN002 | AC2 | `test_documented_gate_row_shows_default_build` | Yes |
-| SCN003 | AC3 | `test_gate_passes_default_arguments_to_build_sh` (exact-list and negative evidence assertions) | Yes |
-| SCN004 | AC4 | `test_headless_builds_dogfood_then_runs_the_graph_in_a_separate_editor` | Yes |
-
-### Coverage Summary
-
-- Feature scenarios: 4, all tagged `@regression`
-- `repository.tests`: 1722 passed, 14 skipped
-- `gate-blender-headless`: 382 passed, 4 skipped
+All four scenarios carry `@regression`. Each would have failed before the fix, because the old code passed `-NoUBA` and the old row documented it, so the scenarios guard against the defect coming back.
 
 ---
 
 ## Exercise Test Results
 
-Not applicable. The change touches no nmg-sdlc `workflows/` or `agents/` files. The plugin load path was still checked by `plugin.validate` and `plugin.session-smoke`.
+Not applicable. The change touches no nmg-sdlc `workflows/` or `agents/` content and no consumer skill. The `plugin.validate` and `plugin.session-smoke` gates ran because the version bump changed `.claude-plugin/plugin.json`, and both passed.
 
 ---
 
@@ -157,17 +130,17 @@ Not applicable. The change touches no nmg-sdlc `workflows/` or `agents/` files. 
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0: 1722 passed, 14 skipped |
-| `repository.lint` | Pass | `uv run ruff check .`: All checks passed! |
-| `repository.format` | Pass | `uv run ruff format --check .`: 417 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 265 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0: 382 passed, 4 skipped (headless background Blender; no live session) |
-| `gate-ue-compile` | Pass | Real UE 5.8 `Build.sh DogfoodEditor Mac Development -Project=…/fixtures/dogfood.uproject -WaitMutex` (no `-NoUBA`): `Result: Succeeded`, 12.93 s, incremental. It applied because `nmg-game-dev.uplugin` changed (version bump). No editor was launched. |
-| `gate-mcp-schema` | Not applicable | No `mcp-servers/**` or validator changes |
-| `gate-shellcheck` | Not applicable | No `scripts/**.sh` changes |
-| `gate-ship-smoke` | Not applicable | No ship-path changes |
-| `plugin.validate` | Pass | `claude plugin validate .` exited 0. Its one warning (CLAUDE.md at the plugin root is not loaded as context) was already present and is unrelated. |
-| `plugin.session-smoke` | Pass | Ephemeral project, `herdr agent start … --plugin-dir <checkout>`, then `/mcp` rows read and the tab closed |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0 |
+| `repository.lint` | Pass | `uv run ruff check .` exited 0 |
+| `repository.format` | Pass | `uv run ruff format --check .` exited 0 |
+| `repository.types` | Pass | `uv run mypy src tests` exited 0 |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0; it applies because of the `blender_manifest.toml` version bump |
+| `gate-ue-compile` | Pass | `DogfoodEditor compiled against /Users/Shared/Epic Games/UE_5.8`. Command: `Build.sh DogfoodEditor Mac Development -Project=…/fixtures/dogfood.uproject -WaitMutex` (no `-NoUBA`) |
+| `gate-mcp-schema` | Not applicable | No `mcp-servers/**` or `scripts/validate-mcp-tools.py` change |
+| `gate-shellcheck` | Not applicable | No `scripts/**.sh` change |
+| `gate-ship-smoke` | Not applicable | No ship path changed |
+| `plugin.validate` | Pass | `claude plugin validate .` exited 0 |
+| `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir` in an ephemeral Herdr session; `nmg-game-dev:blender` connected |
 
 **Gate Summary**: 8/8 applicable gates passed, 0 failed, 0 incomplete (3 not applicable)
 
@@ -187,21 +160,9 @@ None.
 
 ## Positive Observations
 
-- The provider test runs the real `.mjs` provider through node against a fake engine, so the argument contract is proven without starting a build.
-- The gate checks the `-NoUBA` regression in three places: the logged arguments, the gate's command evidence, and the documentation row.
-
----
-
-## Recommendations Summary
-
-### Before PR (Must)
-- None
-
-### Short Term (Should)
-- None
-
-### Long Term (Could)
-- Note: `gate-ue-compile` is incremental, so a run with no Source changes, like this one, mostly checks the toolchain arguments. A version-only `.uplugin` change does not force a full rebuild.
+- AC1 has two sources of evidence: the unit test with a fake `Build.sh`, and the real registered UE 5.8 compile at this head.
+- The tests now assert exact argument lists, so any extra flag fails them, not only `-NoUBA`.
+- The fix stays within the design's affected-code table.
 
 ---
 
@@ -209,12 +170,11 @@ None.
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `steering/extensions/ue-compile.mjs` | 0 | `-NoUBA` and its comment removed |
-| `steering/snippets/project-tech.md` | 0 | Row reverted |
-| `scripts/unreal/build_master_material.py` | 0 | `-NoUBA` removed |
-| `tests/unit/test_ue_compile_gate.py` | 0 | Renamed tests, exact and negative assertions |
-| `tests/unit/test_build_master_material.py` | 0 | Exact list and negative assertion |
-| `VERSION`, `.claude-plugin/plugin.json`, `blender_manifest.toml`, `nmg-game-dev.uplugin`, `CHANGELOG.md` | 0 | 0.25.2 patch bump and Fixed entry |
+| `steering/extensions/ue-compile.mjs` | 0 | Args reverted, comment removed |
+| `steering/snippets/project-tech.md` | 0 | Only the gate row's Runs cell changed |
+| `tests/unit/test_ue_compile_gate.py` | 0 | Renamed tests; exact-list and absence assertions |
+| `scripts/unreal/build_master_material.py` | 0 | One argument removed |
+| `tests/unit/test_build_master_material.py` | 0 | Expected list updated; absence assertion added |
 
 ---
 
@@ -222,4 +182,4 @@ None.
 
 **Ready for PR**
 
-All four acceptance criteria and their `@regression` scenarios pass. All 8 applicable registered gates passed at head `f7d88836b161e06a55f94ff59e76651cc91d097d`. That includes a real UE 5.8 default-toolchain build of `DogfoodEditor`, which the implement stage had not run.
+Every AC, FR, task, and `@regression` scenario is satisfied. All applicable registered gates passed at `68934cdba21be74bb37f507415ecf494e895baf8`, and the gate record is complete with no ceiling.
