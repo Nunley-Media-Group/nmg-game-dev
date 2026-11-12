@@ -75,17 +75,24 @@ def export_variants(collection_name: str, category: str, export_root: str) -> di
         desktop_bytes = sum(
             write_png(image, desktop_dir / f"{image.name}.png") for image in desktop_images
         )
+        restores += _name_meshes(desktop_objects)
         _select_only(desktop_objects)
         bpy.ops.export_scene.fbx(
             filepath=str(desktop_fbx), object_types={"MESH", "ARMATURE"}, **options
         )
 
-        # The rig keeps its export name, so the Mobile FBX files name it the same way.
+        # The rig keeps its export name, so the Mobile FBX files name it the same way. Desktop mesh
+        # datablocks move aside with their objects, so Mobile meshes can take the names they export.
+        desktop_meshes = [obj.data for obj in desktop_objects if obj.type == "MESH"]
         restores += _rename(
-            [obj for obj in desktop_objects if obj != rig] + desktop_materials + desktop_images,
+            [obj for obj in desktop_objects if obj != rig]
+            + desktop_meshes
+            + desktop_materials
+            + desktop_images,
             _to_temp,
         )
         restores += _rename(mobile_objects + mobile_materials + mobile_images, _unsuffixed)
+        restores += _name_meshes(mobile_objects)
         mobile_bytes = sum(
             write_png(image, mobile_dir / f"{image.name}.png") for image in mobile_images
         )
@@ -158,6 +165,26 @@ def _rename(
     originals = [(datablock, datablock.name) for datablock in datablocks]
     for datablock in datablocks:
         datablock.name = new_name(datablock.name)
+    return originals
+
+
+def _name_meshes(objects: list[bpy.types.Object]) -> list[tuple[bpy.types.ID, str]]:
+    """Name each mesh datablock after its object, which already holds its export name (#142).
+
+    The FBX writes the datablock name, and Unreal imports the mesh under it. A different mesh that
+    already holds the name moves to a temporary name first, because Blender would suffix the new
+    one. Returns the renamed datablocks with their original names, for the caller to restore.
+    """
+    originals: list[tuple[bpy.types.ID, str]] = []
+    for obj in objects:
+        if obj.type != "MESH" or obj.data.name == obj.name:
+            continue
+        holder = bpy.data.meshes.get(obj.name)
+        if holder is not None:
+            originals.append((holder, holder.name))
+            holder.name = _to_temp(holder.name)
+        originals.append((obj.data, obj.data.name))
+        obj.data.name = obj.name
     return originals
 
 

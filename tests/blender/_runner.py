@@ -25,6 +25,7 @@ No Blender GUI APIs are imported here so this script runs cleanly under
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -140,6 +141,22 @@ def _install_addon_link() -> None:
     link.symlink_to(_ADDON_SRC, target_is_directory=True)
 
 
+def _verify_addon_origin() -> None:
+    """Fail unless ``import nmg_game_dev_blender_addon`` resolves to this checkout's source.
+
+    Guards against another copy of the add-on (for example one installed as an extension or
+    enabled from another path) shadowing the per-run link, which would make this suite test
+    a different checkout's code.
+    """
+    spec = importlib.util.find_spec(_ADDON_MODULE_ID)
+    origin = Path(spec.origin if spec and spec.origin else "").resolve()
+    if not origin.is_relative_to(_ADDON_SRC.resolve()):
+        raise RuntimeError(
+            f"{_ADDON_MODULE_ID} resolved to {origin}, not this checkout's {_ADDON_SRC}. "
+            "Remove the other copy from Blender's add-on paths and re-run."
+        )
+
+
 def main() -> None:
     target = _parse_target()
     _ensure_pytest()
@@ -150,6 +167,7 @@ def main() -> None:
     import bpy  # noqa: PLC0415 — bpy only available under Blender
 
     bpy.utils.refresh_script_paths()
+    _verify_addon_origin()
 
     import pytest  # noqa: PLC0415 — imported after potential install
 
