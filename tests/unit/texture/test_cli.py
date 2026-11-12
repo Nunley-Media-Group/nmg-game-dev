@@ -13,7 +13,7 @@ from PIL import Image as PILImage
 from nmg_game_dev.texture import generate, hardware
 from nmg_game_dev.texture.__main__ import main
 from nmg_game_dev.texture.seamless import is_seamless
-from tests.texture_fakes import APPLE_SILICON_32GB, save_png, synthetic_image
+from tests.texture_fakes import APPLE_SILICON_32GB, fake_spawn, save_png, synthetic_image
 
 
 def _set_with_albedo(root: Path, name: str) -> None:
@@ -144,3 +144,78 @@ def test_sheet_needs_no_backend_or_hardware_probe(
     _set_with_albedo(root, "steel")
     assert main(["sheet", "--root", str(root)]) == 0
     assert json.loads(capsys.readouterr().out)["cells"] == 1
+
+
+@pytest.fixture
+def batch_worker(monkeypatch: pytest.MonkeyPatch, worker: Path, log: Path) -> None:
+    """Send the default worker spawn to the fake worker, so ``generate --batch`` runs without a
+    model."""
+    monkeypatch.setattr(generate, "default_spawn", fake_spawn(worker, log))
+
+
+def test_generate_batch_prints_one_result_per_request_in_order(
+    apple: None,
+    batch_worker: None,
+    models: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TEXTURE_GEN_MODELS_DIR", str(models))
+    monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(tmp_path / "out"))
+    batch_file = tmp_path / "textures.json"
+    batch_file.write_text(
+        json.dumps(
+            [
+                {"prompt": "burlap weave", "name": "burlap", "resolution": 256, "seeds": [1]},
+                {"prompt": "oak planks", "name": "oak", "resolution": 256, "seeds": [2]},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert main(["generate", "--batch", str(batch_file)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert list(printed) == ["results"]
+    assert [entry["name"] for entry in printed["results"]] == ["burlap", "oak"]
+
+
+def test_generate_takes_a_prompt_or_a_batch_but_not_both(tmp_path: Path) -> None:
+    batch_file = tmp_path / "batch.json"
+    batch_file.write_text("[]", encoding="utf-8")
+    with pytest.raises(SystemExit) as caught:
+        main(["generate", "--prompt", "x", "--batch", str(batch_file)])
+    assert caught.value.code == 2
+
+
+def test_an_invalid_batch_exits_one_and_names_each_bad_index(
+    apple: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    batch_file = tmp_path / "bad.json"
+    batch_file.write_text(
+        json.dumps([{"prompt": "ok"}, {"prompt": "  "}, {"prompt": "ok", "resolution": 300}]),
+        encoding="utf-8",
+    )
+    assert main(["generate", "--batch", str(batch_file)]) == 1
+    err = capsys.readouterr().err
+    assert "ERROR [texture.invalid_request]" in err
+    assert "request 1" in err and "request 2" in err and "request 0" not in err
+
+
+def test_a_batch_file_that_is_not_an_array_exits_one(
+    apple: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    batch_file = tmp_path / "object.json"
+    batch_file.write_text('{"prompt": "x"}', encoding="utf-8")
+    assert main(["generate", "--batch", str(batch_file)]) == 1
+    assert "ERROR [texture.invalid_request]" in capsys.readouterr().err
+
+
+def test_a_missing_batch_file_exits_one_with_the_path(
+    apple: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["generate", "--batch", str(tmp_path / "nope.json")]) == 1
+    assert "Cannot read the batch file" in capsys.readouterr().err
+
+
+def test_run_queue_on_an_idle_root_exits_zero(tmp_path: Path) -> None:
+    assert main(["run-queue", str(tmp_path / "jobs")]) == 0

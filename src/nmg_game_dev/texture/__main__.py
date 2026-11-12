@@ -1,10 +1,13 @@
-"""CLI: ``python -m nmg_game_dev.texture generate|status|seamless|sheet|run-job``.
+"""CLI: ``python -m nmg_game_dev.texture generate|status|seamless|sheet|run-job|run-queue``.
 
-``generate`` runs synchronously and prints the JSON result. ``status`` prints the availability
-of each backend. ``seamless`` makes an existing PNG tile (#147): it writes the ``make_seamless``
+``generate`` runs synchronously and prints the JSON result. ``generate --batch FILE`` runs a JSON
+array of requests in one run and prints ``{"results": [...]}`` (#143 FR7). ``status`` prints the
+availability of each backend. ``seamless`` makes an existing PNG tile (#147): it writes the
+``make_seamless``
 result in place or to ``--out`` and prints ``{"path", "seamless"}``. ``sheet`` rebuilds the root
 contact sheet from the texture sets and prints ``{"pages", "cells", "skipped"}`` (#152). ``run-job``
-is the internal entry the detached job process runs. On ``TextureGenError`` the CLI prints
+runs one job without the queue, and ``run-queue`` is the internal entry the queue runner runs. On
+``TextureGenError`` the CLI prints
 ``ERROR [<code>]: …`` and ``Remediation: …`` to stderr and exits 1. Argument errors exit 2.
 """
 
@@ -90,7 +93,18 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     gen = sub.add_parser("generate", help="Generate textures and wait for the JSON result.")
-    gen.add_argument("--prompt", required=True, help="What the texture shows.")
+    source = gen.add_mutually_exclusive_group(required=True)
+    source.add_argument("--prompt", default=None, help="What the texture shows.")
+    source.add_argument(
+        "--batch",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help=(
+            "A JSON array of request objects, all generated in one run. Each object takes the "
+            "request fields, so the single-request options above are not used with --batch."
+        ),
+    )
     gen.add_argument(
         "--backend",
         default=generate.DEFAULT_BACKEND,
@@ -145,6 +159,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_job = sub.add_parser("run-job", help="Internal: run a started job to completion.")
     run_job.add_argument("job_dir", type=Path)
+
+    run_queue = sub.add_parser("run-queue", help="Internal: drain the texture job queue.")
+    run_queue.add_argument("jobs_root", type=Path)
     return parser
 
 
@@ -152,9 +169,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
-        if args.command == "generate":
+        if args.command == "generate" and args.batch is not None:
+            batch = generate.run_batch(generate.load_batch_file(args.batch))
+            print(json.dumps(batch.as_json(), indent=2, sort_keys=True))
+        elif args.command == "generate":
             result = generate.run(_generate_request(args))
             print(json.dumps(result.as_json(), indent=2, sort_keys=True))
+        elif args.command == "run-queue":
+            jobs.run_queue(args.jobs_root)
         elif args.command == "status":
             print(json.dumps(generate.backend_status(), indent=2, sort_keys=True))
         elif args.command == "seamless":
