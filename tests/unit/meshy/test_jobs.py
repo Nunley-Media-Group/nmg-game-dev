@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -239,6 +240,36 @@ def test_a_generate_job_without_a_pose_sends_none_and_reports_null_arm_raise(
     )
     (imported,) = session.ops_named("import_glb")
     assert "pose" not in imported
+    assert final["result"]["arm_raise"] is None
+
+
+def test_a_default_a_pose_job_leaves_raise_arms_out_of_the_import(tmp_path: Path) -> None:
+    """#135 AC7: the default job keeps the raise on, so the import payload omits the key."""
+    image = str(make_png(tmp_path / "knight.png"))
+    _job, final, _meshy, session = generate_and_run(
+        GenerateRequest(name="Knight", image_paths=(image,), pose="a-pose"), tmp_path
+    )
+    (imported,) = session.ops_named("import_glb")
+    assert "raise_arms" not in imported
+    assert final["result"]["arm_raise"] == ARM_RAISE
+
+
+def test_a_skipped_arm_raise_is_stored_sent_to_the_session_and_reported_null(
+    tmp_path: Path,
+) -> None:
+    """#135 AC7: raise_arms False keeps pose_mode, stores the flag, and reports arm_raise null."""
+    image = str(make_png(tmp_path / "knight.png"))
+    job_id, final, meshy, session = generate_and_run(
+        GenerateRequest(name="Knight", image_paths=(image,), pose="a-pose", raise_arms=False),
+        tmp_path,
+    )
+    (with_pose,) = _posts_by_path(meshy)["/openapi/v1/image-to-3d"]
+    assert with_pose["pose_mode"] == "a-pose"
+    stored = json.loads((jobs_root(tmp_path) / job_id / "request.json").read_text(encoding="utf-8"))
+    assert stored["raise_arms"] is False
+    (imported,) = session.ops_named("import_glb")
+    assert imported["raise_arms"] is False
+    assert imported["pose"] == "a-pose"
     assert final["result"]["arm_raise"] is None
 
 

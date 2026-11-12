@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "generate_model",
-      "description": "Start a background Meshy generate job and return its job_id at once. Give a prompt, one to four reference images, or both. Prompt only: Meshy shapes the model from the text. With images, the images shape the model and the prompt steers only the texture. texture=False returns the untextured mesh, with no prompt and images together. pose is a-pose or t-pose and applies to characters and creatures with limbs only; set it only for those, never for props. Poll get_meshy_job(job_id) until it succeeds.",
+      "description": "Start a background Meshy generate job and return its job_id at once. Give a prompt, one to four reference images, or both. Prompt only: Meshy shapes the model from the text. With images, the images shape the model and the prompt steers only the texture. texture=False returns the untextured mesh, with no prompt and images together. pose is a-pose or t-pose and applies to characters and creatures with limbs only; set it only for those, never for props. With pose a-pose, the import raises the arms to a 48 degree drop from each detected shoulder; raise_arms=False skips that raise (default true). Poll get_meshy_job(job_id) until it succeeds.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -11,7 +11,8 @@
           "prompt": {"type": ["string", "null"]},
           "image_paths": {"type": ["array", "null"], "items": {"type": "string"}},
           "texture": {"type": "boolean", "default": true},
-          "pose": {"type": ["string", "null"], "enum": ["a-pose", "t-pose", null]}
+          "pose": {"type": ["string", "null"], "enum": ["a-pose", "t-pose", null]},
+          "raise_arms": {"type": "boolean", "default": true}
         },
         "required": ["name"]
       }

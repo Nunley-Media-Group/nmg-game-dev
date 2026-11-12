@@ -59,8 +59,10 @@ RULES: Final[dict[str, str]] = {
     "budget.materials": "Merge materials to the class material limit (contract section 6).",
     "budget.texture_size": "Resize textures to the class maximum (contract section 6).",
     "texel.density": (
-        "Raise texel density to 256 px/m (Desktop) or 128 px/m (Mobile) with more texture "
-        "resolution or less UV area per meter (contract section 6)."
+        "Density is checked per material slot. Raise the slot to 256 px/m (Desktop) or 128 px/m "
+        "(Mobile) with more texture resolution or less UV area per meter, or set the custom "
+        "property nmg_trim_atlas to True on the material if it is a trim atlas (contract "
+        "section 6)."
     ),
     "variants.names_match": (
         "Give each Mobile object, material, and image the Desktop name plus the _Mobile suffix; "

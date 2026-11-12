@@ -15,6 +15,8 @@ from pathlib import Path
 
 import bpy
 
+from ..contract_core.texel import TRIM_ATLAS_PROPERTY
+
 _NUMBER_SUFFIX = re.compile(r"\.\d+$")
 
 
@@ -43,9 +45,17 @@ def part_names(sources: Sequence[bpy.types.Material], asset: str, merged: bool) 
     return names
 
 
-def build_material(name: str, asset: str, part: str, paths: dict[str, Path]) -> bpy.types.Material:
-    """A new M_<Name>_<Part> material whose image nodes reference the Desktop PNGs."""
+def build_material(
+    name: str, asset: str, part: str, paths: dict[str, Path], trim_atlas: bool = False
+) -> bpy.types.Material:
+    """A new M_<Name>_<Part> material whose image nodes reference the Desktop PNGs.
+
+    A trim-atlas source keeps its marker (nmg_trim_atlas), so the baked material stays exempt from
+    the per-slot texel density check (contract section 6).
+    """
     material = bpy.data.materials.new(name)
+    if trim_atlas:
+        material[TRIM_ATLAS_PROPERTY] = True
     material.use_nodes = True
     tree = material.node_tree
     nodes = tree.nodes

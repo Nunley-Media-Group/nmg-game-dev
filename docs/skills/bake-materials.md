@@ -50,7 +50,9 @@ The operator's fields are `collection_name`, `asset_class`, `out_dir` (a folder 
   every face uses `M_<Name>_Body`. An asset at or under the limit keeps one set per material.
 - **Tiling** (`environment_piece`). Each tiling material bakes onto a temporary 1 m tile whose UVs
   span 0 to 1. The asset's UVs stay as they are. The bake fails unless the opposite edges of each
-  texture match and each mesh meets the texel density minimum (256 px/m Desktop, 128 px/m Mobile).
+  texture match and each material slot of each mesh meets the texel density minimum (256 px/m
+  Desktop, 128 px/m Mobile). Trim-atlas and flat-colour slots are exempt (`docs/asset-contract.md`
+  §6), and the bake report lists every slot with its densities or its exemption.
 
 Part names follow `M_<Name>_<Part>`: a material already named that way keeps `<Part>`, one authored
 material otherwise becomes `Body`, and several materials take PascalCase of their names.
@@ -69,7 +71,8 @@ material otherwise becomes `Body`, and several materials take PascalCase of thei
 - The authored materials are kept as `<name>_Authoring` with a fake user, so they can be
   reassigned. The asset's slots point at the rewired `M_<Name>_<Part>` materials.
 - `bake.json` holds the result: `texture_bytes_desktop`, `texture_bytes_mobile`, per-variant texture
-  paths, `proof`, `summary`, `source_hash`, and `baked_hash`.
+  paths, `proof`, `summary`, `source_hash`, `baked_hash`, and `texel_density` (tiling only: each
+  mesh's slots, with their Desktop and Mobile px/m or their exemption reason).
 
 The result's `summary` is one line, for example
 `Baked 1 material for Crate (standard_prop): Desktop 2048 px, Mobile 1024 px, proof diff 0.012`.
@@ -116,8 +119,8 @@ a remediation. A failed run restores the authored materials, UV maps, and render
 | `no_material` | A mesh has no material slots, or an empty slot. | Give every mesh a material in every slot. |
 | `uv_unwrap_failed` | The mesh has no faces, or the unwrap yields no UV area. | Check that the mesh has faces with area. |
 | `uv_missing` | A tiling mesh has no UV map. | Give every mesh at least one UV map. |
-| `not_seamless` | A tiling material's opposite edges differ by more than 0.04. | Make the material periodic across 0 to 1 UV. |
-| `texel_density` | A mesh is below 256 px/m (Desktop) or 128 px/m (Mobile). | Increase the UV scale or reduce the mesh area. |
+| `not_seamless` | A channel fails when a tiling material's wrap (the first and last pixel along an axis) differs by more than 1.5× the interior adjacent-pixel difference (minimum 2/255). The message reports the wrap and interior values for each failing channel. | Run `python -m nmg_game_dev.texture seamless <image.png>` on a source texture that does not tile, or make the procedural material periodic across 0 to 1 UV, then rerun. |
+| `texel_density` | A material slot of a mesh is below 256 px/m (Desktop) or 128 px/m (Mobile). Trim-atlas and flat-colour slots are exempt. | Raise the slot's density with more texture resolution or less UV area per meter, or set `nmg_trim_atlas` to `True` on a trim-atlas material. |
 | `material_limit` | A tiling asset has more materials than its Mobile limit. | Reduce the tiling materials to the class limit. |
 | `proof_mismatch` | The baked render differs from the pre-bake render beyond tolerance. | Check the seams, color space, and roughness in the proof renders, fix the material, then rebake. |
 | `budget_invalid` | Unknown class, or a texture size that is not a power of two. | Use a listed class and power-of-two sizes. |

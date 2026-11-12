@@ -12,6 +12,8 @@ from types import ModuleType
 
 import pytest
 
+from tests.texture_fakes import save_png, synthetic_image
+
 REPO = Path(__file__).resolve().parents[3]
 SERVER_FILE = REPO / "mcp-servers" / "texture-gen" / "src" / "texture_gen_mcp" / "server.py"
 TOOLS_JSON = REPO / "mcp-servers" / "texture-gen" / "tools.json"
@@ -60,3 +62,55 @@ def test_texture_backends_reports_each_backend(
     result = server.texture_backends()
     assert set(result["backends"]) == {"z-image-turbo", "flux2-klein-4b"}
     assert set(result["backends"].values()) <= {"available", "not_installed", "insufficient_memory"}
+
+
+def _set_with_albedo(root: Path, name: str) -> None:
+    albedo = save_png(synthetic_image(256), root / name / "z-image-turbo_1_256.png")
+    manifest = {
+        "name": name,
+        "images": [{"backend": "z-image-turbo", "seed": 1, "path": str(albedo)}],
+    }
+    (root / name / "textures.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_texture_contact_sheet_is_registered_and_declared(server: ModuleType) -> None:
+    registered = {tool.name for tool in asyncio.run(server.mcp.list_tools())}
+    declared = {tool["name"] for tool in json.loads(TOOLS_JSON.read_text())["tools"]}
+    assert "texture_contact_sheet" in registered and "texture_contact_sheet" in declared
+
+
+def test_texture_contact_sheet_returns_pages_for_the_output_root(
+    server: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "out"
+    _set_with_albedo(root, "rusted-steel")
+    monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(root))
+    result = server.texture_contact_sheet()
+    assert set(result) == {"pages", "cells", "skipped"}
+    assert result == {"pages": [str(root / "contact_sheet_001.png")], "cells": 1, "skipped": []}
+
+
+def test_texture_contact_sheet_returns_the_structured_error_on_an_empty_root(
+    server: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(tmp_path / "empty"))
+    result = server.texture_contact_sheet()
+    assert set(result) == {"error"}
+    assert result["error"]["code"] == "texture.no_texture_sets"
+    assert result["error"]["message"] and result["error"]["remediation"]
+
+
+def test_texture_contact_sheet_needs_no_backend(
+    server: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nmg_game_dev.texture import generate, hardware
+
+    def refuse() -> None:
+        raise AssertionError("the contact sheet tool must not probe the host")
+
+    monkeypatch.setattr(generate, "probe", refuse)
+    monkeypatch.setattr(hardware, "probe", refuse)
+    root = tmp_path / "out"
+    _set_with_albedo(root, "steel")
+    monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(root))
+    assert "pages" in server.texture_contact_sheet()

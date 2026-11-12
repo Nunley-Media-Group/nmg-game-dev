@@ -1,0 +1,71 @@
+**Issue**: #141
+**Date**: 2026-11-11
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/102-preserve-the-rig-when-finalizing-a-character-rigged-with-rig-humanoid/
+
+# File: tests/unit/test_unreal_import.py
+# Generated from: specs/141-fix-import-ue-failing-multi-part-static-imports-because-ue-5-8-reports-only-the-first-mesh-on-the-import-task/requirements.md
+Feature: import_ue resolves imported meshes from the destination folder
+
+  @SCN001 @regression
+  Scenario: A multi-part static import returns every part
+    Given a Crate snapshot with parts SM_Crate, SM_Crate_Body, and SM_Crate_Lid
+    And a fake import that creates all three Static Meshes in the destination folder
+    When the generated import code runs
+    Then NMG_RESULT is ok with three static_meshes entries
+
+  @SCN002 @regression
+  Scenario: Expected meshes are resolved by name, ignoring other assets
+    Given a fake import task that lists only the first mesh, and a folder that also holds an unrelated Static Mesh
+    When the generated import code runs
+    Then each expected part is resolved from the folder by name
+    And the unrelated mesh is neither bound nor reported
+
+  @SCN003 @regression
+  Scenario: A rigged Desktop import creates a missing physics asset
+    Given a rigged Crate whose Desktop import created SM_Crate and SM_Crate_Skeleton but no physics asset
+    When the generated Desktop import code runs
+    Then create_physics_asset is called for SM_Crate
+    And SM_Crate_PhysicsAsset exists in the Desktop folder, is assigned to SM_Crate, and is saved
+    And NMG_RESULT is ok
+
+  @SCN004 @regression
+  Scenario: A rigged Mobile import reuses the Desktop rig assets
+    Given a Desktop folder holding SM_Crate_Skeleton and SM_Crate_PhysicsAsset
+    When the generated Mobile import code runs
+    Then the import options use the Desktop skeleton and physics asset
+    And LOD 1 and LOD 2 are imported
+    And NMG_RESULT is ok
+
+  @SCN005
+  Scenario: A re-import reports the new geometry
+    Given a folder that already holds SM_Crate from an earlier import
+    When a fake import replaces SM_Crate with new bounds
+    Then the reported bounds are the new ones
+    And the pivot check passes against the new snapshot
+
+  @SCN006 @regression
+  Scenario: Every missing part is named
+    Given a fake import after which SM_Crate_Body and SM_Crate_Lid are absent
+    When import_variant runs the generated code
+    Then it raises import_ue.failed naming SM_Crate_Body and SM_Crate_Lid
+
+  @SCN007 @regression
+  Scenario: Two-part regression with an under-reporting task
+    Given a two-part static Crate whose fake task lists only the first mesh, while both part assets exist
+    When the generated import code runs against the fake unreal module
+    Then NMG_RESULT is ok with both parts in static_meshes
+
+  @SCN008
+  Scenario: A single-part import behaves as before
+    Given a single-part static Crate
+    When the generated import code runs against the fake unreal module
+    Then texture settings, MI_Crate_Body binding, the NMG_RESULT keys, and the pivot check match the existing behavior
+
+  @SCN009
+  Scenario: The Interchange cvar is not offered as a workaround
+    Given the repository's src, skills, docs, scripts, and templates
+    When they are scanned
+    Then none contains Interchange.FeatureFlags.Import.FBX
+    And the generated import code does not reference it
