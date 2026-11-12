@@ -1,10 +1,10 @@
 # Verification Report: Batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight
 
-**Date**: 2026-11-11
+**Date**: 2026-11-12
 **Issue**: #149
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
-**Scope**: Implementation verification against spec (re-verification after merging `origin/main` at `9337c95`)
-**Verification head**: ac9e7d5db6f3c3e3a93d1c85f0c5862307592718
+**Scope**: Implementation verification against spec (re-verification after merging `origin/main` at `19f4c1f`)
+**Verification head**: e12ccc5da796f9f059ec427236949cb1edb23105
 
 ---
 
@@ -21,9 +21,9 @@
 | **Overall** | 4.5 |
 
 ### Implementation Status: Pass
-**Total Issues**: 3 (all Low, none blocking)
+**Total Issues**: 5 (all Low, none blocking)
 
-All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests that use fakes only. This re-verification covers the head after three `chore: merge origin/main` commits (`db50d80`, `71ac35c`, `ac9e7d5`). Their conflict resolutions keep #149's retry wiring in `import_asset.py`, add the keyword-only `timeout` to the shared and #155 audio Unreal fakes, and keep both sides of `tests/unit/pipeline/test_jobs.py`. None of them changes #149's behavior. Every applicable registered steering validation passed at the verification head (10 of 10). `gate-ship-smoke` does not apply.
+All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests that use fakes only. This re-verification covers the head after a fourth `chore: merge origin/main` commit (`e12ccc5`), which brings in #148 material variants (#186), #203 rename/consolidate checks (#217), the texture queue (#208), and the UBA-free UE compile gate (#210). The merge keeps #149's retry wiring in `import_variant`: it now takes `material_variants` and also `retry`/`sleep`/`clock` and records `attempts`. #217's refused-rename and refused-consolidate checks stay in the import template, and a re-sent import over existing assets still goes through the consolidate path, so AC9 holds. Batch entries gain `material_variants_path`. The CLI rejects `--material-variants` for a batch, and the MCP docs say the top-level parameter applies to one collection only. `pipeline/jobs.py`, `unreal/retry.py`, and `unreal/preflight.py` are unchanged by the merge. Every applicable registered steering validation passed at the verification head (10 of 10). `gate-ship-smoke` does not apply.
 
 ---
 
@@ -47,10 +47,10 @@ All 11 acceptance criteria and 8 tasks are implemented, and each has unit tests 
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/149.json` (base `main`, head `ac9e7d5db6f3c3e3a93d1c85f0c5862307592718`, clean tree, generated 2026-11-12T05:22:24Z)
+- Artifact: `.nmg-sdlc/verification/149.json` (base `main`, head `e12ccc5da796f9f059ec427236949cb1edb23105`, clean tree, run id `9cee569d-e9c4-4ac1-b8fb-e1f80a089c9e`, generated 2026-11-12T06:58:07Z)
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown ids
 - Ceiling: none (`null`)
-- Note: the local `main` ref in this lane worktree lags `origin/main`, so the runner's changed-path set is wider than #149's own diff. That made `gate-shellcheck` applicable, and it passed. Applicability only grew, so no gate was skipped.
+- Note: the local `main` ref in this lane worktree lags `origin/main`, so the runner's changed-path set is wider than #149's own diff. That made `gate-shellcheck`, `gate-blender-headless`, and `gate-ue-compile` applicable, and all three passed. Applicability only grew, so no gate was skipped.
 
 ---
 
@@ -165,8 +165,8 @@ This follows the steering layer table. Skill and docs describe the tools. `mcp_t
 ### Coverage Summary
 
 - Feature file: `specs/149-…/feature.gherkin`, 11 scenarios mapped to unit tests in `tests/unit/pipeline/test_batch.py`, `tests/unit/pipeline/test_jobs.py`, `tests/unit/test_unreal_retry.py`, `tests/unit/test_pie_preflight.py`, `tests/unit/test_finalize_cli.py`, `tests/unit/test_finalize_mcp_tools.py`, `tests/unit/test_finalize_docs.py`
-- `repository.tests`: 1323 passed, 10 skipped (`uv run pytest tests/unit tests/bdd -q`)
-- `gate-blender-headless`: 284 passed, 4 skipped
+- `repository.tests`: 1432 passed, 10 skipped (`uv run pytest tests/unit tests/bdd -q`)
+- `gate-blender-headless`: 338 passed, 4 skipped
 - All timing uses injected sleep and clock; no live Blender or Unreal editor is contacted
 
 ---
@@ -184,17 +184,17 @@ This follows the steering layer table. Skill and docs describe the tools. `mcp_t
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0; 1323 passed, 10 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0; 1432 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 360 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 236 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0; 284 passed, 4 skipped |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
+| `repository.format` | Pass | `uv run ruff format --check .`: 376 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 245 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0; 338 passed, 4 skipped |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` (`-NoUBA`) |
 | `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json |
 | `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0 with no findings |
 | `gate-ship-smoke` | Not applicable | No ship paths changed (runner applicability) |
 | `plugin.validate` | Pass | `claude plugin validate .`: validation passed (with warnings) |
-| `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir` in an ephemeral Herdr project; `nmg-game-dev:blender` connected |
+| `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir` in an ephemeral Herdr project; `nmg-game-dev:blender` connected (real run, not replayed) |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable; coverage 11/11 complete)
 
@@ -246,6 +246,24 @@ None.
 | **Impact** | Fails closed: no import is sent. Only the error code differs. |
 | **Reason Not Fixed** | Consistent with the spec, which defines only a timed-out check as busy. |
 
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Error Handling |
+| **Location** | `src/nmg_game_dev/finalize/mcp_tools.py` `finalize_asset` (`requests` branch) |
+| **Issue** | With `requests`, a top-level `material_variants_path` is silently ignored. It is not one of the batch defaults. The CLI instead rejects `--material-variants` for a batch with a usage error. |
+| **Impact** | A caller who sets the top-level path on a batch gets no material variants and no warning. `docs/mcp/finalize.md` and the tool description say the top-level parameter applies to one collection only. |
+| **Reason Not Fixed** | Outside this verify stage's writable scope (report only). A follow-up could return `finalize.invalid_request` when both are given. |
+
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Testing |
+| **Location** | `tests/unit/pipeline/test_batch.py`, `tests/unit/test_finalize_cli.py` |
+| **Issue** | The merge glue that lets batch entries carry `material_variants_path`, and the CLI rejection of `--material-variants` with a batch, has no dedicated test. Verification checked it by hand: `build_batch` keeps a per-entry path and reports a missing one as `finalize.invalid_batch` at index 0. |
+| **Impact** | A regression in the #148/#149 interaction would not be caught automatically. |
+| **Reason Not Fixed** | Outside writable scope; this is not a #149 acceptance criterion. |
+
 ---
 
 ## Positive Observations
@@ -269,6 +287,7 @@ None.
 ### Long Term (Could)
 - [ ] Make the lock handover in `_hand_lock_to` atomic.
 - [ ] Wrap `_mark_backlog` in `_run_item` so any backlog error becomes an item warning.
+- [ ] Reject a top-level `material_variants_path` combined with `requests` in `finalize_asset`, and add batch material-variant tests.
 
 ---
 
@@ -279,13 +298,13 @@ None.
 | `src/nmg_game_dev/pipeline/jobs.py` | 2 (Low) | Lock, wait, batch lifecycle |
 | `src/nmg_game_dev/finalize/service.py` | 0 | `build_batch`, `start_batch`, `run_batch` |
 | `src/nmg_game_dev/finalize/__main__.py` | 0 | CLI batch and flags |
-| `src/nmg_game_dev/finalize/mcp_tools.py` | 0 | MCP parameters |
+| `src/nmg_game_dev/finalize/mcp_tools.py` | 1 (Low) | MCP parameters; batch ignores top-level `material_variants_path` |
 | `mcp-servers/finalize/src/finalize_mcp/server.py` | 0 | Tool signatures and descriptions |
 | `mcp-servers/finalize/tools.json` | 0 | Schema |
 | `src/nmg_game_dev/pipeline/clients/unreal_mcp.py` | 0 | `UnrealTimeoutError`, per-call timeout |
 | `src/nmg_game_dev/unreal/retry.py` | 0 | Bounded retry |
 | `src/nmg_game_dev/unreal/preflight.py` | 1 (Low) | PIE preflight |
-| `src/nmg_game_dev/unreal/import_asset.py` | 0 | Retry wiring, `attempts` |
+| `src/nmg_game_dev/unreal/import_asset.py` | 0 | Retry wiring, `attempts`; #217 rename/consolidate checks preserved |
 | `src/nmg_game_dev/pipeline/engine.py` | 0 | Preflight call |
 | `src/nmg_game_dev/pipeline/request.py` | 0 | PIE fields |
 | `docs/mcp/finalize.md`, `skills/finalize-asset/SKILL.md` | 0 | AC11 |
@@ -297,4 +316,4 @@ None.
 
 **Ready for PR**
 
-All delivery ACs, FRs, tasks, and scenarios are implemented and tested. The deterministic steering artifact shows complete coverage with no ceiling, and every applicable required validation passed at `ac9e7d5db6f3c3e3a93d1c85f0c5862307592718`. The three Low findings do not block delivery.
+All delivery ACs, FRs, tasks, and scenarios are implemented and tested. The deterministic steering artifact shows complete coverage with no ceiling, and every applicable required validation passed at `e12ccc5da796f9f059ec427236949cb1edb23105`. The five Low findings do not block delivery.
