@@ -90,6 +90,7 @@ def validate_asset(
         tris: dict[str, int] = {}
         texel_entries: dict[str, list[dict[str, Any]]] = {}
         findings += _structure_findings(collection, variant, objects, root_name)
+        findings += _shared_mesh_findings(objects)
         findings += _mesh_findings(
             collection,
             variant,
@@ -244,6 +245,31 @@ def _structure_findings(
                     f"{obj.name} has rotation or scale on the part: {', '.join(problems)}.",
                 )
             )
+    return findings
+
+
+def _shared_mesh_findings(objects: list[bpy.types.Object]) -> list[dict[str, str]]:
+    """One naming.mesh_data finding per mesh datablock that two or more mesh objects use (#142).
+
+    Export names each mesh after its object, so a datablock shared by two parts cannot carry both.
+    """
+    users: dict[int, list[bpy.types.Object]] = {}
+    for obj in objects:
+        if obj.type == "MESH":
+            users.setdefault(obj.data.as_pointer(), []).append(obj)
+    findings: list[dict[str, str]] = []
+    for group in users.values():
+        if len(group) < 2:
+            continue
+        mesh_name = group[0].data.name
+        parts = ", ".join(obj.name for obj in group)
+        findings.append(
+            finding(
+                "naming.mesh_data",
+                mesh_name,
+                f"{mesh_name} is shared by {parts}; each part needs its own mesh data.",
+            )
+        )
     return findings
 
 

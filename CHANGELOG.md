@@ -12,6 +12,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Fixed
 
 - Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
+- Fix naming collisions that pass validate and fail after the bake (#142)
 
 ### Changed
 
