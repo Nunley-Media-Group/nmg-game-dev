@@ -105,7 +105,7 @@ class FakeUnrealClient:
         self._results = dict(results or {})
         self._raises = dict(raises or {})
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         self.codes.append(code)
         path = _target_path(code)
         if path in self._raises:

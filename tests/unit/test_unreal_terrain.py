@@ -20,8 +20,10 @@ from typing import Any
 
 import pytest
 
+from nmg_game_dev.pipeline.clients.unreal_mcp import UnrealTimeoutError
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.unreal import parse_nmg_result
+from nmg_game_dev.unreal.retry import PING_CODE, RetrySettings
 from nmg_game_dev.unreal.terrain import (
     build_terrain_code,
     import_terrain_variant,
@@ -104,7 +106,7 @@ class EditorClient:
         self.editor = editor
         self.codes: list[str] = []
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         self.codes.append(code)
         return run_generated_code(code, self.editor)
 
@@ -513,6 +515,33 @@ class _StaticClient:
         self.result = result
         self.codes: list[str] = []
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         self.codes.append(code)
         return "NMG_RESULT " + json.dumps(self.result, sort_keys=True)
+
+
+def test_a_timed_out_terrain_import_is_retried(tmp_path: Path) -> None:
+    """A terrain import retries an Unreal MCP timeout like a mesh import (#149, FR6)."""
+    reply = "NMG_RESULT " + json.dumps({"ok": True, "variant": "desktop", "name": NAME})
+    sent: list[str] = []
+
+    class _TimesOutOnce:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
+            sent.append(code)
+            if len(sent) == 1:
+                raise UnrealTimeoutError("Unreal MCP request timed out", "Retry.")
+            return "NMG_PING\n" if code == PING_CODE else reply
+
+    result = import_terrain_variant(
+        _TimesOutOnce(),
+        variant_dir=str(tmp_path),
+        dest=DESKTOP_DEST,
+        name=NAME,
+        sidecar_variant=_sidecar(),
+        retry=RetrySettings(retries=2, base_delay_s=0.0),
+        sleep=lambda seconds: None,
+    )
+
+    assert result["ok"] is True
+    assert result["attempts"] == 2
+    assert sent[0] == sent[-1]

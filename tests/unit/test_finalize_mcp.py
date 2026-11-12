@@ -186,6 +186,44 @@ def test_tools_json_class_enum_matches_the_request_model() -> None:
         assert enum == expected, name
 
 
+def test_run_finalize_step_accepts_both_clip_steps(tmp_path: Path) -> None:
+    # FR9: run_finalize_step takes export_anims and import_anims.
+    for step in ("export_anims", "import_anims"):
+        response = run_finalize_step(
+            step=step,
+            **_args(tmp_path),  # type: ignore[arg-type]
+            service=_deferred(tmp_path / f"cache-{step}"),
+        )
+        assert response["status"] == "queued", step
+
+
+def test_compatible_with_is_accepted_by_both_tools(tmp_path: Path) -> None:
+    # FR12: both tools accept compatible_with.
+    args = _args(tmp_path)
+    response = finalize_asset(
+        **args,  # type: ignore[arg-type]
+        compatible_with=["Props/Other"],
+        service=_deferred(tmp_path / "cache-all"),
+    )
+    assert response["status"] == "queued"
+    response = run_finalize_step(
+        step="import_anims",
+        **args,  # type: ignore[arg-type]
+        compatible_with=["Props/Other"],
+        service=_deferred(tmp_path / "cache-step"),
+    )
+    assert response["status"] == "queued"
+
+
+def test_an_invalid_compatible_with_item_is_a_structured_error(tmp_path: Path) -> None:
+    response = finalize_asset(
+        **_args(tmp_path),  # type: ignore[arg-type]
+        compatible_with=["props/other"],
+        service=_deferred(tmp_path / "cache"),
+    )
+    assert response["error"]["code"] == "finalize.invalid_request"
+
+
 # --- import_audio (#155, AC7) ------------------------------------------------------------------
 
 

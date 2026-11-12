@@ -41,12 +41,14 @@ printed, even on failure::
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final, cast
 
 from nmg_game_dev.pipeline.errors import PipelineError
 
 from .import_asset import UnrealPythonClient, parse_nmg_result
+from .retry import RetrySettings, call_with_retry, retry_settings
 
 _STAGE: Final = "import_ue"
 _HEIGHT_ERROR: Final = "terrain_height_mismatch"
@@ -307,11 +309,16 @@ def import_terrain_variant(
     dest: str,
     name: str,
     sidecar_variant: Mapping[str, Any],
+    retry: RetrySettings | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> dict[str, Any]:
     """Import one terrain variant through ``client`` and return the UE result.
 
-    Raises ``import_ue.terrain_height_mismatch`` when the sampled Landscape heights differ from the
-    Blender heights by more than 5 cm. Any other failure raises ``import_ue.failed``.
+    A timed-out request is retried with back-off, as for a mesh import (#149, FR6).  The result
+    records ``attempts``.  Raises ``import_ue.terrain_height_mismatch`` when the sampled Landscape
+    heights differ from the Blender heights by more than 5 cm. Any other failure raises
+    ``import_ue.failed``.
     """
     try:
         code = build_terrain_code(variant_dir, dest, name, sidecar_variant)
@@ -323,8 +330,18 @@ def import_terrain_variant(
             "rerun the import_ue step.",
             stage=_STAGE,
         ) from error
-    result = parse_nmg_result(client.execute_python_code(code))
+    settings = retry if retry is not None else retry_settings()
+    output, attempts = call_with_retry(
+        client,
+        code,
+        retries=settings.retries,
+        base_delay_s=settings.base_delay_s,
+        sleep=sleep,
+        clock=clock,
+    )
+    result = parse_nmg_result(output)
     if result.get("ok") is True:
+        result["attempts"] = attempts
         return result
     if result.get("error") == _HEIGHT_ERROR:
         raise PipelineError(

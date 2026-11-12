@@ -40,7 +40,7 @@ Feature: Scaffold plugin + repo + session-start hooks
     And `BLENDER_BIN` resolves to an installed Blender binary
     When the script runs
     Then Blender is detached with the MCP add-on enabled on `BLENDER_MCP_PORT` (default 9876)
-    And the script returns control to the shell in under two seconds
+    And the script exits 0 while the process it started is still running
     And the script does not block waiting for Blender to finish booting
 
   Scenario: start-unreal-mcp.sh detaches the UE Editor on the expected port (AC3)
@@ -48,7 +48,25 @@ Feature: Scaffold plugin + repo + session-start hooks
     And a valid `.uproject` resolves via the env-var or auto-detect chain
     When `scripts/start-unreal-mcp.sh` runs
     Then UE Editor is detached opened against the target `.uproject`
-    And the script returns control to the shell in under two seconds
+    And the script exits 0 while the process it started is still running
+
+  # --- Launcher detach judged by process state (#215) ---
+
+  Scenario: A launcher that waits for its child fails the detach check (AC2)
+    Given a synthetic launcher that starts a fake child and waits for it to exit
+    When the launcher runs with a fake child that exits after 1 second
+    Then the detach check fails because the child is gone
+
+  Scenario: A launcher that does not return fails the detach check (AC2)
+    Given a synthetic launcher that starts a fake child and waits for it to exit
+    When the launcher runs with a fake child that keeps running under a 3 second bound
+    Then the detach check fails because the launcher did not return
+
+  Scenario: A slow launcher that detaches still passes the detach check (AC3)
+    Given a synthetic launcher that sleeps 2.5 seconds before detaching a fake child
+    When the launcher runs with a fake child that keeps running
+    Then the detach check passes because it exited 0 while its child was still running
+    And the launcher finished its 2.5 second delay before detaching
 
   # --- Launcher scripts — idempotency ---
 

@@ -224,8 +224,12 @@ def test_the_declaration_argument_reaches_the_request_as_given(tmp_path: Path) -
 # --- FR9: the cache keys of validate and export follow the declaration ------------------------
 
 
+# export_anims and import_anims (#138) are per-clip steps with no whole-step settings hash.
+_WHOLE_STEPS = tuple(step for step in STEP_ORDER if step not in ("export_anims", "import_anims"))
+
+
 def _keys(request: FinalizeRequest) -> dict[str, str]:
-    return {step: settings_hash(step, request, "budgets") for step in STEP_ORDER}
+    return {step: settings_hash(step, request, "budgets") for step in _WHOLE_STEPS}
 
 
 def test_step_version_is_four() -> None:
@@ -241,7 +245,7 @@ def test_a_declaration_change_moves_only_the_validate_and_export_keys(tmp_path: 
     _declaration(tmp_path, [RED, BLUE_TINT])
     after = _keys(_request(blend, tmp_path / "export", declaration))
 
-    assert {step for step in STEP_ORDER if before[step] != after[step]} == {"validate", "export"}
+    assert {step for step in _WHOLE_STEPS if before[step] != after[step]} == {"validate", "export"}
 
 
 def test_a_changed_texture_byte_moves_the_validate_and_export_keys(tmp_path: Path) -> None:
@@ -253,7 +257,7 @@ def test_a_changed_texture_byte_moves_the_validate_and_export_keys(tmp_path: Pat
     _png(tmp_path / "Red.png", 512, (200, 10, 10))
     after = _keys(_request(blend, tmp_path / "export", declaration))
 
-    assert {step for step in STEP_ORDER if before[step] != after[step]} == {"validate", "export"}
+    assert {step for step in _WHOLE_STEPS if before[step] != after[step]} == {"validate", "export"}
 
 
 def test_no_declaration_keys_match_each_other_across_runs(tmp_path: Path) -> None:
@@ -646,7 +650,7 @@ def test_listing_ignores_untagged_instances_of_other_assets(tmp_path: Path) -> N
 
 def test_listing_reports_a_ue_failure_with_the_finalize_code() -> None:
     class _Broken:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             _ = code
             return 'NMG_RESULT {"error": "KeyError: x", "instances": [], "ok": false}'
 
@@ -668,7 +672,7 @@ def test_the_mcp_tool_returns_the_same_rows_as_the_listing(tmp_path: Path) -> No
 
 def test_the_mcp_tool_returns_the_unreachable_error_structured() -> None:
     class _Unreachable:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             _ = code
             raise PipelineError(
                 code="mcp.unreal.unreachable",

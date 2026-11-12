@@ -9,8 +9,13 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Changed
 
 - Add a terrain asset class that finalizes Blender heightfields into Unreal Landscapes (#154)
+- Add batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight (#149)
 
 ## [0.23.1] - 2026-11-12
+
+### Fixed
+
+- Judge launcher detach in the scaffold scenarios by process state, not a 2-second wall clock (#215)
 ## [0.24.0] - 2026-11-12
 ## [0.22.1] - 2026-11-12
 
@@ -20,6 +25,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Added
 
+- Export and import rigged-character animation clips through finalize (#138)
 - Let one finalized asset declare several material variants (#148)
 
 ### Fixed

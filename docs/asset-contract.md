@@ -287,6 +287,25 @@ The finalize export places a rigged character in the layout above:
   in `mobile.lod_files`. An unrigged asset records `"rigged": false` and writes the
   Static Mesh layout above.
 
+### Animation clips
+
+A rigged character's clips are finalized next to its mesh (`docs/mcp/finalize.md`, "Animation
+clips"). The contract for them:
+
+- Each clip is one FBX at `<export_root>/<Category>/<Name>/Animations/A_<Name>_<Clip>.fbx`, with
+  the armature named `Armature` and exactly one clip. `<Clip>` matches `^[A-Za-z][A-Za-z0-9_]*$`.
+  An action with any other name stops the export.
+- `Animations/nmg-animations.json` lists each clip's `name`, `file`, `asset_path`, `frame_start`,
+  `frame_end`, `frame_count`, `fps`, and `source`. A provenance clip's `source` is its library,
+  file, SHA-256, and source skeleton. An authored clip's `source` is `"authored"`.
+- In Unreal, each clip is the AnimSequence `/Game/<Category>/<Name>/Animations/A_<Name>_<Clip>` on
+  `/Game/<Category>/<Name>/Desktop/SM_<Name>_Skeleton`. Mobile uses the same AnimSequences, so the
+  `Animations/` folder has no Desktop or Mobile split. The skeleton and the frame count of each
+  clip must match the sidecar.
+- Stale AnimSequences are never deleted automatically. A sequence whose clip was removed from the
+  rig is listed as stale in the finalize result, and it is removed by hand.
+- A character with no clips has no `Animations/` folder.
+
 ## 8. Before you say it's done
 
 1. **Validate** in Blender with a script and report the numbers: objects in the

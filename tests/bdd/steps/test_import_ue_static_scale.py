@@ -388,6 +388,7 @@ def _behavior_preserved(state: dict[str, Any], tmp_path: Path) -> None:
         "static_meshes",
         "skeletal_meshes",
         "error",
+        "attempts",  # added by #149's Unreal MCP retry
         # #148 adds the variant instances, the stale assets it removed, and warnings.
         "material_variants",
         "removed",

@@ -258,7 +258,7 @@ def test_scn004_unreal_import_builds_the_landscape() -> None:
 class _HeightMismatchClient:
     """Returns the NMG_RESULT that the generated code prints when a sample is 6 cm off."""
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         return 'NMG_RESULT {"ok": false, "error": "terrain_height_mismatch", "height_errors_cm": [6.0]}'
 
 

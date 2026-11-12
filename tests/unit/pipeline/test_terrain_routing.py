@@ -235,3 +235,38 @@ def test_a_sidecar_missing_the_mobile_entry_fails_before_any_unreal_call(
     assert raised.value.code == "import_ue.failed"
     assert "mobile" in raised.value.message
     assert unreal.codes == []
+
+
+def test_terrain_clip_steps_are_no_ops(tmp_path: Path) -> None:
+    """export_anims and import_anims run no Blender probe and no Unreal call for terrain."""
+    blend = tmp_path / "hills.blend"
+    blend.write_bytes(b"authored")
+    request = FinalizeRequest(
+        collection="Hills",
+        category="Environment",
+        asset_class="terrain",
+        export_root=tmp_path / "export",
+        blend=blend,
+        compatible_with=("Characters/Other",),
+    )
+    runner = TerrainStepRunner(request)
+    unreal = FakeUnrealRunner()
+
+    result = _finalize(request, tmp_path, runner, unreal)
+
+    assert "export_anims" not in runner.steps_run()
+    assert len(unreal.codes) == 2
+    clip_steps = {step.step: step.outputs for step in result.steps if step.step.endswith("_anims")}
+    assert set(clip_steps) == {"export_anims", "import_anims"}
+    assert all(outputs["clips"] == [] for outputs in clip_steps.values())
+
+
+def test_terrain_import_checks_for_play_in_editor_before_each_variant(
+    terrain_request: FinalizeRequest,
+    tmp_path: Path,
+) -> None:
+    unreal = FakeUnrealRunner()
+
+    _finalize(terrain_request, tmp_path, TerrainStepRunner(terrain_request), unreal)
+
+    assert unreal.pie_checks == 2

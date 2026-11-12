@@ -6,14 +6,17 @@ Idempotency binds a real TCP socket on an ephemeral port to simulate LISTEN stat
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import os
 import pathlib
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,28 +39,121 @@ FEATURE = "scaffold-plugin-repo-session-start-hooks.feature"
 BLENDER_TEST_PORT = "19876"
 UE_TEST_PORT = "18088"
 MISSING_BINARY_TEST_PORT = "29876"
+SLOW_MARKER_NAME = "slow-launcher-marker"
+
+# A fake Blender or UE editor. It records its argv, then its own PID, then stays alive until the
+# stop file appears, FAKE_CHILD_LIFETIME seconds pass, or 120 s pass, whichever comes first.
+_FAKE_CHILD_BODY = """\
+#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$FAKE_CHILD_ARGV_FILE"
+echo "$$" > "$FAKE_CHILD_PID_FILE"
+limit="${FAKE_CHILD_LIFETIME:-120}"
+if (( limit > 120 )); then
+  limit=120
+fi
+start=$SECONDS
+while [[ ! -e "$FAKE_CHILD_STOP_FILE" ]] && (( SECONDS - start < limit )); do
+  sleep 0.1
+done
+exit 0
+"""
+
+
+@dataclass(frozen=True)
+class FakeChild:
+    """A long-lived fake editor whose argv and PID the test reads, then stops."""
+
+    script: pathlib.Path
+    argv: pathlib.Path
+    pid: pathlib.Path
+    stop: pathlib.Path
+
+    def env(self, lifetime: int | None = None) -> dict[str, str]:
+        return {
+            "FAKE_CHILD_BIN": str(self.script),
+            "FAKE_CHILD_ARGV_FILE": str(self.argv),
+            "FAKE_CHILD_PID_FILE": str(self.pid),
+            "FAKE_CHILD_STOP_FILE": str(self.stop),
+            "FAKE_CHILD_LIFETIME": "" if lifetime is None else str(lifetime),
+        }
 
 
 @dataclass
 class LauncherRun:
-    result: subprocess.CompletedProcess[str]
-    elapsed_seconds: float
+    result: subprocess.CompletedProcess[str] | None
+    timed_out: bool
+    timeout: int
 
 
 def _run_launcher(
-    script_name: str, env_overrides: dict[str, str], timeout: int = 10
+    script: str | pathlib.Path, env_overrides: dict[str, str], timeout: int = 30
 ) -> LauncherRun:
+    """Run a launcher. A timeout is reported rather than raised, so the detach check judges it."""
+    path = script if isinstance(script, pathlib.Path) else REPO_ROOT / "scripts" / script
     env = os.environ.copy()
     env.update(env_overrides)
-    start = time.monotonic()
-    result = subprocess.run(
-        ["bash", str(REPO_ROOT / "scripts" / script_name)],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=timeout,
-    )
-    return LauncherRun(result=result, elapsed_seconds=time.monotonic() - start)
+    try:
+        result = subprocess.run(
+            ["bash", str(path)], capture_output=True, text=True, env=env, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        return LauncherRun(result=None, timed_out=True, timeout=timeout)
+    return LauncherRun(result=result, timed_out=False, timeout=timeout)
+
+
+def _write_fake_child(path: pathlib.Path) -> None:
+    path.write_text(_FAKE_CHILD_BODY, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _write_launcher(path: pathlib.Path, body: str) -> pathlib.Path:
+    path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _read_pid(path: pathlib.Path) -> int | None:
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    return int(text) if text.isdigit() else None
+
+
+def _wait_for_pid(path: pathlib.Path, timeout: float = 10.0) -> int | None:
+    deadline = time.monotonic() + timeout
+    while True:
+        pid = _read_pid(path)
+        if pid is not None or time.monotonic() >= deadline:
+            return pid
+        time.sleep(0.05)
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def assert_detached(run: LauncherRun, pid_file: pathlib.Path) -> None:
+    """Pass only when the launcher exited 0 while the fake child it started is still alive."""
+    if run.timed_out or run.result is None:
+        raise AssertionError(
+            f"launcher did not return within {run.timeout} s while its child was running"
+        )
+    if run.result.returncode != 0:
+        raise AssertionError(f"launcher exited {run.result.returncode}: {run.result.stderr}")
+    pid = _wait_for_pid(pid_file)
+    if pid is None:
+        raise AssertionError(
+            f"launcher exited before its child was still running (no PID recorded in {pid_file})"
+        )
+    if not _pid_alive(pid):
+        raise AssertionError(
+            f"launcher exited before its child was still running (PID {pid} is gone)"
+        )
 
 
 @scenario(FEATURE, "Plugin manifest is valid (AC1)")
@@ -77,6 +173,21 @@ def test_blender_launcher_detaches() -> None:
 
 @scenario(FEATURE, "start-unreal-mcp.sh detaches the UE Editor on the expected port (AC3)")
 def test_unreal_launcher_detaches() -> None:
+    pass
+
+
+@scenario(FEATURE, "A launcher that waits for its child fails the detach check (AC2)")
+def test_blocking_launcher_fails_when_child_exits() -> None:
+    pass
+
+
+@scenario(FEATURE, "A launcher that does not return fails the detach check (AC2)")
+def test_blocking_launcher_fails_when_it_hangs() -> None:
+    pass
+
+
+@scenario(FEATURE, "A slow launcher that detaches still passes the detach check (AC3)")
+def test_slow_launcher_passes_when_detached() -> None:
     pass
 
 
@@ -126,21 +237,36 @@ def test_install_scope_invariance() -> None:
 
 
 @pytest.fixture
-def fake_blender_bin(tmp_path: pathlib.Path) -> pathlib.Path:
-    fake = tmp_path / "blender"
-    fake.write_text("#!/usr/bin/env bash\nexit 0\n")
-    fake.chmod(0o755)
-    return fake
+def fake_child(tmp_path: pathlib.Path) -> Iterator[FakeChild]:
+    child_dir = tmp_path / "fake-child"
+    child_dir.mkdir()
+    child = FakeChild(
+        script=child_dir / "fake-child",
+        argv=child_dir / "argv.txt",
+        pid=child_dir / "pid.txt",
+        stop=child_dir / "stop",
+    )
+    _write_fake_child(child.script)
+    yield child
+    # Ask the fake to exit, then terminate any PID it recorded that is still alive.
+    child.stop.touch()
+    recorded = _read_pid(child.pid)
+    if recorded is not None and _pid_alive(recorded):
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(recorded, signal.SIGTERM)
+
+
+@pytest.fixture
+def fake_blender_bin(fake_child: FakeChild) -> pathlib.Path:
+    return fake_child.script
 
 
 @pytest.fixture
 def fake_ue_root(tmp_path: pathlib.Path) -> pathlib.Path:
     ue_dir = tmp_path / "Engine" / "Binaries" / "Mac" / "UnrealEditor.app" / "Contents" / "MacOS"
     ue_dir.mkdir(parents=True)
-    fake = ue_dir / "UnrealEditor"
-    # Record the editor's argv so the scenario can check the native MCP server flags.
-    fake.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$FAKE_UE_ARGV_FILE"\nexit 0\n')
-    fake.chmod(0o755)
+    # The fake editor records its argv and PID through the fake_child env, as the fake Blender does.
+    _write_fake_child(ue_dir / "UnrealEditor")
     # The launcher builds source-only project plugins through Build.sh before it starts the editor.
     build_dir = tmp_path / "Engine" / "Build" / "BatchFiles" / "Mac"
     build_dir.mkdir(parents=True)
@@ -255,28 +381,33 @@ def blender_bin_resolves(fake_blender_bin: pathlib.Path) -> None:
 
 
 @when("the script runs", target_fixture="launcher_run")
-def run_blender_script(fake_blender_bin: pathlib.Path) -> LauncherRun:
+def run_blender_script(fake_blender_bin: pathlib.Path, fake_child: FakeChild) -> LauncherRun:
     return _run_launcher(
         "start-blender-mcp.sh",
-        {"BLENDER_BIN": str(fake_blender_bin), "BLENDER_MCP_PORT": BLENDER_TEST_PORT},
+        {
+            "BLENDER_BIN": str(fake_blender_bin),
+            "BLENDER_MCP_PORT": BLENDER_TEST_PORT,
+            **fake_child.env(),
+        },
     )
 
 
 @then("Blender is detached with the MCP add-on enabled on `BLENDER_MCP_PORT` (default 9876)")
-def blender_detached(launcher_run: LauncherRun) -> None:
-    assert launcher_run.result.returncode == 0, f"Script failed: {launcher_run.result.stderr}"
+def blender_detached(launcher_run: LauncherRun, fake_child: FakeChild) -> None:
+    assert_detached(launcher_run, fake_child.pid)
+    argv = _wait_for_lines(fake_child.argv)
+    assert "--python-expr" in argv, f"Blender argv: {argv}"
+    assert any("start_server" in line for line in argv), f"Blender argv: {argv}"
 
 
-@then("the script returns control to the shell in under two seconds")
-def script_returns_quickly(launcher_run: LauncherRun) -> None:
-    assert launcher_run.elapsed_seconds < 2.0, (
-        f"Script took {launcher_run.elapsed_seconds:.2f}s (> 2s)"
-    )
+@then("the script exits 0 while the process it started is still running")
+def script_exits_while_child_runs(launcher_run: LauncherRun, fake_child: FakeChild) -> None:
+    assert_detached(launcher_run, fake_child.pid)
 
 
 @then("the script does not block waiting for Blender to finish booting")
 def script_does_not_block(launcher_run: LauncherRun) -> None:
-    assert launcher_run.result.returncode == 0
+    assert not launcher_run.timed_out, f"launcher blocked past {launcher_run.timeout} s"
 
 
 @given("`UE_ROOT` resolves to an installed Unreal Engine 5.8 install")
@@ -300,9 +431,11 @@ def uproject_resolves(repo_root: pathlib.Path) -> None:
 
 
 @when("`scripts/start-unreal-mcp.sh` runs", target_fixture="launcher_run")
-def run_unreal_script(fake_ue_root: pathlib.Path, repo_root: pathlib.Path) -> LauncherRun:
+def run_unreal_script(
+    fake_ue_root: pathlib.Path, repo_root: pathlib.Path, fake_child: FakeChild
+) -> LauncherRun:
     # Launch against a copy of the dogfood .uproject with no plugin directories beside it, so the
-    # two-second detach check times the launch, not the plugin build check over fixtures/Plugins.
+    # launch does not wait on the plugin build check over fixtures/Plugins.
     project_dir = fake_ue_root / "project"
     project_dir.mkdir()
     project = project_dir / "dogfood.uproject"
@@ -313,7 +446,7 @@ def run_unreal_script(fake_ue_root: pathlib.Path, repo_root: pathlib.Path) -> La
             "UE_ROOT": str(fake_ue_root),
             "UE_MCP_PORT": UE_TEST_PORT,
             "UE_PROJECT": str(project),
-            "FAKE_UE_ARGV_FILE": str(fake_ue_root / "ue-argv.txt"),
+            **fake_child.env(),
         },
     )
 
@@ -329,11 +462,86 @@ def _wait_for_lines(path: pathlib.Path, timeout: float = 5.0) -> list[str]:
 
 
 @then("UE Editor is detached opened against the target `.uproject`")
-def ue_editor_detached(launcher_run: LauncherRun, fake_ue_root: pathlib.Path) -> None:
-    assert launcher_run.result.returncode == 0, f"Script failed: {launcher_run.result.stderr}"
-    argv = _wait_for_lines(fake_ue_root / "ue-argv.txt")
+def ue_editor_detached(launcher_run: LauncherRun, fake_child: FakeChild) -> None:
+    assert_detached(launcher_run, fake_child.pid)
+    argv = _wait_for_lines(fake_child.argv)
     assert "-ModelContextProtocolStartServer" in argv, f"editor argv: {argv}"
     assert f"-ModelContextProtocolPort={UE_TEST_PORT}" in argv, f"editor argv: {argv}"
+
+
+@given(
+    "a synthetic launcher that starts a fake child and waits for it to exit",
+    target_fixture="synthetic_launcher",
+)
+def blocking_launcher(tmp_path: pathlib.Path) -> pathlib.Path:
+    body = '"$FAKE_CHILD_BIN" >/dev/null 2>&1 &\nwait\n'
+    return _write_launcher(tmp_path / "blocking-launcher.sh", body)
+
+
+@given(
+    "a synthetic launcher that sleeps 2.5 seconds before detaching a fake child",
+    target_fixture="synthetic_launcher",
+)
+def slow_launcher(tmp_path: pathlib.Path) -> pathlib.Path:
+    body = (
+        "sleep 2.5\n"
+        'touch "$SLOW_LAUNCHER_MARKER"\n'
+        'nohup "$FAKE_CHILD_BIN" >/dev/null 2>&1 &\n'
+        "disown\n"
+        "exit 0\n"
+    )
+    return _write_launcher(tmp_path / "slow-launcher.sh", body)
+
+
+@when(
+    "the launcher runs with a fake child that exits after 1 second",
+    target_fixture="synthetic_run",
+)
+def run_blocking_launcher_child_exits(
+    synthetic_launcher: pathlib.Path, fake_child: FakeChild
+) -> LauncherRun:
+    return _run_launcher(synthetic_launcher, fake_child.env(lifetime=1))
+
+
+@when(
+    "the launcher runs with a fake child that keeps running under a 3 second bound",
+    target_fixture="synthetic_run",
+)
+def run_blocking_launcher_hangs(
+    synthetic_launcher: pathlib.Path, fake_child: FakeChild
+) -> LauncherRun:
+    return _run_launcher(synthetic_launcher, fake_child.env(), timeout=3)
+
+
+@when("the launcher runs with a fake child that keeps running", target_fixture="synthetic_run")
+def run_slow_launcher(
+    synthetic_launcher: pathlib.Path, fake_child: FakeChild, tmp_path: pathlib.Path
+) -> LauncherRun:
+    env = fake_child.env()
+    env["SLOW_LAUNCHER_MARKER"] = str(tmp_path / SLOW_MARKER_NAME)
+    return _run_launcher(synthetic_launcher, env)
+
+
+@then("the detach check fails because the child is gone")
+def detach_fails_child_gone(synthetic_run: LauncherRun, fake_child: FakeChild) -> None:
+    with pytest.raises(AssertionError, match=r"PID \d+ is gone"):
+        assert_detached(synthetic_run, fake_child.pid)
+
+
+@then("the detach check fails because the launcher did not return")
+def detach_fails_launcher_hung(synthetic_run: LauncherRun, fake_child: FakeChild) -> None:
+    with pytest.raises(AssertionError, match="did not return within 3 s"):
+        assert_detached(synthetic_run, fake_child.pid)
+
+
+@then("the detach check passes because it exited 0 while its child was still running")
+def detach_passes_child_running(synthetic_run: LauncherRun, fake_child: FakeChild) -> None:
+    assert_detached(synthetic_run, fake_child.pid)
+
+
+@then("the launcher finished its 2.5 second delay before detaching")
+def slow_launcher_finished_delay(tmp_path: pathlib.Path) -> None:
+    assert (tmp_path / SLOW_MARKER_NAME).is_file(), "launcher detached before its 2.5 s delay"
 
 
 @given(
@@ -351,7 +559,9 @@ def re_invoke_blender_script(bound_port: int) -> LauncherRun:
 
 @then("the script exits 0 without launching a second Blender process")
 def idempotent_exit_0(idempotent_run: LauncherRun) -> None:
+    assert not idempotent_run.timed_out, f"launcher blocked past {idempotent_run.timeout} s"
     r = idempotent_run.result
+    assert r is not None
     assert r.returncode == 0, f"Expected exit 0, got {r.returncode}: {r.stderr}"
     assert "already LISTEN" in r.stderr, f"Expected 'already LISTEN' in stderr; got: {r.stderr!r}"
 
@@ -359,6 +569,7 @@ def idempotent_exit_0(idempotent_run: LauncherRun) -> None:
 @then("no duplicate process appears in the process table")
 def no_duplicate_process(idempotent_run: LauncherRun) -> None:
     # Script exits before invoking Blender, so no duplicate is possible.
+    assert idempotent_run.result is not None
     assert idempotent_run.result.returncode == 0
 
 

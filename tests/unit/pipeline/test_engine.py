@@ -26,7 +26,8 @@ from nmg_game_dev.pipeline import (
 )
 from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
 
-BLENDER_STEPS = ("validate", "bake", "variants", "export", "reimport")
+# export_anims runs its probe in Blender on every run, so it is a Blender step even with no clips.
+BLENDER_STEPS = ("validate", "bake", "variants", "export", "export_anims", "reimport")
 
 
 def _ue_params(code: str) -> dict[str, Any]:
@@ -171,7 +172,8 @@ class TestCache:
         unreal = FakeUnrealRunner()
         result = _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
 
-        assert runner.steps_run() == []
+        # Only the export_anims probe runs.  It is never cached, because it lists the clips.
+        assert runner.steps_run() == ["export_anims"]
         assert all(step.cache_hit for step in result.steps)
         assert unreal.codes == []
 
@@ -217,8 +219,9 @@ class TestCache:
         _run(request, tmp_path, jobs, runner, unreal=FakeUnrealRunner())
 
         # The budget keys change for the three budget-dependent steps.  Export and reimport read the
-        # variants output, which is byte-identical here, so their cached results stay valid.
-        assert runner.steps_run() == ["validate", "bake", "variants"]
+        # variants output, which is byte-identical here, so their cached results stay valid.  The
+        # export_anims probe is not cached, so it runs after them.
+        assert runner.steps_run() == ["validate", "bake", "variants", "export_anims"]
 
 
 class TestGates:
@@ -377,7 +380,8 @@ class TestSession:
         unreal = FakeUnrealRunner()
         result = _run(session_request, tmp_path, jobs, runner, unreal=unreal, blender=blender)
 
-        assert runner.steps_run() == []
+        # Only the export_anims probe runs.  It is never cached, because it lists the clips.
+        assert runner.steps_run() == ["export_anims"]
         assert all(step.cache_hit for step in result.steps)
         assert blender.load_backs == []
         assert unreal.codes == []
@@ -401,7 +405,8 @@ class TestSession:
             session_request, tmp_path, jobs, runner, unreal=FakeUnrealRunner(), blender=blender
         )
 
-        assert runner.steps_run() == []
+        # Only the export_anims probe runs.  It is never cached, because it lists the clips.
+        assert runner.steps_run() == ["export_anims"]
         assert all(step.cache_hit for step in result.steps)
         assert len(blender.load_backs) == 1
         assert result.loaded_back is True

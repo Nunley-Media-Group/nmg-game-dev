@@ -799,8 +799,8 @@ class FakeWorld:
         reported = self.reported_paths(created)
         task.imported_object_paths = [path + "." + path.rsplit("/", 1)[-1] for path in reported]
 
-    def execute_python_code(self, code: str) -> str:
-        """Run UE Python against this world and return what it printed."""
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
+        """Run UE Python against this world and return what it printed. ``timeout`` is ignored."""
         output = io.StringIO()
         previous = sys.modules.get("unreal")
         sys.modules["unreal"] = UNREAL

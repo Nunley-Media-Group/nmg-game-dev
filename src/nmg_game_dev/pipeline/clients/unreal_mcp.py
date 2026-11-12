@@ -58,6 +58,19 @@ def _fail(code: str, message: str, remediation: str) -> NoReturn:
     raise PipelineError(code=code, message=message, remediation=remediation, stage=_STAGE)
 
 
+class UnrealTimeoutError(PipelineError):
+    """A request to the Unreal MCP endpoint timed out (#149, FR8).
+
+    Its code stays ``import_ue.failed``.  It is a separate type so that only a timeout is retried.
+    HTTP errors, an unreachable endpoint, and editor-reported failures keep their own types.
+    """
+
+    def __init__(self, message: str, remediation: str) -> None:
+        super().__init__(
+            code="import_ue.failed", message=message, remediation=remediation, stage=_STAGE
+        )
+
+
 @dataclass(frozen=True)
 class _Reply:
     content_type: str
@@ -96,6 +109,8 @@ class UnrealMcpClient:
         self._initialized = False
         self._route: _PythonRoute | None = None
         self._next_id = 0
+        # Set for the duration of one ``execute_python_code`` call that asks for its own timeout.
+        self._call_timeout: float | None = None
 
     @property
     def url(self) -> str:
@@ -115,17 +130,23 @@ class UnrealMcpClient:
             self._initialized = False
             self._route = None
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         """Run ``code`` as UE Python and return the tool's text output.
 
-        The caller parses the ``NMG_RESULT {json}`` line out of the returned text.
+        The caller parses the ``NMG_RESULT {json}`` line out of the returned text.  ``timeout``
+        overrides the client's timeout for this call only, as the PIE check and the retry ping do.
         """
         with self._lock:
-            if not self._initialized:
-                self._initialize()
-            if self._route is None:
-                self._route = self._discover_route()
-            return self._run(self._route, code)
+            previous = self._call_timeout
+            self._call_timeout = timeout
+            try:
+                if not self._initialized:
+                    self._initialize()
+                if self._route is None:
+                    self._route = self._discover_route()
+                return self._run(self._route, code)
+            finally:
+                self._call_timeout = previous
 
     # --- session ---------------------------------------------------------------------------
 
@@ -182,8 +203,9 @@ class UnrealMcpClient:
             headers=headers,
             method="POST",
         )
+        timeout = self._call_timeout if self._call_timeout is not None else self._timeout
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 reply = _Reply(
                     content_type=response.headers.get("Content-Type", ""),
                     session=response.headers.get("Mcp-Session-Id"),
@@ -197,18 +219,16 @@ class UnrealMcpClient:
                 _FAILED_REMEDIATION,
             )
         except TimeoutError as error:
-            _fail(
-                "import_ue.failed",
-                f"Unreal MCP request timed out after {self._timeout:g} s at {self._url}",
-                f"Raise the timeout or wait for the editor to finish its current work. ({error})",
-            )
+            raise UnrealTimeoutError(
+                f"Unreal MCP request timed out after {timeout:g} s at {self._url}",
+                f"The editor did not answer in time; it may still be busy. ({error})",
+            ) from error
         except urllib.error.URLError as error:
             if isinstance(error.reason, TimeoutError):
-                _fail(
-                    "import_ue.failed",
-                    f"Unreal MCP request timed out after {self._timeout:g} s at {self._url}",
+                raise UnrealTimeoutError(
+                    f"Unreal MCP request timed out after {timeout:g} s at {self._url}",
                     "Wait for the editor to finish its current work, then retry.",
-                )
+                ) from error
             _fail(
                 "mcp.unreal.unreachable",
                 f"Unreal MCP is unreachable at {self._url}: {error.reason}",

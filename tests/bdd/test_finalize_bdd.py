@@ -30,9 +30,9 @@ def state(tmp_path: Path) -> dict[str, Any]:
     return {"tmp": tmp_path, "failing": frozenset(), "request": None}
 
 
-@scenario("finalize.feature", "Finalize runs the six steps from an authored collection")
-def test_six_steps_in_order() -> None:
-    """AC1: validate → import_ue in order, with the UE content paths in the result."""
+@scenario("finalize.feature", "Finalize runs the eight steps from an authored collection")
+def test_eight_steps_in_order() -> None:
+    """AC1: validate → import_anims in order, with the UE content paths in the result."""
 
 
 @scenario("finalize.feature", "A single step runs through the same implementation")
@@ -158,9 +158,14 @@ def _single_step(state: dict[str, Any]) -> None:
     )
 
 
-@then("the steps validate, bake, variants, export, reimport, and import_ue run in that order")
+@then(
+    "the steps validate, bake, variants, export, export_anims, reimport, import_ue, and "
+    "import_anims run in that order"
+)
 def _order(state: dict[str, Any]) -> None:
-    assert state["events"] == [*STEP_ORDER[:-1], "import_ue", "import_ue"]
+    # The Blender steps, then the two UE calls of import_ue.  import_anims has no clips here, so it
+    # makes no UE call.
+    assert state["events"] == [*STEP_ORDER[:-2], "import_ue", "import_ue"]
 
 
 @then("the result lists each step and the UE content paths under /Game/Props/Crate/")
@@ -192,7 +197,14 @@ def _all_hits(state: dict[str, Any]) -> None:
 def _rerun_after_change(state: dict[str, Any]) -> None:
     runner = FakeStepRunner(state["request"], hash_value="asset-hash-changed")
     finalize_once(state, "changed", runner)
-    assert runner.steps_run() == ["validate", "bake", "variants", "export", "reimport"]
+    assert runner.steps_run() == [
+        "validate",
+        "bake",
+        "variants",
+        "export",
+        "export_anims",
+        "reimport",
+    ]
 
 
 @then(parsers.parse('it raises PipelineError "{code}" with a remediation'))

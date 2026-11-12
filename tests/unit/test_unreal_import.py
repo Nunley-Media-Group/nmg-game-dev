@@ -56,7 +56,7 @@ class FakeUnreal:
         self.output = output
         self.codes: list[str] = []
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         self.codes.append(code)
         return self.output
 
@@ -720,6 +720,7 @@ def test_texture_settings_material_binding_and_result_keys_are_unchanged(tmp_pat
         "static_meshes",
         "skeletal_meshes",
         "error",
+        "attempts",
         # #148 adds the variant instances, the stale assets it removed, and warnings.
         "material_variants",
         "removed",

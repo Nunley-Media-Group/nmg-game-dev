@@ -35,7 +35,17 @@ def _request(tmp_path: Path) -> FinalizeRequest:
 
 def test_ordered_steps_runs_every_prerequisite_of_the_requested_step() -> None:
     assert ordered_steps(("variants",)) == ("validate", "bake", "variants")
-    assert ordered_steps(("import_ue",)) == STEP_ORDER
+    assert ordered_steps(("import_ue",)) == (
+        "validate",
+        "bake",
+        "variants",
+        "export",
+        "reimport",
+        "import_ue",
+    )
+    assert ordered_steps(("export_anims",)) == ("validate", "bake", "variants", "export_anims")
+    assert ordered_steps(("import_anims",)) == STEP_ORDER
+    assert ordered_steps(("reimport",)) == ("validate", "bake", "variants", "export", "reimport")
     assert ordered_steps(("bake", "validate")) == ("validate", "bake")
 
 
@@ -119,3 +129,55 @@ def test_blobs_for_names_each_export_folder_and_report(tmp_path: Path) -> None:
         "export.pre-report-Mobile.json",
         "nmg-variants.json",
     }
+
+
+def test_per_clip_steps_are_flagged_and_the_mesh_steps_are_not() -> None:
+    # The per-clip flag keeps export_anims and import_anims out of the whole-step cache (#138).
+    from nmg_game_dev.pipeline.steps import STEPS
+
+    per_clip = {name for name, spec in STEPS.items() if spec.per_clip}
+    assert per_clip == {"export_anims", "import_anims"}
+
+
+def test_clip_settings_hash_follows_the_export_options_fingerprint(tmp_path: Path) -> None:
+    # The export clip key changes when ANIM_EXPORT_OPTIONS changes, and not otherwise.
+    from nmg_game_dev.pipeline.steps import clip_settings_hash
+
+    request = _request(tmp_path)
+    same = clip_settings_hash("export_anims", request, options="opts-a")
+    assert same == clip_settings_hash("export_anims", request, options="opts-a")
+    assert same != clip_settings_hash("export_anims", request, options="opts-b")
+
+
+def test_clip_settings_hash_does_not_include_compatible_with(tmp_path: Path) -> None:
+    from nmg_game_dev.pipeline.steps import clip_settings_hash
+
+    plain = _request(tmp_path)
+    compatible = plain.model_copy(update={"compatible_with": ("Props/Other",)})
+    assert clip_settings_hash("import_anims", plain) == clip_settings_hash(
+        "import_anims", compatible
+    )
+
+
+def test_the_desktop_skeleton_path_names_the_character() -> None:
+    from nmg_game_dev.pipeline.steps import desktop_skeleton_path
+
+    request = FinalizeRequest(
+        collection="Hero",
+        category="Characters",
+        asset_class="character",
+        export_root=Path("/tmp/x"),
+    )
+    assert desktop_skeleton_path(request) == "/Game/Characters/Hero/Desktop/SM_Hero_Skeleton"
+
+
+def test_import_ue_chain_is_unchanged_by_the_new_steps() -> None:
+    # AC9 and the spec test: ordered_steps(("import_ue",)) equals today's six-step chain.
+    assert ordered_steps(("import_ue",)) == (
+        "validate",
+        "bake",
+        "variants",
+        "export",
+        "reimport",
+        "import_ue",
+    )
