@@ -6,7 +6,18 @@ from pathlib import Path
 
 import pytest
 
+from nmg_game_dev.texture import deps
 from tests.texture_fakes import make_models, write_fake_worker
+
+
+@pytest.fixture(autouse=True)
+def mflux_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report mflux and mlx as importable, so the existing texture tests keep their meaning on
+    Linux CI.
+
+    The probe tests pass their own ``deps_probe`` and so are unaffected (#143 FR2).
+    """
+    monkeypatch.setattr(deps, "missing_module", lambda: None)
 
 
 @pytest.fixture

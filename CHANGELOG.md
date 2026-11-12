@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Make texture generation work from the plugin root and queue or batch texture jobs (#143)
+
 ## [0.22.0] - 2026-11-11
 ## [0.21.5] - 2026-11-12
 

@@ -3,19 +3,23 @@
   "tools": [
     {
       "name": "generate_textures",
-      "description": "Start a background texture job and return its job_id at once. backend is z-image-turbo, flux2-klein-4b, or both. Poll get_texture_job(job_id) for progress and the PNG paths.",
+      "description": "Start a background texture job and return its job_id at once. A job that starts while another runs waits in a queue and runs after it. Pass prompt (with backend, seeds, resolution, name, maps, ao) for one texture, or requests for a batch: a list of request objects with the same fields, run as one job that loads each model once. Pass one or the other, not both. backend is z-image-turbo, flux2-klein-4b, or both. Poll get_texture_job(job_id) for progress and the PNG paths. If the mflux or mlx module is missing, the job is refused with texture.dependencies_missing; run texture generation from the plugin root.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "prompt": {"type": "string"},
+          "prompt": {"type": ["string", "null"]},
           "backend": {"type": "string", "enum": ["z-image-turbo", "flux2-klein-4b", "both"], "default": "flux2-klein-4b"},
           "seeds": {"type": ["array", "null"], "items": {"type": "integer"}},
           "resolution": {"type": "integer", "default": 1024},
           "name": {"type": ["string", "null"]},
           "maps": {"type": ["string", "null"], "enum": ["fabric", "wood", "stone", "plastic", "metal", null]},
-          "ao": {"type": "boolean", "default": false}
-        },
-        "required": ["prompt"]
+          "ao": {"type": "boolean", "default": false},
+          "requests": {
+            "type": ["array", "null"],
+            "items": {"type": "object"},
+            "description": "A batch: one request object per texture, with the fields above (prompt, backend, seeds, resolution, name, maps, ao, style_suffix). Use instead of prompt."
+          }
+        }
       }
     },
     {
@@ -31,7 +35,7 @@
     },
     {
       "name": "texture_backends",
-      "description": "Report each texture backend as available, not_installed, unsupported_platform, or insufficient_memory.",
+      "description": "Report each texture backend as available, not_installed, unsupported_platform, insufficient_memory, or dependencies_missing (the mflux or mlx module is not installed; run from the plugin root).",
       "inputSchema": {
         "type": "object",
         "properties": {}

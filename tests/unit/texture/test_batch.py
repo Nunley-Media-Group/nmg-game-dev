@@ -83,3 +83,19 @@ def test_non_zero_worker_exit_raises_worker_failed(
         run_backend_batches([batch], spawn=fake_spawn(worker, log, fail=True))
     assert caught.value.code == "texture.worker_failed"
     assert "simulated worker crash" in caught.value.remediation
+    assert "Check that the models are installed" in caught.value.remediation
+
+
+def test_a_missing_module_is_named_with_the_plugin_root_command(
+    tmp_path: Path, worker: Path, log: Path, models: Path
+) -> None:
+    batch = _batch("z-image-turbo", tmp_path / "out", 1, models)
+    with pytest.raises(TextureGenError) as caught:
+        run_backend_batches([batch], spawn=fake_spawn(worker, log, missing_module="mlx"))
+    error = caught.value
+    assert error.code == "texture.worker_failed"
+    assert "cannot import mlx" in error.remediation
+    assert "uv run --project" in error.remediation
+    assert "ModuleNotFoundError: No module named 'mlx'" in error.remediation
+    assert "models" not in error.remediation
+    assert "Blender reserve" not in error.remediation
