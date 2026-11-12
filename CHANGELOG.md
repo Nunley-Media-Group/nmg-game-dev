@@ -12,9 +12,24 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Fix texture job queue: duplicate batch outputs, orphaned running jobs, and runner log location (#211)
 
+### Added
+
+- Let one finalized asset declare several material variants (#148)
+## [0.22.0] - 2026-11-12
+
+### Changed
+
+- Add a built-in procedural clip library to import_animations (#136)
+## [0.23.0] - 2026-11-12
+
+### Changed
+
+- Report sample locations in geometry contract findings (#153)
 ## [0.21.6] - 2026-11-12
 
 ### Fixed
+
+- Fail import_ue when Unreal refuses to rename or consolidate an imported asset (#203)
 
 - Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
 
