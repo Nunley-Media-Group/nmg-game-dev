@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-12
+
 ### Changed
 
 - Add a terrain asset class that finalizes Blender heightfields into Unreal Landscapes (#154)
