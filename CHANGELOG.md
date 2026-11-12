@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Add batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight (#149)
+
 ## [0.23.1] - 2026-11-12
 
 ### Fixed

@@ -18,7 +18,7 @@ from nmg_game_dev.design.paths import backlog_path
 class _NeverCalled:
     """Fails the test if scaffold reaches the Unreal editor."""
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         raise AssertionError("no Unreal call is expected when the backlog is unreadable")
 
 

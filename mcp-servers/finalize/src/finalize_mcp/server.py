@@ -34,8 +34,8 @@ def _logged(response: Any) -> Any:
 
 @mcp.tool(name="finalize_asset")
 def finalize_asset(
-    collection: str,
-    export_root: str,
+    collection: str | None = None,
+    export_root: str | None = None,
     category: str | None = None,
     asset_class: str | None = None,
     blend: str | None = None,
@@ -43,15 +43,35 @@ def finalize_asset(
     material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    requests: list[dict[str, Any]] | None = None,
+    fail_fast: bool = False,
+    wait_for_lock: bool = False,
+    lock_wait_seconds: float | None = None,
+    pie_mode: str = "wait",
+    pie_wait_seconds: float = 600,
     compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Finalize an authored collection through every step and import it into Unreal.
+    """Finalize an authored collection, or a batch, through every step and import it into Unreal.
+
+    Pass exactly one of collection (with export_root) or requests, a list of finalize requests
+    that run one at a time in order under one job lock. Each request takes the same keys as
+    collection, and the top-level category, asset_class, export_root, blend, budgets_path, and
+    pie options fill in any a request omits. fail_fast skips the rest of a batch after a failed
+    collection, and by default the rest still run. wait_for_lock waits for another finalize job
+    to release the lock, for at most lock_wait_seconds, instead of failing with
+    finalize.job_running. pie_mode is wait (default) or refuse: an import waits up to
+    pie_wait_seconds for the Play In Editor session to end, or fails with import_ue.editor_busy.
+    Unreal import timeouts are retried with back-off (NMG_GAME_DEV_UE_RETRIES, default 4, and
+    NMG_GAME_DEV_UE_RETRY_DELAY_S, default 20).
 
     Returns {"job_id", "status"} at once. When wait_seconds (0-150) is given and the job finishes in
-    time, the result is included. Poll get_finalize_job for progress. material_variants_path names a
-    <Name>.material-variants.json declaration; without it, one beside blend is used when present.
+    time, the result is included: for a batch, result.batch lists each collection's state and any
+    failure's code, message, and stage, with succeeded, failed, and skipped counts. Poll
+    get_finalize_job for progress, which reports the batch's current collection and completed count.
+    material_variants_path names a <Name>.material-variants.json declaration; without it, one beside
+    blend is used when present. In a batch, each request entry sets its own material_variants_path.
     compatible_with lists <Category>/<Name> characters whose skeleton this character's clips may
-    also play on.
+    also play on; in a batch, each request entry sets its own compatible_with.
     """
     return _logged(
         _finalize_asset(
@@ -64,6 +84,12 @@ def finalize_asset(
             material_variants_path=material_variants_path,
             force=force,
             wait_seconds=wait_seconds,
+            requests=requests,
+            fail_fast=fail_fast,
+            wait_for_lock=wait_for_lock,
+            lock_wait_seconds=lock_wait_seconds,
+            pie_mode=pie_mode,
+            pie_wait_seconds=pie_wait_seconds,
             compatible_with=compatible_with,
         )
     )
@@ -81,13 +107,19 @@ def run_finalize_step(
     material_variants_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    wait_for_lock: bool = False,
+    lock_wait_seconds: float | None = None,
+    pie_mode: str = "wait",
+    pie_wait_seconds: float = 600,
     compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run one step: validate, bake, variants, export, export_anims, reimport, import_ue, or
     import_anims.
 
     The step runs through the same implementation finalize_asset uses. Earlier steps it depends on
-    run first, from the cache when they are already there.
+    run first, from the cache when they are already there. wait_for_lock, lock_wait_seconds, and
+    the pie options behave as they do for finalize_asset: a wait for the job lock is bounded by
+    lock_wait_seconds, and import_ue fails with import_ue.editor_busy when PIE stays on.
     """
     return _logged(
         _run_finalize_step(
@@ -101,6 +133,10 @@ def run_finalize_step(
             material_variants_path=material_variants_path,
             force=force,
             wait_seconds=wait_seconds,
+            wait_for_lock=wait_for_lock,
+            lock_wait_seconds=lock_wait_seconds,
+            pie_mode=pie_mode,
+            pie_wait_seconds=pie_wait_seconds,
             compatible_with=compatible_with,
         )
     )
@@ -144,7 +180,10 @@ def reduce_asset(
 
 @mcp.tool(name="get_finalize_job")
 def get_finalize_job(job_id: str) -> dict[str, Any]:
-    """Return a job's state, step, progress, message, and result or error."""
+    """Return a job's state, step, progress, message, batch progress, and result or error.
+
+    For a batch, batch reports the total, the completed count, the current collection and its
+    index, and each item's state. An unknown id returns finalize.job_not_found."""
     return _logged(_get_finalize_job(job_id))
 
 

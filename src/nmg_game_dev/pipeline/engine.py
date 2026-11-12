@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from nmg_game_dev.unreal.import_asset import import_variant
+from nmg_game_dev.unreal.preflight import ensure_not_in_pie
 
 from . import anims
 from .blender_proc import ProgressCallback, StepRunner
@@ -87,7 +88,7 @@ class BlenderSession(Protocol):
 class UnrealPythonRunner(Protocol):
     """The Unreal MCP surface the import uses.  ``UnrealMcpClient`` implements it."""
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         """Run UE Python and return the tool's text output."""
         ...
 
@@ -472,6 +473,8 @@ def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[s
                 Path(str(entry["pre_report"])).read_text(encoding="utf-8")
             )
             destination = ue_destination(request, variant)
+            # No import request is sent while the editor is in Play In Editor (#149, FR9).
+            ensure_not_in_pie(client, mode=request.pie_mode, wait_s=request.pie_wait_seconds)
             imports[variant] = import_variant(
                 client,
                 variant_dir=str(entry["dir"]),

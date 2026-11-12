@@ -153,7 +153,7 @@ def test_a_program_error_becomes_import_anims_failed(tmp_path: Path) -> None:
 
 def test_an_unparseable_reply_becomes_import_anims_failed(tmp_path: Path) -> None:
     class _Silent:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             return "no result line here"
 
     with pytest.raises(PipelineError) as info:

@@ -24,7 +24,14 @@ from nmg_game_dev.finalize.__main__ import (
     main,
 )
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, PipelineError, jobs
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from tests.finalize_fakes import (
+    BatchRouter,
+    Failure,
+    FakeBlenderSession,
+    FakeStepRunner,
+    FakeUnrealRunner,
+    batch_launcher,
+)
 
 
 def _dead_pid() -> int:
@@ -214,6 +221,244 @@ def test_explicit_budgets_flag_wins_over_the_project_file(
         budgets_path=explicit,
     )
     assert request.budgets_path == explicit
+
+
+def _collections_argv(tmp_path: Path, *names: str, extra: tuple[str, ...] = ()) -> list[str]:
+    argv = ["all"]
+    for name in names:
+        argv += ["--collection", name]
+    return [
+        *argv,
+        "--category",
+        "Props",
+        "--class",
+        "standard_prop",
+        "--export-root",
+        str(tmp_path / "export"),
+        *extra,
+    ]
+
+
+def _batch_file(tmp_path: Path, *names: str) -> Path:
+    entries = [
+        {
+            "collection": name,
+            "category": "Props",
+            "asset_class": "standard_prop",
+            "export_root": str(tmp_path / "export"),
+        }
+        for name in names
+    ]
+    path = tmp_path / "batch.json"
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    return path
+
+
+def _batch_service(
+    cache: Path, *, failures: dict[str, dict[str, Failure]] | None = None
+) -> tuple[FinalizeService, list[BatchRouter]]:
+    routers: list[BatchRouter] = []
+
+    def make_router(requests: dict[str, FinalizeRequest]) -> BatchRouter:
+        router = BatchRouter(requests, failures=failures)
+        routers.append(router)
+        return router
+
+    return FinalizeService(cache, launcher=batch_launcher(make_router)), routers
+
+
+def test_repeated_collections_run_in_order_and_exit_after_the_last(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    service, routers = _batch_service(tmp_path / "cache")
+    code = _run(_collections_argv(tmp_path, "Alpha", "Beta", "Gamma"), service, streams)
+
+    assert code == EXIT_OK
+    assert routers[0].order == ["Alpha", "Beta", "Gamma"]
+    assert streams.out.getvalue().splitlines()[-1].startswith("Batch: 3 succeeded")
+    assert "Gamma: succeeded" in streams.out.getvalue()
+
+
+def test_a_batch_file_runs_its_entries_in_order(tmp_path: Path, streams: _Streams) -> None:
+    service, routers = _batch_service(tmp_path / "cache")
+    argv = ["all", "--batch", str(_batch_file(tmp_path, "Alpha", "Beta", "Gamma"))]
+    code = _run(argv, service, streams)
+
+    assert code == EXIT_OK
+    assert routers[0].order == ["Alpha", "Beta", "Gamma"]
+
+
+def test_batch_json_names_each_failed_item_and_exits_one(tmp_path: Path, streams: _Streams) -> None:
+    failures = {"Beta": {"bake": ("texture.bake_failed", "Alpha is linked.", "Set it to 1.")}}
+    service, _ = _batch_service(tmp_path / "cache", failures=failures)
+    code = _run(
+        _collections_argv(tmp_path, "Alpha", "Beta", "Gamma", extra=("--json",)), service, streams
+    )
+
+    assert code == EXIT_FAILED
+    batch = json.loads(streams.out.getvalue())["batch"]
+    assert (batch["succeeded"], batch["failed"], batch["skipped"]) == (2, 1, 0)
+    beta = batch["items"][1]
+    assert beta["collection"] == "Beta"
+    assert beta["state"] == "failed"
+    assert beta["error"]["code"] == "bake.texture.bake_failed"
+    assert beta["error"]["stage"] == "bake"
+
+
+def test_a_failed_item_prints_its_code_and_step_in_the_summary(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    failures = {"Beta": {"bake": ("texture.bake_failed", "Alpha is linked.", "Set it to 1.")}}
+    service, _ = _batch_service(tmp_path / "cache", failures=failures)
+    code = _run(_collections_argv(tmp_path, "Alpha", "Beta"), service, streams)
+
+    assert code == EXIT_FAILED
+    out = streams.out.getvalue()
+    assert "Beta: failed" in out
+    assert "[bake.texture.bake_failed] Alpha is linked. (bake)" in out
+    assert "Batch: 1 succeeded, 1 failed, 0 skipped" in out
+
+
+def test_fail_fast_reports_the_rest_of_the_batch_as_skipped(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    failures = {"Alpha": {"validate": ("contract.bad", "no", "fix")}}
+    service, routers = _batch_service(tmp_path / "cache", failures=failures)
+    code = _run(
+        _collections_argv(tmp_path, "Alpha", "Beta", "Gamma", extra=("--fail-fast", "--json")),
+        service,
+        streams,
+    )
+
+    assert code == EXIT_FAILED
+    batch = json.loads(streams.out.getvalue())["batch"]
+    assert [item["state"] for item in batch["items"]] == ["failed", "skipped", "skipped"]
+    assert routers[0].order == ["Alpha"]
+
+
+def test_a_batch_file_that_is_not_json_is_invalid_batch(tmp_path: Path, streams: _Streams) -> None:
+    path = tmp_path / "batch.json"
+    path.write_text("[{", encoding="utf-8")
+    service, _ = _batch_service(tmp_path / "cache")
+    code = _run(["all", "--batch", str(path)], service, streams)
+
+    assert code == EXIT_FAILED
+    assert "ERROR [finalize.invalid_batch]" in streams.err.getvalue()
+    assert not (tmp_path / "cache" / "jobs").exists()
+
+
+def test_invalid_batch_entries_name_each_zero_based_index(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    entries = [
+        {
+            "collection": "Alpha",
+            "category": "Props",
+            "asset_class": "standard_prop",
+            "export_root": str(tmp_path / "export"),
+        },
+        {
+            "collection": "bad name",
+            "category": "Props",
+            "asset_class": "standard_prop",
+            "export_root": str(tmp_path / "export"),
+        },
+        {
+            "collection": "Beta",
+            "category": "Props",
+            "asset_class": "standard_prop",
+            "export_root": str(tmp_path / "export"),
+        },
+        {
+            "collection": "Gamma",
+            "category": "Props",
+            "asset_class": "not_a_class",
+            "export_root": str(tmp_path / "export"),
+        },
+    ]
+    path = tmp_path / "batch.json"
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    service, _ = _batch_service(tmp_path / "cache")
+    code = _run(["all", "--batch", str(path)], service, streams)
+
+    assert code == EXIT_FAILED
+    err = streams.err.getvalue()
+    assert "index 1:" in err
+    assert "index 3:" in err
+    assert "index 0" not in err and "index 2" not in err
+    assert not (tmp_path / "cache" / "jobs").exists()
+
+
+def test_a_single_collection_passes_the_wait_and_pie_flags_to_the_job(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    cache = tmp_path / "cache"
+    service = _inproc_service(cache, lambda request: FakeStepRunner(request))
+    argv = [
+        "all",
+        "--collection",
+        "Crate",
+        "--category",
+        "Props",
+        "--class",
+        "standard_prop",
+        "--export-root",
+        str(tmp_path / "export"),
+        "--wait",
+        "--wait-limit",
+        "5",
+        "--pie",
+        "refuse",
+        "--pie-wait-limit",
+        "42",
+    ]
+    code = _run(argv, service, streams)
+
+    assert code == EXIT_OK
+    (job_dir,) = [path for path in (cache / "jobs").iterdir() if path.is_dir()]
+    job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    request = json.loads((job_dir / "request.json").read_text(encoding="utf-8"))
+    assert job["wait_for_lock"] is True
+    assert job["lock_wait_s"] == 5
+    assert request["pie_mode"] == "refuse"
+    assert request["pie_wait_seconds"] == 42
+
+
+def test_wait_limit_without_wait_is_a_usage_error(tmp_path: Path, streams: _Streams) -> None:
+    with pytest.raises(SystemExit) as info:
+        main(
+            _collections_argv(tmp_path, "Crate", extra=("--wait-limit", "5")),
+            service=_batch_service(tmp_path / "cache")[0],
+            stdout=streams.out,
+            stderr=streams.err,
+        )
+    assert info.value.code == 2
+
+
+def test_compatible_with_on_several_collections_is_a_usage_error(
+    tmp_path: Path, streams: _Streams
+) -> None:
+    argv = _collections_argv(tmp_path, "Alpha", "Beta", extra=("--compatible-with", "Props/Gamma"))
+    with pytest.raises(SystemExit) as info:
+        main(
+            argv,
+            service=_batch_service(tmp_path / "cache")[0],
+            stdout=streams.out,
+            stderr=streams.err,
+        )
+    assert info.value.code == 2
+
+
+def test_collections_need_an_export_root(tmp_path: Path, streams: _Streams) -> None:
+    argv = ["all", "--collection", "Alpha", "--category", "Props", "--class", "standard_prop"]
+    with pytest.raises(SystemExit) as info:
+        main(
+            argv,
+            service=_batch_service(tmp_path / "cache")[0],
+            stdout=streams.out,
+            stderr=streams.err,
+        )
+    assert info.value.code == 2
 
 
 def test_export_anims_runs_its_prerequisites_and_no_later_step(

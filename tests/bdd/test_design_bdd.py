@@ -40,7 +40,7 @@ class FakeEditor:
         self.existing: set[str] = set(existing or ())
         self.created: list[str] = []
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         assert "does_asset_exist(PATH)" in code, "the existence check must come first"
         path = _path_of(code)
         if path in self.existing:

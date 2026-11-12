@@ -1,10 +1,11 @@
-"""Command line for the finalize pipeline (#69).
+"""Command line for the finalize pipeline (#69, #148, #149).
 
     python -m nmg_game_dev.finalize {all,validate,bake,variants,export,export_anims,reimport,
         import_ue,import_anims}
-        --collection N --category C --class K --export-root R
-        [--blend B] [--budgets P] [--device GPU|CPU] [--compatible-with C/N ...]
-        [--force] [--json]
+        (--collection N [--collection M ...] | --batch FILE)
+        [--category C] [--class K] [--export-root R] [--blend B] [--budgets P]
+        [--material-variants P] [--device GPU|CPU] [--compatible-with C/N ...] [--force]
+        [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
 
     python -m nmg_game_dev.finalize reduce --collection N --class C [--blend B] [--budgets P]
         [--device GPU|CPU] [--cage M] [--ray M] [--miss-threshold X] [--parts JSON] [--wait S]
@@ -14,8 +15,14 @@
 
     python -m nmg_game_dev.finalize run-job <job_dir>        (internal: the background job body)
 
-Exit codes: 0 success; 1 a step failed (``ERROR [code] message`` and ``Remediation:`` on stderr);
-2 a prerequisite is missing (Blender or an MCP endpoint is unreachable).  The command blocks until
+Several ``--collection`` values, or a ``--batch`` file of finalize requests, run as one batch: the
+collections are finalized one at a time, in order, under one lock.  A ``--batch`` entry takes its
+own keys, and the asset options given on the command line fill in any key an entry omits.
+``--material-variants`` and ``--compatible-with`` apply to one collection only.
+
+Exit codes: 0 success; 1 a step or a collection failed (``ERROR [code] message`` and
+``Remediation:`` on stderr; a batch prints one line per collection); 2 a prerequisite is missing
+(Blender or an MCP endpoint is unreachable) or the arguments are wrong.  The command blocks until
 its job is terminal.
 """
 
@@ -33,6 +40,7 @@ from pydantic import ValidationError
 from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.reduce import parts_from_json
+from nmg_game_dev.pipeline.request import DEFAULT_PIE_WAIT_SECONDS
 from nmg_game_dev.pipeline.steps import STEP_ORDER
 from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
@@ -40,6 +48,7 @@ from .mcp_tools import list_material_variants
 from .service import (
     FinalizeService,
     MissingArgumentError,
+    build_batch,
     build_reduce_request,
     build_request,
     error_dict,
@@ -122,7 +131,18 @@ _STEP_HELP: Final = {
 
 
 def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--collection", required=True, help="Blender collection, e.g. Crate.")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--collection",
+        action="append",
+        help="Blender collection, e.g. Crate. Repeat to finalize several, in the order given.",
+    )
+    source.add_argument(
+        "--batch",
+        type=Path,
+        metavar="FILE",
+        help="JSON array of finalize requests (the finalize_asset keys), run in order.",
+    )
     parser.add_argument(
         "--category",
         help="Content category, e.g. Props. Defaults to the design backlog entry's category.",
@@ -133,16 +153,20 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
         help="small_prop, standard_prop, hero_prop, character, or environment_piece. Defaults to "
         "the design backlog entry's asset_class.",
     )
-    parser.add_argument("--export-root", required=True, help="Directory for the exported variants.")
+    parser.add_argument(
+        "--export-root",
+        help="Directory for the exported variants. Required with --collection; a --batch entry "
+        "may set its own.",
+    )
     parser.add_argument("--blend", help="Finalize this saved .blend instead of the open session.")
     parser.add_argument("--budgets", help="Budget overrides file. Defaults to nmg-budgets.json.")
+    parser.add_argument("--device", choices=("GPU", "CPU"), help="Bake device. Defaults to GPU.")
     parser.add_argument(
         "--material-variants",
         dest="material_variants",
         help="Material-variants declaration. Defaults to <collection>.material-variants.json "
-        "beside --blend.",
+        "beside --blend. One collection only; a --batch entry sets material_variants_path.",
     )
-    parser.add_argument("--device", choices=("GPU", "CPU"), default="GPU", help="Bake device.")
     parser.add_argument(
         "--compatible-with",
         action="append",
@@ -155,6 +179,36 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
         "--force", action="store_true", help="Rerun every step, ignoring the cache."
     )
     parser.add_argument("--json", action="store_true", help="Print the result as JSON on stdout.")
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop a batch at the first failed collection; the rest are reported as skipped.",
+    )
+    parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for the finalize job lock instead of failing with finalize.job_running.",
+    )
+    parser.add_argument(
+        "--wait-limit",
+        type=float,
+        metavar="SECONDS",
+        help="With --wait, fail with finalize.job_running after this many seconds of waiting.",
+    )
+    parser.add_argument(
+        "--pie",
+        choices=("wait", "refuse"),
+        default="wait",
+        help="When the editor is in Play In Editor before an import: wait for it to end (default) "
+        "or refuse at once.",
+    )
+    parser.add_argument(
+        "--pie-wait-limit",
+        type=float,
+        default=DEFAULT_PIE_WAIT_SECONDS,
+        metavar="SECONDS",
+        help="With --pie wait, the longest wait for PIE to end (default 600).",
+    )
 
 
 def main(
@@ -172,7 +226,8 @@ def main(
     """
     out = stdout if stdout is not None else sys.stdout
     err = stderr if stderr is not None else sys.stderr
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     if args.command == "run-job":
         status = jobs.run_job(Path(args.job_dir))
@@ -183,16 +238,47 @@ def main(
     if args.command == LIST_VARIANTS_COMMAND:
         return _list_variants(args, out, err, unreal_client)
 
+    if args.collection is not None and args.export_root is None:
+        parser.error("--export-root is required with --collection")
+    if args.wait_limit is not None and not args.wait:
+        parser.error("--wait-limit needs --wait")
+    is_batch = args.batch is not None or len(args.collection) > 1
+    if is_batch and args.material_variants is not None:
+        parser.error(
+            "--material-variants applies to one --collection; set material_variants_path in "
+            "each --batch entry"
+        )
+    if is_batch and args.compatible_with:
+        parser.error(
+            "--compatible-with applies to one --collection; set compatible_with in each --batch "
+            "entry"
+        )
+
     steps = STEP_ORDER if args.command == "all" else (args.command,)
+    active = service if service is not None else FinalizeService()
+    if is_batch:
+        return _run_batch_command(args, steps, active, out, err)
+    return _run_single_command(args, steps, active, out, err)
+
+
+def _run_single_command(
+    args: argparse.Namespace,
+    steps: tuple[str, ...] | Sequence[str],
+    active: FinalizeService,
+    out: TextIO,
+    err: TextIO,
+) -> int:
     try:
         request = build_request(
-            collection=args.collection,
+            collection=args.collection[0],
             category=args.category,
             asset_class=args.asset_class,
             export_root=args.export_root,
             blend=args.blend,
             budgets_path=args.budgets,
-            device=args.device,
+            device=args.device or "GPU",
+            pie_mode=args.pie,
+            pie_wait_seconds=args.pie_wait_limit,
             compatible_with=args.compatible_with,
             material_variants_path=args.material_variants,
         )
@@ -214,9 +300,14 @@ def main(
             err,
         )
 
-    active = service if service is not None else FinalizeService()
     try:
-        status = active.run(request, steps, force=args.force)
+        status = active.run(
+            request,
+            steps,
+            force=args.force,
+            wait_for_lock=args.wait,
+            lock_wait_s=args.wait_limit,
+        )
     except PipelineError as error:
         return _report_error(error_dict(error), args.json, out, err)
 
@@ -230,6 +321,84 @@ def main(
         "stage": "finalize",
     }
     return _report_error(error_payload, args.json, out, err)
+
+
+def _run_batch_command(
+    args: argparse.Namespace,
+    steps: tuple[str, ...] | Sequence[str],
+    active: FinalizeService,
+    out: TextIO,
+    err: TextIO,
+) -> int:
+    defaults: dict[str, object] = {
+        "category": args.category,
+        "asset_class": args.asset_class,
+        "export_root": args.export_root,
+        "blend": args.blend,
+        "budgets_path": args.budgets,
+        "device": args.device,
+        "pie_mode": args.pie,
+        "pie_wait_seconds": args.pie_wait_limit,
+    }
+    try:
+        entries = (
+            [{"collection": name} for name in args.collection]
+            if args.batch is None
+            else _load_batch_file(args.batch)
+        )
+        requests = build_batch(entries, defaults=defaults)
+        status = active.run_batch(
+            requests,
+            steps,
+            force=args.force,
+            fail_fast=args.fail_fast,
+            wait_for_lock=args.wait,
+            lock_wait_s=args.wait_limit,
+        )
+    except PipelineError as error:
+        return _report_error(error_dict(error), args.json, out, err)
+
+    batch = (status.get("result") or {}).get("batch")
+    if batch is None:
+        error_payload: dict[str, Any] = status.get("error") or {
+            "code": "finalize.failed",
+            "message": "The batch failed without an error description",
+            "remediation": "Read the job's status.json and blender-*.log files.",
+            "stage": "finalize",
+        }
+        return _report_error(error_payload, args.json, out, err)
+    _print_batch(batch, args.json, out)
+    return EXIT_OK if status.get("state") == "succeeded" else EXIT_FAILED
+
+
+def _load_batch_file(path: Path) -> list[object]:
+    """Read a ``--batch`` file: a JSON array of request objects."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise PipelineError(
+            code="finalize.invalid_batch",
+            message=f"The batch file {path} cannot be read: {error}",
+            remediation="Pass the path of a JSON file holding an array of finalize requests.",
+            stage="finalize",
+        ) from error
+    try:
+        data: Any = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise PipelineError(
+            code="finalize.invalid_batch",
+            message=f"The batch file {path} is not valid JSON: {error}",
+            remediation="Fix the JSON syntax, then rerun the batch.",
+            stage="finalize",
+        ) from error
+    if not isinstance(data, list):
+        raise PipelineError(
+            code="finalize.invalid_batch",
+            message=f"The batch file {path} must hold a JSON array of finalize requests",
+            remediation="Wrap the requests in a JSON array.",
+            stage="finalize",
+        )
+    return list(data)
 
 
 def _run_reduce(
@@ -313,6 +482,21 @@ def _print_success(status: dict[str, Any], as_json: bool, out: TextIO) -> None:
     if result.get("desktop_content_path"):
         out.write(f"Desktop: {result['desktop_content_path']}\n")
         out.write(f"Mobile: {result['mobile_content_path']}\n")
+
+
+def _print_batch(batch: dict[str, Any], as_json: bool, out: TextIO) -> None:
+    if as_json:
+        out.write(json.dumps({"batch": batch}, indent=2, sort_keys=True) + "\n")
+        return
+    for item in batch.get("items", []):
+        out.write(f"{item.get('collection')}: {item.get('state')}\n")
+        error = item.get("error")
+        if isinstance(error, dict):
+            out.write(f"  [{error.get('code')}] {error.get('message')} ({error.get('stage')})\n")
+    out.write(
+        f"Batch: {batch.get('succeeded', 0)} succeeded, {batch.get('failed', 0)} failed, "
+        f"{batch.get('skipped', 0)} skipped\n"
+    )
 
 
 def _report_error(

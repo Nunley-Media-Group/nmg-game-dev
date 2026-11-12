@@ -124,7 +124,7 @@ def test_an_unreachable_editor_passes_its_code_through_unchanged(wav: Path) -> N
 
 def test_another_client_error_becomes_import_failed(wav: Path) -> None:
     class _Broken:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             raise PipelineError(
                 code="import_ue.failed",
                 message="Unreal MCP tool execute_python_code reported an error",
@@ -141,7 +141,7 @@ def test_another_client_error_becomes_import_failed(wav: Path) -> None:
 
 def test_output_without_an_nmg_result_line_fails_with_import_failed(wav: Path) -> None:
     class _Silent:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             return "Log: nothing to report"
 
     with pytest.raises(AudioError) as caught:
@@ -152,7 +152,7 @@ def test_output_without_an_nmg_result_line_fails_with_import_failed(wav: Path) -
 
 def test_a_ue_error_is_reported_with_its_text(wav: Path) -> None:
     class _Reports:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             return "NMG_RESULT " + json.dumps(
                 {"ok": False, "asset": ASSET_PATH, "looping": False, "error": "RuntimeError: boom"}
             )

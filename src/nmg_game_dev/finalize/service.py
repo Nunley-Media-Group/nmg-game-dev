@@ -11,18 +11,35 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
+from pydantic import ValidationError
+
 from nmg_game_dev.design import backlog as design_backlog
 from nmg_game_dev.design.paths import backlog_path, project_root
 from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.reduce import ReduceRequest
 from nmg_game_dev.pipeline.reduce import build_request as build_reduce_validated
-from nmg_game_dev.pipeline.request import FinalizeRequest
+from nmg_game_dev.pipeline.request import DEFAULT_PIE_WAIT_SECONDS, FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER
 
 BUDGET_FILE: Final = "nmg-budgets.json"
 MATERIAL_VARIANTS_SUFFIX: Final = ".material-variants.json"
 MAX_WAIT_SECONDS: Final = 150
+BATCH_ENTRY_KEYS: Final = frozenset(
+    {
+        "collection",
+        "category",
+        "asset_class",
+        "export_root",
+        "blend",
+        "budgets_path",
+        "device",
+        "pie_mode",
+        "pie_wait_seconds",
+        "compatible_with",
+        "material_variants_path",
+    }
+)
 
 
 class MissingArgumentError(ValueError):
@@ -118,6 +135,8 @@ def build_request(
     blend: str | Path | None = None,
     budgets_path: str | Path | None = None,
     device: str = "GPU",
+    pie_mode: str = "wait",
+    pie_wait_seconds: object = DEFAULT_PIE_WAIT_SECONDS,
     compatible_with: Sequence[str] = (),
     material_variants_path: str | Path | None = None,
 ) -> FinalizeRequest:
@@ -148,10 +167,87 @@ def build_request(
             "budgets_path": budgets,
             "device": device,
             "backlog_path": backlog,
+            "pie_mode": pie_mode,
+            "pie_wait_seconds": pie_wait_seconds,
             "compatible_with": tuple(compatible_with),
             "material_variants_path": declaration,
         }
     )
+
+
+class _EntryError(ValueError):
+    """One batch entry is invalid.  The message is the reason, without the index."""
+
+
+def build_batch(
+    entries: Sequence[object], *, defaults: Mapping[str, object] | None = None
+) -> list[FinalizeRequest]:
+    """Validate every batch entry before any work starts (#149, FR10).
+
+    ``defaults`` fill in any key an entry omits, so a batch-wide ``export_root`` or PIE mode applies
+    to every entry.  Raises ``finalize.invalid_batch`` naming the zero-based index and reason of
+    each invalid entry.  Nothing is written, so no job directory exists after a failure.
+    """
+    shared = {key: value for key, value in (defaults or {}).items() if value is not None}
+    requests: list[FinalizeRequest] = []
+    problems: list[str] = []
+    for index, entry in enumerate(entries):
+        try:
+            requests.append(_request_from_entry(entry, shared))
+        except _EntryError as error:
+            problems.append(f"index {index}: {error}")
+    if problems:
+        raise PipelineError(
+            code="finalize.invalid_batch",
+            message="The batch has invalid entries; nothing was started. " + "; ".join(problems),
+            remediation="Fix each listed entry (zero-based index), then rerun the batch.",
+            stage="finalize",
+        )
+    return requests
+
+
+def _request_from_entry(entry: object, shared: Mapping[str, object]) -> FinalizeRequest:
+    if not isinstance(entry, Mapping):
+        raise _EntryError("the entry must be a JSON object")
+    unknown = sorted(str(key) for key in entry if key not in BATCH_ENTRY_KEYS)
+    if unknown:
+        raise _EntryError(f"unknown key(s): {', '.join(unknown)}")
+    merged: dict[str, object] = {**shared, **entry}
+    for key in ("collection", "export_root"):
+        if merged.get(key) is None:
+            raise _EntryError(f"{key} is required")
+    try:
+        return build_request(
+            collection=str(merged["collection"]),
+            category=_optional_str(merged.get("category")),
+            asset_class=_optional_str(merged.get("asset_class")),
+            export_root=str(merged["export_root"]),
+            blend=_optional_str(merged.get("blend")),
+            budgets_path=_optional_str(merged.get("budgets_path")),
+            device=str(merged.get("device") or "GPU"),
+            pie_mode=str(merged.get("pie_mode", "wait")),
+            pie_wait_seconds=merged.get("pie_wait_seconds", DEFAULT_PIE_WAIT_SECONDS),
+            compatible_with=_compatible_with(merged.get("compatible_with")),
+            material_variants_path=_optional_str(merged.get("material_variants_path")),
+        )
+    except MissingArgumentError as error:
+        raise _EntryError(str(error)) from error
+    except PipelineError as error:
+        raise _EntryError(error.message) from error
+    except ValidationError as error:
+        raise _EntryError(str(error.errors()[0]["msg"])) from error
+
+
+def _optional_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _compatible_with(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise _EntryError("compatible_with must be a list of <Category>/<Name> strings")
+    return tuple(str(item) for item in value)
 
 
 def build_reduce_request(
@@ -209,6 +305,8 @@ class FinalizeService:
         steps: Sequence[str] = STEP_ORDER,
         *,
         force: bool = False,
+        wait_for_lock: bool = False,
+        lock_wait_s: float | None = None,
     ) -> str:
         """Start a job for ``steps`` and return its id without waiting."""
         return jobs.start(
@@ -217,6 +315,30 @@ class FinalizeService:
             force=force,
             cache_root=self._cache_root,
             launcher=self._launcher,
+            wait_for_lock=wait_for_lock,
+            lock_wait_s=lock_wait_s,
+        )
+
+    def start_batch(
+        self,
+        requests: Sequence[FinalizeRequest],
+        steps: Sequence[str] = STEP_ORDER,
+        *,
+        force: bool = False,
+        fail_fast: bool = False,
+        wait_for_lock: bool = False,
+        lock_wait_s: float | None = None,
+    ) -> str:
+        """Start one job that finalizes ``requests`` in order, and return its id without waiting."""
+        return jobs.start_batch(
+            requests,
+            tuple(steps),
+            force=force,
+            fail_fast=fail_fast,
+            cache_root=self._cache_root,
+            launcher=self._launcher,
+            wait_for_lock=wait_for_lock,
+            lock_wait_s=lock_wait_s,
         )
 
     def status(self, job_id: str) -> dict[str, Any]:
@@ -237,9 +359,34 @@ class FinalizeService:
         steps: Sequence[str] = STEP_ORDER,
         *,
         force: bool = False,
+        wait_for_lock: bool = False,
+        lock_wait_s: float | None = None,
     ) -> dict[str, Any]:
         """Start a job and block until it is terminal.  Used by the CLI."""
-        job_id = self.start(request, steps, force=force)
+        job_id = self.start(
+            request, steps, force=force, wait_for_lock=wait_for_lock, lock_wait_s=lock_wait_s
+        )
+        return self.wait(job_id, timeout_s=float("inf"))
+
+    def run_batch(
+        self,
+        requests: Sequence[FinalizeRequest],
+        steps: Sequence[str] = STEP_ORDER,
+        *,
+        force: bool = False,
+        fail_fast: bool = False,
+        wait_for_lock: bool = False,
+        lock_wait_s: float | None = None,
+    ) -> dict[str, Any]:
+        """Start a batch and block until it is terminal.  Used by the CLI."""
+        job_id = self.start_batch(
+            requests,
+            steps,
+            force=force,
+            fail_fast=fail_fast,
+            wait_for_lock=wait_for_lock,
+            lock_wait_s=lock_wait_s,
+        )
         return self.wait(job_id, timeout_s=float("inf"))
 
 

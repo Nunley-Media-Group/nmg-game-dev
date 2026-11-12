@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import ast
 import json
-from collections.abc import Mapping, Sequence
+import subprocess
+import sys
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from nmg_game_dev.pipeline import FinalizeClients, jobs
 from nmg_game_dev.pipeline.request import FinalizeRequest
 
 Failure = tuple[str, str, str]
@@ -390,11 +393,16 @@ def default_reduce_result() -> dict[str, Any]:
 
 
 class FakeUnrealRunner:
-    """An Unreal MCP stand-in that records each UE Python call and replies with ``NMG_RESULT``.
+    """An Unreal MCP stand-in that records each import and replies with ``NMG_RESULT``.
+
+    The PIE preflight (#149) is answered separately: each check consumes the next entry of
+    ``pie_replies`` (``True`` means PIE is on), and checks after the list is spent report no PIE.
+    PIE checks are counted in ``pie_checks`` and are not recorded in ``codes``.
 
     Parameters:
         result: The result object to print.  ``ok`` defaults to true.
         raises: An exception to raise instead of replying.
+        pie_replies: The PIE state reported by successive PIE checks.
     """
 
     def __init__(
@@ -403,14 +411,21 @@ class FakeUnrealRunner:
         result: Mapping[str, Any] | None = None,
         raises: Exception | None = None,
         events: list[str] | None = None,
+        pie_replies: Sequence[bool] = (),
     ) -> None:
         # An empty snapshot has no mesh parts to compare, so the pivot check passes on this reply.
         self.result = dict(result) if result is not None else {"ok": True, "static_meshes": {}}
         self.raises = raises
         self.events = events
         self.codes: list[str] = []
+        self.pie_replies = list(pie_replies)
+        self.pie_checks = 0
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
+        if "is_in_play_in_editor" in code:
+            self.pie_checks += 1
+            pie = self.pie_replies.pop(0) if self.pie_replies else False
+            return "NMG_RESULT " + json.dumps({"pie": pie})
         self.codes.append(code)
         if self.events is not None:
             self.events.append("import_ue")
@@ -439,6 +454,106 @@ def _envelope(
 def _write_json(path: Path, data: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+
+class ItemBlender(FakeBlenderSession):
+    """A live session whose content hash follows the collection, so batch items cache apart."""
+
+    def checkpoint(self, *, collection: str, path: Path) -> str:
+        path.write_bytes(b"session-checkpoint")
+        self.checkpoints.append(collection)
+        return f"hash-{collection}"
+
+    def load_back(
+        self,
+        *,
+        result_blend: Path,
+        collection: str,
+        expected_hash: str,
+        suffixes: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        return {"ok": True, "loaded": True, "hash": f"post-{expected_hash}"}
+
+
+class BatchRouter:
+    """Routes each batch item's steps to a ``FakeStepRunner`` for that item's request (#149).
+
+    ``on_step`` runs before every step with the item's directory, so a test can read the job while
+    it runs.  ``order`` lists the collections in the order they started.
+    """
+
+    def __init__(
+        self,
+        requests: Mapping[str, FinalizeRequest],
+        *,
+        failures: Mapping[str, Mapping[str, Failure]] | None = None,
+        on_step: Callable[[Path, str], None] | None = None,
+    ) -> None:
+        per_item = failures or {}
+        self._runners = {
+            name: FakeStepRunner(request, failures=per_item.get(name))
+            for name, request in requests.items()
+        }
+        self.on_step = on_step
+        self.order: list[str] = []
+
+    def hash(self, *, job_dir: Path, in_blend: Path) -> str:
+        return self._runner(job_dir).hash(job_dir=job_dir, in_blend=in_blend)
+
+    def run_step(
+        self,
+        step: str,
+        *,
+        job_dir: Path,
+        in_blend: Path | None,
+        inputs: Mapping[str, Any] | None = None,
+        on_progress: Any = None,
+    ) -> dict[str, Any]:
+        name = _collection_of(job_dir)
+        if name not in self.order:
+            self.order.append(name)
+        if self.on_step is not None:
+            self.on_step(job_dir, step)
+        return self._runner(job_dir).run_step(
+            step, job_dir=job_dir, in_blend=in_blend, inputs=inputs, on_progress=on_progress
+        )
+
+    def _runner(self, job_dir: Path) -> FakeStepRunner:
+        return self._runners[_collection_of(job_dir)]
+
+
+def _collection_of(item_dir: Path) -> str:
+    """Return the collection named by an item directory, ``items/<index>-<collection>``."""
+    return item_dir.name.split("-", 1)[1]
+
+
+def batch_launcher(
+    make_router: Callable[[dict[str, FinalizeRequest]], BatchRouter],
+    *,
+    unreal: FakeUnrealRunner | None = None,
+) -> Callable[[Path], int]:
+    """Return a launcher that runs a batch job in-process through ``make_router``'s router."""
+
+    def launch(job_dir: Path) -> int:
+        job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+        requests = {
+            str(item["collection"]): FinalizeRequest.model_validate(item) for item in job["items"]
+        }
+        jobs.run_job(
+            job_dir,
+            clients=FinalizeClients(blender=ItemBlender(), unreal=unreal or FakeUnrealRunner()),
+            runner=make_router(requests),
+        )
+        return dead_pid()
+
+    return launch
+
+
+def dead_pid() -> int:
+    """Return the PID of a process that has already exited."""
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
 
 
 class FakeAnimUnrealRunner:
@@ -482,7 +597,7 @@ class FakeAnimUnrealRunner:
         self.imported: list[str] = []
         self.compatible: dict[str, list[str]] = {}
 
-    def execute_python_code(self, code: str) -> str:
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
         self.codes.append(code)
         params = _decode_params(code)
         self.params.append(params)

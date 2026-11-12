@@ -45,10 +45,10 @@ class _Router:
         self.anim = anim
         self.mesh = mesh
 
-    def execute_python_code(self, code: str) -> str:
-        if "prefix" in _decode_params(code):
-            return self.anim.execute_python_code(code)
-        return self.mesh.execute_python_code(code)
+    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
+        if "PARAMS = json.loads(" in code and "prefix" in _decode_params(code):
+            return self.anim.execute_python_code(code, timeout=timeout)
+        return self.mesh.execute_python_code(code, timeout=timeout)
 
 
 @pytest.fixture()

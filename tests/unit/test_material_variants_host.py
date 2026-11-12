@@ -650,7 +650,7 @@ def test_listing_ignores_untagged_instances_of_other_assets(tmp_path: Path) -> N
 
 def test_listing_reports_a_ue_failure_with_the_finalize_code() -> None:
     class _Broken:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             _ = code
             return 'NMG_RESULT {"error": "KeyError: x", "instances": [], "ok": false}'
 
@@ -672,7 +672,7 @@ def test_the_mcp_tool_returns_the_same_rows_as_the_listing(tmp_path: Path) -> No
 
 def test_the_mcp_tool_returns_the_unreachable_error_structured() -> None:
     class _Unreachable:
-        def execute_python_code(self, code: str) -> str:
+        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
             _ = code
             raise PipelineError(
                 code="mcp.unreal.unreachable",
