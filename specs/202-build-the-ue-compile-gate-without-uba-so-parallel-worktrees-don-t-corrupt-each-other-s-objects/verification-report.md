@@ -4,13 +4,13 @@
 **Issue**: #202
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer)
 **Scope**: Implementation verification against spec
-**Verification head**: 53b4cc450bc43ef2acc800cf1d9685d4aeb202ad
+**Verification head**: 5e074ea88586a9dc38247188d90890c2e5bab60c
 
 ---
 
 ## Executive Summary
 
-The `project.ue-compile` provider now passes `-NoUBA` to `Build.sh`, with a comment explaining the per-user shared UBA cache. The `gate-ue-compile` row in `steering/snippets/project-tech.md` shows the flag and explains it. A new unit test runs the real provider through `node` against a fake `Build.sh` and checks the snippet row. Every applicable registered gate passed at the verification head. That includes a real `gate-ue-compile` build of `DogfoodEditor`, which recorded the command with `-WaitMutex -NoUBA` and ended with `Result: Succeeded`.
+The `project.ue-compile` provider now passes `-NoUBA` to `Build.sh`, with a comment explaining the per-user shared UBA cache. The `gate-ue-compile` row in `steering/snippets/project-tech.md` shows the flag and explains it. A new unit test runs the real provider through `node` against a fake `Build.sh` and checks the snippet row. This is a re-verification after deliver's base reconciliation merged `origin/main` (`1fe0ef4`, #208) into the branch at `5e074ea`. The merge left the #202 code, docs and tests unchanged. `git diff origin/main...HEAD` touches only `CHANGELOG.md`, the spec's report, `steering/extensions/ue-compile.mjs`, `steering/snippets/project-tech.md` and `tests/unit/test_ue_compile_gate.py`. Every applicable registered gate was run again from the start and passed at the new head. That includes a real `gate-ue-compile` build of `DogfoodEditor`, which recorded the command with `-WaitMutex -NoUBA` and ended with `Result: Succeeded`.
 
 | Category | Score (1-5) |
 |----------|-------------|
@@ -23,7 +23,7 @@ The `project.ue-compile` provider now passes `-NoUBA` to `Build.sh`, with a comm
 | **Overall** | 4.8 |
 
 ### Implementation Status: Pass
-**Total Issues**: 0 blocking, 1 informational
+**Total Issues**: 0 blocking, 2 informational
 
 ---
 
@@ -126,8 +126,8 @@ Unchanged. The test calls the provider through its public `extension.providers["
 
 - Feature files: 2 scenarios in `feature.gherkin`. Per the spec header, they are implemented as pytest unit tests in `tests/unit/test_ue_compile_gate.py`
 - Step definitions: Implemented (as the two unit tests)
-- Unit tests: 2 new. Targeted run: `2 passed in 0.65s`
-- Full suite: `repository.tests` gave 1133 passed, 9 skipped
+- Unit tests: 2 new. Targeted run at `5e074ea`: `2 passed in 2.68s`
+- Full suite: `repository.tests` gave 1272 passed, 10 skipped
 
 ---
 
@@ -142,17 +142,17 @@ Unchanged. The test calls the provider through its public `extension.providers["
 
 ## Steering Doc Verification Gates
 
-Source: `.nmg-sdlc/verification/202.json`, written by `sdlc-verify-steering.mjs` at head `53b4cc450bc43ef2acc800cf1d9685d4aeb202ad`. Coverage: declared 11, recorded 11, complete. Ceiling: none.
+Source: `.nmg-sdlc/verification/202.json`, written by `sdlc-verify-steering.mjs` at head `5e074ea88586a9dc38247188d90890c2e5bab60c` (clean tree, controller run `906771ee-69ec-4c43-9bc8-18a49a666043`). Coverage: declared 11, recorded 11, complete. Ceiling: none.
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1133 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1272 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 335 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 212 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 273 passed |
-| `gate-ue-compile` | Pass | Real build: `Build.sh DogfoodEditor Mac Development -Project=…/fixtures/dogfood.uproject -WaitMutex -NoUBA`, `Result: Succeeded` |
-| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py` exited 0 |
+| `repository.format` | Pass | `uv run ruff format --check .`: 358 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 234 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 284 passed, 4 skipped |
+| `gate-ue-compile` | Pass | Real build: `Build.sh DogfoodEditor Mac Development -Project=…/fixtures/dogfood.uproject -WaitMutex -NoUBA`, `Result: Succeeded` (27.76 s, incremental) |
+| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py` exited 0: MCP tools match tools.json for every server |
 | `gate-shellcheck` | Pass | `shellcheck -S style` over `scripts/**.sh` exited 0 |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
 | `plugin.validate` | Pass | `claude plugin validate .`: Validation passed (with warnings) |
@@ -188,6 +188,15 @@ None.
 | **Impact** | Slower first builds in each worktree. Incremental builds are unaffected |
 | **Reason Not Fixed** | Intended trade-off, recorded in design.md Blast Radius and Alternatives |
 
+| Field | Value |
+|-------|-------|
+| **Severity** | Low (informational, release metadata) |
+| **Category** | Delivery |
+| **Location** | `CHANGELOG.md` lines 7-19 |
+| **Issue** | The base-reconciliation merge driver left the prepared `## [0.21.6] - 2026-11-12` section (#202 entry) above main's `### Changed` entry for #143, which now sits inside that section, while `VERSION` and the plugin manifests carry main's `0.22.0` |
+| **Impact** | None on behavior or any gate. The version heading and #143 placement need fixing when the release is prepared |
+| **Reason Not Fixed** | Outside the verify publication scope (only the report is writable). Deliver's prepare-version step owns the CHANGELOG and version files and reruns after this verification |
+
 ---
 
 ## Positive Observations
@@ -218,7 +227,7 @@ None.
 | `steering/extensions/ue-compile.mjs` | 0 | `-NoUBA` plus explanatory comment |
 | `steering/snippets/project-tech.md` | 0 | `gate-ue-compile` row updated |
 | `tests/unit/test_ue_compile_gate.py` | 0 | New AC1/AC2 coverage |
-| `CHANGELOG.md`, `VERSION`, plugin manifests | 0 | Prepared release 0.21.6 entry |
+| `CHANGELOG.md`, `VERSION`, plugin manifests | 1 (informational) | #202 entry under a prepared `0.21.6` heading. `VERSION` and the manifests take main's `0.22.0` after the merge. Deliver's prepare-version owns them |
 
 ---
 
@@ -226,4 +235,4 @@ None.
 
 **Ready for PR**
 
-Both acceptance criteria, all three functional requirements and all three tasks are met. Coverage of the registered gates is complete, and every applicable required gate passed at the verification head, including a real UE build with `-NoUBA`.
+Both acceptance criteria, all three functional requirements and all three tasks are met. Coverage of the registered gates is complete, and every applicable required gate passed at the verification head, including a real UE build with `-NoUBA`, at the post-merge head `5e074ea`.
