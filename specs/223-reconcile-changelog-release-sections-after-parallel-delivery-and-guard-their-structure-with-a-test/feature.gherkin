@@ -1,0 +1,34 @@
+**Issue**: #223
+**Date**: 2026-11-12
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/unit/test_changelog_structure.py
+# Generated from: specs/223-reconcile-changelog-release-sections-after-parallel-delivery-and-guard-their-structure-with-a-test/requirements.md
+Feature: CHANGELOG release sections are unique, ordered and non-empty
+
+  @SCN001 @regression
+  Scenario: Each released version appears once, newest first
+    Given the checked-in CHANGELOG.md and VERSION
+    When the release headings below "## [Unreleased]" are read
+    Then every version appears exactly once in strictly descending semver order
+    And the first release equals VERSION
+
+  @SCN002 @regression
+  Scenario: No release section is empty
+    Given the checked-in CHANGELOG.md
+    When each release section is read
+    Then every release section has at least one bullet
+
+  @SCN003 @regression
+  Scenario: Reconciliation keeps every entry
+    Given the bullets of CHANGELOG.md at commit 353e275
+    When they are compared with the reconciled CHANGELOG.md
+    Then the sorted bullet lines are identical
+    And each of the 30 reconciled issue references appears in exactly one bullet
+
+  @SCN004 @regression
+  Scenario: The structure checker rejects a broken changelog
+    Given synthetic changelogs with a duplicate version, an ascending version pair, an empty release section, and a newest release that differs from VERSION
+    When the structure checker reads each one
+    Then it reports at least one problem for each
