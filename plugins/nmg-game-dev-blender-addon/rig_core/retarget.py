@@ -1,7 +1,9 @@
-"""Library clip import, rest-relative retargeting, and baking onto SK_<Name>.
+"""Library clip import, rest-relative retargeting, built-in procedural baking, SK_<Name> installs.
 
-Touches Blender data. Every clip is imported, sampled frame by frame, installed as an action
-named after the clip, and then removed along with its temporary import.
+Touches Blender data. File-library clips are imported, sampled frame by frame, installed as an
+action named after the clip, and then removed along with their temporary import. Built-in clips
+are solved from their pose definitions against the rig's own rest pose and keyed directly, with
+no file access.
 """
 
 from __future__ import annotations
@@ -14,21 +16,30 @@ from typing import Any
 import bpy
 from mathutils import Matrix, Vector
 
+from .builtin_clips import AUTHORED_FPS, BUILTIN_CLIPS, ClipDef, clip_digest, expand
 from .library import REQUIRED_TARGETS, Library, LibraryClip, load, resolve_source_bone
 from .outcome import STATUS_FALLBACK, STATUS_SPIKE, RigError, fail, ok
-from .skeleton import MANNY_BONE_NAMES
+from .procedural import Quat, RestSkeleton, continuous, solve
+from .skeleton import MANNY_BONE_NAMES, Vec3
 
+BUILTIN_LIBRARY = "builtin"
 _TEMP_ACTION_PREFIX = "__nmg_tmp_"
 _PROVENANCE_KEY = "nmg_animations"
 
 
 def import_animations(
     collection_name: str,
-    library_dir: str,
+    library_dir: str | None = None,
     clips: Sequence[str] | None = None,
     motion_prompt: str | None = None,
+    *,
+    library: str | None = None,
 ) -> dict[str, Any]:
-    """Bake library clips onto SK_<Name>. clips=None (or empty) bakes every library clip."""
+    """Bake clips onto SK_<Name> from a library folder, or from the built-in library.
+
+    Checks run in order: text motion, library selection (before any scene change), then the rig.
+    clips=None (or empty) bakes every clip of the chosen library.
+    """
     try:
         if motion_prompt and motion_prompt.strip():
             return fail(
@@ -38,6 +49,7 @@ def import_animations(
                 "Pick clips from the animation library by name. Generating motion from text "
                 "needs a follow-up spike.",
             )
+        builtin = _builtin_selected(library_dir, library)
         armature = bpy.data.objects.get(f"SK_{collection_name}")
         if armature is None or armature.type != "ARMATURE":
             return fail(
@@ -46,13 +58,141 @@ def import_animations(
                 f"SK_{collection_name} does not exist.",
                 f"Run rig_humanoid for collection {collection_name} first, then import animations.",
             )
-        library = load(library_dir)
-        selected = _select_clips(library, clips)
-        baked = [bake_clip(armature, library, clip) for clip in selected]
+        if builtin:
+            selected_builtin = _select_builtin(clips)
+            baked = [bake_builtin_clip(armature, clip) for clip in selected_builtin]
+        else:
+            library_data = load(library_dir or "")
+            selected = _select_clips(library_data, clips)
+            baked = [bake_clip(armature, library_data, clip) for clip in selected]
         _rest_pose(armature)
         return ok(asset=collection_name, armature=armature.name, clips=baked)
     except RigError as error:
         return error.result
+
+
+def _builtin_selected(library_dir: str | None, library: str | None) -> bool:
+    """True for the built-in library, False for a folder. Other selections are library_invalid."""
+    has_folder = bool(library_dir)
+    if library is None:
+        if has_folder:
+            return False
+        raise _library_invalid(
+            "No library was selected: pass a library folder or library 'builtin'."
+        )
+    if library != BUILTIN_LIBRARY:
+        raise _library_invalid(f"library '{library}' is not known; the only value is 'builtin'.")
+    if has_folder:
+        raise _library_invalid("Both a library folder and library 'builtin' were given; pass one.")
+    return True
+
+
+def _library_invalid(message: str) -> RigError:
+    return RigError(
+        STATUS_FALLBACK,
+        "anim.library_invalid",
+        message,
+        "Pass a library folder with library_dir, or library='builtin' with no folder.",
+    )
+
+
+def bake_builtin_clip(armature: bpy.types.Object, clip: ClipDef) -> dict[str, Any]:
+    """Solve a built-in clip against the rig's rest pose and install it as action clip.name.
+
+    Each expanded pose is keyed at round(frame × scene fps / AUTHORED_FPS), with sign continuity.
+    Every Manny bone is keyed, not only the targeted ones: an unkeyed bone keeps the rotation that
+    the clip played before it wrote to it, and that rotation would move its children. The pelvis
+    location is keyed on every key. Baking reads no file.
+    """
+    scene = bpy.context.scene
+    fps = scene.render.fps
+    rest = _rest_skeleton(armature)
+    keyed = [(round(frame * fps / AUTHORED_FPS), pose) for frame, pose in expand(clip)]
+    bones = MANNY_BONE_NAMES
+    temp = bpy.data.actions.new(f"{_TEMP_ACTION_PREFIX}{clip.name}")
+    try:
+        armature.animation_data_create().action = temp
+        _rest_pose(armature)
+        previous: dict[str, Quat] = {}
+        for frame, pose in keyed:
+            quats, location = solve(rest, pose)
+            for bone in bones:
+                quat = continuous(previous.get(bone), quats[bone])
+                previous[bone] = quat
+                pose_bone = armature.pose.bones[bone]
+                pose_bone.rotation_mode = "QUATERNION"
+                pose_bone.rotation_quaternion = quat
+                pose_bone.keyframe_insert("rotation_quaternion", frame=frame, group=bone)
+            pelvis = armature.pose.bones["pelvis"]
+            pelvis.location = location
+            pelvis.keyframe_insert("location", frame=frame, group="pelvis")
+    except BaseException:
+        if armature.animation_data is not None:
+            armature.animation_data.action = None
+        bpy.data.actions.remove(temp)
+        raise
+    _rest_pose(armature)
+    _install(armature, temp, clip.name)
+
+    frames = [frame for frame, _ in keyed]
+    start, end = min(frames), max(frames)
+    provenance = {
+        "name": clip.name,
+        "frame_start": start,
+        "frame_end": end,
+        "frame_count": end - start + 1,
+        "fps": fps,
+        "source": {
+            "library": BUILTIN_LIBRARY,
+            "file": None,
+            "sha256": clip_digest(clip),
+            "skeleton": "manny",
+        },
+    }
+    stored = json.loads(armature.get(_PROVENANCE_KEY, "{}"))
+    stored[clip.name] = provenance
+    armature[_PROVENANCE_KEY] = json.dumps(stored, sort_keys=True)
+    return provenance
+
+
+def _select_builtin(names: Sequence[str] | None) -> list[ClipDef]:
+    if not names:
+        return list(BUILTIN_CLIPS.values())
+    selected: list[ClipDef] = []
+    for name in names:
+        clip = BUILTIN_CLIPS.get(name)
+        if clip is None:
+            raise RigError(
+                STATUS_FALLBACK,
+                "anim.clip_not_found",
+                f"The built-in library has no clip named '{name}'.",
+                "Request one of the built-in clips: " + ", ".join(sorted(BUILTIN_CLIPS)) + ".",
+            )
+        selected.append(clip)
+    return selected
+
+
+def _rest_skeleton(armature: bpy.types.Object) -> RestSkeleton:
+    """Read every Manny bone's armature-space rest rotation and head from the rig."""
+    rotations: dict[str, tuple[Vec3, Vec3, Vec3]] = {}
+    heads: dict[str, Vec3] = {}
+    for name in MANNY_BONE_NAMES:
+        bone = armature.data.bones.get(name)
+        if bone is None:
+            raise RigError(
+                STATUS_FALLBACK,
+                "anim.rig_missing",
+                f"{armature.name} has no bone named {name}.",
+                "Run rig_humanoid for this collection again, then import animations.",
+            )
+        matrix = bone.matrix_local.to_3x3()
+        rotations[name] = (_vec3(matrix[0]), _vec3(matrix[1]), _vec3(matrix[2]))
+        heads[name] = _vec3(bone.head_local)
+    return RestSkeleton.from_bones(rotations, heads)
+
+
+def _vec3(values: Any) -> Vec3:
+    return (float(values[0]), float(values[1]), float(values[2]))
 
 
 def bake_clip(armature: bpy.types.Object, library: Library, clip: LibraryClip) -> dict[str, Any]:

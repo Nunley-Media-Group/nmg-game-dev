@@ -41,6 +41,9 @@ class FinalizeRequest(BaseModel):
             polls until PIE ends or ``pie_wait_seconds`` elapses.  ``refuse`` fails at once.
         pie_wait_seconds: The PIE wait limit for ``wait`` mode.  Like ``pie_mode``, it never
             enters the cache settings.
+        material_variants_path: The ``<collection>.material-variants.json`` declaration, given
+            explicitly or found beside ``blend``.  ``None`` means the asset declares no material
+            variants.  Validate and export key their cache on its bytes (#148).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -55,6 +58,7 @@ class FinalizeRequest(BaseModel):
     backlog_path: Path | None = None
     pie_mode: PieMode = "wait"
     pie_wait_seconds: float = Field(default=DEFAULT_PIE_WAIT_SECONDS, ge=0)
+    material_variants_path: Path | None = None
 
     def to_json_dict(self) -> dict[str, object]:
         """Return the JSON-serialisable projection written to ``<job_dir>/request.json``."""

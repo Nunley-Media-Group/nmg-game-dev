@@ -389,6 +389,10 @@ def _behavior_preserved(state: dict[str, Any], tmp_path: Path) -> None:
         "skeletal_meshes",
         "error",
         "attempts",  # added by #149's Unreal MCP retry
+        # #148 adds the variant instances, the stale assets it removed, and warnings.
+        "material_variants",
+        "removed",
+        "warnings",
     }
     assert world.assets[DESKTOP_DEST + "/T_Crate_Body_N"].properties["compression_settings"] == (
         "TC_NORMALMAP"

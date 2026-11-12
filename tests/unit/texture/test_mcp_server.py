@@ -6,13 +6,16 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import os
+import subprocess
 import sys
+import types
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
-from tests.texture_fakes import save_png, synthetic_image
+from tests.texture_fakes import APPLE_SILICON_32GB, make_models, save_png, synthetic_image
 
 REPO = Path(__file__).resolve().parents[3]
 SERVER_FILE = REPO / "mcp-servers" / "texture-gen" / "src" / "texture_gen_mcp" / "server.py"
@@ -114,3 +117,61 @@ def test_texture_contact_sheet_needs_no_backend(
     _set_with_albedo(root, "steel")
     monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(root))
     assert "pages" in server.texture_contact_sheet()
+
+
+def test_generate_textures_takes_a_prompt_or_requests_but_not_both_or_neither(
+    server: ModuleType,
+) -> None:
+    both = server.generate_textures(prompt="x", requests=[{"prompt": "y"}])
+    neither = server.generate_textures()
+    for result in (both, neither):
+        assert set(result) == {"error"}
+        assert result["error"]["code"] == "texture.invalid_request"
+
+
+def test_a_batch_request_starts_one_queued_job_covering_every_request(
+    server: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nmg_game_dev.texture import generate, jobs
+
+    models = make_models(tmp_path / "models")
+    monkeypatch.setenv("TEXTURE_GEN_MODELS_DIR", str(models))
+    monkeypatch.setenv("NMG_GAME_DEV_TEXTURE_DIR", str(tmp_path / "out"))
+    monkeypatch.setattr(generate, "probe", lambda: APPLE_SILICON_32GB)
+    monkeypatch.setattr(jobs, "probe", lambda: APPLE_SILICON_32GB)
+    spawned: list[list[str]] = []
+
+    class _Runner:
+        pid = os.getpid()
+
+    def popen(argv: list[str], **kwargs: object) -> _Runner:
+        spawned.append(argv)
+        return _Runner()
+
+    shim = types.SimpleNamespace(Popen=popen, DEVNULL=subprocess.DEVNULL)
+    monkeypatch.setattr(jobs, "subprocess", shim)
+
+    started = server.generate_textures(
+        requests=[
+            {"prompt": "burlap", "name": "burlap", "resolution": 256, "seeds": [1, 2]},
+            {
+                "prompt": "oak",
+                "name": "oak",
+                "backend": "z-image-turbo",
+                "resolution": 256,
+                "seeds": [3],
+            },
+        ]
+    )
+    assert set(started) == {"job_id"}
+    status = server.get_texture_job(started["job_id"])
+    assert status["state"] == "queued" and status["total"] == 3
+    assert spawned and spawned[0][-2] == "run-queue"
+
+
+def test_tools_json_declares_requests_as_a_batch_input_and_no_required_prompt() -> None:
+    tools = {tool["name"]: tool for tool in json.loads(TOOLS_JSON.read_text())["tools"]}
+    schema = tools["generate_textures"]["inputSchema"]
+    assert "requests" in schema["properties"]
+    assert "prompt" not in schema.get("required", [])
+    assert "queue" in tools["generate_textures"]["description"]

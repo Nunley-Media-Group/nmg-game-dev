@@ -10,6 +10,31 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Add batch finalize with lock wait, Unreal MCP timeout retry, and a PIE preflight (#149)
 
+### Added
+
+- Let one finalized asset declare several material variants (#148)
+## [0.22.0] - 2026-11-12
+
+### Changed
+
+- Add a built-in procedural clip library to import_animations (#136)
+## [0.23.0] - 2026-11-12
+
+### Changed
+
+- Report sample locations in geometry contract findings (#153)
+## [0.21.6] - 2026-11-12
+
+### Fixed
+
+- Fail import_ue when Unreal refuses to rename or consolidate an imported asset (#203)
+
+- Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
+
+### Changed
+
+- Make texture generation work from the plugin root and queue or batch texture jobs (#143)
+
 ## [0.22.0] - 2026-11-11
 ## [0.21.5] - 2026-11-12
 

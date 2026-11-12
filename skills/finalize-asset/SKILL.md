@@ -24,12 +24,14 @@ never sends a bake, variant, or export through a Blender MCP call.
    (for each collection in a batch), and explicit values win. A successful `finalize_asset` marks that
    entry `finalized`. If one is missing and no backlog entry supplies it, stop with an error that names
    it. Do not guess a category or class.
-2. Call `finalize_asset` with `collection`, `category`, `asset_class`, and `export_root`. Add `blend`
-   or `budgets_path` when they apply. Pass `force: true` only when the developer asks to rerun every
-   step. Pass `wait_seconds: 150` so a small asset returns its result in the same call.
+2. Call `finalize_asset` with `collection`, `category`, `asset_class`, and `export_root`. Add `blend`,
+   `budgets_path`, or `material_variants_path` when they apply. Pass `force: true` only when the
+   developer asks to rerun every step. Pass `wait_seconds: 150` so a small asset returns its result in
+   the same call.
    To finalize several collections, call `finalize_asset` once with `requests`: a list with one object
-   per collection, each taking the same keys. Top-level `category`, `asset_class`, `export_root`, and
-   the PIE options fill in any key an entry leaves out. The collections run one at a time, in the order
+   per collection, each taking the same keys (an entry sets its own `material_variants_path`).
+   Top-level `category`, `asset_class`, `export_root`, and the PIE options fill in any key an entry
+   leaves out. The collections run one at a time, in the order
    given, under one job lock, so a batch never interleaves with another finalize job. Pass
    `fail_fast: true` only when one failure should skip the rest. By default the other collections still
    run, because one asset's bake failure should not hold up unrelated assets.
@@ -63,6 +65,20 @@ The pipeline also retries Unreal requests that time out, so do not retry them by
 Never call the Blender MCP for a bake, a variant, or an export. Reruns are cheap: unchanged steps are
 cache hits, so rerun after a fix without `force`.
 
+## Material variants
+
+When the asset ships in several looks, declare them in `<Name>.material-variants.json` beside its
+`.blend`. The format is in `docs/asset-contract.md` section 4. Each entry names a material and either a
+replacement base-colour PNG, `Tint` values, or both. `validate` checks the declaration before anything is
+baked, and the import creates each variant as `MI_<Name>_<Part>_<Variant>` beside the main instances in
+both Content folders. A `--blend` run finds the file beside the blend. A session run has no blend, so it
+needs `material_variants_path` set to the declaration's path.
+
+To list an asset's variants from Unreal, call `list_material_variants` with `category` and `collection`,
+or run `python -m nmg_game_dev.finalize material-variants --category <C> --collection <N> [--json]`. Each
+row gives the variant's material and its Desktop and Mobile instance paths. An asset with no variants
+returns an empty list.
+
 ## Failure modes and remediation
 
 - `finalize.session_changed` → The session's `<Name>` changed during the job, so nothing was loaded back. Read the result `.blend` named in the message. Revert or re-author the session changes, then rerun.
@@ -74,7 +90,10 @@ cache hits, so rerun after a fix without `force`.
 - `finalize.job_not_found` → The `job_id` is not in this cache root. Use the id that `finalize_asset` or `run_finalize_step` returned.
 - `finalize.blender_not_found` → Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun.
 - `finalize.collection_not_found` → The session or `--blend` has no collection named `<Name>`. Check the name is PascalCase and matches the collection.
-- `quality.contract_failed` → Read the findings in the contract report. Fix each one in Blender using `docs/asset-contract.md`, then rerun.
+- `quality.contract_failed` → Read the findings in the contract report. Fix each one in Blender using `docs/asset-contract.md`, then rerun. A `material_variant.*` finding names the variant and the rule: fix that entry in `<Name>.material-variants.json`, or the material it names.
+- `validate.material_variant.declaration_invalid` → The material-variants file is not valid JSON or not the format in `docs/asset-contract.md` section 4. Fix the file, then rerun.
+- `finalize.material_variants_not_found` → The `material_variants_path` does not exist. Pass the path of an existing declaration, or omit it to use the one beside the `.blend`.
+- `finalize.material_variants_failed` → Unreal could not list the material variants. Read the UE error in the message, confirm the editor is idle, then rerun `list_material_variants`.
 - `quality.reimport_mismatch` → The exported FBX re-imported differently from its pre-export report. Read the re-import report, fix the export cause, then rerun.
 - `bake.texture.bake_failed` → Read `blender-bake.log`, fix the material it names, then rerun.
 - `variants.<code>` → Read the message, fix the mesh or material it names, then rerun.

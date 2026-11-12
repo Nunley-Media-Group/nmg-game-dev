@@ -20,7 +20,7 @@ import pytest
 from PIL import Image as PILImage
 from pytest_bdd import given, parsers, scenario, then, when
 
-from nmg_game_dev.texture import generate, jobs
+from nmg_game_dev.texture import deps, generate, jobs
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.generate import TextureRequest
 from nmg_game_dev.texture.hardware import HardwareFacts, require_available, reserve_gb
@@ -47,6 +47,13 @@ MACHINES = {
     ),
 }
 REPO = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def mflux_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report mflux and mlx as importable, so these scenarios keep their meaning on Linux CI
+    (#143)."""
+    monkeypatch.setattr(deps, "missing_module", lambda: None)
 
 
 def _ctx(tmp_path: Path, **extra: Any) -> dict[str, Any]:
@@ -289,23 +296,32 @@ def _sequential(ctx: dict[str, Any]) -> None:
     assert z_exit["t"] <= flux_start["t"]
 
 
-@then('starting a second job while one is running raises "texture.job_running"')
-def _second_job_refused(ctx: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+@then("starting a second job while one is running returns a queued job")
+def _second_job_queued(ctx: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     lock = ctx["out"] / ".jobs" / "lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
-    lock.write_text(json.dumps({"job_id": "running-job", "pid": os.getpid()}))
-    try:
-        jobs.start(
-            TextureRequest(prompt="burlap", backend="z-image-turbo", seeds=[1], resolution=256),
-            env={**ctx["env"], "NMG_GAME_DEV_TEXTURE_DIR": str(ctx["out"])},
-            facts=APPLE_SILICON_32GB,
-            cwd=ctx["tmp"],
-        )
-    except TextureGenError as error:
-        assert error.code == "texture.job_running"
-        assert "running-job" in error.message
-    else:
-        raise AssertionError("second job was not refused")
+    lock.write_text(json.dumps({"pid": os.getpid()}))  # a live runner holds the queue
+
+    class _Runner:
+        pid = os.getpid()
+
+    spawned: list[list[str]] = []
+
+    def popen(argv: list[str], **kwargs: Any) -> _Runner:
+        spawned.append(argv)
+        return _Runner()
+
+    shim = types.SimpleNamespace(Popen=popen, DEVNULL=subprocess.DEVNULL)
+    monkeypatch.setattr(jobs, "subprocess", shim)
+    queue_env = {"NMG_GAME_DEV_TEXTURE_DIR": str(ctx["out"])}
+    job_id = jobs.start(
+        TextureRequest(prompt="burlap", backend="z-image-turbo", seeds=[1], resolution=256),
+        env={**ctx["env"], **queue_env},
+        facts=APPLE_SILICON_32GB,
+        cwd=ctx["tmp"],
+    )
+    assert jobs.status(job_id, env=queue_env)["state"] == "queued"
+    assert spawned and spawned[0][-2] == "run-queue"
 
 
 # --- SCN018 ------------------------------
@@ -408,22 +424,22 @@ def _consumer_both(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str,
 )
 def _mcp_flow(ctx: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     states: list[str] = []
-    job_dir_holder: dict[str, Path] = {}
+    queue_holder: dict[str, Path] = {}
     spawn_inner = fake_spawn(ctx["worker"], ctx["log"])
 
     def recording_spawn(batch_file: Path) -> subprocess.CompletedProcess[str]:
-        status = json.loads((job_dir_holder["dir"] / "status.json").read_text())
-        states.append(status["state"])
+        for status_file in queue_holder["queue"].glob("*/status.json"):
+            states.append(json.loads(status_file.read_text())["state"])
         return spawn_inner(batch_file)
 
     class _Done:
         pid = os.getpid()
 
     def inline_popen(argv: list[str], **kwargs: Any) -> _Done:
-        job_dir = Path(argv[-1])
-        job_dir_holder["dir"] = job_dir
-        jobs.run_job(
-            job_dir,
+        # `run-queue <jobs root>` drains the queue inline, in the test process.
+        queue_holder["queue"] = Path(argv[-1])
+        jobs.run_queue(
+            Path(argv[-1]),
             env=dict(os.environ),
             facts=APPLE_SILICON_32GB,
             spawn=recording_spawn,

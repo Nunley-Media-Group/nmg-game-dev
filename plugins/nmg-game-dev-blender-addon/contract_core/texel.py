@@ -115,11 +115,16 @@ def slot_areas(obj: Any, mesh: Any) -> list[SlotArea]:
 
 
 def evaluated_copy(obj: Any) -> Any:
-    """A mesh of ``obj`` with its modifiers applied, in object space. The caller removes it."""
+    """A mesh of ``obj`` with its modifiers applied, in object space. The caller removes it.
+
+    All data layers are kept so geometry samples can name each vertex's groups (#153).
+    """
     import bpy  # Lazy: the pure helpers above load under CPython, where bpy is not installed.
 
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    return bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph), depsgraph=depsgraph)
+    return bpy.data.meshes.new_from_object(
+        obj.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph
+    )
 
 
 def _render_layer(mesh: Any) -> Any:

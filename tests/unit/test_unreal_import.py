@@ -721,6 +721,10 @@ def test_texture_settings_material_binding_and_result_keys_are_unchanged(tmp_pat
         "skeletal_meshes",
         "error",
         "attempts",
+        # #148 adds the variant instances, the stale assets it removed, and warnings.
+        "material_variants",
+        "removed",
+        "warnings",
     }
     assert result["textures"] == [
         dest + "/T_Crate_Body_BC",
@@ -1229,3 +1233,134 @@ def test_no_shipped_file_offers_the_interchange_cvar_as_a_workaround() -> None:
     )
     assert "Interchange.FeatureFlags" not in code
     assert "Interchange.FeatureFlags" not in rigged
+
+
+# --- refused renames and consolidations (#203) ----------------------------------------------
+
+
+def _lid_import_case(tmp_path: Path) -> tuple[FakeWorld, Path, dict[str, Any]]:
+    """A Desktop multi-part import whose part SM_Crate_Lid imports as SM_Crate_Lid_001 (#145)."""
+    return stage(
+        tmp_path,
+        "desktop",
+        part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH),
+        part("desktop", "SM_Crate_Lid", SMALL_LOW, SMALL_HIGH, duplicate=True),
+    )
+
+
+def _lid_reimport_case(tmp_path: Path) -> tuple[FakeWorld, Path, dict[str, Any]]:
+    """The same import, into a folder where SM_Crate_Lid already exists beside SM_Crate_Lid_001."""
+    world, folder, report = _lid_import_case(tmp_path)
+    lid = FbxNode("SM_Crate_Lid", "SM_Crate_Lid.001", SMALL_LOW, SMALL_HIGH)
+    world.seed_static_mesh(DESKTOP_DEST + "/SM_Crate_Lid", lid)
+    world.seed_static_mesh(DESKTOP_DEST + "/SM_Crate_Lid_001", lid)
+    return world, folder, report
+
+
+def test_a_refused_part_rename_is_reported_and_the_asset_is_kept(tmp_path: Path) -> None:
+    # AC1, FR1: UE refuses to rename SM_Crate_Lid_001 to SM_Crate_Lid. The code reports both paths
+    # and leaves the asset where it was.
+    dest = DESKTOP_DEST
+    world, folder, report = _lid_import_case(tmp_path)
+    world.refused_renames.add(dest + "/SM_Crate_Lid_001")
+    code = build_import_code(str(folder), dest, "Crate", report)
+
+    result = run_import_code(code, world)
+
+    assert result["ok"] is False
+    assert result["error"] == (
+        f"RuntimeError: rename_asset refused to rename {dest}/SM_Crate_Lid_001 "
+        f"to {dest}/SM_Crate_Lid"
+    )
+    assert dest + "/SM_Crate_Lid_001" in world.assets
+    assert dest + "/SM_Crate_Lid" not in world.assets
+
+
+def test_a_refused_part_rename_raises_import_ue_failed(tmp_path: Path) -> None:
+    # AC1: import_variant raises import_ue.failed, and its message carries the refused rename.
+    dest = DESKTOP_DEST
+    world, folder, report = _lid_import_case(tmp_path)
+    world.refused_renames.add(dest + "/SM_Crate_Lid_001")
+
+    with pytest.raises(PipelineError) as raised:
+        run_import(world, folder, "desktop", report)
+
+    assert raised.value.code == "import_ue.failed"
+    assert (
+        f"rename_asset refused to rename {dest}/SM_Crate_Lid_001 to {dest}/SM_Crate_Lid"
+        in raised.value.message
+    )
+
+
+def test_a_refused_consolidation_is_reported_and_redirects_nothing(tmp_path: Path) -> None:
+    # AC2, FR1: SM_Crate_Lid exists, and UE refuses to consolidate it into the new mesh. The code
+    # reports both paths, and the fake leaves the redirect table empty.
+    dest = DESKTOP_DEST
+    world, folder, report = _lid_reimport_case(tmp_path)
+    world.refused_consolidations.add(dest + "/SM_Crate_Lid")
+    code = build_import_code(str(folder), dest, "Crate", report)
+
+    result = run_import_code(code, world)
+
+    assert result["ok"] is False
+    assert result["error"] == (
+        f"RuntimeError: consolidate_assets refused to merge {dest}/SM_Crate_Lid "
+        f"into {dest}/SM_Crate_Lid_001"
+    )
+    assert world.redirects == {}
+
+
+def test_a_refused_consolidation_raises_import_ue_failed(tmp_path: Path) -> None:
+    # AC2: import_variant raises import_ue.failed, and its message names the mesh and the target.
+    dest = DESKTOP_DEST
+    world, folder, report = _lid_reimport_case(tmp_path)
+    world.refused_consolidations.add(dest + "/SM_Crate_Lid")
+
+    with pytest.raises(PipelineError) as raised:
+        run_import(world, folder, "desktop", report)
+
+    assert raised.value.code == "import_ue.failed"
+    assert (
+        f"consolidate_assets refused to merge {dest}/SM_Crate_Lid into {dest}/SM_Crate_Lid_001"
+        in raised.value.message
+    )
+
+
+def test_a_refused_physics_asset_rename_names_the_created_and_expected_paths(
+    tmp_path: Path,
+) -> None:
+    # AC3, FR1: UE creates the physics asset in Physics/ and refuses to move it to the Desktop
+    # folder. The error names the created path and the expected SM_Crate_PhysicsAsset path.
+    dest = DESKTOP_DEST
+    world, folder, report = stage(
+        tmp_path, "desktop", part("desktop", "SM_Crate", BIG_LOW, BIG_HIGH), armature=True
+    )
+    world.physics_folder = dest + "/Physics"
+    world.refused_renames.add(dest + "/Physics/SM_Crate_PhysicsAsset")
+    code = build_import_code(str(folder), dest, "Crate", report)
+
+    result = run_import_code(code, world)
+
+    assert result["ok"] is False
+    assert result["error"] == (
+        f"RuntimeError: rename_asset refused to rename {dest}/Physics/SM_Crate_PhysicsAsset "
+        f"to {dest}/SM_Crate_PhysicsAsset"
+    )
+    assert dest + "/SM_Crate_PhysicsAsset" not in world.assets
+
+
+def test_a_reimport_with_no_refusals_keeps_the_success_result(tmp_path: Path) -> None:
+    # AC4: with every rename and consolidation succeeding, the re-import is as #145 left it: ok,
+    # the new bounds, one redirect from the old SM_Crate_Lid, and the same saved paths.
+    dest = DESKTOP_DEST
+    world, folder, report = _lid_reimport_case(tmp_path)
+
+    result = run_import(world, folder, "desktop", report)
+
+    assert result["ok"] is True
+    assert sorted(result["static_meshes"]) == ["SM_Crate", "SM_Crate_Lid"]
+    assert result["static_meshes"]["SM_Crate_Lid"]["bounds"] == box(100.0)
+    assert world.saved[dest + "/SM_Crate_Lid"] == box(100.0)
+    assert world.static_mesh_paths() == [dest + "/SM_Crate", dest + "/SM_Crate_Lid"]
+    assert world.redirects == {dest + "/SM_Crate_Lid": dest + "/SM_Crate_Lid_001"}
+    assert sorted(world.saved) == [dest + "/SM_Crate", dest + "/SM_Crate_Lid"]

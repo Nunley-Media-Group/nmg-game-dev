@@ -20,10 +20,24 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `finalize_asset` | Either `collection` and `export_root`, or `requests` (a batch, exclusive with `collection`). Optional: `category`, `asset_class`, `blend`, `budgets_path`, `force`, `wait_seconds`, `fail_fast`, `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | `{"job_id", "status"}`, plus `result` (a batch's result is `result.batch`) when the job finishes within `wait_seconds`, or `error` when it fails |
+| `finalize_asset` | Either `collection` and `export_root`, or `requests` (a batch, exclusive with `collection`). Optional: `category`, `asset_class`, `blend`, `budgets_path`, `material_variants_path`, `force`, `wait_seconds`, `fail_fast`, `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | `{"job_id", "status"}`, plus `result` (a batch's result is `result.batch`) when the job finishes within `wait_seconds`, or `error` when it fails |
 | `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` for one collection, plus `wait_for_lock`, `lock_wait_seconds`, `pie_mode`, `pie_wait_seconds` | The same shape as `finalize_asset`, for one step |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?}` |
+| `list_material_variants` | `category`, `collection` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants or is not in Content |
 | `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop` | The audio import result. See [elevenlabs.md](elevenlabs.md) |
+
+`material_variants_path` names the asset's `<Name>.material-variants.json` declaration. Without it, a
+`--blend` run uses the file beside the blend when one exists. A session run has no blend, so it declares
+no material variants unless the path is given. In a batch, each `requests` entry sets its own
+`material_variants_path`; the top-level parameter applies to one collection only. A path that does not
+exist returns `finalize.material_variants_not_found`. The format and the rules are in `docs/asset-contract.md` section 4.
+Each variant's `import_ue` result lists the imported instances in `material_variants`, one entry per
+instance, and names any variant parameter the master material lacks in `warnings`.
+
+`list_material_variants` reads the `nmg.*` metadata tags that finalize writes on each variant instance in
+`/Game/<Category>/<Name>/Desktop` and `/Game/<Category>/<Name>/Mobile`. Each row gives the variant's
+material slot and its instance path in each folder, or `null` for a folder that does not hold it. An
+unreachable Unreal MCP endpoint returns `mcp.unreal.unreachable` in the `error` object.
 
 `wait_seconds` is clamped to 0–150. A value of 0 returns the job id at once. `get_finalize_job`
 reports `state` as `queued`, `waiting`, `running`, `succeeded`, or `failed`, and `progress` as a number
@@ -41,11 +55,19 @@ logs to stderr only, because stdout is the MCP channel.
 ```text
 python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue} \
   (--collection Crate [--collection Barrel ...] | --batch FILE) --export-root <dir> \
-  [--category Props] [--class standard_prop] [--blend B] [--budgets P] [--device GPU|CPU] \
-  [--force] [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
+  [--category Props] [--class standard_prop] [--blend B] [--budgets P] [--material-variants P] \
+  [--device GPU|CPU] [--force] [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] \
+  [--pie-wait-limit S] [--json]
+
+python -m nmg_game_dev.finalize material-variants --category Props --collection Crate [--json]
 ```
 
 `--export-root` is required with `--collection`. A `--batch` entry may set its own.
+`--material-variants` applies to a single `--collection`; a `--batch` entry sets `material_variants_path`.
+
+`material-variants` prints the rows that `list_material_variants` returns, one line per variant, or the
+JSON array with `--json`. It needs the Unreal MCP endpoint, and it exits `2` when that endpoint is
+unreachable.
 
 | Exit | Meaning |
 |------|---------|
@@ -160,6 +182,7 @@ Every entry point takes one `FinalizeRequest`:
 | `export_root` | Folder that receives `<Category>/<Name>/Desktop/` and `<Category>/<Name>/Mobile/`. |
 | `blend` | Optional saved `.blend` to finalize instead of the open session. |
 | `budgets_path` | Optional `nmg-budgets.json` with budget overrides. |
+| `material_variants_path` | Optional `<Name>.material-variants.json`. Found beside `blend` when omitted (see the tools section). |
 | `device` | `GPU` (default) or `CPU` for the bake. |
 
 ## Backlog fallback
@@ -229,7 +252,9 @@ Each step has a content-addressed cache key:
   after that. The asset hash covers the mesh, materials, images, and transforms of `<Name>` and its
   Mobile collection.
 - `settings_hash` covers the asset class, the resolved budget, the device (bake only), the export
-  root (export and import only), the category, and the step version.
+  root (export and import only), the category, and the step version. `validate` and `export` also cover
+  the material-variants declaration and the bytes of each base-colour texture it names, so editing a
+  variant reruns those two steps and leaves `bake` and `variants` cached.
 
 An alias index under `runs/` maps the asset hash to each step's key. A rerun with no change finds
 every step in the cache, reports `cache_hit: true` for each, and skips `import_ue`. Load-back is
@@ -273,7 +298,10 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `finalize.invalid_request` | `category` or `asset_class` is omitted, and no asset entry in `docs/design/backlog.json` supplies it. The message names the argument and the backlog path. | Pass the argument, or add the asset's design doc, run `python -m nmg_game_dev.design sync`, then rerun. |
 | `finalize.blender_not_found` | No Blender executable at `BLENDER_BIN`, `BLENDER_APP`, or `/Applications/Blender.app`. | Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun. |
 | `finalize.collection_not_found` | The session, or `--blend`, has no collection named `<Name>`. | Check that the collection name matches `--collection` and is PascalCase. |
-| `quality.contract_failed` | A contract report failed. Its findings name each rule and target. | Fix each finding in Blender, using `docs/asset-contract.md`, then rerun. |
+| `quality.contract_failed` | A contract report failed. Its findings name each rule and target. A `material_variant.*` finding names the variant and the rule. | Fix each finding in Blender, or in `<Name>.material-variants.json`, using `docs/asset-contract.md`, then rerun. |
+| `finalize.material_variants_not_found` | The `material_variants_path` does not exist. | Pass the path of an existing declaration, or omit it to use the one beside the `.blend`. |
+| `validate.material_variant.declaration_invalid` | The material-variants file is not valid JSON, or does not match the format in `docs/asset-contract.md` section 4. | Fix the file, then rerun. |
+| `finalize.material_variants_failed` | Unreal could not list the material variants. The UE error is in the message. | Confirm the editor is idle and the asset is in Content, then rerun `list_material_variants`. |
 | `quality.reimport_mismatch` | An exported FBX re-imported differently from its pre-export report. | Read the re-import report in the job directory, fix the export cause, then rerun. |
 | `bake.texture.bake_failed` | A texture bake failed. | Read `blender-bake.log` and fix the material it names, then rerun. |
 | `variants.<code>` | Variant generation failed. The code names the cause. | Read the message, fix the mesh or material it names, then rerun. |

@@ -1,10 +1,13 @@
-"""Command line for the finalize pipeline (#69, #149).
+"""Command line for the finalize pipeline (#69, #148, #149).
 
     python -m nmg_game_dev.finalize {all,validate,bake,variants,export,reimport,import_ue}
         (--collection N [--collection M ...] | --batch FILE)
-        [--category C] [--class K] [--export-root R] [--blend B] [--budgets P] [--device GPU|CPU]
-        [--force] [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S]
-        [--json]
+        [--category C] [--class K] [--export-root R] [--blend B] [--budgets P]
+        [--material-variants P] [--device GPU|CPU] [--force] [--fail-fast]
+        [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
+
+    python -m nmg_game_dev.finalize material-variants --category C --collection N [--json]
+        (lists the material variants Unreal holds for the asset, #148)
 
     python -m nmg_game_dev.finalize run-job <job_dir>        (internal: the background job body)
 
@@ -33,7 +36,9 @@ from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import DEFAULT_PIE_WAIT_SECONDS
 from nmg_game_dev.pipeline.steps import STEP_ORDER
+from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
+from .mcp_tools import list_material_variants
 from .service import (
     FinalizeService,
     MissingArgumentError,
@@ -44,6 +49,7 @@ from .service import (
 )
 
 STEP_COMMANDS: Final = ("all", *STEP_ORDER)
+LIST_VARIANTS_COMMAND: Final = "material-variants"
 EXIT_OK: Final = 0
 EXIT_FAILED: Final = 1
 EXIT_PREREQUISITE: Final = 2
@@ -58,6 +64,13 @@ def build_parser() -> argparse.ArgumentParser:
     for name in STEP_COMMANDS:
         step = commands.add_parser(name, help=_STEP_HELP.get(name, "Run every step (default)."))
         _add_asset_arguments(step)
+    listing = commands.add_parser(
+        LIST_VARIANTS_COMMAND,
+        help="List the material variants Unreal holds for a finalized asset.",
+    )
+    listing.add_argument("--category", required=True, help="Content category, e.g. Props.")
+    listing.add_argument("--collection", required=True, help="Asset name, e.g. Crate.")
+    listing.add_argument("--json", action="store_true", help="Print the rows as JSON on stdout.")
     run_job = commands.add_parser(
         "run-job", help="Internal: run a job directory in the background."
     )
@@ -107,6 +120,12 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--budgets", help="Budget overrides file. Defaults to nmg-budgets.json.")
     parser.add_argument("--device", choices=("GPU", "CPU"), help="Bake device. Defaults to GPU.")
     parser.add_argument(
+        "--material-variants",
+        dest="material_variants",
+        help="Material-variants declaration. Defaults to <collection>.material-variants.json "
+        "beside --blend. One collection only; a --batch entry sets material_variants_path.",
+    )
+    parser.add_argument(
         "--force", action="store_true", help="Rerun every step, ignoring the cache."
     )
     parser.add_argument("--json", action="store_true", help="Print the result as JSON on stdout.")
@@ -148,8 +167,13 @@ def main(
     service: FinalizeService | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    unreal_client: UnrealPythonClient | None = None,
 ) -> int:
-    """Run the command and return its exit code."""
+    """Run the command and return its exit code.
+
+    ``unreal_client`` replaces the Unreal MCP connection for ``material-variants``, so tests can
+    run the command without an editor.
+    """
     out = stdout if stdout is not None else sys.stdout
     err = stderr if stderr is not None else sys.stderr
     parser = build_parser()
@@ -159,14 +183,23 @@ def main(
         status = jobs.run_job(Path(args.job_dir))
         return EXIT_OK if status.get("state") == "succeeded" else EXIT_FAILED
 
+    if args.command == LIST_VARIANTS_COMMAND:
+        return _list_variants(args, out, err, unreal_client)
+
     if args.collection is not None and args.export_root is None:
         parser.error("--export-root is required with --collection")
     if args.wait_limit is not None and not args.wait:
         parser.error("--wait-limit needs --wait")
+    is_batch = args.batch is not None or len(args.collection) > 1
+    if is_batch and args.material_variants is not None:
+        parser.error(
+            "--material-variants applies to one --collection; set material_variants_path in "
+            "each --batch entry"
+        )
 
     steps = STEP_ORDER if args.command == "all" else (args.command,)
     active = service if service is not None else FinalizeService()
-    if args.batch is not None or len(args.collection) > 1:
+    if is_batch:
         return _run_batch_command(args, steps, active, out, err)
     return _run_single_command(args, steps, active, out, err)
 
@@ -189,9 +222,12 @@ def _run_single_command(
             device=args.device or "GPU",
             pie_mode=args.pie,
             pie_wait_seconds=args.pie_wait_limit,
+            material_variants_path=args.material_variants,
         )
     except MissingArgumentError as error:
         return _report_error(error.payload(), args.json, out, err)
+    except PipelineError as error:
+        return _report_error(error_dict(error), args.json, out, err)
     except ValidationError as error:
         return _report_error(
             {
@@ -305,6 +341,32 @@ def _load_batch_file(path: Path) -> list[object]:
             stage="finalize",
         )
     return list(data)
+
+
+def _list_variants(
+    args: argparse.Namespace,
+    out: TextIO,
+    err: TextIO,
+    unreal_client: UnrealPythonClient | None,
+) -> int:
+    rows = list_material_variants(
+        category=args.category,
+        collection=args.collection,
+        client=unreal_client,
+    )
+    if isinstance(rows, dict):
+        return _report_error(rows["error"], args.json, out, err)
+    if args.json:
+        out.write(json.dumps(rows, indent=2, sort_keys=True) + "\n")
+        return EXIT_OK
+    if not rows:
+        out.write(f"{args.collection} has no material variants in Unreal.\n")
+    for row in rows:
+        out.write(
+            f"{row['name']}  {row['material']}  Desktop: {row['desktop'] or '-'}  "
+            f"Mobile: {row['mobile'] or '-'}\n"
+        )
+    return EXIT_OK
 
 
 def _print_success(status: dict[str, Any], as_json: bool, out: TextIO) -> None:

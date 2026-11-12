@@ -13,11 +13,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from nmg_game_dev.texture.deps import DepsProbe, probe_missing, require_dependencies
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.paths import install_command, weights_dir
 from nmg_game_dev.texture.registry import BackendSpec
 
-Availability = Literal["available", "not_installed", "unsupported_platform", "insufficient_memory"]
+Availability = Literal[
+    "available",
+    "not_installed",
+    "unsupported_platform",
+    "insufficient_memory",
+    "dependencies_missing",
+]
 
 RESERVE_ENV = "TEXTURE_GEN_BLENDER_RESERVE_GB"
 DEFAULT_RESERVE_GB = 8.0
@@ -84,8 +91,12 @@ def availability(
     facts: HardwareFacts,
     models_dir: Path | None,
     reserve: float,
+    deps_probe: DepsProbe | None = None,
 ) -> Availability:
-    """Report whether ``spec`` can run: hardware first, then memory, then installed weights."""
+    """Report whether ``spec`` can run: hardware, memory, installed weights, then Python modules.
+
+    ``dependencies_missing`` (#143 FR3) is reported only when the first three checks pass.
+    """
     if facts.system != "Darwin" or facts.machine != "arm64":
         return "unsupported_platform"
     if facts.total_ram_gb - reserve < spec.peak_memory_gb:
@@ -95,6 +106,8 @@ def availability(
     weights = weights_dir(spec, models_dir)
     if not weights.is_dir() or not any(weights.iterdir()):
         return "not_installed"
+    if probe_missing(deps_probe) is not None:
+        return "dependencies_missing"
     return "available"
 
 
@@ -103,10 +116,16 @@ def require_available(
     facts: HardwareFacts,
     models_dir: Path | None,
     reserve: float,
+    deps_probe: DepsProbe | None = None,
 ) -> None:
     """Raise the matching ``texture.*`` error unless ``spec`` is available."""
-    status = availability(spec, facts, models_dir, reserve)
+    status = availability(spec, facts, models_dir, reserve, deps_probe)
     if status == "available":
+        return
+    if status == "dependencies_missing":
+        # The same probe found a missing module, so require_dependencies raises the error that
+        # names it.
+        require_dependencies(deps_probe)
         return
     code = _CODES[status]
     if status == "not_installed":
