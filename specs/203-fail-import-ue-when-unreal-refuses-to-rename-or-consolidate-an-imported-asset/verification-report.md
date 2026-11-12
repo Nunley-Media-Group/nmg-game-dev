@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 510124d35dd8e58c9d2a9b3726c1fe2d04fbd770
+**Verification head**: 6c79eb3958d7dc4cc3da8789ba02f40283206097
 
 ---
 
@@ -32,6 +32,12 @@ text is unchanged, the messages are the specified strings, and nothing outside t
 The fake `unreal` module gained per-world refusal knobs that default to empty, so existing tests are
 unaffected. All 11 registered validations have results, and every applicable one passed.
 
+This is a re-verification after deliver's base reconciliation merged `origin/main` (`16fee52`,
+#186 material variants) into the branch as `6c79eb3`. The merge touched
+`src/nmg_game_dev/unreal/import_asset.py` (material-variant code) but not the three checked calls,
+and it added no new `rename_asset` or `consolidate_assets` call, so FR1 still holds. The full
+registered gate was rerun at the new head and passed.
+
 ---
 
 ## Issue Scope
@@ -56,12 +62,13 @@ unaffected. All 11 registered validations have results, and every applicable one
 
 - Runner: `sdlc-verify-steering.mjs --base main --controller-run-id 555007ec-c068-4948-934f-5696eb38b1ec`
 - Artifact: `.nmg-sdlc/verification/203.json`
-- Identity: head `510124d35dd8e58c9d2a9b3726c1fe2d04fbd770`, tree clean, steering `sha256:795f9897…`, spec `sha256:d48a2616…`
+- Identity: head `6c79eb3958d7dc4cc3da8789ba02f40283206097`, tree clean, steering `sha256:6db9aabc…`, spec `sha256:d48a2616…`
+- Generated: 2026-11-12T06:31:07Z (fresh run at the reconciled head; the earlier `510124d` results were not reused)
 - Coverage: declared 11, recorded 11, complete `true`; missing, duplicate and unknown all empty
 - Ceiling: none
 
 The local `main` ref lags `origin/main`, so the runner's changed-path set covered more than this
-issue's 14 changed files. More gates became applicable as a result (Blender headless, UE compile,
+issue's 7 changed files (337 paths against local `main`). More gates became applicable as a result (Blender headless, UE compile,
 MCP schema, shellcheck, plugin validate, plugin session smoke), and every one of them passed at this
 head. The extra coverage makes the gate stricter, not weaker.
 
@@ -71,15 +78,15 @@ head. The extra coverage makes the gate stricter, not weaker.
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | A failed rename fails the import | Pass | `src/nmg_game_dev/unreal/import_asset.py:401-402` raises `rename_asset refused to rename <object_path> to <target>`; `tests/unit/test_unreal_import.py:1244` (exact `NMG_RESULT` error, asset left in place), `:1263` (`import_ue.failed` with both paths); BDD SCN001 `tests/bdd/steps/test_import_ue_refused_rename.py:81` |
-| AC2 | A failed consolidate fails the import | Pass | `src/nmg_game_dev/unreal/import_asset.py:397-400` raises `consolidate_assets refused to merge <target> into <object_path>`; `tests/unit/test_unreal_import.py:1279` (exact error, `redirects` empty), `:1297` (`import_ue.failed` with both paths); BDD SCN002 `:108` |
-| AC3 | The physics-asset rename is checked | Pass | `src/nmg_game_dev/unreal/import_asset.py:314-315` raises before the existing `does_asset_exist(physics)` check, naming `created_path` and `physics`; `tests/unit/test_unreal_import.py:1313`; BDD SCN003 `:135` |
-| AC4 | Successful imports are unchanged | Pass | Call text `consolidate_assets(mesh, [_load(target)])` and `rename_asset(object_path, target)` retained; `test_a_reimport_with_no_refusals_keeps_the_success_result` asserts the #145 re-import result (bounds, saved paths, redirect); every pre-existing test in `tests/unit/test_unreal_import.py` passes under `repository.tests`; BDD SCN004 `:168` |
+| AC1 | A failed rename fails the import | Pass | `src/nmg_game_dev/unreal/import_asset.py:405-406` raises `rename_asset refused to rename <object_path> to <target>`; `tests/unit/test_unreal_import.py:1259` (exact `NMG_RESULT` error, asset left in place), `:1278` (`import_ue.failed` with both paths); BDD SCN001 `tests/bdd/steps/test_import_ue_refused_rename.py:80` |
+| AC2 | A failed consolidate fails the import | Pass | `src/nmg_game_dev/unreal/import_asset.py:400-404` raises `consolidate_assets refused to merge <target> into <object_path>`; `tests/unit/test_unreal_import.py:1294` (exact error, `redirects` empty), `:1312` (`import_ue.failed` with both paths); BDD SCN002 `:107` |
+| AC3 | The physics-asset rename is checked | Pass | `src/nmg_game_dev/unreal/import_asset.py:318-319` raises before the existing `does_asset_exist(physics)` check, naming `created_path` and `physics`; `tests/unit/test_unreal_import.py:1328`; BDD SCN003 `:134` |
+| AC4 | Successful imports are unchanged | Pass | Call text `consolidate_assets(mesh, [_load(target)])` and `rename_asset(object_path, target)` retained; `test_a_reimport_with_no_refusals_keeps_the_success_result` asserts the #145 re-import result (bounds, saved paths, redirect); every pre-existing test in `tests/unit/test_unreal_import.py` passes under `repository.tests`; `:1351`; BDD SCN004 `:167` |
 
 | FR | Requirement | Status | Evidence |
 |----|-------------|--------|----------|
-| FR1 | Every `rename_asset` / `consolidate_assets` call checks its result and raises with source and target | Pass | `grep` finds exactly three calls in `src/nmg_game_dev/unreal/`, all wrapped in `if not …: raise RuntimeError(…)` (lines 314, 397, 401) |
-| FR2 | Unit tests drive the generated code against the fake with rename/consolidate failure injection | Pass | `tests/unit/fake_unreal.py:342`, `:361`, `:466-467`; tests at `tests/unit/test_unreal_import.py:1244-1350` |
+| FR1 | Every `rename_asset` / `consolidate_assets` call checks its result and raises with source and target | Pass | `grep` over `src/`, `scripts/` and `plugins/` at `6c79eb3` finds exactly three calls, all in `src/nmg_game_dev/unreal/import_asset.py` and all wrapped in `if not …: raise RuntimeError(…)` (lines 318, 401, 405) |
+| FR2 | Unit tests drive the generated code against the fake with rename/consolidate failure injection | Pass | `tests/unit/fake_unreal.py:398`, `:417`, `:528-529`; tests at `tests/unit/test_unreal_import.py:1259-1365` |
 
 ---
 
@@ -164,7 +171,8 @@ the exact error text, the side effects (asset kept, no redirect) and the pipelin
 - Step definitions: Implemented (`tests/bdd/steps/test_import_ue_refused_rename.py`)
 - Unit tests: 6 new tests in `tests/unit/test_unreal_import.py`
 - Targeted run: `uv run pytest tests/unit/test_unreal_import.py tests/bdd/steps/test_import_ue_refused_rename.py -k "refus or consolidat or rename"`: 11 passed
-- Full suite: `repository.tests` passed
+- Full suite: `repository.tests` passed at `6c79eb3`: 1335 passed, 10 skipped
+- Headless Blender: `gate-blender-headless` 338 passed, 4 skipped
 
 ## Exercise Test Results
 
@@ -176,11 +184,11 @@ Not applicable. The change touches no `workflows/`, `agents/` or `skills/` files
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0 |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0 (1335 passed, 10 skipped) |
 | `repository.lint` | Pass | `uv run ruff check .` exited 0 |
 | `repository.format` | Pass | `uv run ruff format --check .` exited 0 |
 | `repository.types` | Pass | `uv run mypy src tests` exited 0 |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0 |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0 (338 passed, 4 skipped) |
 | `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
 | `gate-mcp-schema` | Pass | `scripts/validate-mcp-tools.py` exited 0 |
 | `gate-shellcheck` | Pass | `shellcheck -S style` exited 0 |
@@ -217,6 +225,7 @@ None.
 - None
 
 ### Long Term (Could)
+- Delivery note (not an AC finding): after the base merge, the #203 CHANGELOG line sits in `origin/main`'s already-released `## [0.21.6]` section, and main's own CHANGELOG has out-of-order release headings. Deliver's prepare-version owns placing this entry; it is outside this issue's ACs and this report's writable scope.
 - The spec leaves other ignored `EditorAssetLibrary` results, such as `save_loaded_asset`, out of scope. A follow-up issue could cover them.
 
 ---
@@ -230,7 +239,7 @@ None.
 | `tests/unit/test_unreal_import.py` | 0 | Six new tests |
 | `tests/bdd/features/import_ue_refused_rename.feature` | 0 | SCN001–SCN004 |
 | `tests/bdd/steps/test_import_ue_refused_rename.py` | 0 | Step bindings |
-| `CHANGELOG.md`, `VERSION`, plugin manifests | 0 | Patch bump to 0.21.6 for a `bug` fix |
+| `CHANGELOG.md`, `VERSION`, plugin manifests | 0 | After the base merge, `VERSION` and the manifests carry main's 0.23.0; deliver re-runs prepare-version |
 
 ---
 
@@ -238,4 +247,4 @@ None.
 
 **Ready for PR**
 
-Every AC, FR, task and scenario is implemented and tested, and every applicable registered gate passed at the verification head.
+Every AC, FR, task and scenario is implemented and tested, and every applicable registered gate passed at the reconciled verification head `6c79eb3958d7dc4cc3da8789ba02f40283206097`.
