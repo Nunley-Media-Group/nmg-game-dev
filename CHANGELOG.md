@@ -23,6 +23,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Fixed
 
+- Fail import_ue when Unreal refuses to rename or consolidate an imported asset (#203)
+
 - Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
 
 ### Changed

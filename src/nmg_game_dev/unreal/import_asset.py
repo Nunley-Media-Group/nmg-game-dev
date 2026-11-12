@@ -315,7 +315,8 @@ def _ensure_rig_assets(mesh):
         raise RuntimeError("create_physics_asset made no physics asset: " + physics)
     created_path = created.get_path_name().split(".")[0]
     if created_path != physics:
-        unreal.EditorAssetLibrary.rename_asset(created_path, physics)
+        if not unreal.EditorAssetLibrary.rename_asset(created_path, physics):
+            raise RuntimeError("rename_asset refused to rename " + created_path + " to " + physics)
     if not unreal.EditorAssetLibrary.does_asset_exist(physics):
         raise RuntimeError("physics asset missing after import: " + physics)
     physics_asset = _load(physics)
@@ -397,8 +398,12 @@ def _rename_to_parts(meshes):
             continue
         target = dest + "/" + export
         if unreal.EditorAssetLibrary.does_asset_exist(target):
-            unreal.EditorAssetLibrary.consolidate_assets(mesh, [_load(target)])
-        unreal.EditorAssetLibrary.rename_asset(object_path, target)
+            if not unreal.EditorAssetLibrary.consolidate_assets(mesh, [_load(target)]):
+                raise RuntimeError(
+                    "consolidate_assets refused to merge " + target + " into " + object_path
+                )
+        if not unreal.EditorAssetLibrary.rename_asset(object_path, target):
+            raise RuntimeError("rename_asset refused to rename " + object_path + " to " + target)
 
 
 def _bounds(mesh):
