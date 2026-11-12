@@ -6,11 +6,23 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
+
 ## [0.23.0] - 2026-11-12
 
 ### Changed
 
-- Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
+- Report sample locations in geometry contract findings (#153)
+## [0.21.6] - 2026-11-12
+
+### Fixed
+
+- Build the UE compile gate without UBA so parallel worktrees don't corrupt each other's objects (#202)
+
+### Changed
+
 - Make texture generation work from the plugin root and queue or batch texture jobs (#143)
 
 ## [0.22.0] - 2026-11-11

@@ -85,8 +85,25 @@ def _mesh(name: str, bm: Any) -> Any:
     return mesh
 
 
-def _normal_findings(geometry: Any, name: str, mesh: Any) -> list[dict[str, str]]:
+def _normal_findings(geometry: Any, name: str, mesh: Any) -> list[dict[str, Any]]:
     return [item for item in geometry.geometry_findings(name, mesh) if item["rule"] == NORMALS]
+
+
+def _summaries(findings: list[dict[str, Any]]) -> list[str]:
+    """Each finding's message without the #153 location suffix, checked against its count."""
+    summaries = []
+    for item in findings:
+        summary, _, location = item["message"].partition("; first at ")
+        assert location, item["message"]
+        assert f" has {item['count']} face(s) " in summary
+        summaries.append(summary)
+    return summaries
+
+
+def _face_index(bm: Any, face: Any) -> int:
+    """The index ``face`` keeps once ``bm`` is written to a mesh."""
+    bm.faces.index_update()
+    return int(face.index)
 
 
 def _add_box(bm: Any, lo: Vec, hi: Vec) -> list[Any]:
@@ -273,23 +290,19 @@ def test_scn003_reversed_wall_is_counted_once(geometry: Any) -> None:
     findings = _normal_findings(geometry, "Room", mesh)
     assert len(findings) == 1
     assert findings[0]["target"] == "Room"
-    assert findings[0]["message"] == "Room has 1 face(s) whose normals are inconsistent or inward."
+    assert _summaries(findings) == ["Room has 1 face(s) whose normals are inconsistent or inward"]
 
 
 def test_scn003_reversed_interior_grid_cell_is_counted_once(geometry: Any) -> None:
     mesh = _mesh("Ground", _ground_sheet(reversed_cell=(3, 3)).bm)
     findings = _normal_findings(geometry, "Ground", mesh)
-    assert [item["message"] for item in findings] == [
-        "Ground has 1 face(s) whose normals are inconsistent or inward."
-    ]
+    assert _summaries(findings) == ["Ground has 1 face(s) whose normals are inconsistent or inward"]
 
 
 def test_scn003_reversed_corner_grid_cell_is_counted_once(geometry: Any) -> None:
     mesh = _mesh("Ground", _ground_sheet(reversed_cell=(0, 7)).bm)
     findings = _normal_findings(geometry, "Ground", mesh)
-    assert [item["message"] for item in findings] == [
-        "Ground has 1 face(s) whose normals are inconsistent or inward."
-    ]
+    assert _summaries(findings) == ["Ground has 1 face(s) whose normals are inconsistent or inward"]
 
 
 # ---------------------------------------------------------------------------
@@ -309,11 +322,11 @@ def test_scn004_box_with_one_flipped_face_counts_one(geometry: Any, face_index: 
     bm = bmesh.new()
     faces = _add_box(bm, (0.0, 0.0, 0.0), (1.0, 2.0, 3.0))
     bmesh.ops.reverse_faces(bm, faces=[faces[face_index]])
+    flagged = _face_index(bm, faces[face_index])
     mesh = _mesh("Box", bm)
     findings = _normal_findings(geometry, "Box", mesh)
-    assert [item["message"] for item in findings] == [
-        "Box has 1 face(s) whose normals are inconsistent or inward."
-    ]
+    assert _summaries(findings) == ["Box has 1 face(s) whose normals are inconsistent or inward"]
+    assert [sample["index"] for sample in findings[0]["samples"]] == [flagged]
 
 
 def test_scn004_box_turned_inside_out_counts_six(geometry: Any) -> None:
@@ -322,9 +335,7 @@ def test_scn004_box_turned_inside_out_counts_six(geometry: Any) -> None:
     bmesh.ops.reverse_faces(bm, faces=faces)
     mesh = _mesh("Box", bm)
     findings = _normal_findings(geometry, "Box", mesh)
-    assert [item["message"] for item in findings] == [
-        "Box has 6 face(s) whose normals are inconsistent or inward."
-    ]
+    assert _summaries(findings) == ["Box has 6 face(s) whose normals are inconsistent or inward"]
 
 
 # ---------------------------------------------------------------------------
@@ -338,11 +349,11 @@ def test_scn005_exactly_the_flipped_face_of_one_box_is_counted(geometry: Any) ->
     bm.faces.new([bm.verts.new(co) for co in FLAGGED_FLOOR])
     faces = _add_box(bm, (10.0, 10.0, 0.0), (11.0, 11.0, 1.0))
     bmesh.ops.reverse_faces(bm, faces=[faces[2]])
+    flagged = _face_index(bm, faces[2])
     mesh = _mesh("Mixed", bm)
     findings = _normal_findings(geometry, "Mixed", mesh)
-    assert [item["message"] for item in findings] == [
-        "Mixed has 1 face(s) whose normals are inconsistent or inward."
-    ]
+    assert _summaries(findings) == ["Mixed has 1 face(s) whose normals are inconsistent or inward"]
+    assert [sample["index"] for sample in findings[0]["samples"]] == [flagged]
 
 
 # ---------------------------------------------------------------------------

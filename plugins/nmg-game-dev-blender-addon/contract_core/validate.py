@@ -357,8 +357,8 @@ def _mesh_findings(
     units: _CheckUnits,
     *,
     reduced: bool = False,
-) -> list[dict[str, str]]:
-    findings: list[dict[str, str]] = []
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
     meshes = [obj for obj in objects if obj.type == "MESH"]
     texel_check = asset_class == "environment_piece"
     overlap_check = not texel_check or reduced
@@ -370,7 +370,9 @@ def _mesh_findings(
         try:
             tris_out[obj.name] = triangle_count(copy)
             units.start(variant, "geometry", obj.name)
-            findings += geometry_findings(obj.name, copy)
+            findings += geometry_findings(
+                obj.name, copy, obj.matrix_world, [group.name for group in obj.vertex_groups]
+            )
             units.start(variant, uv_check, obj.name)
             findings += uv_findings(obj.name, copy, check_overlap=overlap_check)
             if texel_check:
