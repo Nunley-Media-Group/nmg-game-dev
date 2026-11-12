@@ -1,9 +1,9 @@
-"""AC1 and AC2 for #202: gate-ue-compile passes -NoUBA to Build.sh and documents why.
+"""AC1 to AC3 for #227: gate-ue-compile passes the default toolchain arguments to Build.sh.
 
-The provider test runs the real steering/extensions/ue-compile.mjs through node against a fake
-Build.sh that logs its arguments, so no engine build or Unreal Editor process starts. The provider
-returns incomplete off macOS, so that test is skipped elsewhere. The snippet test reads the
-checked-in Verification Gates row.
+The #202 flag -NoUBA is gone. The provider test runs the real steering/extensions/ue-compile.mjs
+through node against a fake Build.sh that logs its arguments, so no engine build or Unreal Editor
+process starts. The provider returns incomplete off macOS, so that test is skipped elsewhere. The
+snippet test reads the checked-in Verification Gates row.
 """
 
 from __future__ import annotations
@@ -37,7 +37,9 @@ exit 0
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="gate-ue-compile returns incomplete off macOS")
-def test_gate_passes_no_uba_to_build_sh(tmp_path: pathlib.Path, repo_root: pathlib.Path) -> None:
+def test_gate_passes_default_arguments_to_build_sh(
+    tmp_path: pathlib.Path, repo_root: pathlib.Path
+) -> None:
     ue_root = tmp_path / "UE_5.8"
     build_sh = ue_root / "Engine" / "Build" / "BatchFiles" / "Mac" / "Build.sh"
     build_sh.parent.mkdir(parents=True)
@@ -76,17 +78,17 @@ def test_gate_passes_no_uba_to_build_sh(tmp_path: pathlib.Path, repo_root: pathl
         "Development",
         f"-Project={project}",
         "-WaitMutex",
-        "-NoUBA",
     ]
     assert result["status"] == "passed"
     commands = [item for item in result["evidence"] if item["kind"] == "command"]
-    assert commands and "-NoUBA" in commands[0]["summary"]
+    assert commands and "-NoUBA" not in commands[0]["summary"]
 
 
-def test_documented_gate_row_shows_no_uba_and_why(repo_root: pathlib.Path) -> None:
+def test_documented_gate_row_shows_default_build(repo_root: pathlib.Path) -> None:
     snippet = (repo_root / "steering" / "snippets" / "project-tech.md").read_text(encoding="utf-8")
     rows = [line for line in snippet.splitlines() if line.startswith("| `gate-ue-compile` |")]
     assert len(rows) == 1
     row = rows[0]
-    assert "Build.sh DogfoodEditor Mac Development -WaitMutex -NoUBA" in row
-    assert "Unreal Build Accelerator" in row
+    assert "Build.sh DogfoodEditor Mac Development -WaitMutex" in row
+    for phrase in ("-NoUBA", "Unreal Build Accelerator", "parallel worktrees"):
+        assert phrase not in row

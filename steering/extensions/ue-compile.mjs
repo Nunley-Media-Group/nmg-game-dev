@@ -55,10 +55,7 @@ async function compile(request) {
   if (!existsSync(project)) return finish("incomplete", `project not found: ${project}`);
   const target = typeof config?.target === "string" ? config.target : "DogfoodEditor";
 
-  // -NoUBA turns off the Unreal Build Accelerator. UBA keeps one session and file cache per user, so
-  // concurrent builds from parallel worktrees corrupt each other's object files. With it off,
-  // UnrealBuildTool compiles locally into this checkout's own Intermediate/ folder.
-  const args = [target, "Mac", "Development", `-Project=${project}`, "-WaitMutex", "-NoUBA"];
+  const args = [target, "Mac", "Development", `-Project=${project}`, "-WaitMutex"];
   const output = await run(buildSh, args, { cwd: projectRoot, signal });
   const errors = `${output.stdout}\n${output.stderr}`.split("\n").filter((line) => ERROR_LINE.test(line)).slice(0, 60).join("\n");
   evidence.push({
