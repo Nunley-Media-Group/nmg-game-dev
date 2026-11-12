@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 0cabb159c5da7537f16927d733c386ee4a63c431
+**Verification head**: 543c631bbe3c129ab8bc812b888add3afc2c2c88
 
 ---
 
@@ -22,9 +22,9 @@
 | **Overall** | 4.5 |
 
 ### Implementation Status: Pass
-**Total Issues**: 4 (all low; none block delivery)
+**Total Issues**: 3 (all low; none block delivery)
 
-All six #142 acceptance criteria are met at head `0cabb15`. That head is the merge of `origin/main` (`50f43f3`) into the issue branch. The full registered gate ran again at this head. Coverage is complete: 11 declared, 11 recorded. 10 validations applied and passed, and 1 (`gate-ship-smoke`) did not apply. The ceiling is `null`.
+All six #142 acceptance criteria are met at head `543c631`. That head is the latest merge of `origin/main` into the issue branch (after #192, #201, #205, #207 landed). The full registered gate ran again at this head. Coverage is complete: 11 declared, 11 recorded. 10 validations applied and passed, and 1 (`gate-ship-smoke`) did not apply. The ceiling is `null`.
 
 The fix has three parts:
 
@@ -61,7 +61,7 @@ The fix has three parts:
 | AC3 | Re-running the bake does not accumulate suffixed images | Pass | `test_issue142_repeated_bake_leaves_no_suffixed_contract_image` checks for exactly one image per contract name, no `^T_Crate_Body_(BC|N|ORM)\.\d+$` name, and that `_Src2` exists after the second bake |
 | AC4 | Export names mesh datablocks after their objects | Pass | `variants_core/export.py` `_name_meshes` runs on the Desktop objects before the Desktop FBX. Desktop meshes move to temp names with their objects. `_name_meshes` then runs on the Mobile objects after `_unsuffixed`, which covers the static LOD group and the rigged per-LOD jobs (the same object list). Names are restored in reverse in `finally`. `tests/blender/test_variants.py::test_issue142_mesh_datablocks_export_under_their_object_names` re-imports the Desktop and Mobile FBX and asserts `obj.data.name == obj.name`, and that session names are unchanged. `tests/unit/test_unreal_import.py::test_build_import_code_expects_each_desktop_part_under_its_object_name` covers the import side |
 | AC5 | A mesh datablock shared between parts is a validate finding | Pass | `contract_core/validate.py` `_shared_mesh_findings` runs per variant. `naming.mesh_data` is not matched by any `_EXPORT_ONLY_RULES` prefix. `contract_core/report.py` has `RULES["naming.mesh_data"]` with the Make Single User > Object & Data remediation. `test_issue142_shared_mesh_data_is_one_naming_finding[True/False]` checks the target, both object names and the remediation |
-| AC6 | Existing behavior is preserved | Pass | `_free_contract_name` returns early when no image holds the name. `_name_meshes` skips meshes already named after their object. The new rule fires only on shared datablocks. All existing bake, variants and validate Blender tests pass (252 passed), as do 1129 unit and BDD tests |
+| AC6 | Existing behavior is preserved | Pass | `_free_contract_name` returns early when no image holds the name. `_name_meshes` skips meshes already named after their object. The new rule fires only on shared datablocks. All existing bake, variants and validate Blender tests pass (274 passed, 4 skipped), as do 1140 unit and BDD tests |
 
 ---
 
@@ -136,8 +136,8 @@ There are no new imports across cores. `export.py` reuses its own `_to_temp`. `v
 
 - Feature file: 6 scenarios, run as Blender headless tests, as `steering/tech.md` specifies for the Blender add-on layer
 - New tests: 5 Blender headless test runs and 1 unit test
-- `repository.tests`: 1129 passed, 9 skipped
-- `gate-blender-headless`: 252 passed
+- `repository.tests`: 1140 passed, 10 skipped
+- `gate-blender-headless`: 274 passed, 4 skipped
 
 ---
 
@@ -149,21 +149,21 @@ Not applicable. The branch changes no nmg-sdlc `workflows/` or `agents/`. Plugin
 
 ## Steering Doc Verification Gates
 
-Artifact: `.nmg-sdlc/verification/142.json` at head `0cabb159c5da7537f16927d733c386ee4a63c431` (tree clean). Coverage is complete (11/11) and the ceiling is `null`.
+Artifact: `.nmg-sdlc/verification/142.json` at head `543c631bbe3c129ab8bc812b888add3afc2c2c88` (tree clean). Coverage is complete (11/11) and the ceiling is `null`.
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1129 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1140 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: 332 files already formatted |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 210 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 252 passed |
-| `gate-ue-compile` | Pass | `DogfoodEditor` compiled against UE 5.8 |
+| `repository.format` | Pass | `uv run ruff format --check .`: 335 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 212 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 274 passed, 4 skipped (this checkout's add-on, verified by `_verify_addon_origin`) |
+| `gate-ue-compile` | Pass | `DogfoodEditor Mac Development` compiled against `/Users/Shared/Epic Games/UE_5.8` |
 | `gate-mcp-schema` | Pass | MCP tools match `tools.json` for every server |
 | `gate-shellcheck` | Pass | `shellcheck -S style` exited 0 |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
 | `plugin.validate` | Pass | `claude plugin validate .` passed, with warnings |
-| `plugin.session-smoke` | Pass | Plugin loaded with `--plugin-dir`; `nmg-game-dev:blender` connected |
+| `plugin.session-smoke` | Pass | Ephemeral project trusted, plugin loaded with `--plugin-dir`, `/mcp` list read; `nmg-game-dev:blender` connected |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
 
@@ -191,9 +191,8 @@ None.
 | Severity | Category | Location | Issue | Reason Not Fixed |
 |----------|----------|----------|-------|------------------|
 | Low | Testing | `tests/blender/test_variants.py` | The AC4 regression uses a parts asset, which exports without a Mobile LOD chain. LOD1 and LOD2 mesh naming and the rigged per-LOD files are covered by the code path (`_name_meshes(mobile_objects)` runs over every Mobile object before any Mobile FBX), not by a dedicated re-import assertion | Behavior is correct by construction. A follow-up test could add a rigged or LOD-chain case |
-| Low | Resource management | `tests/blender/_runner.py` `_install_addon_link` | `tempfile.mkdtemp` creates one private add-on link directory per run and never removes it | Test-only. It holds one symlink, and the OS clears it from the temp directory |
 | Low | Spec drift | `contract_core/validate.py` `_shared_mesh_findings` | The signature takes only `objects`, not the design's `(variant, objects)` | Behavior matches AC5; the variant is implicit in the per-variant call |
-| Low | Scope | `steering/extensions/plugin-session-smoke.mjs`, `tests/blender/_runner.py`, `tests/bdd/steps/test_scaffold.py` | The branch carries gate-infrastructure repairs that are not in the spec's Changes table: trust-dialog handling after `herdr agent start`, a per-checkout add-on link for headless Blender, and launcher timing isolated from the plugin scan | These were needed to get the registered gate green in a multi-lane host. They are self-contained and pass every gate |
+| Low | Scope | `steering/extensions/plugin-session-smoke.mjs`, `tests/blender/_runner.py`, `tests/bdd/steps/test_scaffold.py` | The branch carries gate-infrastructure repairs that are not in the spec's Changes table: trust-dialog handling after `herdr agent start`, a check that headless Blender imports this checkout's add-on, and launcher timing isolated from the plugin scan | These were needed to get the registered gate green in a multi-lane host. They are self-contained and pass every gate |
 
 ---
 
@@ -214,7 +213,7 @@ None.
 - [ ] Add a LOD-chain or rigged-Mobile case to the AC4 re-import test.
 
 ### Long Term (Could)
-- [ ] Clean up the `_runner.py` temp link directory at exit.
+- None.
 
 ---
 
@@ -229,7 +228,7 @@ None.
 | `docs/asset-contract.md` | 0 | FR7 |
 | `tests/blender/test_bake_unique.py`, `test_variants.py`, `test_contract_validate.py` | 1 | LOD-chain coverage gap |
 | `tests/unit/test_unreal_import.py` | 0 | T006 |
-| `tests/blender/_runner.py`, `tests/bdd/steps/test_scaffold.py`, `steering/extensions/plugin-session-smoke.mjs` | 2 | Gate-infrastructure repairs |
+| `tests/blender/_runner.py`, `tests/bdd/steps/test_scaffold.py`, `steering/extensions/plugin-session-smoke.mjs` | 1 | Gate-infrastructure repairs (after the #192 merge, `_runner.py` adds only `_verify_addon_origin`) |
 | `CHANGELOG.md` | 0 | Entry under `[Unreleased]` / Fixed |
 
 ---
@@ -238,4 +237,4 @@ None.
 
 **Ready for PR**
 
-Every delivery AC, FR and task is implemented and tested. The full registered gate passed at the exact head `0cabb159c5da7537f16927d733c386ee4a63c431`, with complete coverage and no ceiling. The remaining items are low-severity follow-ups.
+Every delivery AC, FR and task is implemented and tested. The full registered gate passed at the exact head `543c631bbe3c129ab8bc812b888add3afc2c2c88`, with complete coverage and no ceiling. The remaining items are low-severity follow-ups.
