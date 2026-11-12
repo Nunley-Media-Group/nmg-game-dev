@@ -4,7 +4,7 @@
 **Issue**: #153
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 9719c863edcaf4798a210614009bae2fa2ecf3a4
+**Verification head**: 43773c24f1ae53db091b3641ea2860e932e664d3
 
 ---
 
@@ -23,7 +23,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 2 (both Low, not blocking)
 
-`geometry_findings` now collects the offending elements for each of the four geometry rules. Each finding gets `count` (the full total) and `samples`: up to 5 lowest-index elements, each with its world-space position and vertex-group names, plus `coincides_with` for duplicates. Both callers, contract validation and the spatial inspector, pass the object's world matrix and vertex-group names, and they keep deform layers on the evaluated copy. Detection and `passed` are unchanged. All 11 registered validations recorded terminal results at the verification head: 8 passed and 3 did not apply to this change.
+`geometry_findings` now collects the offending elements for each of the four geometry rules. Each finding gets `count` (the full total) and `samples`: up to 5 lowest-index elements, each with its world-space position and vertex-group names, plus `coincides_with` for duplicates. Both callers, contract validation and the spatial inspector, pass the object's world matrix and vertex-group names, and they keep deform layers on the evaluated copy. Detection and `passed` are unchanged. This re-verification runs at the head that merged `origin/main` (#144's per-island normals rule, #151's texel work) into the branch. The merge keeps #144's normals check, and the check now returns the flagged faces, so #153 can count and sample them. All 11 registered validations recorded terminal results at the verification head: 10 passed and 1 did not apply to this change.
 
 ---
 
@@ -47,8 +47,8 @@
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/153.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 7a0d8581-b327-4498-8e8d-96b3b97f3add`)
-- Identity: head `9719c863edcaf4798a210614009bae2fa2ecf3a4`, tree clean, spec hash `sha256:d37c7240…`, steering hash `sha256:119992c8…`
+- Artifact: `.nmg-sdlc/verification/153.json` (from `sdlc-verify-steering.mjs --base main --controller-run-id 8167b7b1-ba01-4d97-bc5a-bde0668d0747`, generated 2026-11-12T04:32:34Z)
+- Identity: head `43773c24f1ae53db091b3641ea2860e932e664d3`, tree clean, spec hash `sha256:d37c7240…`, steering hash `sha256:795f9897…`
 - Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown results
 - Ceiling: none
 
@@ -59,7 +59,7 @@
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
 | AC1 | The duplicate-vertex finding locates duplicates (world position, index, `coincides_with`, both boxes' groups) | Pass | `contract_core/geometry.py` `_duplicate_sample` (the pairs come from `find_doubles` `targetmap`, sorted by duplicate index; the groups are the union of both vertices). `tests/blender/test_contract_validate.py::test_scn001_duplicate_samples_locate_the_shared_vertex` uses a translated, rotated, and scaled object: count 1, index 8, `coincides_with` 7, `["Lower", "Upper"]`, position = `matrix_world @ co` within 1e-5 |
-| AC2 | The zero-area and normals findings give face index, world face center, and groups | Pass | `_face_sample` uses `matrix_world @ face.calc_center_median()` and the groups of the face's vertices. `_flipped_faces` now returns the face list. `test_scn002_face_samples_locate_zero_area_and_flipped_faces` |
+| AC2 | The zero-area and normals findings give face index, world face center, and groups | Pass | `_face_sample` uses `matrix_world @ face.calc_center_median()` and the groups of the face's vertices. After the merge with #144, `_normal_violations` returns the flagged faces sorted by index: each open island's minority faces from `_winding_violations` and each closed island's turned faces from `_outward_violations`. The count is the list's length, so the totals match #144's. `test_scn002_face_samples_locate_zero_area_and_flipped_faces` |
 | AC3 | The loose-vertex finding locates the vertices | Pass | `_vertex_sample`; `test_scn003_loose_samples_locate_the_vertices` (indices [8, 9], world positions, `["Stray"]`) |
 | AC4 | Samples are capped at 5 and deterministic | Pass | `SAMPLE_LIMIT = 5`. Offending lists follow bmesh index order and duplicate pairs are sorted explicitly. `test_scn004_samples_are_capped_at_the_five_lowest_indices`: count 7, samples [8..12], identical across two runs |
 | AC5 | Elements outside any vertex group get an empty group list | Pass | `_group_names` returns `[]` when the mesh has no deform layer. `test_scn005_samples_without_vertex_groups_have_empty_group_lists` also checks that the full key set is present |
@@ -85,7 +85,7 @@
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
 | T001 | Located samples in geometry findings | Complete | `contract_core/geometry.py`. Positional `(name, mesh)` calls still work because the new parameters default to identity and no groups |
-| T002 | Pass world matrix and group names from both callers | Complete | `validate.py::_mesh_findings` and `_evaluated_copy`, `spatial.py::_measure`. Both copies use `preserve_all_data_layers=True`, and annotations widen to `dict[str, Any]` |
+| T002 | Pass world matrix and group names from both callers | Complete | `validate.py::_mesh_findings`, `texel.evaluated_copy` (which replaced #153's `_evaluated_copy` in the merge with #151), and `spatial.py::_measure`. Both copies use `preserve_all_data_layers=True`, and annotations widen to `dict[str, Any]` |
 | T003 | Documentation | Complete | `docs/skills/model-asset.md` |
 | T004 | Blender tests | Complete | SCN001–SCN005 and SCN007 are in `tests/blender/test_contract_validate.py`; SCN006 and the inspector's SCN007 are in `tests/blender/test_inspect_spatial.py`. All ran under `gate-blender-headless` (headless background Blender, no live session) |
 
@@ -158,8 +158,9 @@ No external input, credentials, network, file I/O, or shell. The new data comes 
 ### Coverage Summary
 
 - Feature file: `specs/153-…/feature.gherkin`, 7 scenarios, all tagged and mapped to headless Blender tests (the tech steering puts Blender add-on acceptance tests in `tests/blender/`)
-- Blender headless suite: 197 passed (`gate-blender-headless`)
-- Python unit and BDD suites: 969 passed, 9 skipped (`repository.tests`)
+- Blender headless suite: 277 passed, 4 skipped (`gate-blender-headless`). The 4 skips are `tests/blender/test_coexistence.py` host-add-on tests (`requires_host`), which do not touch #153
+- #144's normals tests in `tests/blender/test_geometry_normals.py` still pass. They now compare each message without the location suffix, check that the count is in the message, and check the flagged face's sample index
+- Python unit and BDD suites: 1139 passed, 10 skipped (`repository.tests`)
 - No live Blender or Unreal editor was used
 
 ---
@@ -174,19 +175,19 @@ Exercise testing was not applicable. The change touches no nmg-sdlc plugin `work
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 969 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1139 passed, 10 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .` exited 0 |
-| `repository.types` | Pass | `uv run mypy src tests`: no issues in 197 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 197 passed |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8: Result: Succeeded (triggered by the `.uplugin` version bump) |
-| `gate-mcp-schema` | Not applicable | No changed paths match `mcp-servers/**` or `scripts/validate-mcp-tools.py` |
-| `gate-shellcheck` | Not applicable | No changed `scripts/**.sh` |
+| `repository.format` | Pass | `uv run ruff format --check .`: 335 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues found in 212 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 277 passed, 4 skipped (host-only coexistence tests) |
+| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8: compiled `DogfoodEditor` against `/Users/Shared/Epic Games/UE_5.8`. The `.uplugin` version bump makes this gate apply |
+| `gate-mcp-schema` | Pass | `uv run python scripts/validate-mcp-tools.py`: MCP tools match tools.json for every server. It applies because the runner diffs against local `main`, which is behind `origin/main`, so other lanes' merged MCP changes count as changed paths |
+| `gate-shellcheck` | Pass | `find scripts -name *.sh -exec shellcheck -S style {} +` exited 0. It applies for the same base-ref reason |
 | `gate-ship-smoke` | Not applicable | No changed ship paths |
-| `plugin.validate` | Pass | `claude plugin validate .`: Validation passed (non-blocking warnings only) |
+| `plugin.validate` | Pass | `claude plugin validate .` exited 0. Its only warning is the untracked lane-local `CLAUDE.local.md` |
 | `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir`; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 8/8 applicable gates passed, 0 failed, 0 incomplete; 3 not applicable. Coverage complete (11/11 recorded).
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete; 1 not applicable (`gate-ship-smoke`). Coverage complete (11/11 recorded).
 
 ---
 
@@ -255,7 +256,9 @@ None.
 | File | Issues | Notes |
 |------|--------|-------|
 | `plugins/nmg-game-dev-blender-addon/contract_core/geometry.py` | 1 (Low) | Core change |
-| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Caller and evaluated copy keep their deform layers |
+| `plugins/nmg-game-dev-blender-addon/contract_core/validate.py` | 0 | Caller passes the world matrix and group names |
+| `plugins/nmg-game-dev-blender-addon/contract_core/texel.py` | 0 | `evaluated_copy` keeps all data layers |
+| `tests/blender/test_geometry_normals.py` | 0 | #144's tests adjusted for the location suffix and the sample indices |
 | `plugins/nmg-game-dev-blender-addon/inspect_core/spatial.py` | 0 | Caller and evaluated copy keep their deform layers |
 | `docs/skills/model-asset.md` | 0 | FR7 |
 | `tests/blender/test_contract_validate.py` | 1 (Low) | SCN001–SCN005, SCN007 |
@@ -268,4 +271,4 @@ None.
 
 **Ready for PR**
 
-All 7 acceptance criteria, 7 functional requirements, and 4 tasks are implemented and covered by passing headless Blender tests. Every applicable registered gate passed at head `9719c863edcaf4798a210614009bae2fa2ecf3a4` with complete coverage. The two remaining findings are Low and do not block.
+All 7 acceptance criteria, 7 functional requirements, and 4 tasks are implemented and covered by passing headless Blender tests. Every applicable registered gate passed at head `43773c24f1ae53db091b3641ea2860e932e664d3`, after the merge with `origin/main`, with complete coverage. The two remaining findings are Low and do not block.
