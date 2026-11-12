@@ -6,11 +6,17 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
-## [0.25.2] - 2026-11-12
+## [0.25.3] - 2026-11-12
 
 ### Fixed
 
 - Build the UE compile gate with the default toolchain again (drop -NoUBA) (#227)
+
+## [0.25.2] - 2026-11-12
+
+### Fixed
+
+- Restore the two-second return bound in the launcher detach scenarios (#226)
 
 ## [0.25.1] - 2026-11-12
 
