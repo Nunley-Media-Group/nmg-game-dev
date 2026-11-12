@@ -6,6 +6,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-12
 ## [0.24.0] - 2026-11-12
 ## [0.22.1] - 2026-11-12
 
@@ -17,6 +18,9 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Let one finalized asset declare several material variants (#148)
 
+### Fixed
+
+- Rebuild the committed M_NmgORM master material headlessly so it carries the Tint parameter (#204)
 ### Changed
 
 - Add a reduce-to-budget step that bakes a generated high-poly asset onto an in-budget mesh (#139)
