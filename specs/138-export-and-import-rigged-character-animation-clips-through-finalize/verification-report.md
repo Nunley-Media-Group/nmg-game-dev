@@ -2,10 +2,9 @@
 
 **Date**: 2026-11-12
 **Issue**: #138
-**Reviewer**: Claude (nmg-sdlc verify worker, architecture-reviewer)
-**Scope**: Implementation verification against spec
-
-**Verification head**: 40f634b42735b071fe1ee897cddbd62b3669f627
+**Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify stage)
+**Scope**: Implementation verification against the approved spec, re-run after merging `origin/main` (#217, #218, #219) into the issue branch
+**Verification head**: fd3235ff7ff3934dfc00b5a4feba7f288c735f6d
 
 ---
 
@@ -18,32 +17,18 @@
 | Security | 5 |
 | Performance | 4 |
 | Testability | 5 |
-| Error Handling | 4 |
-| **Overall** | 4.5 |
+| Error Handling | 5 |
+| **Overall** | 4.7 |
 
 ### Implementation Status: Pass
-**Total Issues**: 5 (all Low, none blocking)
+**Total Issues**: 2 (both Low, non-blocking)
 
-This is a fresh verification at `40f634b`, the merge of `origin/main` (through `16fee52`, #186) into
-the #138 branch. Since the last verified head (`d2e8cf2`) main brought in #186 (material variants),
-#214 (built-in clip library), #192 (per-worktree Blender test runner), and several other fixes.
-The #138 core files (`pipeline/anims.py`, `unreal/import_anims.py`, `finalize_core/anims.py`,
-`pipeline/result.py`) are unchanged by the merge. The merge resolutions were reviewed:
-
-- `FinalizeRequest`, `build_request`, the CLI, the MCP tools and server, and `tools.json` carry both
-  `material_variants_path` (#148/#186) and `compatible_with` (#138).
-- `_STEP_VERSION` stays `"4"`. Both sides bumped it from 3; the mesh steps' meaning did not change, and
-  the per-clip keys carry the version too, so no extra bump is needed.
-- `engine.py` keeps the per-clip branch beside #186's material-variant import wiring.
-- The built-in clip library (#214) records provenance with the same `nmg_animations` JSON layout and
-  a `source` dict (`library: builtin`, `file: null`, `sha256`, `skeleton`), which
-  `finalize_core/anims.py` passes through to the sidecar unchanged (AC3).
-- `_RIG_FBX_OPTIONS` in `variants_core/export.py` is unchanged, so `ANIM_EXPORT_OPTIONS` still
-  matches the rigged mesh export (AC1).
-
-All 16 acceptance criteria are implemented and covered by tests. All 11 registered validations have
-terminal results: 10 ran and passed, including the real `plugin.session-smoke` and
-`gate-ue-compile`, and `gate-ship-smoke` does not apply. Coverage is complete, and no ceiling applies.
+All 16 acceptance criteria, 15 functional requirements, and 7 tasks are implemented. The merge of
+`origin/main` (reduce-to-budget #139/#219, texture job queue #211/#218, import_ue rename refusal
+#203/#217) left the #138 surface intact: the merge commit only resolved `CHANGELOG.md`,
+`docs/mcp/finalize.md`, `skills/finalize-asset/SKILL.md`, and the CLI usage docstring, each keeping
+both sides. All 11 manifest-registered validations have a terminal result: 10 applicable and passed,
+and `gate-ship-smoke` not applicable (no ship paths changed).
 
 ---
 
@@ -51,7 +36,7 @@ terminal results: 10 ran and passed, including the real `plugin.session-smoke` a
 
 - Active issue: #138
 - Spec: `specs/138-export-and-import-rigged-character-animation-clips-through-finalize`
-- Manifest: `implicit single issue`
+- Manifest: implicit single issue
 - Resolver status: `implicit_single_issue`
 - Delivery: AC [AC1–AC16]; FR [FR1–FR15]; tasks [T001–T007]; scenarios [SCN001–SCN016]
 - Regression: AC []; FR []; scenarios []
@@ -65,12 +50,12 @@ terminal results: 10 ran and passed, including the real `plugin.session-smoke` a
 
 ---
 
-## Deterministic Steering Artifact and Ceiling
+## Deterministic Steering Artifact
 
-- Artifact: `.nmg-sdlc/verification/138.json`: head `40f634b42735b071fe1ee897cddbd62b3669f627`, tree clean, base `main`, controller run `7b3c6714-3e85-40a2-963f-0965cbfac681`, generated 2026-11-12T06:45:32Z
-- Steering hash `sha256:6db9aabc…d474d4`; spec hash `sha256:1b267fc9…f4ce5`
-- Coverage: 11 declared, 11 recorded, complete `true`. No ids are missing, duplicated, or unknown.
-- Ceiling: none (`null`)
+- Artifact: `.nmg-sdlc/verification/138.json` (runner `sdlc-verify-steering.mjs --base main`, controller run `f39c03e1-dad3-42ce-8555-47b1cddaeb94`)
+- Identity: head `fd3235ff7ff3934dfc00b5a4feba7f288c735f6d`, steering `sha256:6db9aabc…d474d4`, spec `sha256:1b267fc9…4ff33e`
+- Coverage: declared 11, recorded 11, complete `true`; no missing, duplicate, or unknown ids
+- Ceiling: none
 
 ---
 
@@ -78,36 +63,22 @@ terminal results: 10 ran and passed, including the real `plugin.session-smoke` a
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | One animation FBX per clip, armature-only, rig axis settings | Pass | `finalize_core/anims.py:32` (`ANIM_EXPORT_OPTIONS` spreads `_RIG_FBX_OPTIONS`, plus `object_types={"ARMATURE"}` and bake options), `:195` `_export_one` (renames the rig to `Armature` and mutes NLA). Blender test `test_one_armature_only_fbx_per_clip_and_each_reimports_as_one_clip` |
-| AC2 | Clip set is provenance plus actions held on the rig; `Other` excluded | Pass | `finalize_core/anims.py:74` `resolve_clips`. Blender test `test_the_clip_set_is_provenance_plus_the_rigs_actions_and_excludes_other` |
-| AC3 | `nmg-animations.json` with measured data and source | Pass | `pipeline/anims.py:264` `_write_sidecar`. `export_clips` sets `source` to the provenance dict or `"authored"`. Blender test `test_the_sidecar_fields_match_the_exported_actions_and_sources` |
-| AC4 | AnimSequences on the Desktop skeleton; no extra assets; result lists them | Pass | `unreal/import_anims.py:107` `_import_clip` (`FBXIT_ANIMATION`, Desktop skeleton, non-AnimSequence check). `engine.py:400` `_animations_result`. `tests/unit/test_unreal_import_anims.py` |
-| AC5 | A frame-count or skeleton difference fails, naming the clip, expected, and measured | Pass | `pipeline/anims.py:368` `_verify` → `import_anims.clip_mismatch`. `test_a_clip_key_count_difference_reports_expected_and_measured` |
-| AC6 | Clips cached individually; mesh steps stay cached | Pass | Per-clip keys in `pipeline/anims.py:87`/`:166`. `engine.py:190` keeps per-clip steps out of the whole-step key and `input_hash`, and probes this run's `checkpoint.blend`. Unit and BDD SCN006 tests, plus `test_clips_are_probed_and_exported_from_the_current_checkpoint` |
-| AC7 | `force` reruns every clip | Pass | `force` skips `cache.get` in both runners. BDD SCN007 |
-| AC8 | No clips: zero clips, nothing written, no UE call | Pass | `pipeline/anims.py:115` (returns before writing), `:182` (no client call). BDD SCN008 |
-| AC9 | The new steps run alone via MCP/CLI with dependencies from cache | Pass | `steps.py:90` `DEPENDS`, `:114` `ordered_steps` closure. CLI `_STEP_HELP`, MCP `tools.json` enum. `test_finalize_cli.py`, `test_finalize_mcp.py`, BDD SCN009 |
-| AC10 | Missing Desktop skeleton gives `finalize.skeleton_not_found` with the run-`import_ue` remediation | Pass | The UE program returns before any import. `pipeline/anims.py:336` `_raise_blocked`. `test_a_reply_that_reports_no_desktop_skeleton_fails_before_any_clip` |
-| AC11 | Invalid clip name gives `finalize.clip_name_invalid`, nothing written | Pass | `pipeline/anims.py:108` raises after the probe, before any export or sidecar write. Blender test `test_an_invalid_clip_name_is_reported_by_the_probe_and_writes_nothing`; BDD SCN011 |
-| AC12 | Stale sequences reported, never deleted | Pass | `unreal/import_anims.py:173` only appends to `stale`; the program has no delete call. `test_the_program_lists_stale_sequences_and_never_deletes` |
-| AC13 | Two-way compatible registration | Pass | `unreal/import_anims.py:82` `_add_compatible`, applied to both skeletons. BDD SCN013 |
-| AC14 | Registration is idempotent | Pass | `_add_compatible` appends only when the path is absent. BDD SCN014 |
-| AC15 | Missing or mismatched target: correct code, nothing changed | Pass | `unreal/import_anims.py:91` `_check_targets` runs before any import or registration. `test_a_compatible_bone_mismatch_names_the_bones`; BDD SCN015 |
-| AC16 | No `compatible_with` means no registration | Pass | Empty `PARAMS["compatible"]` skips the loop and the save. BDD SCN016 |
-
-### Functional requirements
-
-FR1–FR14 are covered by the AC evidence above. FR10's error codes all carry a message, a remediation,
-and a stage (`PipelineError`).
-
-FR15 (documentation) is met across the five documents taken together:
-
-- `docs/mcp/finalize.md` and `skills/finalize-asset/SKILL.md` describe both steps, the layout, the
-  name, the sidecar, caching and `force`, stale reporting, `compatible_with`, and all four error
-  codes.
-- `mcp-servers/finalize/tools.json` carries the step enum and the `compatible_with` schema.
-- `docs/asset-contract.md` gives the clip contract, and `docs/rigging-and-animation.md` gives the
-  workflow step. Both link to `docs/mcp/finalize.md` for the error codes (see Remaining Issues L1).
+| AC1 | One armature-only FBX per clip, rig export settings | Pass | `finalize_core/anims.py` `ANIM_EXPORT_OPTIONS` spreads `_RIG_FBX_OPTIONS` from `variants_core/export.py` plus `object_types={"ARMATURE"}`, `bake_anim` True, NLA/all-actions off; `_export_one` renames rig to `Armature`, mutes NLA, assigns one action. Headless proof: `tests/blender/test_finalize_anims.py` (SCN001 re-imports each FBX: one armature, no mesh, one action) |
+| AC2 | Clip set = provenance + rig-held actions | Pass | `resolve_clips` reads `nmg_animations`, `animation_data.action`, and NLA strips only; `tests/blender/test_finalize_anims.py` (SCN002: `Idle`, `Wave` exported, `Other` not) |
+| AC3 | Sidecar records measured clip data | Pass | `pipeline/anims.py` `_write_sidecar` (asset, armature, skeleton, per-clip name/file/asset_path/frame_start/frame_end/frame_count/fps/source); `export_clips` sets provenance `source` or `"authored"`; `tests/unit/pipeline/test_anims.py`, SCN003 |
+| AC4 | AnimSequences on Desktop skeleton, nothing else created | Pass | `unreal/import_anims.py` `_import_clip` (`import_mesh` False, `FBXIT_ANIMATION`, `skeleton` = Desktop skeleton, destination `A_<Name>_<Clip>`), non-AnimSequence objects fail the step; result `animations.content_path` + clips from `engine._animations_result`; `tests/unit/test_unreal_import_anims.py`, SCN004 |
+| AC5 | Imported clip checked against sidecar | Pass | `pipeline/anims.py` `_verify` raises `import_anims.clip_mismatch` naming clip, field, expected, measured; SCN005 |
+| AC6 | Per-clip caching | Pass | `run_export_anims`/`run_import_anims` keys = clip hash / export output hash + `clip_settings_hash`; engine skips whole-step cache and alias for `per_clip` steps and leaves `input_hash` unchanged; `tests/unit/pipeline/test_anims.py`, SCN006 |
+| AC7 | Force reruns every clip | Pass | `force` bypasses `cache.get` in both runners; SCN007 |
+| AC8 | No-clip assets pass through | Pass | `run_export_anims` returns before any write when probe is empty; `run_import_anims` makes no Unreal call with no clips and no `compatible_with`; SCN008 |
+| AC9 | New steps run alone | Pass | `steps.DEPENDS`/`ordered_steps`; CLI subcommands in `finalize/__main__.py`; `run_finalize_step` in `finalize/mcp_tools.py` and `mcp-servers/finalize/.../server.py`; `tests/unit/test_finalize_cli.py`, `tests/unit/test_finalize_mcp.py`, SCN009 |
+| AC10 | Missing Desktop skeleton | Pass | UE program sets `blocked` before any import; `_raise_blocked` raises `finalize.skeleton_not_found` with "Run import_ue … first"; SCN010 |
+| AC11 | Invalid clip name stops export | Pass | `run_export_anims` raises `finalize.clip_name_invalid` after the probe, before the export run and sidecar write; Blender `export_clips` double-checks; SCN011 |
+| AC12 | Stale sequences reported, not deleted | Pass | UE program lists `A_<Name>_*` not in current clips into `stale`; no delete call exists; SCN012 |
+| AC13 | Two-way compatible registration | Pass | `_add_compatible` both directions, saves both skeletons, result `compatible`; SCN013 |
+| AC14 | Idempotent registration | Pass | `_add_compatible` appends only when the path is absent; SCN014 |
+| AC15 | Target must exist and match bones | Pass | `_check_targets` runs before any import or registration; `finalize.skeleton_not_found` / `finalize.skeleton_mismatch` with differing bones; SCN015 |
+| AC16 | No `compatible_with`, no registration | Pass | `compatible` param list empty, registration loop no-ops; SCN016 |
 
 ---
 
@@ -115,13 +86,13 @@ FR15 (documentation) is met across the five documents taken together:
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Step table, dependencies, request fields | Complete | `steps.py`, `request.py` (`compatible_with` pattern, dedupe, self-reference rejected), `result.py` |
-| T002 | Blender clip probe and export | Complete | `finalize_core/anims.py`, `finalize_core/steps.py` (`_export_anims` probe/export modes), `finalize_entry.py` |
-| T003 | Host per-clip export and sidecar | Complete | `pipeline/anims.py`, `engine.py`. Reads `checkpoint.blend` rather than the variants `.blend`; see L4 |
-| T004 | Unreal import, verification, stale, compatible | Complete | `unreal/import_anims.py`, `pipeline/anims.py` |
-| T005 | CLI and MCP surface | Complete | `__main__.py` (`--compatible-with`, repeatable), `mcp_tools.py`, `server.py`, `tools.json`. `gate-mcp-schema` passed |
-| T006 | Documentation | Complete | Four docs and SKILL.md updated. `plugin.validate` passed |
-| T007 | Tests | Complete | 24 unit tests in `test_anims.py`, 11 in `test_unreal_import_anims.py`, 7 headless Blender tests, and 16 BDD scenarios in `rigged_animations.feature`. No test touches a live editor |
+| T001 | Step table, dependencies, request fields | Complete | `STEP_ORDER` has 8 steps, `per_clip` flag, `_STEP_VERSION` "4", `clip_settings_hash`, `FinalizeRequest.compatible_with` validator, `FinalizeResult.animations` |
+| T002 | Blender clip probe and export | Complete | `finalize_core/anims.py`, `finalize_core/steps.py` `_export_anims` (probe/export modes), `scripts/blender/finalize_entry.py` accepts `export_anims` |
+| T003 | Host per-clip export and sidecar | Complete | `pipeline/anims.py` `run_export_anims`; engine `_run_per_clip` |
+| T004 | Unreal clip import, verification, stale, compatible | Complete | `unreal/import_anims.py`, `pipeline/anims.py` `run_import_anims` |
+| T005 | CLI and MCP surface | Complete | CLI subcommands + repeatable `--compatible-with`; both MCP tools take `compatible_with`; `gate-mcp-schema` passed |
+| T006 | Documentation | Complete | `docs/mcp/finalize.md` and `skills/finalize-asset/SKILL.md` carry the full surface; `docs/asset-contract.md` ("Animation clips") and `docs/rigging-and-animation.md` (step 7) describe the layout and point to `docs/mcp/finalize.md`; `plugin.validate` passed |
+| T007 | Tests | Complete | 24 tests in `tests/unit/pipeline/test_anims.py`, 11 in `tests/unit/test_unreal_import_anims.py`, 7 headless in `tests/blender/test_finalize_anims.py`, 16 bound BDD scenarios in `tests/bdd/features/rigged_animations.feature` |
 
 ---
 
@@ -131,51 +102,44 @@ FR15 (documentation) is met across the five documents taken together:
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 4 | Blender probe/export, host cache/sidecar, and UE program generation are separate modules. `engine.execute` grows a per-clip branch but delegates the work |
-| Open/Closed | 4 | `StepSpec.per_clip` and `DEPENDS` extend the step table without changing mesh-step keys. `ordered_steps` gives the same six-step chain for `import_ue` |
-| Liskov Substitution | 5 | Per-clip steps return the same `StepResult` shape as the other steps |
-| Interface Segregation | 4 | `run_import_anims` takes a client factory, so it is called only when there is work |
-| Dependency Inversion | 4 | The Unreal client is injected (`FinalizeClients.unreal`) and the Blender runner comes through `StepRunner`, so both can be faked |
+| Single Responsibility | 4 | Clean split: Blender core (probe/export), host orchestration + cache (`pipeline/anims.py`), UE program builder (`unreal/import_anims.py`). `engine.py` (566 lines) grows another branch but delegates all clip work |
+| Open/Closed | 4 | New steps added by table entry plus `per_clip` flag; engine branches on the flag instead of the step name |
+| Liskov Substitution | 5 | `UnrealPythonClient` protocol and `StepRunner` let fakes substitute for UE and Blender |
+| Interface Segregation | 5 | `run_import_anims` takes a lazy client factory and only calls it when there is work |
+| Dependency Inversion | 4 | Cache, runner, and client injected; `_run_per_clip` instantiates `UnrealMcpClient` as a default when none is injected, matching `_run_import` |
 
 ### Layer Separation
 
-The change follows the steering layers. Step implementations live in `finalize_core/` and
-`src/nmg_game_dev/unreal/`, composition and caching in `pipeline/`, and the MCP server only forwards
-arguments. The host never imports `bpy`: the export options fingerprint comes back from the probe.
+Matches `steering/structure.md`: step implementations live in `finalize_core/` and `src/nmg_game_dev/unreal/`, composition and caching in `src/nmg_game_dev/pipeline/`, and the MCP server and CLI wrap `finalize/service.py` without logic. The skill calls the finalize tools only.
 
 ### Dependency Flow
 
-`pipeline/anims.py` → `unreal/import_anims.py` and `pipeline/steps.py`. There are no cycles.
-`finalize_core/anims.py` imports `_RIG_FBX_OPTIONS` from `variants_core/export.py`, so the clip and
-mesh exports cannot drift apart. It is a private name used across modules, but the design calls for
-it.
+Host imports `ANIM_EXPORT_OPTIONS` indirectly through the probe-reported `options` fingerprint, so the host never imports `bpy`. Blender side imports `_RIG_FBX_OPTIONS` rather than copying it, preventing drift from the mesh export.
 
 ---
 
 ## Security Assessment
 
-- [x] Authentication: no new credentials or external services.
-- [x] Authorization: not applicable (local tooling).
-- [x] Input validation: clip names are checked against `^[A-Za-z][A-Za-z0-9_]*$` before any write.
-  `compatible_with` items are checked against `^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$` in pydantic and
-  in the MCP schema, and a request cannot name itself.
-- [x] Injection prevention: UE parameters are embedded as a doubly JSON-encoded string and read
-  with `json.loads`, never by string interpolation into code.
-- [x] Data protection: nothing sensitive is logged.
-
----
+- [x] Authentication: not applicable (local tooling).
+- [x] Authorization: not applicable.
+- [x] Input validation: `compatible_with` items validated as PascalCase `<Category>/<Name>` and may not name the asset itself; clip names validated against `^[A-Za-z][A-Za-z0-9_]*$` before they become file or asset names.
+- [x] Injection prevention: UE program parameters are passed as a double-encoded JSON literal (`json.dumps(json.dumps(params))`) and parsed with `json.loads`, never string-interpolated into code.
+- [x] Data protection: no credentials touched.
 
 ## Performance Assessment
 
-- [x] Async patterns: Blender work stays in background `blender --background` processes. There is
-  one probe run plus at most one export run per finalize.
-- [x] Caching: each clip has its own content-addressed key. A clip-only change leaves the mesh steps'
-  keys valid.
-- [x] Resource management: an owned `UnrealMcpClient` is closed in `finally`.
-- [x] Query optimization: all clips go to UE in one Python call.
+- [x] Async patterns: per-clip export batches all misses into one Blender run; import is one UE Python call.
+- [x] Caching: per-clip keys on content hash; mesh-step keys unaffected by clip changes; `force` bypass.
+- [x] Resource management: owned `UnrealMcpClient` closed in `finally`.
+- [ ] Probe: the `export_anims` probe runs a background Blender process on every finalize, even when all clips will hit the cache (documented: "The probe itself is never cached"). Acceptable trade-off for correctness; noted as Low.
 
-The probe always runs, even when every clip is cached. That costs one headless Blender start per
-finalize, which is acceptable.
+## Testability
+
+Fakes (`tests/finalize_fakes.py`, `tests/unit/fake_unreal.py`) cover the host; the UE program is checked by text and by fake replies; Blender behavior is proved headless. No test drives a live editor, per project memory and T007.
+
+## Error Handling
+
+Every failure raises `PipelineError` with `code`, `message`, `remediation`, `stage`. UE exceptions are captured into `RESULT["error"]` and the single `NMG_RESULT` line, then mapped to `import_anims.failed`. Unreadable bone or compatible-skeleton reads fail closed with nothing registered. A clip's cache entry is written only after its checks pass.
 
 ---
 
@@ -189,11 +153,10 @@ finalize, which is acceptable.
 
 ### Coverage Summary
 
-- Feature files: 16 scenarios, one per AC, matching `feature.gherkin`
-- Step definitions: implemented
-- Unit and BDD tests: `repository.tests` gave 1383 passed, 14 skipped. The #138 subset (`test_anims.py`, `test_unreal_import_anims.py`, `test_rigged_animations_bdd.py`, `test_steps.py`, `test_finalize_cli.py`, `test_finalize_mcp.py`, `test_material_variants_host.py`) gave 123 passed, 0 skipped, with Blender resolvable
-- Headless Blender tests: `gate-blender-headless` gave 345 passed, 4 skipped, including all 7 in `tests/blender/test_finalize_anims.py`
-- Integration/E2E: no live UE run, by design (steering: no live editors in SDLC work). The UE program is checked by compiling it and through fake replies.
+- Feature files: 16 scenarios for #138 (spec `feature.gherkin` mirrors them)
+- Step definitions: Implemented
+- Python unit + BDD: 1459 passed, 14 skipped (`repository.tests`)
+- Headless Blender: 357 passed, 4 skipped (`gate-blender-headless`)
 
 ---
 
@@ -201,7 +164,7 @@ finalize, which is acceptable.
 
 | Field | Value |
 |-------|-------|
-| **Reason** | Not applicable. The diff touches no nmg-sdlc `workflows/` or `agents/`. `skills/finalize-asset/SKILL.md` documents this project's own skill, and `plugin.validate` and `plugin.session-smoke` cover it |
+| **Reason** | Not applicable: no nmg-sdlc `workflows/` or `agents/` changes in this repo. The plugin surface this branch changes (`skills/`, `.claude-plugin/`) is covered by the registered `plugin.validate` and `plugin.session-smoke` gates, both passed |
 | **Recommendation** | None |
 
 ---
@@ -210,36 +173,25 @@ finalize, which is acceptable.
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1383 passed, 14 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q` exited 0: 1459 passed, 14 skipped |
 | `repository.lint` | Pass | `uv run ruff check .`: All checks passed |
-| `repository.format` | Pass | `uv run ruff format --check .`: exit 0 |
-| `repository.types` | Pass | `uv run mypy src tests`: exit 0 |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 345 passed, 4 skipped (Blender 5.2) |
-| `gate-ue-compile` | Pass | DogfoodEditor compiled against UE 5.8: Result: Succeeded |
-| `gate-mcp-schema` | Pass | `validate-mcp-tools.py`: MCP tools match tools.json for every server under `mcp-servers/` |
-| `gate-shellcheck` | Pass | `shellcheck -S style` on every `scripts/**.sh`: exit 0 |
-| `gate-ship-smoke` | Not applicable | No ship paths changed |
-| `plugin.validate` | Pass | `claude plugin validate .`: exit 0 |
-| `plugin.session-smoke` (real smoke) | Pass | Plugin loaded with `--plugin-dir`; `nmg-game-dev:blender` connected |
+| `repository.format` | Pass | `uv run ruff format --check .`: 393 files already formatted |
+| `repository.types` | Pass | `uv run mypy src tests`: no issues in 249 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh` exited 0: 357 passed, 4 skipped |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` with `-WaitMutex -NoUBA` |
+| `gate-mcp-schema` | Pass | MCP tools match tools.json for every server under mcp-servers/ |
+| `gate-shellcheck` | Pass | `shellcheck -S style` on every `scripts/**.sh` exited 0 |
+| `gate-ship-smoke` | Not applicable | No ship paths in the change set |
+| `plugin.validate` | Pass | `claude plugin validate .` exited 0 |
+| `plugin.session-smoke` | Pass | Plugin loaded via `--plugin-dir` in an ephemeral project; `nmg-game-dev:blender` connected |
 
 **Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
-
-### Gate run history
-
-The first and only full run at this head passed every applicable validation. The previous head's
-shared add-on symlink race (former R6) is fixed on main by #192, which this merge brought in.
 
 ---
 
 ## Fixes Applied
 
-| Severity | Category | Location | Original Issue | Fix Applied | Routing |
-|----------|----------|----------|----------------|-------------|---------|
-| — | — | — | None in this pass. The verify publication scope allows only this report, and nothing blocking was found | — | — |
-
-Earlier fixes on this branch: `6460c5b` (export clips from the current checkpoint, AC6; headless
-add-on registration). The `40f634b` merge kept both `material_variants_path` and `compatible_with`
-on every entry point and skipped the per-clip steps in #148's whole-step cache-key test helper.
+None. No defect in scope was found, and the verify publication scope allows writing only this report.
 
 ## Remaining Issues
 
@@ -254,37 +206,45 @@ None.
 
 ### Low Priority
 
-| ID | Severity | Category | Location | Issue | Impact | Reason Not Fixed |
-|----|----------|----------|----------|-------|--------|------------------|
-| L1 | Low | Documentation | `docs/rigging-and-animation.md`, `docs/asset-contract.md` | These two docs do not list the four error codes or (in asset-contract) `compatible_with` themselves. They link to `docs/mcp/finalize.md`, which covers everything | A reader has to follow one link | FR15 is met across the five documents. The verify scope is report-only |
-| L2 | Low | Testability | `src/nmg_game_dev/unreal/import_anims.py` | The reference-bone, sampled-key, and `compatible_skeletons` reads have not been run against a live UE 5.8 editor | A UE API mismatch would surface as `import_anims.failed` or `clip_mismatch` on first real use | No live editors in SDLC work, by steering. The code fails closed. Cover with the manual E2E run before release |
-| L3 | Low | Error Handling | `src/nmg_game_dev/unreal/import_anims.py:107` | The non-AnimSequence check runs after `import_asset_tasks`, so a stray asset would already exist when the step fails | The step fails correctly, but the stray asset is left in the folder | Unlikely with `import_mesh=False` and the skeleton set. The design accepts post-check detection |
-| L4 | Low | Spec drift | `src/nmg_game_dev/pipeline/engine.py:190` | `export_anims` reads this run's `checkpoint.blend`, not the variants `.blend` named in design.md | The design text is out of date. The behavior is correct and needed for AC6, and the code comment explains it | The spec files are read-only in verify. Update design.md in a follow-up |
-| L5 | Low | Correctness | `plugins/nmg-game-dev-blender-addon/finalize_core/anims.py` `_slot_of` | An NLA-strip action not assigned to the rig is hashed and exported through its first slot, not the strip's slot | Only matters for multi-slot actions, which `import_animations` does not create | Edge case; out of scope |
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Release housekeeping |
+| **Location** | `CHANGELOG.md:9-20` |
+| **Issue** | After the merge, the #138 entry sits under the already-released `## [0.24.0]`/`## [0.22.1]` headings inherited from `main` rather than under `## [Unreleased]`, and `main`'s own CHANGELOG has malformed stacked headings |
+| **Impact** | Cosmetic; delivery's prepare-version step rewrites the release section |
+| **Reason Not Fixed** | Outside the verify stage's writable scope; owned by deliver's version preparation |
+
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Performance |
+| **Location** | `src/nmg_game_dev/pipeline/anims.py` `run_export_anims` |
+| **Issue** | The clip probe launches a background Blender process on every finalize, even when every clip will be a cache hit |
+| **Impact** | A few seconds per finalize of a rigged character; within the ≤ 5 min character budget |
+| **Reason Not Fixed** | Design choice: the asset hash does not cover actions, so the probe is the only way to detect clip changes |
 
 ---
 
 ## Positive Observations
 
-- The per-clip cache never moves the mesh steps' `input_hash`, so a clip edit cannot invalidate
-  bake or variants.
-- `ordered_steps` keeps the `import_ue` chain identical to the old behavior, and a test pins it.
-- The UE program checks everything before it changes anything, and it never deletes.
-- The clip export imports the rig export's FBX settings, so the two cannot drift.
+- Per-clip steps never move the mesh steps' input hash, so a clip-only edit keeps every mesh step cached.
+- The UE program checks every precondition (own skeleton, every compatible target) before it imports or registers anything, and emits one machine-readable result line even on failure.
+- Export settings are imported from the mesh export, so clips and meshes cannot drift onto different axis or leaf-bone settings.
+- `_export_one` restores the rig's name, action, slot, NLA mutes, and scene range in `finally`.
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- [x] None
+- None.
 
 ### Short Term (Should)
-- [ ] Run the manual E2E finalize of a rigged character against UE 5.8 to confirm the UE API reads (L2).
-- [ ] Update design.md to say `export_anims` reads the checkpoint (L4).
+- Let deliver's version preparation place the #138 CHANGELOG entry correctly.
 
 ### Long Term (Could)
-- [ ] List the error codes in `docs/rigging-and-animation.md` too (L1).
+- Consider folding action content into a cheap session-side fingerprint so an all-cached rerun can skip the probe process.
 
 ---
 
@@ -292,16 +252,16 @@ None.
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `src/nmg_game_dev/pipeline/anims.py` | 0 | |
-| `src/nmg_game_dev/pipeline/engine.py` | 1 (L4) | |
-| `src/nmg_game_dev/pipeline/steps.py` | 0 | |
-| `src/nmg_game_dev/pipeline/request.py`, `result.py` | 0 | |
-| `src/nmg_game_dev/unreal/import_anims.py` | 2 (L2, L3) | |
-| `plugins/nmg-game-dev-blender-addon/finalize_core/anims.py` | 1 (L5) | |
-| `plugins/nmg-game-dev-blender-addon/finalize_core/steps.py`, `scripts/blender/finalize_entry.py` | 0 | |
-| `src/nmg_game_dev/finalize/__main__.py`, `mcp_tools.py`, `service.py`; `mcp-servers/finalize/*` | 0 | |
-| `docs/*`, `skills/finalize-asset/SKILL.md` | 1 (L1) | |
-| Tests (`tests/unit/**`, `tests/bdd/**`, `tests/blender/test_finalize_anims.py`, `tests/finalize_fakes.py`) | 0 | |
+| `src/nmg_game_dev/pipeline/steps.py` | 0 | Step table, `DEPENDS`, `clip_settings_hash` |
+| `src/nmg_game_dev/pipeline/anims.py` | 1 (Low) | Per-clip export/import, sidecar, verification |
+| `src/nmg_game_dev/pipeline/engine.py` | 0 | `per_clip` branch, `_animations_result`; intact after merge with #219 |
+| `src/nmg_game_dev/unreal/import_anims.py` | 0 | UE program |
+| `plugins/nmg-game-dev-blender-addon/finalize_core/anims.py` | 0 | Probe, hash, export |
+| `plugins/nmg-game-dev-blender-addon/finalize_core/steps.py` | 0 | `_export_anims` dispatch |
+| `src/nmg_game_dev/pipeline/request.py`, `result.py` | 0 | `compatible_with`, `animations` |
+| `src/nmg_game_dev/finalize/__main__.py`, `mcp_tools.py`, `service.py`, `mcp-servers/finalize/**` | 0 | CLI and MCP surface |
+| `docs/asset-contract.md`, `docs/mcp/finalize.md`, `docs/rigging-and-animation.md`, `skills/finalize-asset/SKILL.md` | 0 | FR15 docs |
+| `CHANGELOG.md` | 1 (Low) | Merge placement |
 
 ---
 
@@ -309,7 +269,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion passes with code and test evidence. Every applicable registered gate,
-including the real `plugin.session-smoke`, passed at `40f634b42735b071fe1ee897cddbd62b3669f627`, and
-the verification artifact is complete with no ceiling. The remaining items are low-severity and do
-not block delivery.
+Every acceptance criterion is implemented and covered by a passing test, and every applicable registered validation passed at head `fd3235ff7ff3934dfc00b5a4feba7f288c735f6d`. The two remaining items are Low and do not block delivery.
