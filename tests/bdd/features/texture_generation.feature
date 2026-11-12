@@ -48,7 +48,7 @@ Feature: Generate local seamless textures
     Given a fake worker and a request for backend "both"
     When generation runs
     Then the flux2-klein-4b worker started only after the z-image-turbo worker exited
-    And starting a second job while one is running raises "texture.job_running"
+    And starting a second job while one is running returns a queued job
 
   @SCN018
   Scenario: Outputs tile seamlessly

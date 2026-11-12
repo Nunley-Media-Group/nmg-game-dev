@@ -20,6 +20,9 @@ The fake models the parts of UE 5.8 Interchange that the static import depends o
   a run that turns it on.
 - A static LOD group (#146) is one FBX node whose ``lods`` is its LOD count. Interchange makes one
   static mesh from it, and the fake reports that count as ``get_num_lods()``.
+- Material variants (#148) need metadata tags, folder listing, deletion, and vector parameters.
+  Each asset keeps its tags. A vector parameter named in ``FakeWorld.missing_vectors`` is one the
+  master lacks, so setting it returns False as UE does.
 - UE 5.8 lists only the first mesh of a multi-part FBX in ``imported_object_paths``. Which meshes a
   task reports is set by ``FakeWorld.reported_paths``, so a test can under-report (#141).
 - A skeletal import makes the skeleton ``<Name>_Skeleton`` beside the mesh, unless it is handed one.
@@ -142,6 +145,7 @@ class _Asset:
     def __init__(self, path: str) -> None:
         self.path = path
         self.properties: dict[str, Any] = {}
+        self.tags: dict[str, str] = {}
 
     def set_editor_property(self, name: str, value: Any) -> None:
         self.properties[name] = value
@@ -213,6 +217,14 @@ class MaterialInstanceConstant(_Asset):
         super().__init__(path)
         self.parent: Any = None
         self.texture_params: dict[str, str] = {}
+        self.vector_params: dict[str, tuple[float, float, float, float]] = {}
+
+
+class LinearColor:
+    """``unreal.LinearColor``: four float components."""
+
+    def __init__(self, r: float, g: float, b: float, a: float = 1.0) -> None:
+        self.values = (float(r), float(g), float(b), float(a))
 
 
 class MaterialInstanceConstantFactoryNew:
@@ -317,6 +329,16 @@ class MaterialEditingLibrary:
     ) -> None:
         instance.texture_params[parameter] = texture.path
 
+    @staticmethod
+    def set_material_instance_vector_parameter_value(
+        instance: MaterialInstanceConstant, parameter: str, value: LinearColor
+    ) -> bool:
+        # UE returns False when the parent material has no such parameter.
+        if parameter in _active_world().missing_vectors:
+            return False
+        instance.vector_params[parameter] = value.values
+        return True
+
 
 class EditorAssetLibrary:
     """``unreal.EditorAssetLibrary``, bound to the world whose Python is running."""
@@ -328,6 +350,40 @@ class EditorAssetLibrary:
     @staticmethod
     def does_asset_exist(path: str) -> bool:
         return path in _active_world().assets
+
+    @staticmethod
+    def does_directory_exist(path: str) -> bool:
+        return any(asset_path.rsplit("/", 1)[0] == path for asset_path in _active_world().assets)
+
+    @staticmethod
+    def list_assets(
+        directory: str, recursive: bool = False, include_folder: bool = False
+    ) -> list[str]:
+        if recursive or include_folder:
+            raise NotImplementedError("the fake lists one folder's assets only")
+        return sorted(
+            path + "." + path.rsplit("/", 1)[-1]
+            for path in _active_world().assets
+            if path.rsplit("/", 1)[0] == directory
+        )
+
+    @staticmethod
+    def get_metadata_tag(asset: _Asset, key: str) -> str:
+        return asset.tags.get(key, "")
+
+    @staticmethod
+    def set_metadata_tag(asset: _Asset, key: str, value: str) -> None:
+        asset.tags[key] = value
+
+    @staticmethod
+    def delete_asset(path: str) -> bool:
+        world = _active_world()
+        if path not in world.assets:
+            return False
+        del world.assets[path]
+        world.saved.pop(path, None)
+        world.deleted.append(path)
+        return True
 
     @staticmethod
     def save_loaded_asset(asset: _Asset) -> bool:
@@ -387,6 +443,7 @@ class _AssetTools:
         del factory
         instance = MaterialInstanceConstant(dest + "/" + name)
         self._world.assets[instance.path] = instance
+        self._world.created.append(instance.path)
         return instance
 
 
@@ -408,6 +465,7 @@ UNREAL.__dict__.update(
     EditorAssetLibrary=EditorAssetLibrary,
     FBXImportType=FBXImportType,
     FbxImportUI=FbxImportUI,
+    LinearColor=LinearColor,
     MaterialEditingLibrary=MaterialEditingLibrary,
     MaterialInstanceConstant=MaterialInstanceConstant,
     MaterialInstanceConstantFactoryNew=MaterialInstanceConstantFactoryNew,
@@ -415,6 +473,7 @@ UNREAL.__dict__.update(
     SkeletalMeshEditorSubsystem=SkeletalMeshEditorSubsystem,
     StaticMesh=StaticMesh,
     StaticMeshEditorSubsystem=StaticMeshEditorSubsystem,
+    Texture2D=Texture2D,
     TextureCompressionSettings=TextureCompressionSettings,
     Vector=Vector,
     get_editor_subsystem=get_editor_subsystem,
@@ -457,6 +516,9 @@ class FakeWorld:
         self.build_writes: list[tuple[str, int, Triple]] = []
         self.redirects: dict[str, str] = {}
         self.imported_fbx: list[str] = []
+        self.created: list[str] = []
+        self.deleted: list[str] = []
+        self.missing_vectors: set[str] = set()
         self.import_options: list[Any] = []
         self.reported_paths: Callable[[list[str]], list[str]] = _every_path
         self.skeleton_on_import = True

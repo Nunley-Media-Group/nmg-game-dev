@@ -7,6 +7,10 @@ Invoked as::
 Blender consumes its own arguments up to ``--``; everything after ``--`` is
 forwarded via ``sys.argv`` and parsed here as the pytest target path.
 
+The add-on link is created only under ``BLENDER_USER_SCRIPTS``, which
+``scripts/run-blender-tests.sh`` sets to a per-run temporary directory (#189). Running this
+file directly without that variable raises instead of touching the user's scripts directory.
+
 Steps:
 1. Parse the pytest target from ``sys.argv`` (after ``--``).
 2. Attempt ``import pytest``.  On ``ImportError``, bootstrap pip into
@@ -21,6 +25,7 @@ No Blender GUI APIs are imported here so this script runs cleanly under
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -86,13 +91,39 @@ def _ensure_pytest() -> None:
         )
 
 
-def _install_addon_link() -> None:
-    """Idempotently link the hyphenated source dir into Blender's addons path
-    under the snake_case module id so ``addon_utils.enable`` can resolve it.
+def _isolated_addons_dir() -> Path:
+    """Return Blender's addons path, which must resolve inside this run's ``BLENDER_USER_SCRIPTS``.
+
+    ``scripts/run-blender-tests.sh`` sets ``BLENDER_USER_SCRIPTS`` to a per-run temporary
+    directory. Both checks run before any filesystem write: the variable must be set, and
+    Blender's ``SCRIPTS/addons`` path must resolve inside it. Otherwise the runner would link
+    into the user's real Blender scripts directory.
     """
     import bpy  # noqa: PLC0415 — bpy only available under Blender
 
-    addons_dir = Path(bpy.utils.user_resource("SCRIPTS", path="addons", create=True))
+    user_scripts = os.environ.get("BLENDER_USER_SCRIPTS", "")
+    if not user_scripts:
+        raise RuntimeError(
+            "BLENDER_USER_SCRIPTS is unset; run the Blender tests through "
+            "scripts/run-blender-tests.sh, which gives each run its own user scripts directory."
+        )
+    root = Path(user_scripts).resolve()
+    addons_dir = Path(bpy.utils.user_resource("SCRIPTS", path="addons")).resolve()
+    if not addons_dir.is_relative_to(root):
+        raise RuntimeError(
+            f"Blender resolved its addons path to {addons_dir}, outside BLENDER_USER_SCRIPTS "
+            f"({root}); refusing to link the add-on there. Run the Blender tests through "
+            "scripts/run-blender-tests.sh."
+        )
+    return addons_dir
+
+
+def _install_addon_link() -> None:
+    """Idempotently link the hyphenated source dir into the run's isolated addons path
+    under the snake_case module id so ``addon_utils.enable`` can resolve it.
+    """
+    addons_dir = _isolated_addons_dir()
+    addons_dir.mkdir(parents=True, exist_ok=True)
     link = addons_dir / _ADDON_MODULE_ID
 
     if link.is_symlink():
@@ -110,10 +141,33 @@ def _install_addon_link() -> None:
     link.symlink_to(_ADDON_SRC, target_is_directory=True)
 
 
+def _verify_addon_origin() -> None:
+    """Fail unless ``import nmg_game_dev_blender_addon`` resolves to this checkout's source.
+
+    Guards against another copy of the add-on (for example one installed as an extension or
+    enabled from another path) shadowing the per-run link, which would make this suite test
+    a different checkout's code.
+    """
+    spec = importlib.util.find_spec(_ADDON_MODULE_ID)
+    origin = Path(spec.origin if spec and spec.origin else "").resolve()
+    if not origin.is_relative_to(_ADDON_SRC.resolve()):
+        raise RuntimeError(
+            f"{_ADDON_MODULE_ID} resolved to {origin}, not this checkout's {_ADDON_SRC}. "
+            "Remove the other copy from Blender's add-on paths and re-run."
+        )
+
+
 def main() -> None:
     target = _parse_target()
     _ensure_pytest()
     _install_addon_link()
+    # Blender puts a scripts addons directory on sys.path only when it exists at startup. The
+    # per-run directory is created after startup (#189), so refresh the script paths or
+    # addon_utils.enable cannot find the linked add-on.
+    import bpy  # noqa: PLC0415 — bpy only available under Blender
+
+    bpy.utils.refresh_script_paths()
+    _verify_addon_origin()
 
     import pytest  # noqa: PLC0415 — imported after potential install
 
