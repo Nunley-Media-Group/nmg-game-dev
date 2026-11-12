@@ -284,12 +284,14 @@ class FakeBlenderSession:
         result_blend: Path,
         collection: str,
         expected_hash: str,
+        suffixes: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         self.load_backs.append(
             {
                 "result_blend": str(result_blend),
                 "collection": collection,
                 "expected_hash": expected_hash,
+                "suffixes": None if suffixes is None else list(suffixes),
             }
         )
         if self.events is not None:
@@ -297,6 +299,94 @@ class FakeBlenderSession:
         if self.load_result is not None:
             return dict(self.load_result)
         return {"ok": True, "loaded": True, "hash": "post-load-hash"}
+
+
+class FakeReduceRunner:
+    """Runs the reduce step in-process (#139): writes reduce.blend and the reduce.json envelope.
+
+    Parameters:
+        result: The ``reduce_asset`` result dict the step reports.  Defaults to a reduced asset.
+        failure: Optional ``(code, message, remediation)``.  The step then reports a failing
+            envelope instead.
+        hash_value: The content hash returned by ``hash``.
+    """
+
+    def __init__(
+        self,
+        *,
+        result: Mapping[str, Any] | None = None,
+        failure: Failure | None = None,
+        hash_value: str = "asset-hash-0",
+    ) -> None:
+        self.result = dict(result) if result is not None else default_reduce_result()
+        self.failure = failure
+        self.hash_value = hash_value
+        self.calls: list[dict[str, Any]] = []
+
+    def hash(self, *, job_dir: Path, in_blend: Path) -> str:
+        self.calls.append({"step": "hash", "in_blend": str(in_blend)})
+        return self.hash_value
+
+    def run_step(
+        self,
+        step: str,
+        *,
+        job_dir: Path,
+        in_blend: Path | None,
+        inputs: Mapping[str, Any] | None = None,
+        on_progress: Any = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "step": step,
+                "in_blend": None if in_blend is None else str(in_blend),
+                "inputs": inputs,
+            }
+        )
+        if on_progress is not None:
+            on_progress({"state": "running", "step": step, "progress": 0.5, "message": "fake"})
+        job_dir.mkdir(parents=True, exist_ok=True)
+        blend = job_dir / "reduce.blend"
+        blend.write_bytes(b"reduced")
+        if self.failure is not None:
+            code, message, remediation = self.failure
+            envelope = _envelope(
+                step,
+                ok=False,
+                outputs={},
+                error={"code": code, "message": message, "remediation": remediation},
+            )
+        else:
+            envelope = _envelope(
+                step, ok=True, outputs={"result": dict(self.result), "blend": str(blend)}
+            )
+        _write_json(job_dir / f"{step}.json", envelope)
+        return envelope
+
+
+def default_reduce_result() -> dict[str, Any]:
+    """A reduced asset's ``reduce_asset`` result, with the FR11 fields the host passes through."""
+    return {
+        "state": "reduced",
+        "collection": "Crate",
+        "asset_class": "standard_prop",
+        "budget": 3000,
+        "parts": {
+            "Body": {
+                "source_tris": 20000,
+                "target": 3000,
+                "final_tris": 2990,
+                "cage_extrusion": 0.03,
+                "max_ray_distance": 0.1,
+                "unbaked_share": 0.0,
+            }
+        },
+        "total_tris": 2990,
+        "textures": {"BC": "BC.png", "N": "N.png", "ORM": "ORM.png"},
+        "texture_px": 256,
+        "device": "CPU",
+        "summary": "Reduced Crate (standard_prop) to 2990 of 3000 triangles",
+    }
 
 
 class FakeUnrealRunner:

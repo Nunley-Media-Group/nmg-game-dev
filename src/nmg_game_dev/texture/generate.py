@@ -180,7 +180,7 @@ def _invalid_batch(failures: Sequence[str]) -> TextureGenError:
 
 def validate_batch(requests: Sequence[TextureRequest]) -> None:
     """Reject the whole batch with one ``texture.invalid_request`` that lists each bad index (#143
-    FR8)."""
+    FR8), and each output name that two or more requests share (#211 FR1)."""
     if not requests:
         raise TextureGenError(
             "texture.invalid_request",
@@ -188,11 +188,18 @@ def validate_batch(requests: Sequence[TextureRequest]) -> None:
             "Pass at least one request in the batch.",
         )
     failures: list[str] = []
+    indexes_by_name: dict[str, list[int]] = {}
     for index, request in enumerate(requests):
         try:
             validate_request(request)
         except TextureGenError as error:
             failures.append(f"request {index}: {error.message.rstrip('.')}")
+        name = slugify(request.name or request.prompt)
+        indexes_by_name.setdefault(name, []).append(index)
+    for name, indexes in indexes_by_name.items():
+        if len(indexes) > 1:
+            listed = ", ".join(str(index) for index in indexes)
+            failures.append(f"requests {listed}: output name {name!r} is used more than once")
     if failures:
         raise _invalid_batch(failures)
 

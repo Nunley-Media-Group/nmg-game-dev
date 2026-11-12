@@ -23,11 +23,11 @@ class BakeState:
         self.collection = collection
         self.meshes = meshes
         self.scene = bpy.context.scene
-        self._created_before = _datablock_pointers()
+        self._created_before = datablock_pointers()
         self._slots = {mesh.name: list(mesh.data.materials) for mesh in meshes}
         self._indices = {mesh.name: _polygon_materials(mesh) for mesh in meshes}
         self._uv = {mesh.name: _uv_state(mesh) for mesh in meshes}
-        self._names: dict[int, tuple[bpy.types.Material, str]] = {}
+        self._names: dict[int, tuple[bpy.types.ID, str]] = {}
         self._flags: dict[str, bool] = {}
         self._layer = _layer_collection(bpy.context.view_layer, collection)
         self._excluded = self._layer.exclude if self._layer is not None else False
@@ -46,10 +46,10 @@ class BakeState:
         if exc_type is not None:
             self.rollback()
 
-    def track_names(self, materials: Iterable[bpy.types.Material]) -> None:
-        """Remember original material names so a rollback can restore them."""
-        for material in materials:
-            self._names.setdefault(material.as_pointer(), (material, material.name))
+    def track_names(self, blocks: Iterable[bpy.types.ID]) -> None:
+        """Remember original material and image names so a rollback can restore them."""
+        for block in blocks:
+            self._names.setdefault(block.as_pointer(), (block, block.name))
 
     def make_render_enabled(self) -> None:
         """Show the asset and hide every other object in the scene, for the bake and proof.
@@ -78,17 +78,20 @@ class BakeState:
             _set_slots(mesh, self._slots[mesh.name])
             mesh.data.polygons.foreach_set("material_index", self._indices[mesh.name])
             _restore_uv(mesh, self._uv[mesh.name])
-        _remove_created(self._created_before)
-        for material, name in self._names.values():
-            if material.name != name and material.name in bpy.data.materials:
-                material.name = name
+        remove_created(self._created_before)
+        for block, name in self._names.values():
+            try:
+                if block.name != name:
+                    block.name = name
+            except ReferenceError:
+                continue
 
 
-def _datablock_pointers() -> dict[str, set[int]]:
+def datablock_pointers() -> dict[str, set[int]]:
     return {kind: {item.as_pointer() for item in getattr(bpy.data, kind)} for kind in _DATA_KINDS}
 
 
-def _remove_created(before: dict[str, set[int]]) -> None:
+def remove_created(before: dict[str, set[int]]) -> None:
     for obj in list(bpy.data.objects):
         if obj.as_pointer() not in before["objects"]:
             bpy.data.objects.remove(obj, do_unlink=True)

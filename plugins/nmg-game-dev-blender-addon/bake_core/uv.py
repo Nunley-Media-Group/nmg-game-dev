@@ -143,6 +143,21 @@ def uv_area(obj: bpy.types.Object, layer_name: str) -> float:
     return total
 
 
+def world_area(obj: bpy.types.Object) -> float:
+    """Surface area of obj's mesh in world space, in square metres (fan-triangulated)."""
+    matrix = obj.matrix_world
+    points = [matrix @ vertex.co for vertex in obj.data.vertices]
+    total = 0.0
+    for poly in obj.data.polygons:
+        ids = poly.vertices
+        origin = points[ids[0]]
+        for index in range(1, len(ids) - 1):
+            edge_a = points[ids[index]] - origin
+            edge_b = points[ids[index + 1]] - origin
+            total += edge_a.cross(edge_b).length / 2
+    return total
+
+
 def _polygon_area(points: Sequence[tuple[float, float]]) -> float:
     area = 0.0
     for index in range(len(points)):
