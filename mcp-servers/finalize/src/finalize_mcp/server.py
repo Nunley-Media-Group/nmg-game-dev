@@ -1,8 +1,9 @@
 """The ``finalize`` MCP server (#69).
 
-Registers three tools over ``nmg_game_dev.finalize``: ``finalize_asset``, ``run_finalize_step``, and
-``get_finalize_job``.  The tool logic lives in the package, so the CLI and this server share one
-implementation.  stdout is the MCP channel, so logs go to stderr only.
+Registers five tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
+``get_finalize_job``, ``list_material_variants`` (#148), and ``import_audio`` (#155).  The tool
+logic lives in the package, so the CLI and this server share one implementation.  stdout is the MCP
+channel, so logs go to stderr only.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from mcp.server.fastmcp import FastMCP
 
 from nmg_game_dev.finalize import finalize_asset as _finalize_asset
 from nmg_game_dev.finalize import get_finalize_job as _get_finalize_job
+from nmg_game_dev.finalize import import_audio as _import_audio
 from nmg_game_dev.finalize import list_material_variants as _list_material_variants
 from nmg_game_dev.finalize import run_finalize_step as _run_finalize_step
 
@@ -111,6 +113,18 @@ def list_material_variants(category: str, collection: str) -> Any:
     variants, or one not in Content, returns []. A failure returns {"error": {...}}.
     """
     return _logged(_list_material_variants(category=category, collection=collection))
+
+
+@mcp.tool(name="import_audio")
+def import_audio(file: str, name: str, kind: str, loop: bool = False) -> dict[str, Any]:
+    """Import a saved ElevenLabs sound effect or music file into Unreal as a SoundWave.
+
+    kind is "sfx" or "music"; name is PascalCase. The file (.wav, .mp3, .ogg, or .flac) is stored
+    as a 16-bit WAV under SourceArt/Audio/<SFX|Music>/ and imported as
+    /Game/Audio/<SFX|Music>/SW_<name>. Returns the result, or {"error": {code, message, remediation,
+    stage}}.
+    """
+    return _logged(_import_audio(file=file, name=name, kind=kind, loop=loop))
 
 
 def main() -> None:

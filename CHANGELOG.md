@@ -10,6 +10,9 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Let one finalized asset declare several material variants (#148)
 
+## [0.22.0] - 2026-11-11
+## [0.21.5] - 2026-11-12
+
 ### Fixed
 
 - Fix import_ue failing multi-part static imports because UE 5.8 reports only the first mesh on the import task (#141)
@@ -17,6 +20,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 ### Changed
 
 - Add a contact sheet for reviewing generated tiling textures (#152)
+
+### Fixed
+
+- Fix geometry.normals rejecting correctly facing open surfaces on environment pieces (#144)
 
 ## [0.21.4] - 2026-11-12
 
@@ -26,7 +33,9 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Measure texel density per material slot and exempt trim-atlas and flat-colour slots (#151)
 
 ### Fixed
+
 - Fix the tiling seam check rejecting high-frequency textures that tile correctly (#147)
+- Fix the Blender test runner repointing the user's Blender add-on link and racing across worktrees (#189)
 - Fix plugin.session-smoke failing when the Herdr window is too short to show every /mcp server (#193)
 
 ## [0.21.3] - 2026-11-11
@@ -38,6 +47,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Honour nmg-budgets.json Desktop overrides in contract validation (#134)
 - Fix start-unreal-mcp.sh rebuilding plugins on every launch and failing to relaunch the editor after a config change (#150)
 - Fix import_ue failing the Mobile variant of static assets that export as an LOD group (#146)
+
+### Changed
+
+- Add optional ElevenLabs sound-effect and music generation that imports into Unreal (#155)
 
 ## [0.21.2] - 2026-11-11
 

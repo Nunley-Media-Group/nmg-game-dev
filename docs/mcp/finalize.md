@@ -24,6 +24,7 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 | `run_finalize_step` | `step` (one of the six step names), then the same inputs as `finalize_asset` | The same shape as `finalize_asset`, for one step |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "result"?, "error"?}` |
 | `list_material_variants` | `category`, `collection` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants or is not in Content |
+| `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop` | The audio import result. See [elevenlabs.md](elevenlabs.md) |
 
 `material_variants_path` names the asset's `<Name>.material-variants.json` declaration. Without it, a
 `--blend` run uses the file beside the blend when one exists. A session run has no blend, so it declares
@@ -198,6 +199,20 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `import_ue.pivot_mismatch` | A child part's local bounds differ from the Blender part by more than 0.01 cm. | Fix the pivot in Blender, then rerun finalize with `--force` so the UE content is reimported. |
 | `mcp.blender.unreachable` | The Blender MCP session on `BLENDER_MCP_PORT` is not reachable. | Run `scripts/start-blender-mcp.sh`, then rerun. |
 | `mcp.unreal.unreachable` | The Unreal MCP endpoint on `UE_MCP_PORT` is not reachable. | Run `scripts/start-unreal-mcp.sh`, then rerun `import_ue`. |
+
+## import_audio
+
+`import_audio` is a fourth tool on this server, and it is not a finalize step. It stores a saved sound
+file, the output of the official ElevenLabs MCP server, as a 16-bit WAV under `SourceArt/Audio/`. It
+then imports that WAV into Unreal as a SoundWave at `/Game/Audio/<SFX|Music>/SW_<name>`. It runs
+synchronously and returns the result at once, with no job to poll. The CLI, `python -m
+nmg_game_dev.audio import`, runs the same function. The flow, the formats, the result fields, and the
+error codes are in [elevenlabs.md](elevenlabs.md).
+
+Its errors come back as `{"error": {"code", "message", "remediation", "stage"}}`, with the `audio`
+stage and the codes `audio.invalid_request`, `audio.unsupported_format`, `audio.asset_exists`,
+`audio.decode_failed`, and `audio.import_failed`. An unreachable Unreal endpoint is not an error:
+the result carries `imported_to_unreal: false` and a `warning` with `mcp.unreal.unreachable`.
 
 ## Versions
 
