@@ -1,0 +1,31 @@
+**Issue**: #215
+**Date**: 2026-11-12
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/1-scaffold-plugin-repo-session-start-hooks/
+
+# File: tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature
+# Generated from: specs/215-judge-launcher-detach-in-the-scaffold-scenarios-by-process-state-not-a-2-second-wall-clock/requirements.md
+Feature: Launcher detach is judged by process state, not wall-clock time
+
+  @SCN001 @regression
+  Scenario: A launcher passes when it exits 0 while its child is still running
+    Given a fake Blender and a fake UE editor that record their PID and argv and keep running until stopped
+    When scripts/start-blender-mcp.sh and scripts/start-unreal-mcp.sh each run against their fake
+    Then each script exits 0 while the fake child it started is still alive
+    And the fake UE editor's recorded argv holds -ModelContextProtocolStartServer and -ModelContextProtocolPort=18088
+    And both fake children are stopped afterwards
+
+  @SCN002 @regression
+  Scenario: A launcher that waits for its child fails the detach check
+    Given a synthetic launcher that starts the fake child and waits for it
+    When it runs with a child that exits after 1 second, and again with a child that keeps running under a 3 second bound
+    Then the detach check fails the first run because the child is gone
+    And the detach check fails the second run because the launcher did not return
+
+  @SCN003 @regression
+  Scenario: A slow launcher that detaches still passes
+    Given a synthetic launcher that sleeps 2.5 seconds before detaching the fake child
+    When it runs
+    Then it takes more than 2 seconds
+    And the detach check passes because it exited 0 while its child was still running
