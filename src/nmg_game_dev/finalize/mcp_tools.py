@@ -30,11 +30,14 @@ def finalize_asset(
     budgets_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
     """Finalize every step for the collection.  Returns the job id and the result, if finished."""
     try:
-        request = _request(collection, category, asset_class, export_root, blend, budgets_path)
+        request = _request(
+            collection, category, asset_class, export_root, blend, budgets_path, compatible_with
+        )
     except _InvalidRequestError as error:
         return {"error": error.payload}
     return _start(
@@ -57,12 +60,15 @@ def run_finalize_step(
     budgets_path: str | None = None,
     force: bool = False,
     wait_seconds: float = 0,
+    compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
     """Run one step through the same implementation ``finalize_asset`` uses."""
     try:
         canonical = parse_step(step).name
-        request = _request(collection, category, asset_class, export_root, blend, budgets_path)
+        request = _request(
+            collection, category, asset_class, export_root, blend, budgets_path, compatible_with
+        )
     except PipelineError as error:
         return {"error": error_dict(error)}
     except _InvalidRequestError as error:
@@ -98,6 +104,7 @@ def _request(
     export_root: str,
     blend: str | None,
     budgets_path: str | None,
+    compatible_with: list[str] | None = None,
 ) -> FinalizeRequest:
     try:
         return build_request(
@@ -107,6 +114,7 @@ def _request(
             export_root=export_root,
             blend=blend,
             budgets_path=budgets_path,
+            compatible_with=compatible_with or (),
         )
     except MissingArgumentError as error:
         raise _InvalidRequestError(error.payload()) from error

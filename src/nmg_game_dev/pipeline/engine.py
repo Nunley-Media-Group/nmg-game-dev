@@ -9,10 +9,14 @@
    step's blobs where they are missing.  A miss runs the step, gates its reports, and stores it.
    When the alias index for the current asset matches the recorded settings, its recorded keys are
    used instead, so an already-finalized session is served from cache.
+   Per-clip steps (``export_anims``, ``import_anims``, #138) skip this whole-step cache.  They run
+   through ``pipeline/anims.py``, which caches each clip on its own key, and they do not move the
+   input hash, so a clip-only change leaves the mesh steps' keys valid.
 3. Load-back.  For a session run that reaches ``import_ue``, the result replaces the session's
    collections, unless the session changed since the checkpoint.  A refusal lets ``import_ue`` run
    and then fails the run with ``finalize.session_changed``.
-4. UE import.  ``import_ue`` runs only after every earlier step passed.
+4. UE import.  ``import_ue`` runs only after every earlier step passed.  ``import_anims`` runs
+   after it, against the Desktop skeleton it created.
 
 Errors are ``PipelineError`` with a stable code.  A failing step stops the chain before any later
 step runs.
@@ -29,6 +33,7 @@ from typing import Any, Protocol
 
 from nmg_game_dev.unreal.import_asset import import_variant
 
+from . import anims
 from .blender_proc import ProgressCallback, StepRunner
 from .cache import ArtifactCache, CacheEntry
 from .clients.blender_session import BlenderSessionClient
@@ -150,13 +155,14 @@ def execute(
 
     asset_hash, checkpoint = _checkpoint(run)
     budgets = budget_fingerprint(request.budgets_path)
-    current_settings = {step: settings_hash(step, request, budgets) for step in chain}
+    whole_steps = [step for step in chain if not STEPS[step].per_clip]
+    current_settings = {step: settings_hash(step, request, budgets) for step in whole_steps}
 
     alias = None if force else cache.alias(asset_hash, job_dir=job_dir)
     alias_mode = alias is not None and all(
         step in alias.get("steps", {})
         and alias.get("settings", {}).get(step) == current_settings[step]
-        for step in chain
+        for step in whole_steps
     )
     session_holds_result = bool(alias_mode and alias is not None and alias.get("loaded_back"))
     load_back_needed = request.blend is None and "import_ue" in chain and not session_holds_result
@@ -180,6 +186,27 @@ def execute(
                 post_hash = str(load.get("hash", ""))
             else:
                 refused = load
+
+        if spec.per_clip:
+            # Per-clip steps keep their own cache and leave the input hash unchanged (#138).
+            clip_outputs = _run_per_clip(run, step, outputs_by_step, last_blend, force=force)
+            outputs_by_step[step] = clip_outputs
+            # With no clips nothing was re-run, so the step is served from cache exactly when the
+            # step before it was.  The probe itself is never cached.
+            if clip_outputs["clips"]:
+                all_cached = anims.clips_all_cached(clip_outputs)
+            else:
+                all_cached = bool(results) and results[-1].cache_hit
+            clip_result = StepResult(
+                step=step,
+                cache_hit=all_cached,
+                outputs=clip_outputs,
+                summary=_summary(step, clip_outputs, all_cached),
+            )
+            results.append(clip_result)
+            if on_step is not None:
+                on_step(clip_result)
+            continue
 
         if alias_mode and alias is not None:
             key = str(alias["steps"][step])
@@ -228,6 +255,7 @@ def execute(
         mobile_content_path=mobile,
         loaded_back=loaded_back,
         result_blend=result_blend,
+        animations=_animations_result(outputs_by_step),
     )
 
     if tuple(chain) == STEP_ORDER:
@@ -324,6 +352,76 @@ def _run_step(
     return outputs
 
 
+def _run_per_clip(
+    run: _Run,
+    step: StepName,
+    outputs_by_step: dict[str, dict[str, Any]],
+    last_blend: Path,
+    *,
+    force: bool,
+) -> dict[str, Any]:
+    if step == "export_anims":
+        return anims.run_export_anims(
+            run.request,
+            cache=run.cache,
+            job_dir=run.job_dir,
+            runner=run.runner,
+            in_blend=last_blend,
+            force=force,
+            on_progress=_progress_callback(run, step),
+        )
+    owned: UnrealMcpClient | None = None
+
+    def client() -> UnrealPythonRunner:
+        nonlocal owned
+        if run.clients.unreal is not None:
+            return run.clients.unreal
+        if owned is None:
+            owned = UnrealMcpClient()
+        return owned
+
+    try:
+        return anims.run_import_anims(
+            run.request,
+            cache=run.cache,
+            job_dir=run.job_dir,
+            exported=outputs_by_step["export_anims"]["clips"],
+            client=client,
+            force=force,
+        )
+    finally:
+        if owned is not None:
+            owned.close()
+
+
+def _animations_result(outputs_by_step: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the ``animations`` entry of the result, or ``None`` when no clip step ran (#138)."""
+    exported = outputs_by_step.get("export_anims")
+    imported = outputs_by_step.get("import_anims")
+    if exported is None and imported is None:
+        return None
+    export_clips = exported["clips"] if exported is not None else []
+    import_hits: dict[str, bool] = {}
+    if imported is not None:
+        import_hits = {clip["name"]: bool(clip["cache_hit"]) for clip in imported["clips"]}
+    clips = [
+        {
+            "name": clip["name"],
+            "asset_path": clip["asset_path"],
+            "export_cache_hit": bool(clip["cache_hit"]),
+            "import_cache_hit": import_hits.get(clip["name"]),
+        }
+        for clip in export_clips
+    ]
+    source = imported if imported is not None else (exported or {})
+    return {
+        "content_path": source.get("content_dir"),
+        "clips": clips,
+        "stale": list(imported["stale"]) if imported is not None else [],
+        "compatible": list(imported["compatible"]) if imported is not None else [],
+    }
+
+
 def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[str, Any]:
     request = run.request
     export = outputs_by_step["export"]["variants"]
@@ -391,11 +489,17 @@ def _content_paths(outputs_by_step: dict[str, dict[str, Any]]) -> tuple[str | No
     return str(imported["desktop_content_path"]), str(imported["mobile_content_path"])
 
 
-def _summary(step: str, outputs: dict[str, Any], cache_hit: bool) -> str:
+def _summary(step: StepName, outputs: dict[str, Any], cache_hit: bool) -> str:
     bake = outputs.get("bake")
     if step == "bake" and isinstance(bake, dict) and isinstance(bake.get("summary"), str):
         # bake_core's own one-line summary (#67) is the step's summary.
         return str(bake["summary"])
+    if STEPS[step].per_clip:
+        clips = outputs.get("clips", [])
+        if not clips:
+            return f"{step}: no clips"
+        hits = sum(1 for clip in clips if clip.get("cache_hit") is True)
+        return f"{step}: {len(clips)} clip(s), {hits} from cache"
     prefix = "served from cache" if cache_hit else "ran"
     return f"{step} {prefix}"
 

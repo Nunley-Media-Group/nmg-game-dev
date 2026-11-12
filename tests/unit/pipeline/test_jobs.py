@@ -53,8 +53,10 @@ def test_start_then_run_writes_a_succeeded_status_with_each_step(tmp_path: Path)
         "bake",
         "variants",
         "export",
+        "export_anims",
         "reimport",
         "import_ue",
+        "import_anims",
     }
     assert status["result"]["desktop_content_path"] == "/Game/Props/Crate/Desktop"
 

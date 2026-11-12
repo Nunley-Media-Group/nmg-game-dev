@@ -35,5 +35,14 @@ def test_no_meshy_or_generate_in_pipeline_or_finalize_source() -> None:
     assert offenders == []
 
 
-def test_step_order_is_the_six_finalize_steps() -> None:
-    assert STEP_ORDER == ("validate", "bake", "variants", "export", "reimport", "import_ue")
+def test_step_order_is_the_eight_finalize_steps() -> None:
+    assert STEP_ORDER == (
+        "validate",
+        "bake",
+        "variants",
+        "export",
+        "export_anims",
+        "reimport",
+        "import_ue",
+        "import_anims",
+    )

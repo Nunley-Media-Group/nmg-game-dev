@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "finalize_asset",
-      "description": "Finalize an authored collection through every step and import it into Unreal. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150).",
+      "description": "Finalize an authored collection through every step, exporting one animation FBX per rig clip and importing the clips as AnimSequences, then import it into Unreal. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150). compatible_with lists <Category>/<Name> characters whose skeleton the clips may also play on.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -14,18 +14,19 @@
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
           "force": {"type": "boolean", "default": false},
-          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
+          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0},
+          "compatible_with": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$"}, "default": []}
         },
         "required": ["collection", "export_root"]
       }
     },
     {
       "name": "run_finalize_step",
-      "description": "Run one finalize step (validate, bake, variants, export, reimport, or import_ue) through the same implementation finalize_asset uses. Returns {job_id, status} at once, or the finished result within wait_seconds (0-150).",
+      "description": "Run one finalize step (validate, bake, variants, export, export_anims, reimport, import_ue, or import_anims) through the same implementation finalize_asset uses. Returns {job_id, status} at once, or the finished result within wait_seconds (0-150).",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "step": {"type": "string", "enum": ["validate", "bake", "variants", "export", "reimport", "import_ue"]},
+          "step": {"type": "string", "enum": ["validate", "bake", "variants", "export", "export_anims", "reimport", "import_ue", "import_anims"]},
           "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece"]},
@@ -33,7 +34,8 @@
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
           "force": {"type": "boolean", "default": false},
-          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0}
+          "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0},
+          "compatible_with": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$"}, "default": []}
         },
         "required": ["step", "collection", "export_root"]
       }

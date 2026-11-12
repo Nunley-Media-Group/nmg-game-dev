@@ -9,8 +9,9 @@ in for the live session and the Unreal MCP.  Import them as ``from finalize_fake
 
 from __future__ import annotations
 
+import ast
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,9 @@ class FakeStepRunner:
         failures: Optional mapping of step name to ``(code, message, remediation)``.  That step
             returns a failing envelope.
         hash_value: The content hash returned by ``hash``.
+        clips: Optional rig clips the ``export_anims`` probe reports, each a mapping with ``name``,
+            ``hash``, and optionally ``valid_name`` (default true) and ``source`` (default
+            ``"authored"``).  Empty means an unrigged asset.
     """
 
     def __init__(
@@ -90,6 +94,7 @@ class FakeStepRunner:
         failing_reports: frozenset[str] = frozenset(),
         hash_value: str = "asset-hash-0",
         events: list[str] | None = None,
+        clips: Sequence[Mapping[str, Any]] = (),
     ) -> None:
         self.request = request
         self.bake_result = dict(bake_result) if bake_result is not None else None
@@ -97,6 +102,7 @@ class FakeStepRunner:
         self.failing_reports = failing_reports
         self.hash_value = hash_value
         self.events = events
+        self.clips = [dict(clip) for clip in clips]
         self.calls: list[dict[str, Any]] = []
 
     def steps_run(self) -> list[str]:
@@ -162,6 +168,8 @@ class FakeStepRunner:
             }
         if step == "export":
             return self._export_outputs(job_dir)
+        if step == "export_anims":
+            return self._anim_outputs(job_dir, inputs)
         if step == "reimport":
             assert inputs is not None, "reimport receives the export variants as inputs"
             reports: dict[str, str] = {}
@@ -189,6 +197,43 @@ class FakeStepRunner:
             passed=False,
             findings=[finding],
         )
+
+    def _anim_outputs(self, job_dir: Path, inputs: Mapping[str, Any] | None) -> dict[str, Any]:
+        """Probe the fake rig's clips, or write the named clips' FBX files and records."""
+        request = self.request
+        if inputs is None or inputs.get("mode") == "probe":
+            return {
+                "clips": [
+                    {
+                        "name": str(clip["name"]),
+                        "hash": str(clip["hash"]),
+                        "valid_name": bool(clip.get("valid_name", True)),
+                    }
+                    for clip in self.clips
+                ],
+                "options": "fake-anim-options",
+            }
+        folder = request.export_root / request.category / request.collection / "Animations"
+        folder.mkdir(parents=True, exist_ok=True)
+        sources = {str(clip["name"]): clip.get("source", "authored") for clip in self.clips}
+        hashes = {str(clip["name"]): str(clip["hash"]) for clip in self.clips}
+        records = []
+        for name in inputs.get("clips", []):
+            file_name = f"A_{request.collection}_{name}.fbx"
+            # The FBX bytes follow the clip's hash, as a real export does when the clip changes.
+            (folder / file_name).write_bytes(f"fbx {name} {hashes.get(str(name), '')}".encode())
+            records.append(
+                {
+                    "name": name,
+                    "file": file_name,
+                    "frame_start": 1,
+                    "frame_end": 10,
+                    "frame_count": 10,
+                    "fps": 30.0,
+                    "source": sources.get(str(name), "authored"),
+                }
+            )
+        return {"clips": records}
 
     def _export_outputs(self, job_dir: Path) -> dict[str, Any]:
         request = self.request
@@ -304,3 +349,144 @@ def _envelope(
 def _write_json(path: Path, data: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+
+class FakeAnimUnrealRunner:
+    """An Unreal MCP stand-in for ``import_anims`` (#138).
+
+    It decodes the PARAMS that ``build_anim_import_code`` embeds, applies the same checks as the UE
+    program, and replies with the ``NMG_RESULT`` line the host reads.  Nothing is imported into a
+    live editor.
+
+    Parameters:
+        skeletons: Skeleton asset paths that exist in the project.  Each character's own Desktop
+            skeleton and each compatible target must be listed here.
+        bones: Reference bone names per skeleton path.  A path not listed reads as ``["root"]``.
+        frame_counts: Measured sampled key count per clip name.  Default: the expected count.
+        skeleton_of: Measured skeleton path per clip name.  Default: the clip's own skeleton.
+        present: AnimSequence paths that already exist before the call.
+        stale: Asset names in the Animations folder that are no longer clips.
+        error: Optional error text the program reports instead of a result.
+    """
+
+    def __init__(
+        self,
+        *,
+        skeletons: Sequence[str],
+        bones: Mapping[str, Sequence[str]] | None = None,
+        frame_counts: Mapping[str, int] | None = None,
+        skeleton_of: Mapping[str, str] | None = None,
+        present: Sequence[str] = (),
+        stale: Sequence[str] = (),
+        error: str | None = None,
+    ) -> None:
+        self.skeletons = set(skeletons)
+        self.bones = {path: list(names) for path, names in (bones or {}).items()}
+        self.frame_counts = dict(frame_counts or {})
+        self.skeleton_of = dict(skeleton_of or {})
+        self.present = set(present)
+        self.stale = list(stale)
+        self.error = error
+        self.codes: list[str] = []
+        self.params: list[dict[str, Any]] = []
+        self.imported: list[str] = []
+        self.compatible: dict[str, list[str]] = {}
+
+    def execute_python_code(self, code: str) -> str:
+        self.codes.append(code)
+        params = _decode_params(code)
+        self.params.append(params)
+        return "NMG_RESULT " + json.dumps(self._reply(params), sort_keys=True)
+
+    def _names(self, path: str) -> list[str]:
+        return self.bones.get(path, ["root"])
+
+    def _reply(self, params: Mapping[str, Any]) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "ok": False,
+            "skeleton": params["skeleton"],
+            "blocked": None,
+            "clips": {},
+            "mismatch": [],
+            "stale": [],
+            "compatible": [],
+            "error": None,
+        }
+        if self.error is not None:
+            result["error"] = self.error
+            return result
+        own = params["skeleton"]
+        if own not in self.skeletons:
+            result["blocked"] = {
+                "code": "skeleton_not_found",
+                "target": own,
+                "path": own,
+                "bones": [],
+            }
+            return result
+        for target in params["compatible"]:
+            path = target["skeleton"]
+            if path not in self.skeletons:
+                result["blocked"] = {
+                    "code": "skeleton_not_found",
+                    "target": target["name"],
+                    "path": path,
+                    "bones": [],
+                }
+                return result
+            if self._names(path) != self._names(own):
+                differing = sorted(set(self._names(path)) ^ set(self._names(own)))
+                result["blocked"] = {
+                    "code": "skeleton_mismatch",
+                    "target": target["name"],
+                    "path": path,
+                    "bones": differing,
+                }
+                return result
+        for clip in params["clips"]:
+            if clip["import"] or clip["asset_path"] not in self.present:
+                self.imported.append(clip["name"])
+                self.present.add(clip["asset_path"])
+            result["clips"][clip["name"]] = {
+                "asset_path": clip["asset_path"],
+                "skeleton": self.skeleton_of.get(clip["name"], own),
+                "frame_count": self.frame_counts.get(clip["name"], clip["expected_frame_count"]),
+                "imported": bool(clip["import"]),
+            }
+            measured = result["clips"][clip["name"]]
+            if measured["skeleton"] != own:
+                result["mismatch"].append(
+                    {
+                        "clip": clip["name"],
+                        "field": "skeleton",
+                        "expected": own,
+                        "measured": measured["skeleton"],
+                    }
+                )
+            if measured["frame_count"] != clip["expected_frame_count"]:
+                result["mismatch"].append(
+                    {
+                        "clip": clip["name"],
+                        "field": "frame_count",
+                        "expected": clip["expected_frame_count"],
+                        "measured": measured["frame_count"],
+                    }
+                )
+        result["stale"] = [f"{params['anim_dir']}/{name}" for name in self.stale]
+        if not result["mismatch"]:
+            for target in params["compatible"]:
+                for a, b in ((own, target["skeleton"]), (target["skeleton"], own)):
+                    listed = self.compatible.setdefault(a, [])
+                    if b not in listed:
+                        listed.append(b)
+                result["compatible"].append(target["skeleton"])
+        result["ok"] = True
+        return result
+
+
+def _decode_params(code: str) -> dict[str, Any]:
+    """Return the PARAMS literal that ``build_anim_import_code`` embeds, decoded."""
+    line = next(line for line in code.splitlines() if line.startswith("PARAMS = json.loads("))
+    decoded = ast.literal_eval(line[len("PARAMS = json.loads(") : -1])
+    params: dict[str, Any] = json.loads(decoded)
+    return params

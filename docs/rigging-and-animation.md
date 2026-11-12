@@ -16,6 +16,11 @@ into Unreal as a skeletal mesh that works with Manny-based animation.
 4. **Import animations.** Call `import_animations(collection, library_dir)`.
    Omit `clips` to bake every clip the library lists.
 5. **Export.** Call `export_rigged(collection, out_dir)`.
+6. **Finalize.** `finalize_asset` exports every clip on `SK_<Name>` as its own FBX under
+   `Animations/`, and `import_anims` imports each one into Unreal as an AnimSequence on the
+   character's Desktop skeleton. Pass `compatible_with` to let the clips play on another
+   character's skeleton. The clip steps are cached per clip, so changing one clip re-imports only
+   that clip. See `docs/mcp/finalize.md`, "Animation clips".
 
 The functions live in the add-on's `rig_core` package. Call them through
 `execute_blender_code`:
