@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 03dfcabc01a624a82557591c7ea02915fd70c500
+**Verification head**: 7a43238eb09062b00b68ca2d4c147ab990092a13
 
 ---
 
@@ -24,7 +24,7 @@
 ### Implementation Status: Pass
 **Total Issues**: 4 (0 Critical, 0 High, 1 Medium, 3 Low), none blocking
 
-All ten acceptance criteria and all nine tasks are met at `03dfcab`. Here is what the feature delivers:
+All ten acceptance criteria and all nine tasks are met at `7a43238`, the merge of `origin/main` (#173, #182, #184, #185, #187) into the #148 branch. This run re-verified the merged head. Here is what the feature delivers:
 
 - Finds `<Name>.material-variants.json` beside the `.blend`, or takes an explicit path.
 - Checks the declaration with eight `material_variant.*` contract rules.
@@ -36,7 +36,9 @@ All ten acceptance criteria and all nine tasks are met at `03dfcab`. Here is wha
 
 The AC7 failure in the earlier `c868ff5` run is fixed. Commit `03dfcab` changes the `import_ue` result's `material_variants` to a list with one entry per imported instance (`name`, `material`, `instance`, `texture`). A variant name used on two materials therefore no longer overwrites the first entry.
 
-All 11 registered validations are recorded at this exact head and spec identity, and coverage is complete. Nine passed, including `gate-blender-headless`, `gate-ue-compile`, and `plugin.session-smoke`. Two do not apply: `gate-shellcheck` and `gate-ship-smoke`.
+The merge kept both sides. `import_asset.py` runs main's multi-part build scale, rename, and LOD-group logic first, then #148's `_bind_material_variants` and `_delete_stale_variants`. `validate.py` takes main's per-variant `resolve_budget` (#182), and `_material_variant_checks` still reads `budgets["desktop"]["max_texture_px"]`, which the resolved Desktop budget provides. The #148 host tests were ported onto main's `tests/unit/fake_unreal.py`, which gained tags, listing, deletion, and vector parameters.
+
+All 11 registered validations are recorded at this exact head and spec identity, and coverage is complete. Ten passed, including `gate-blender-headless`, `gate-ue-compile`, `gate-shellcheck`, and `plugin.session-smoke`. `gate-ship-smoke` does not apply.
 
 ---
 
@@ -60,11 +62,11 @@ All 11 registered validations are recorded at this exact head and spec identity,
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/148.json` (generatedAt `2026-11-11T22:28:34.692Z`)
-- Identity: head `03dfcabc01a624a82557591c7ea02915fd70c500`, clean tree, specHash `sha256:e63bc77a…7164f`, steeringHash `sha256:119992c8…096a9`, run id `cad357a1-83d0-4f12-bcc9-8b2915febb9c`
+- Artifact: `.nmg-sdlc/verification/148.json` (generatedAt `2026-11-12T00:06:35.742Z`, base ref `main`)
+- Identity: head `7a43238eb09062b00b68ca2d4c147ab990092a13`, clean tree, specHash `sha256:e63bc77a…7164f`, steeringHash `sha256:119992c8…096a9`, run id `fef03425-c990-4686-b9f1-8b3d69cb6efb`
 - Coverage: declared 11, recorded 11, complete `true`; missing, duplicate, and unknown are empty
 - Ceiling: `null`, so the steering evidence does not cap the status
-- This worker found the artifact current at the exact head, spec, and steering identity under this controller run, so it reused it. `sdlc-finalize-verification.mjs` checks the artifact's identity again at publication.
+- This worker ran `sdlc-verify-steering.mjs` fresh at the merged head under this controller run. `sdlc-finalize-verification.mjs` checks the artifact's identity again at publication.
 
 ---
 
@@ -78,7 +80,7 @@ All 11 registered validations are recorded at this exact head and spec identity,
 | AC4 | The main asset is unchanged | Pass | Variant MIs are never assigned to slots (`test_variant_instances_are_tagged_and_never_bound_to_the_mesh_slot`); without a declaration the sidecar has no `material_variants` key and exports are unchanged (`test_scn004_…`, `test_without_material_variants_the_bindings_are_unchanged`, `test_a_sidecar_without_material_variants_imports_with_none`) |
 | AC5 | The contract checks material variants | Pass | `contract_core/material_variants.py` `check_declaration` (rules name, duplicate, material_missing, texture_missing, texture_size, parameter, empty) and `load_declaration` (`declaration_invalid`); findings survive `authored=True`; parametrized `test_scn005_each_rule_yields_a_finding_naming_the_asset_and_variant`, `test_a_malformed_declaration_raises_declaration_invalid` |
 | AC6 | Material merging is handled | Pass | `validate.py` `_material_variant_checks` reuses `bake_core.rewire.part_names` and the bake's merge condition; `material_merged` names `M_<Name>_Body`; tests `test_scn006_…`, `test_a_variant_on_the_merged_body_material_is_accepted` |
-| AC7 | The sidecar and import result record material variants | Pass | Sidecar: `finalize_core/steps.py` `_sidecar_payload` adds `material_variants` `{desktop, mobile}` in the design entry shape (`test_scn007_…`). Import result: `material_variants` is a list of `{name, material, instance, texture}` entries, `textures` includes the variant textures, and `removed` and `warnings` are added (commit `03dfcab`; `test_one_variant_name_on_two_materials_lists_both_instances`). The design's dict shape is judged below |
+| AC7 | The sidecar and import result record material variants | Pass | Sidecar: `finalize_core/steps.py` `_sidecar_payload` adds `material_variants` `{desktop, mobile}` in the design entry shape (`test_scn007_…`). Import result: `material_variants` is a list of `{name, material, instance, texture}` entries, `textures` includes the variant textures, and `removed` and `warnings` are added (commit `03dfcab`, kept by the merge; `test_one_variant_name_on_two_materials_lists_both_instances`). The design's dict shape is judged below |
 | AC8 | Material variants can be listed from Unreal | Pass | `src/nmg_game_dev/unreal/material_variants.py` reads the `nmg.*` tags and returns rows sorted by material, then name, or `[]` when nothing is found; the MCP tool `list_material_variants` and the CLI `material-variants` share it; tests `test_listing_returns_…`, `test_the_mcp_tool_returns_the_same_rows_as_the_listing`, `test_the_cli_lists_the_rows_as_json`, `test_the_mcp_tool_returns_the_unreachable_error_structured` |
 | AC9 | Re-runs are idempotent and remove stale variants | Pass | Export clears `T_<Name>_*_BC_*.png` before writing (`test_scn009_…`); the import reuses existing assets through `_instance` and `replace_existing` (`test_reimporting_the_same_declaration_reuses_every_variant_asset`) and deletes only tagged pairs that are no longer declared, instances before textures, listing each in `removed` (`test_removing_a_variant_deletes_its_tagged_assets_and_reports_them`) |
 | AC10 | The contract and skills document material variants | Pass | `docs/asset-contract.md` §4 "Material variants", `skills/finalize-asset/SKILL.md` "Material variants", `docs/mcp/finalize.md`; test `test_the_documents_name_the_declaration_naming_rules_and_listing` |
@@ -177,8 +179,8 @@ Host code never imports the add-on. The add-on's `utils/master_material.py` is p
 ### Coverage Summary
 
 - Feature file: 10 scenarios (`specs/148-…/feature.gherkin`), mapped to pytest tests named for each scenario
-- Unit suite (`repository.tests`): 1006 passed, 9 skipped
-- Headless Blender suite (`gate-blender-headless`): 208 passed, 4 skipped
+- Unit and BDD suite (`repository.tests`): 1091 passed, 9 skipped; the #148 host files alone (`test_material_variants_host.py`, `test_build_master_material.py`): 43 passed
+- Headless Blender suite (`gate-blender-headless`): 236 passed, including the 12 tests in `tests/blender/test_material_variants.py`
 - UE master-material builder: proven against an in-memory fake `unreal` module; no live editor
 
 ---
@@ -196,19 +198,19 @@ Host code never imports the add-on. The add-on's `utils/master_material.py` is p
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1006 passed, 9 skipped |
+| `repository.tests` | Pass | `uv run pytest tests/unit tests/bdd -q`: 1091 passed, 9 skipped |
 | `repository.lint` | Pass | `ruff check .`: All checks passed! |
-| `repository.format` | Pass | `ruff format --check .`: 316 files already formatted |
-| `repository.types` | Pass | `mypy src tests`: no issues in 199 source files |
-| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 208 passed, 4 skipped |
-| `gate-ue-compile` | Pass | `Build.sh DogfoodEditor Mac Development` against UE 5.8 compiled |
+| `repository.format` | Pass | `ruff format --check .`: 325 files already formatted |
+| `repository.types` | Pass | `mypy src tests`: no issues in 206 source files |
+| `gate-blender-headless` | Pass | `scripts/run-blender-tests.sh`: 236 passed |
+| `gate-ue-compile` | Pass | DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8` |
 | `gate-mcp-schema` | Pass | MCP tools match `tools.json` for every server under `mcp-servers/` |
-| `gate-shellcheck` | Not applicable | No `scripts/**.sh` changed |
+| `gate-shellcheck` | Pass | `shellcheck -S style` clean on every `scripts/**.sh`. It applies because the diff against base ref `main` includes main's #184 script change |
 | `gate-ship-smoke` | Not applicable | No ship paths changed |
 | `plugin.validate` | Pass | `claude plugin validate .`: validation passed (with warnings) |
 | `plugin.session-smoke` | Pass | Plugin loaded with `--plugin-dir`; `nmg-game-dev:blender` connected |
 
-**Gate Summary**: 9/9 applicable gates passed, 0 failed, 0 incomplete (2 not applicable)
+**Gate Summary**: 10/10 applicable gates passed, 0 failed, 0 incomplete (1 not applicable)
 
 ---
 
@@ -216,7 +218,7 @@ Host code never imports the add-on. The add-on's `utils/master_material.py` is p
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| — | — | — | None in this verification run. The AC7 fix (`03dfcab`) was made in the implement stage before this run | — | — |
+| — | — | — | None in this verification run. The AC7 fix (`03dfcab`) was made in the implement stage, and the merge (`7a43238`) was resolved before this run | — | — |
 
 ## Remaining Issues
 
@@ -244,6 +246,7 @@ None.
 |----------|----------|----------|-------|------------------|
 | Low | Documentation | `specs/148-…/design.md` (API table, `import_variant` row) | Still shows `material_variants` as a dict keyed by variant name; the code and the asset contract use a list of `{name, material, instance, texture}`, and the row does not mention `warnings` | Spec files are read-only in verify. Requirements AC7/FR7 take precedence (see Judgment). Update the row in a spec amendment |
 | Low | Error Handling | `src/nmg_game_dev/pipeline/engine.py` `_sidecar_material_variants` | A corrupt sidecar raises an unstructured `JSONDecodeError` | The export step writes the sidecar in the same job, so corruption is unlikely; not worth widening scope |
+| Low | Delivery | Branch vs `origin/main` | `origin/main` gained `0e2fa86` and `38d164c` (#188, #190) after the `7a43238` merge. `git merge-tree` against `origin/main` reports a conflict in `CHANGELOG.md` only (main's new #188 entry beside this issue's `[Unreleased]` entry). No #148 source file is touched by those commits | A version-file merge is orchestrator-owned at deliver; merging here would move the verified head |
 | Low | Testing | `tasks.md` T009 file list | Tests are combined in `tests/unit/test_material_variants_host.py` instead of the listed per-module test files | Every acceptance bullet still has a test; only the file placement differs |
 
 ---
@@ -283,7 +286,7 @@ None.
 | `plugins/nmg-game-dev-blender-addon/utils/master_material.py` | 0 | Parameter table |
 | `src/nmg_game_dev/finalize/service.py`, `mcp_tools.py`, `__main__.py` | 0 | Discovery, MCP, CLI |
 | `src/nmg_game_dev/pipeline/request.py`, `steps.py`, `engine.py` | 1 | Low: unstructured sidecar decode error |
-| `src/nmg_game_dev/unreal/import_asset.py` | 0 | Variant MIs, tags, stale deletion, list result |
+| `src/nmg_game_dev/unreal/import_asset.py` | 0 | Variant MIs, tags, stale deletion, list result; merge order after main's LOD-group and rename logic checked |
 | `src/nmg_game_dev/unreal/material_variants.py` | 0 | Tag-based listing |
 | `mcp-servers/finalize/src/finalize_mcp/server.py`, `tools.json` | 0 | New tool and argument |
 | `scripts/unreal/build_master_material.py` | 1 | Medium: shipped asset not rebuilt |
@@ -295,4 +298,4 @@ None.
 
 **Ready for PR**
 
-Every acceptance criterion, functional requirement, and task passes. All registered gates are recorded green at the exact head `03dfcab`. The remaining items are a live-editor content rebuild, which belongs in a follow-up issue, and documentation and robustness polish. None of them blocks delivery.
+Every acceptance criterion, functional requirement, and task passes. All registered gates are recorded green at the exact merged head `7a43238`. The remaining items are a live-editor content rebuild, which belongs in a follow-up issue, and documentation and robustness polish. None of them blocks delivery.
