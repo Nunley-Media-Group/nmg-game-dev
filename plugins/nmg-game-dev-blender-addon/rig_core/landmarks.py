@@ -18,12 +18,28 @@ _MAX_JOINT_BEND_DEG = 15.0
 _MAX_HIP_TILT_DEG = 15.0
 
 
+def asset_not_found(collection_name: str) -> dict[str, Any]:
+    """Return the failure for a collection that does not hold the root mesh SM_<Name>."""
+    mesh = f"SM_{collection_name}"
+    return fail(
+        STATUS_FALLBACK,
+        "rig.asset_not_found",
+        f"The collection '{collection_name}' has no root mesh {mesh}.",
+        f"Model the character in a collection named {collection_name} with a root mesh "
+        f"{mesh}, then rerun.",
+    )
+
+
 def validate(
-    body_type: str, landmarks: Mapping[str, Any], bbox: BBox | None
+    body_type: str,
+    landmarks: Mapping[str, Any],
+    bbox: BBox | None,
+    collection_name: str,
 ) -> dict[str, Any] | None:
     """Return the first failure result, or None when the landmarks are usable.
 
-    bbox is the world bounding box of SM_<Name>, or None when that mesh is missing.
+    bbox is the world bounding box of SM_<collection_name>, or None when that mesh is missing.
+    Every message and remediation names the real collection and mesh, never a placeholder.
     """
     if body_type != "humanoid":
         return fail(
@@ -34,13 +50,7 @@ def validate(
             "follow-up spike.",
         )
     if bbox is None:
-        return fail(
-            STATUS_FALLBACK,
-            "rig.asset_not_found",
-            "The collection has no root mesh SM_<Name>.",
-            "Model the character in a collection named <Name> with a root mesh SM_<Name>, "
-            "then rerun.",
-        )
+        return asset_not_found(collection_name)
 
     points: dict[str, Vec3] = {}
     for key in LANDMARK_KEYS:
@@ -60,12 +70,14 @@ def validate(
     low, high = bbox
     for key, point in points.items():
         if any(point[i] < low[i] - margin or point[i] > high[i] + margin for i in range(3)):
+            mesh = f"SM_{collection_name}"
             return fail(
                 STATUS_FALLBACK,
                 "rig.landmarks_outside_mesh",
-                f"Landmark '{key}' lies outside the bounding box of SM_<Name>.",
+                f"Landmark '{key}' lies outside the bounding box of {mesh} in collection "
+                f"{collection_name}.",
                 "Move the landmark onto the character, in world space and in meters, or fix "
-                "the mesh's scale and placement, then rerun.",
+                f"the scale and placement of {mesh} in collection {collection_name}, then rerun.",
             )
 
     unclear = _unclear_reason(points, height)

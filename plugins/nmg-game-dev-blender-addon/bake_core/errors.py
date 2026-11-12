@@ -20,7 +20,8 @@ REASONS: Final[dict[str, str]] = {
     "uv_unwrap_failed": "Check that the mesh has faces with area, then rerun the bake.",
     "not_seamless": "Make the source texture tile: run python -m nmg_game_dev.texture seamless "
     "<image.png>, or make the procedural material periodic across 0 to 1 UV, then rerun the bake.",
-    "texel_density": "Increase the UV scale or the mesh area ratio until the density is met.",
+    "texel_density": "Raise the slot's density with more texture resolution or less UV area per "
+    "meter, or set nmg_trim_atlas to True on a trim-atlas material, then rerun the bake.",
     "material_limit": "Reduce the tiling materials to the class limit, then rerun the bake.",
     "proof_mismatch": "The baked render differs from the pre-bake render. Check the seams, color "
     "space, and roughness in the proof renders, fix the material, then rebake.",

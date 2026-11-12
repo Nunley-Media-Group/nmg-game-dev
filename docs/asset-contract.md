@@ -50,7 +50,8 @@ viewport or renderer is not done.
     pixel (the wrap) is at most the larger of 1.5 times the mean absolute difference between
     adjacent pixels and 2/255. Integer images are normalised by their maximum value first (#147).
     A source texture that does not tile is made seamless with
-    `python -m nmg_game_dev.texture seamless <image.png>`.
+    `python -m nmg_game_dev.texture seamless <image.png>`. Texel density is measured per
+    material slot; mark a trim-atlas material with `nmg_trim_atlas` (section 6).
 - Materials must survive FBX export. At export time each material is a Principled
   BSDF fed only by Image Texture nodes sampling `UVMap`, a Normal Map node, and a
   Separate Color node to split ORM. No procedural texture nodes, no
@@ -112,6 +113,24 @@ Texture sizes are maximums.
 
 Environment pieces use the tiling mode and target a texel density of at least
 256 px/m on Desktop and 128 px/m on Mobile instead of a single texture set.
+
+Texel density is measured per material slot. Each slot's faces give their own UV area and world
+area, and the slot is compared with the minimum on its own, so a dense tiling slot is not diluted by
+the atlas and flat-colour faces beside it. Two kinds of slot are exempt, and the reports list each
+exempt slot with its reason:
+
+- **Trim atlas** (`trim_atlas`): a material with the custom property `nmg_trim_atlas` set to `True`.
+  Set it in Material Properties > Custom Properties, or from a script with
+  `material["nmg_trim_atlas"] = True`. The bake and the Mobile variant keep the marker.
+- **Flat colour** (`flat_colour`): every face of the slot has its UVs collapsed onto one point or
+  cell, so the slot's total UV area is at or below 1e-8 UV units². No marker is needed.
+
+An unmarked slot with UV area that falls below the minimum fails. Its remediation names both ways
+out: raise the density, or mark the material as a trim atlas if it is one.
+
+The validation report lists each environment-piece mesh's slots under `snapshot[<object>].texel`,
+with each measured slot's Desktop or Mobile px/m, or its exemption. The bake report lists the same
+per mesh under `texel_density`.
 
 A project-root `nmg-budgets.json` overrides these defaults. It is keyed by asset class. Top-level
 metrics (`tris`, `max_texture_px`, `materials`) override the Mobile budget. A nested `desktop`

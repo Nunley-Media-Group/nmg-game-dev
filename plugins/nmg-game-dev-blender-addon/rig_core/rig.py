@@ -46,7 +46,7 @@ def rig_humanoid(
     Validation runs before any scene change. A failed build leaves the scene as it was,
     including any rig built by an earlier call.
     """
-    failure = validate(body_type, landmarks, _mesh_bounds(collection_name))
+    failure = validate(body_type, landmarks, _mesh_bounds(collection_name), collection_name)
     if failure is not None:
         return failure
     points = {key: _point(landmarks[key]) for key in LANDMARK_KEYS}
@@ -68,13 +68,18 @@ def _point(value: Any) -> Vec3:
 
 
 def _mesh_bounds(collection_name: str) -> tuple[Vec3, Vec3] | None:
-    """World bounding box of SM_<Name>, or None when the collection or root mesh is missing."""
+    """World bounding box of SM_<Name>, or None when the collection or root mesh is missing.
+
+    Blender recomputes matrix_world only when the view layer updates, so the update comes first:
+    a mesh moved earlier in the same script is checked at its new position.
+    """
     collection = bpy.data.collections.get(collection_name)
     root = bpy.data.objects.get(f"SM_{collection_name}")
     if collection is None or root is None or root.type != "MESH":
         return None
     if root.name not in collection.objects:
         return None
+    bpy.context.view_layer.update()
     corners = [root.matrix_world @ Vector(corner) for corner in root.bound_box]
     low = tuple(min(corner[axis] for corner in corners) for axis in range(3))
     high = tuple(max(corner[axis] for corner in corners) for axis in range(3))
@@ -105,9 +110,10 @@ def _build(collection_name: str, body_type: str, points: Mapping[str, Vec3]) -> 
             raise RigError(
                 STATUS_FALLBACK,
                 "rig.weights_failed",
-                f"{unweighted} vertices of SM_{collection_name} have no deform-bone weight.",
-                "Make SM_<Name> a single manifold mesh, or merge its separate parts into one "
-                "object, then rerun.",
+                f"{unweighted} vertices of SM_{collection_name} in collection "
+                f"{collection_name} have no deform-bone weight.",
+                f"Make SM_{collection_name} in collection {collection_name} a single manifold "
+                "mesh, or merge its separate parts into one object, then rerun.",
             )
     except Exception:
         _roll_back(rig_name, states, previous, armature)
