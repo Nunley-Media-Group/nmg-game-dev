@@ -1,0 +1,50 @@
+**Issue**: #243
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/232-make-mesh-cleanup-recalculate-normals-the-way-the-geometry-normals-check-judges-them/
+
+# File: tests/blender/test_twist_seams.py
+# Generated from: specs/243-detect-and-repair-one-edge-twist-seams-so-geometry-normals-settles/requirements.md
+Feature: Twist seams are repaired by cleanup and named by the validator
+
+  @SCN001 @regression
+  Scenario: Cleanup repairs a twist seam with a minimal deletion
+    Given a closed Klein bottle with a 3-edge tube whose twist seam has 5 edges
+    When clean_mesh runs on it
+    Then only the 6 faces at the twist seam edges are deleted
+    And geometry_findings reports neither geometry.normals nor geometry.twist_seam
+
+  @SCN002 @regression
+  Scenario: The repaired mesh is stable
+    Given the twist-seam mesh after clean_mesh
+    When clean_mesh and geometry_findings run on it three more times
+    Then the geometry does not change and no finding appears
+
+  @SCN003 @regression
+  Scenario: The validator names the seam
+    Given the uncleaned twist-seam mesh
+    When geometry_findings runs on it
+    Then it reports geometry.twist_seam with 5 seam edges
+    And every sample sits at a seam edge midpoint
+    And no geometry.normals finding is reported
+
+  @SCN004 @regression
+  Scenario: The repair is deterministic
+    Given two identical copies of the twist-seam mesh
+    When clean_mesh runs on each copy
+    Then both copies have identical vertices, faces, and normals
+
+  @SCN005
+  Scenario: Meshes without a twist seam are unaffected
+    Given the clean crate, a correctly facing open quad, and an inside-out cube
+    When clean_mesh and geometry_findings run on them
+    Then twist repair deletes no faces and no geometry.twist_seam finding appears
+    And their other findings are unchanged
+
+  @SCN006 @regression
+  Scenario: Cleanup reports the twist repair
+    Given asset "Twist" holding the twist-seam mesh and the clean crate asset
+    When cleanup_desktop runs on each
+    Then "Twist" reports twist_repair with 6 faces, 5 edges, and seam midpoint samples
+    And the crate reports twist_repair with 0 faces, 0 edges, and no samples
