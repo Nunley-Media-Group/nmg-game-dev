@@ -61,13 +61,13 @@
 - A probe height range off by more than 0.05 m raises `import_godot.terrain_height_mismatch`.
 - Evidence: `uv run pytest tests/unit/godot/test_terrain.py tests/unit/pipeline/test_terrain_routing.py -q`.
 
-### T006: Import audio as `AudioStreamWAV`
+### T006: Import sound effects as `AudioStreamWAV` and music as `AudioStreamOggVorbis`
 
 **File(s)**: `src/nmg_game_dev/audio/`, `src/nmg_game_dev/godot/gd/probe_audio.gd`, `tests/unit/audio/`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- AC5, FR5: the WAV is stored under `SourceArt/Audio/<Kind>/` and copied to `game/assets/Audio/<Name>.wav`. Its `.import` sets `edit/loop_mode=2` for a looping music file and `1` otherwise. The probe confirms `AudioStreamWAV`. `godot.not_found` returns `imported_to_godot: false` with a warning.
+- AC5, FR5: the WAV is stored under `SourceArt/Audio/<Kind>/`. A sound effect is copied to `game/assets/Audio/<Name>.wav`; its `.import` sets `edit/loop_mode=2` when looping and `1` otherwise, and the probe confirms `AudioStreamWAV`. A music file is encoded by ffmpeg (fake runner in tests) to `game/assets/Audio/<Name>.ogg`; its `.import` sets `loop=true` when looping, and the probe confirms `AudioStreamOggVorbis`. Missing ffmpeg raises `audio.ffmpeg_not_found` for music and writes nothing under `game/`. `godot.not_found` returns `imported_to_godot: false` with a warning.
 - `audio/unreal_import.py` is deleted.
 - Evidence: `uv run pytest tests/unit/audio -q`.
 
@@ -122,7 +122,7 @@
 **Depends**: T001, T009
 **Acceptance**:
 - AC10, FR10: on an empty consumer, onboarding creates `game/project.godot` with the Compatibility renderer for mobile and web, the add-on, and `game/export_presets.cfg`, whose desktop presets exclude `assets/*/Mobile/*` and whose mobile and web presets exclude `assets/*/Desktop/*`.
-- It writes only the Blender SessionStart hook and no engine plugins or engine launcher, and reports `godot_binary` found or missing.
+- It writes only the Blender SessionStart hook and no engine plugins or engine launcher, and reports `godot_binary` and `ffmpeg_binary` found or missing.
 - A second run leaves every file byte-identical and reports a changed preset or renderer key as `drift`.
 - Evidence: `uv run pytest tests/unit/onboard -q`; `plugin.validate`; `plugin.session-smoke`.
 
@@ -183,7 +183,7 @@
 **Type**: Create
 **Depends**: T012, T015
 **Acceptance**:
-- `godot_engine.feature` binds SCN001–SCN010 and SCN014 (AC1–AC10, AC14). `convert_to_godot.feature` binds SCN011–SCN013 (AC11–AC13).
+- `godot_engine.feature` binds SCN001–SCN010, SCN014, and SCN015 (AC1–AC10, AC14; SCN015 is AC5). `convert_to_godot.feature` binds SCN011–SCN013 (AC11–AC13).
 - The bindings use `FakeGodotRunner`, `FakeStepRunner`, and the convert fakes. AC14's scenario calls the guard from T015.
 - Evidence: `uv run pytest tests/bdd -q`.
 

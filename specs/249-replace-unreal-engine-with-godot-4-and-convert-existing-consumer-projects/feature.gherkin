@@ -43,11 +43,19 @@ Feature: Godot 4 replaces Unreal Engine as the engine target
     And a probe height range off by more than 0.05 m fails with "import_godot.terrain_height_mismatch"
 
   @SCN005
-  Scenario: Music imports into Godot as a looping AudioStreamWAV
+  Scenario: Music imports into Godot as a looping AudioStreamOggVorbis
     Given a music file "Theme.wav" passed to import_audio with loop enabled
     When the import runs
-    Then SourceArt/Audio/Music/Theme.wav and game/assets/Audio/Theme.wav exist
-    And Godot imported it as an AudioStreamWAV with a forward loop
+    Then SourceArt/Audio/Music/Theme.wav and game/assets/Audio/Theme.ogg exist
+    And Godot imported it as an AudioStreamOggVorbis with loop enabled
+
+  @SCN015
+  Scenario: Music import fails without ffmpeg
+    Given ffmpeg is not on PATH and FFMPEG_BIN is unset
+    And a music file "Theme.wav" passed to import_audio
+    When the import runs
+    Then it fails with audio.ffmpeg_not_found and a remediation line
+    And game/assets/Audio/Theme.ogg does not exist
 
   @SCN006
   Scenario: Material variants are listed without an editor
