@@ -6,8 +6,6 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
-## [0.25.4] - 2026-11-18
-
 ### Fixed
 
 - Make every texture-gen map pass the bake seam rule, and stop `texture seamless` from worsening images that already tile (#238)
