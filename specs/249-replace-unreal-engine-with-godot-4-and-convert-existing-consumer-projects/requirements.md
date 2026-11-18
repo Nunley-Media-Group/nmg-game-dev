@@ -47,7 +47,7 @@ This change targets Godot 4, the latest stable 4.x and never pinned, driven only
 
 **Given** a sound effect or music file passed to `import_audio`
 **When** the import runs
-**Then** the WAV is stored under `SourceArt/Audio/` as today, copied to `game/assets/Audio/<Name>.wav`, and imported headless as an `AudioStreamWAV`, with loop settings applied to music
+**Then** the source is stored under `SourceArt/Audio/` as today; a sound effect is copied to `game/assets/Audio/<Name>.wav` and imported headless as an `AudioStreamWAV`; a music track is encoded with ffmpeg to Ogg Vorbis at `game/assets/Audio/<Name>.ogg` and imported headless as an `AudioStreamOggVorbis`, with `loop=true` when looping; and when ffmpeg cannot be found, a music import fails with `audio.ffmpeg_not_found` and a remediation line
 
 ### AC6: Material variants are listed without an editor
 
@@ -77,7 +77,7 @@ This change targets Godot 4, the latest stable 4.x and never pinned, driven only
 
 **Given** a game project with no nmg-game-dev setup
 **When** `/onboard-consumer` runs
-**Then** it creates `game/project.godot` when missing (Compatibility renderer for mobile and web), installs `addons/nmg_game_dev`, writes `game/export_presets.cfg` with the per-target presets and variant filters, installs only the Blender SessionStart hook, installs no Unreal or VibeUE artifacts, and reports the Godot binary as found or missing; a second run reports drift and changes nothing that is already correct
+**Then** it creates `game/project.godot` when missing (Compatibility renderer for mobile and web), installs `addons/nmg_game_dev`, writes `game/export_presets.cfg` with the per-target presets and variant filters, installs only the Blender SessionStart hook, installs no Unreal or VibeUE artifacts, and reports the Godot binary and ffmpeg as found or missing; a second run reports drift and changes nothing that is already correct
 
 ### AC11: Converting an Unreal consumer to Godot
 
@@ -111,7 +111,7 @@ This change targets Godot 4, the latest stable 4.x and never pinned, driven only
 | FR2 | Resolve the Godot binary from `GODOT_BIN`, then `godot` on PATH, then `/Applications/Godot.app`; when none is found, fail with `godot.not_found` and a remediation | Must |
 | FR3 | Export each animation clip as its own `.glb`, import it as a Godot animation library, and re-export and re-import only clips whose content changed | Must |
 | FR4 | Finalize terrain into LOD'd `.glb` chunks plus a `.tscn` with `HeightMapShape3D` collision, and keep the height-mismatch check | Must |
-| FR5 | Import audio into `game/assets/Audio/` as `AudioStreamWAV`, with loop settings on music | Must |
+| FR5 | Import sound effects into `game/assets/Audio/` as `AudioStreamWAV` and music as Ogg Vorbis (`AudioStreamOggVorbis`, encoded with ffmpeg resolved from `FFMPEG_BIN`, then PATH), with loop settings on music | Must |
 | FR6 | Read material variants from finalize-written files without starting Godot | Must |
 | FR7 | Scaffold regions to `.tscn`, missions to `NmgMissionDefinition` `.tres`, and systems to component `.gd` files, writing text files directly and never overwriting an existing file | Must |
 | FR8 | Ship the `addons/nmg_game_dev` GDScript runtime add-on (variant resolver autoload, `NmgMissionDefinition` resource class) with a headless test runner | Must |

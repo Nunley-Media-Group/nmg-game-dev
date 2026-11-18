@@ -52,10 +52,11 @@ A new `src/nmg_game_dev/godot/` package becomes the only engine boundary. It res
 
 `core.import_audio(file, name, kind, loop=False, *, project_root=None, godot: GodotRunner | None = None)`:
 1. Validates the request and stores `SourceArt/Audio/<SFX|Music>/<Name>.wav` as today.
-2. Calls `godot_import.import_wav(project_root, wav, name, loop, runner)`. That function copies the WAV to `game/assets/Audio/<Name>.wav` (an existing target raises `audio.asset_exists`) and writes `<Name>.wav.import` with `importer="wav"`, `edit/loop_mode=2` (Forward), `edit/loop_begin=0` and `edit/loop_end=-1` when `loop` is true, otherwise `edit/loop_mode=1`.
-3. Runs `import_project` and `probe_audio.gd`. The probe must report class `AudioStreamWAV` and the expected `loop_mode`, otherwise it raises `audio.import_failed`.
+2. For `kind="sfx"`, calls `godot_import.import_wav(project_root, wav, name, loop, runner)`. That function copies the WAV to `game/assets/Audio/<Name>.wav` (an existing target raises `audio.asset_exists`) and writes `<Name>.wav.import` with `importer="wav"`, `edit/loop_mode=2` (Forward), `edit/loop_begin=0` and `edit/loop_end=-1` when `loop` is true, otherwise `edit/loop_mode=1`.
+3. For `kind="music"`, calls `godot_import.import_ogg(project_root, wav, name, loop, runner, ffmpeg)`. `audio/ffmpeg.py` resolves ffmpeg from `FFMPEG_BIN` (must be executable), then `which("ffmpeg")`, otherwise raises `audio.ffmpeg_not_found` with remediation "Install ffmpeg or set FFMPEG_BIN to its executable." before anything is written under `game/`. ffmpeg runs `-i <wav> -c:a libvorbis -q:a 5 <tmp>.ogg` through an injectable runner, and the result is moved to `game/assets/Audio/<Name>.ogg` (an existing target raises `audio.asset_exists`). `<Name>.ogg.import` has `importer="oggvorbisstr"` and `loop=true` when `loop` is true, otherwise `loop=false`.
+4. Runs `import_project` and `probe_audio.gd`. The probe must report class `AudioStreamWAV` with the expected `loop_mode` for a sound effect, or `AudioStreamOggVorbis` with the expected `loop` for music, otherwise it raises `audio.import_failed`.
 
-`godot.not_found` keeps today's soft path: the result has `imported_to_godot: false` and a `warning`. Result keys rename `unreal_asset` to `godot_asset` (`res://assets/Audio/<Name>.wav`) and `imported_to_unreal` to `imported_to_godot`. `import_wav` is public so conversion can import WAVs that are already stored.
+`godot.not_found` keeps today's soft path: the result has `imported_to_godot: false` and a `warning`. Result keys rename `unreal_asset` to `godot_asset` (`res://assets/Audio/<Name>.wav` for a sound effect, `res://assets/Audio/<Name>.ogg` for music) and `imported_to_unreal` to `imported_to_godot`. `import_wav` and `import_ogg` are public so conversion can import WAVs that are already stored.
 
 ### Material variants
 
@@ -125,6 +126,7 @@ Steps, in order:
 8. `godot_addon`: `sync_tree` from `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev` to `game/addons/nmg_game_dev`, excluding `tests/`.
 9. `export_presets`: written from `render_export_presets` when missing; a byte difference is `drift` unless `--refresh`.
 10. `godot_binary`: `unchanged` "found at <path>", or `skipped` with remediation "Install Godot 4 or set GODOT_BIN".
+    `ffmpeg_binary` (reported in the same step slot, after `godot_binary`): `unchanged` "found at <path>", or `skipped` with remediation "Install ffmpeg or set FFMPEG_BIN (needed to import music)".
 11. `blender_addon`
 12. `texture_models`
 13. `texture_env`
@@ -176,7 +178,7 @@ The `--uproject` flag, the project-file resolution codes, and `onboard/unreal.py
 |-----------|-------|----------------|----------|
 | finalize step `import_godot` (MCP `finalize_asset`/`run_finalize_step`, CLI `--step import_godot`) | `FinalizeRequest` without `pie_mode`/`pie_wait_seconds` | `desktop_resource_path`, `mobile_resource_path`; `godot.not_found`, `import_godot.project_missing`, `import_godot.import_failed`, `import_godot.mismatch`, `import_godot.terrain_height_mismatch` | Headless import plus probe |
 | MCP `list_material_variants` | `category`, `collection`, optional `export_root` | `[{name, material, desktop, mobile}]`; `finalize.material_variants_failed` | File read only |
-| MCP `import_audio` / `python -m nmg_game_dev.audio import` | unchanged (`--url` removed) | `godot_asset`, `imported_to_godot` | AudioStreamWAV import |
+| MCP `import_audio` / `python -m nmg_game_dev.audio import` | unchanged (`--url` removed) | `godot_asset`, `imported_to_godot` | AudioStreamWAV (SFX) / AudioStreamOggVorbis (music) import; `audio.ffmpeg_not_found` |
 | `python -m nmg_game_dev.design scaffold` | `--project` | exit 0/1; `design.godot_project_missing` | Writes Godot files |
 | `python -m nmg_game_dev.ship` | `<target> --project game/project.godot` | `ship.script_check_failed`, `ship.tests_failed`, `ship.export_failed`, existing budget/sign/notarize codes | Godot export |
 | `python -m nmg_game_dev.onboard install` | `--consumer`, `--game-dir` (no `--uproject`) | step report | Godot consumer setup |
