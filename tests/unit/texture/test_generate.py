@@ -27,9 +27,10 @@ from nmg_game_dev.texture.generate import (
 )
 from nmg_game_dev.texture.hardware import HardwareFacts
 from nmg_game_dev.texture.registry import REGISTRY
-from nmg_game_dev.texture.seamless import is_seamless
+from nmg_game_dev.texture.seamless import is_seamless, make_seamless
 from tests.texture_fakes import (
     APPLE_SILICON_32GB,
+    cross_fade_failing_crop,
     fake_spawn,
     low_contrast_crop,
     make_models,
@@ -461,3 +462,26 @@ def test_every_generated_map_passes_the_seam_rule_for_a_low_contrast_albedo(
     for path in written:
         with PILImage.open(path) as opened:
             assert is_seamless(np.asarray(opened)), path.name
+
+
+def test_an_albedo_the_cross_fade_leaves_failing_is_edge_banded_until_it_passes(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path, tmp_path: Path
+) -> None:
+    """#238 FR1: when make_seamless alone leaves the albedo failing, the generator adds the
+    repair_seam edge band before writing it."""
+    crop = cross_fade_failing_crop()
+    assert not is_seamless(make_seamless(crop))
+    source = save_png(crop, tmp_path / "source" / "crop.png")
+    request = TextureRequest(
+        prompt="stone", backend="flux2-klein-4b", seeds=[6], resolution=256, name="crop"
+    )
+    result = run(
+        request,
+        env=env,
+        facts=APPLE_SILICON_32GB,
+        spawn=fake_spawn(worker, log, source_png=source),
+        cwd=out_root.parent,
+        output_root_override=out_root,
+    )
+    with PILImage.open(result.images[0].path) as opened:
+        assert is_seamless(np.asarray(opened))

@@ -188,6 +188,21 @@ def narrow_seam_albedo() -> np.ndarray:
     return out
 
 
+def tiling_noise_u8(size: int = 256, seed: int = 1, cutoff: float = 0.1) -> np.ndarray:
+    """A natively tiling uint8 RGB image that is not a ``make_seamless`` output (#238): it passes
+    the seam rule, and ``make_seamless`` would rewrite it and make its wrap larger."""
+    field = np.clip(periodic_noise(size, seed, cutoff), 0.0, 1.0)
+    rgb: np.ndarray = np.rint(field * 255.0).astype(np.uint8)
+    return rgb
+
+
+def cross_fade_failing_crop(size: int = 256, seed: int = 6, cutoff: float = 0.05) -> np.ndarray:
+    """A uint8 RGB periodic crop that still fails the seam rule after ``make_seamless`` (#238 FR1):
+    the generator must add the ``repair_seam`` edge band for its albedo to pass."""
+    rgb: np.ndarray = np.rint(periodic_crop(size, seed, cutoff) * 255.0).astype(np.uint8)
+    return rgb
+
+
 def stepped_normal_map(size: int = 256, seed: int = 0) -> np.ndarray:
     """A flat (128, 128, 255) normal map with seeded ±1 noise whose last row's R and G are raised
     by 3 levels (#238): a normal-map-like image that fails the seam rule narrowly."""

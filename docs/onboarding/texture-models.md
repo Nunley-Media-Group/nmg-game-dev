@@ -165,7 +165,7 @@ The repair depends on how badly the image fails the bake's seam check:
 - An image that fails narrowly (each wrap within 3 times its allowance) gets an 8 px edge blend: the
   pixels near each edge are cross-faded with their mirror pixels across the wrap.
 - An image that does not tile gets the same cross-fade the generator uses, then the 8 px edge blend on
-  any axis that still fails.
+  any axis that still fails or whose wrap is now larger than the input's.
 
 The output always passes the seam check, and its wrap is never worse than the input's on either axis.
 Without `--out` it writes over the input; with

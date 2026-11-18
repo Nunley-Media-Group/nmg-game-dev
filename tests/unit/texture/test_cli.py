@@ -4,6 +4,7 @@ Remediation (#7 AC20). seamless makes a PNG tile and reports the seam check (#14
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from tests.texture_fakes import (
     save_png,
     stepped_normal_map,
     synthetic_image,
+    tiling_noise_u8,
 )
 
 
@@ -262,11 +264,21 @@ def _raw(path: Path) -> np.ndarray:
         return np.asarray(opened)
 
 
+@pytest.mark.parametrize(
+    "make_passing",
+    [lambda: make_seamless(synthetic_image(256)), tiling_noise_u8],
+    ids=["cross-faded", "natively-tiling"],
+)
 @pytest.mark.parametrize("use_out", [False, True], ids=["in-place", "out"])
 def test_seamless_leaves_a_passing_png_unchanged(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], use_out: bool
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    use_out: bool,
+    make_passing: Callable[[], np.ndarray],
 ) -> None:
-    passing = make_seamless(synthetic_image(256))
+    """A natively tiling PNG that make_seamless would rewrite (and worsen) must come back
+    byte-identical, so this fails if the command stops using fix_seam (#238 AC3)."""
+    passing = make_passing()
     assert is_seamless(passing)
     source = save_png(passing, tmp_path / "tile.png")
     target = tmp_path / "out" / "tile.png" if use_out else source
