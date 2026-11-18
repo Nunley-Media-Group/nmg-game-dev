@@ -1,0 +1,118 @@
+**Issue**: #249
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/bdd/features/godot_engine.feature (SCN001–SCN010, SCN014)
+# File: tests/bdd/features/convert_to_godot.feature (SCN011–SCN013)
+# Generated from: specs/249-replace-unreal-engine-with-godot-4-and-convert-existing-consumer-projects/requirements.md
+Feature: Godot 4 replaces Unreal Engine as the engine target
+
+  @SCN001
+  Scenario: Finalize lands both variants in Godot
+    Given a consumer with game/project.godot and a collection "Crate" in category "Props" that passes validation
+    When finalize runs every step
+    Then game/assets/Props/Crate/Desktop and game/assets/Props/Crate/Mobile each hold Crate.glb, its textures, and nmg-asset.json
+    And the headless import ran and the probe's mesh names, triangle counts, material slots, and bounds match the export
+    And the steps ran in the order validate, bake, variants, export, export_anims, reimport, import_godot, import_anims
+
+  @SCN002
+  Scenario Outline: Godot import failures stop finalize
+    Given finalize reaches import_godot with <condition>
+    When the step runs
+    Then finalize fails with "<code>" and a remediation line
+    And no later step runs
+
+    Examples:
+      | condition                      | code                       |
+      | no Godot binary on the host    | godot.not_found            |
+      | an ERROR line from the import  | import_godot.import_failed |
+      | a probe triangle count mismatch | import_godot.mismatch     |
+
+  @SCN003
+  Scenario: Animation clips import per clip
+    Given a rigged asset with clips "Idle", "Walk", and "Run" already finalized
+    When the "Walk" clip changes and finalize runs again
+    Then only A_<Name>_Walk.glb is re-exported and re-imported as an animation library
+
+  @SCN004
+  Scenario: Terrain becomes chunked meshes with collision
+    Given an authored terrain asset with a heightfield
+    When finalize runs
+    Then the variant folder holds chunk .glb files and a .tscn instancing every chunk with HeightMapShape3D collision from the same heightfield
+    And a probe height range off by more than 0.05 m fails with "import_godot.terrain_height_mismatch"
+
+  @SCN005
+  Scenario: Music imports into Godot as a looping AudioStreamWAV
+    Given a music file "Theme.wav" passed to import_audio with loop enabled
+    When the import runs
+    Then SourceArt/Audio/Music/Theme.wav and game/assets/Audio/Theme.wav exist
+    And Godot imported it as an AudioStreamWAV with a forward loop
+
+  @SCN006
+  Scenario: Material variants are listed without an editor
+    Given an asset finalized with material variants "Rusty" and "Clean"
+    When list_material_variants runs
+    Then it returns each variant's name and material slot for the Desktop and Mobile folders
+    And no Godot process was started
+
+  @SCN007
+  Scenario: Design scaffolding writes Godot files
+    Given a backlog with region "OldTown", mission "FirstLight", and system "Stealth"
+    When /design scaffolds
+    Then game/levels/OldTown/OldTown.tscn, game/missions/FirstLight.tres, and game/systems/Stealth/stealth.gd exist with the specified contents
+    And a second scaffold leaves every file unchanged
+
+  @SCN008
+  Scenario: The runtime add-on routes variants
+    Given the nmg_game_dev add-on
+    When the add-on's headless test runner resolves "res://assets/Props/Crate/Crate.glb" for desktop, for mobile, and a malformed path
+    Then it returns the Desktop path, the Mobile path, and the unchanged path with a warning
+    And it prints "N passed, M failed" and exits non-zero on any failure
+
+  @SCN009
+  Scenario: Ship exports every target through Godot
+    Given a consumer Godot project and the environment for target "all"
+    When /ship all runs
+    Then the script check, the project tests, and the mobile budget gate run before any export
+    And release/ holds the macOS .app (signed and notarized), the .ipa, the .aab, the .exe, and the web folder, each with SHA-256 in RELEASE-NOTES.md
+    And no WINDOWS_BUILD_* variable was required
+    And with --dry-run every command is printed with a "DRY-RUN:" prefix
+
+  @SCN010
+  Scenario: Onboarding sets up a Godot consumer
+    Given a game project with no nmg-game-dev setup
+    When /onboard-consumer runs twice
+    Then game/project.godot, the add-on, and game/export_presets.cfg with variant filters exist after the first run
+    And only the Blender SessionStart hook is installed
+    And the second run changes no file
+
+  @SCN011
+  Scenario: Converting an Unreal consumer to Godot
+    Given a clean Unreal consumer with finalized assets, SourceArt sources, WAVs, a scaffolded backlog, and an Unreal hook
+    When /convert-to-godot runs
+    Then every asset, audio file, and scaffolded entry is converted into game/
+    And godot-conversion-report.md lists the converted and manual-port items
+    And Content/, Source/, Config/, Plugins/, the .uproject, and the Unreal scripts are removed
+
+  @SCN012
+  Scenario: Partial conversion keeps Unreal and resumes
+    Given a conversion in which one asset fails
+    When /convert-to-godot finishes
+    Then no Unreal file is deleted, the report lists the failure with its code and remediation, and the exit code is non-zero
+    And a rerun converts only the failed asset
+
+  @SCN013
+  Scenario: Conversion guards and dry run
+    Given a consumer with uncommitted changes
+    When /convert-to-godot runs
+    Then it stops with "convert.dirty_worktree" and writes nothing
+    And on a clean consumer without a .uproject it stops with "convert.not_unreal"
+    And with --dry-run on a valid consumer it prints every planned conversion and deletion and writes nothing
+
+  @SCN014
+  Scenario: Unreal is gone from nmg-game-dev
+    Given this repository's tracked files
+    When the no-Unreal guard runs
+    Then no file outside specs/, CHANGELOG.md, and the exempt conversion files references Unreal, UE, VibeUE, .uproject, or .uasset
+    And steering/manifest.json registers gate-godot-headless and not gate-ue-compile
