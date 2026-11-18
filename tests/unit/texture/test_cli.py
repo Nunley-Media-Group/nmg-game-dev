@@ -16,6 +16,7 @@ from nmg_game_dev.texture.__main__ import main
 from nmg_game_dev.texture.seamless import is_seamless, make_seamless, seam_wraps
 from tests.texture_fakes import (
     APPLE_SILICON_32GB,
+    cross_fade_failing_crop,
     fake_spawn,
     narrow_seam_albedo,
     save_png,
@@ -290,8 +291,8 @@ def test_seamless_leaves_a_passing_png_unchanged(
 
 @pytest.mark.parametrize(
     "image",
-    [synthetic_image(256), narrow_seam_albedo(), stepped_normal_map()],
-    ids=["non-tiling", "narrow-seam", "stepped-normal"],
+    [synthetic_image(256), narrow_seam_albedo(), stepped_normal_map(), cross_fade_failing_crop()],
+    ids=["non-tiling", "narrow-seam", "stepped-normal", "cross-fade-failing"],
 )
 def test_seamless_repairs_a_failing_png_without_worsening_its_wrap(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], image: np.ndarray
