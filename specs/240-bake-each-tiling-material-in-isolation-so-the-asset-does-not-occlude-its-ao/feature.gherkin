@@ -1,0 +1,39 @@
+**Issue**: #240
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/blender/test_bake_tiling.py (SCN001–SCN003 as test_scn00N_* functions under headless Blender)
+# Generated from: specs/240-bake-each-tiling-material-in-isolation-so-the-asset-does-not-occlude-its-ao/requirements.md
+Feature: Tiling materials bake on an isolated tile
+
+  @SCN001 @regression
+  Scenario: Asset geometry does not occlude the tiling bake
+    Given a tiling collection whose box stands over the bake tile's position
+    When the tiling bake runs at the default world AO distance
+    Then the bake tile is the only render-visible object during every channel bake
+    And the bake succeeds and every baked texture passes the seam check
+
+  @SCN002 @regression
+  Scenario: Tiling AO depends only on the material
+    Given the tiling material baked with the box present and baked as the plane alone
+    When both tiling bakes complete
+    Then the AO channels of the two Desktop ORM textures differ by at most 0.02 on average
+
+  @SCN003 @regression
+  Scenario Outline: Scene state is restored after a tiling bake
+    Given extra objects with mixed render visibility and a world AO distance of 0.37
+    When a tiling bake <outcome>
+    Then every object's render visibility, the world AO distance, the active scene and the view layer are unchanged
+    And no bake tile remains in the file
+
+    Examples:
+      | outcome                       |
+      | succeeds                      |
+      | fails with not_seamless       |
+
+  @SCN004
+  Scenario: Related bake behaviour is preserved
+    Given the existing unique, tiling, failure and cache bake tests and the tiling seam check scenarios
+    When they run against the fixed add-on
+    Then they all pass without modification

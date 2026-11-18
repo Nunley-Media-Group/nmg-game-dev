@@ -1,0 +1,49 @@
+**Issue**: #244
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/140-fix-finalize-export-failing-the-contract-on-mobile-lods-the-variants-step-decimated/
+
+# File: tests/blender/test_pivot_reseat.py
+# Generated from: specs/244-let-finalize-fix-or-tolerate-a-millimetre-scale-pivot-bottom-center-offset-on-rigged-meshes/requirements.md
+Feature: Rigged assets with a millimetre-scale pivot offset finalize cleanly
+
+  @SCN001 @regression
+  Scenario: A millimetre-scale offset on a rigged mesh no longer blocks finalize
+    Given rigged asset "Hero" at rest with its bottom center at (0.0006, 0.0013, -0.0007)
+    When authored validate runs and then the Desktop cleanup of the variants step
+    Then validate reports no pivot.bottom_center finding
+    And the Desktop bottom center is within 1 mm of the world origin
+
+  @SCN002 @regression
+  Scenario: The re-seat moves only mesh data
+    Given the offset rigged asset with a second skinned part parented to SM_Hero
+    When the Desktop cleanup re-seats the mesh
+    Then every part's mesh data moves by the same world offset
+    And object transforms, modifiers, vertex groups and weights, and bones are unchanged
+
+  @SCN003
+  Scenario: A rigged asset already on the origin is left alone
+    Given rigged asset "Hero" exactly on the origin
+    When the Desktop cleanup runs
+    Then its vertex positions are unchanged
+    And the report says no re-seat was needed
+
+  @SCN004
+  Scenario: A large offset still fails clearly
+    Given rigged asset "Hero" with its bottom center 2 cm above the origin
+    When authored validate runs
+    Then pivot.bottom_center fails and names the 5 mm re-seat limit
+
+  @SCN005
+  Scenario: Static assets keep their current behavior
+    Given static asset "Crate" offset 1.3 mm and then 0.8 mm from the origin
+    When authored validate and the Desktop cleanup run
+    Then the 1.3 mm crate fails pivot.bottom_center and the 0.8 mm crate passes
+    And the static Desktop mesh is not re-seated
+
+  @SCN006 @regression
+  Scenario: Exported variants agree
+    Given the offset rigged asset after the variants step
+    When export-time validate, export, and the re-import check run
+    Then no pivot.bottom_center or reimport pivot finding is reported for Desktop or Mobile
