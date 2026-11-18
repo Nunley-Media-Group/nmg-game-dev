@@ -139,6 +139,10 @@ def _corners(mesh: Any, polygon: Any) -> frozenset[tuple[float, ...]]:
     )
 
 
+def _bm_corners(face: Any) -> frozenset[tuple[float, ...]]:
+    return frozenset(tuple(round(c, _DECIMALS) for c in vert.co) for vert in face.verts)
+
+
 def _pre_fix_clean(meshes: Any, mesh: Any) -> None:
     """The steps the pre-fix clean ran on the finned Klein: drop the fin, recalc the whole mesh."""
     bm = bmesh.new()
@@ -234,10 +238,7 @@ def test_scn004_unorientable_faces_are_removed_deterministically(
         bm.from_mesh(source)
         bm.normal_update()
         geometry.recalc_island_normals(bm)
-        flagged = {
-            frozenset(tuple(round(c, _DECIMALS) for c in vert.co) for vert in face.verts)
-            for face in geometry.normal_violations(bm)
-        }
+        flagged = {_bm_corners(face) for face in geometry.normal_violations(bm)}
     finally:
         bm.free()
     assert flagged, "the Klein bottle must keep flagged faces after the shared recalculation"
@@ -256,6 +257,28 @@ def test_scn004_unorientable_faces_are_removed_deterministically(
         tuple(p.vertices) for p in second.polygons
     ]
     assert [tuple(p.normal) for p in first.polygons] == [tuple(p.normal) for p in second.polygons]
+
+
+def test_scn004_each_pass_deletes_only_the_faces_it_flagged(
+    meshes: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every settle pass removes exactly the faces its probe flagged, so indices stay aligned."""
+    passes: list[tuple[set[frozenset[tuple[float, ...]]], set[frozenset[tuple[float, ...]]]]] = []
+    probe_violations = meshes.normal_violations
+
+    def recording(bm: Any) -> Any:
+        flagged = probe_violations(bm)
+        passes.append(({_bm_corners(face) for face in bm.faces}, {_bm_corners(f) for f in flagged}))
+        return flagged
+
+    monkeypatch.setattr(meshes, "normal_violations", recording)
+    meshes.clean_mesh(klein(name="KleinPasses"))
+
+    assert len(passes) >= 2, "the Klein bottle must need at least one deletion pass"
+    assert not passes[-1][1], "the final pass must flag nothing"
+    for (faces, flagged), (next_faces, _) in zip(passes, passes[1:], strict=False):
+        assert flagged, "a pass that flags nothing must be the last"
+        assert next_faces == faces - flagged, "a pass must delete exactly the faces it flagged"
 
 
 # ---------------------------------------------------------------------------
