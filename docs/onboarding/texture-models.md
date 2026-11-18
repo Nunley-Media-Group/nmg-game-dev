@@ -159,11 +159,24 @@ python -m nmg_game_dev.texture seamless SourceArt/Textures/Stone.png
 python -m nmg_game_dev.texture seamless SourceArt/Textures/Stone.png --out SourceArt/Textures/Stone_tile.png
 ```
 
-It applies the same cross-fade the generator uses. Without `--out` it writes over the input; with
+The repair depends on how badly the image fails the bake's seam check:
+
+- An image that already passes is written unchanged.
+- An image that fails narrowly (each wrap within 3 times its allowance) gets an 8 px edge blend: the
+  pixels near each edge are cross-faded with their mirror pixels across the wrap.
+- An image that does not tile gets the same cross-fade the generator uses, then the 8 px edge blend on
+  any axis that still fails.
+
+The output always passes the seam check, and its wrap is never worse than the input's on either axis.
+Without `--out` it writes over the input; with
 `--out` it writes a new PNG and creates its folder, and the input is left unchanged. It prints JSON with
 the output `path` and `seamless`, the result of the same seam check the bake runs. A channel passes when
 its wrap differs from the opposite edge by at most 1.5 times the interior adjacent-pixel difference
 (minimum 2/255). A missing or unreadable input exits 1 with `texture.input_missing`.
+
+Images packed into a `.blend` file keep their old pixels until they are reloaded or repacked from the
+fixed files. After fixing the files on disk, reload each image in Blender (Image > Reload), or unpack
+and repack it from the fixed file, before you rerun the bake.
 
 ## Output folder
 
@@ -189,4 +202,6 @@ you keep through the asset pipeline.
 - `_R` and `_M`: constant roughness and metallic from the preset or your explicit values.
 - `_AO`: ambient occlusion from the height, when `--ao` is set.
 
-Every map is the albedo's resolution and wraps seamlessly.
+Every map is the albedo's resolution and wraps seamlessly. Before it is written, each map is checked
+against the same seam rule the bake uses, and a failing `_N` or `_AO` gets the 8 px edge blend, so
+every generated map passes the bake's `not_seamless` check.

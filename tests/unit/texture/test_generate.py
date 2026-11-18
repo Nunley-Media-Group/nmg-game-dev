@@ -7,7 +7,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
+from PIL import Image as PILImage
 
 from nmg_game_dev.texture.contact_sheet import ContactSheet
 from nmg_game_dev.texture.errors import TextureGenError
@@ -25,9 +27,11 @@ from nmg_game_dev.texture.generate import (
 )
 from nmg_game_dev.texture.hardware import HardwareFacts
 from nmg_game_dev.texture.registry import REGISTRY
+from nmg_game_dev.texture.seamless import is_seamless
 from tests.texture_fakes import (
     APPLE_SILICON_32GB,
     fake_spawn,
+    low_contrast_crop,
     make_models,
     read_log,
     save_png,
@@ -427,3 +431,33 @@ def test_a_batch_item_takes_the_request_fields_and_rejects_unknown_or_malformed_
     with pytest.raises(TextureGenError) as not_array:
         batch_from_items({"prompt": "x"})
     assert not_array.value.code == "texture.invalid_request"
+
+
+def test_every_generated_map_passes_the_seam_rule_for_a_low_contrast_albedo(
+    worker: Path, log: Path, env: dict[str, str], out_root: Path, tmp_path: Path
+) -> None:
+    """#238 FR5, AC1: the albedo and its N, R, M and AO all pass the bake seam rule."""
+    source = save_png(low_contrast_crop(), tmp_path / "source" / "low_contrast.png")
+    request = TextureRequest(
+        prompt="stone",
+        backend="flux2-klein-4b",
+        seeds=[5],
+        resolution=256,
+        name="stone",
+        maps="stone",
+        ao=True,
+    )
+    result = run(
+        request,
+        env=env,
+        facts=APPLE_SILICON_32GB,
+        spawn=fake_spawn(worker, log, source_png=source),
+        cwd=out_root.parent,
+        output_root_override=out_root,
+    )
+    image = result.images[0]
+    written = [image.path, *(Path(path) for path in image.maps.values())]
+    assert set(image.maps) == {"N", "R", "M", "AO"}
+    for path in written:
+        with PILImage.open(path) as opened:
+            assert is_seamless(np.asarray(opened)), path.name

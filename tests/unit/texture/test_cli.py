@@ -12,8 +12,15 @@ from PIL import Image as PILImage
 
 from nmg_game_dev.texture import generate, hardware
 from nmg_game_dev.texture.__main__ import main
-from nmg_game_dev.texture.seamless import is_seamless
-from tests.texture_fakes import APPLE_SILICON_32GB, fake_spawn, save_png, synthetic_image
+from nmg_game_dev.texture.seamless import is_seamless, make_seamless, seam_wraps
+from tests.texture_fakes import (
+    APPLE_SILICON_32GB,
+    fake_spawn,
+    narrow_seam_albedo,
+    save_png,
+    stepped_normal_map,
+    synthetic_image,
+)
 
 
 def _set_with_albedo(root: Path, name: str) -> None:
@@ -245,3 +252,44 @@ def test_a_missing_batch_file_exits_one_with_the_path(
 
 def test_run_queue_on_an_idle_root_exits_zero(tmp_path: Path) -> None:
     assert main(["run-queue", str(tmp_path / "jobs")]) == 0
+
+
+# --- #238: seamless leaves passing images alone and never worsens a wrap ------------------------
+
+
+def _raw(path: Path) -> np.ndarray:
+    with PILImage.open(path) as opened:
+        return np.asarray(opened)
+
+
+@pytest.mark.parametrize("use_out", [False, True], ids=["in-place", "out"])
+def test_seamless_leaves_a_passing_png_unchanged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], use_out: bool
+) -> None:
+    passing = make_seamless(synthetic_image(256))
+    assert is_seamless(passing)
+    source = save_png(passing, tmp_path / "tile.png")
+    target = tmp_path / "out" / "tile.png" if use_out else source
+    args = ["seamless", str(source), *(["--out", str(target)] if use_out else [])]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out) == {"path": str(target), "seamless": True}
+    np.testing.assert_array_equal(_raw(target), passing)
+
+
+@pytest.mark.parametrize(
+    "image",
+    [synthetic_image(256), narrow_seam_albedo(), stepped_normal_map()],
+    ids=["non-tiling", "narrow-seam", "stepped-normal"],
+)
+def test_seamless_repairs_a_failing_png_without_worsening_its_wrap(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], image: np.ndarray
+) -> None:
+    assert not is_seamless(image)
+    source = save_png(image, tmp_path / "fail.png")
+    assert main(["seamless", str(source)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"path": str(source), "seamless": True}
+    written = _raw(source)
+    assert is_seamless(written)
+    assert written.shape == image.shape and written.dtype == image.dtype
+    for before, after in zip(seam_wraps(image), seam_wraps(written), strict=True):
+        assert after <= before

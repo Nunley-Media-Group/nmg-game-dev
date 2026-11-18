@@ -2,8 +2,9 @@
 
 ``run`` validates one request, resolves and checks the backends (expanding ``both`` to the available
 ones in registry order), runs one worker per backend, applies the seamless post-process to every
-PNG, derives the optional maps, writes the ``both`` comparison sheet, records ``textures.json``
-under ``<output_root>/<name>/``, and then refreshes the root contact sheet (#152).
+PNG (and, when the result still fails the bake seam rule, the ``repair_seam`` edge band, #238),
+derives the optional maps, writes the ``both`` comparison sheet, records ``textures.json`` under
+``<output_root>/<name>/``, and then refreshes the root contact sheet (#152).
 
 ``run_batch`` runs several requests as one job. Each backend's worker covers every image of every
 request that uses it, so the model loads once for the whole batch (#143 FR6).
@@ -41,7 +42,7 @@ from nmg_game_dev.texture.hardware import (
 from nmg_game_dev.texture.maps import MapSet, derive, resolve_material
 from nmg_game_dev.texture.paths import models_dir, output_root, slugify, weights_dir
 from nmg_game_dev.texture.registry import REGISTRY, BackendSpec, resolve
-from nmg_game_dev.texture.seamless import make_seamless
+from nmg_game_dev.texture.seamless import is_seamless, make_seamless, repair_seam
 from nmg_game_dev.texture.sheet import compare
 
 STYLE_SUFFIX = (
@@ -547,7 +548,10 @@ def _refresh_contact_sheet(base: Path) -> ContactSheet:
 
 def _make_seamless_png(path: Path) -> None:
     image = np.asarray(PILImage.open(path).convert("RGB"))
-    PILImage.fromarray(make_seamless(image)).save(path)
+    result = make_seamless(image)
+    if not is_seamless(result):
+        result = repair_seam(result)
+    PILImage.fromarray(result).save(path)
 
 
 def _manifest(result: TextureResult) -> dict[str, Any]:
