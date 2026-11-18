@@ -1,0 +1,42 @@
+**Issue**: #232
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/140-fix-finalize-export-failing-the-contract-on-mobile-lods-the-variants-step-decimated/
+
+# File: tests/blender/test_clean_normals.py
+# Generated from: specs/232-make-mesh-cleanup-recalculate-normals-the-way-the-geometry-normals-check-judges-them/requirements.md
+Feature: Mesh cleanup leaves normals the geometry.normals check accepts
+
+  @SCN001 @regression
+  Scenario: Cleanup output never fails geometry.normals
+    Given a Klein bottle with a fin that the pre-fix clean leaves with geometry.normals faces
+    When clean_mesh runs on it
+    Then geometry_findings reports no geometry.normals finding
+
+  @SCN002 @regression
+  Scenario: A mesh that passes validate still passes after Desktop cleanup
+    Given asset "Klein" whose SM_Klein is the finned Klein bottle with no geometry findings
+    When cleanup_desktop runs on "Klein"
+    Then contract validate reports no geometry finding on SM_Klein
+
+  @SCN003 @regression
+  Scenario: Mobile LODs never introduce geometry.normals failures
+    Given asset "Klein" after Desktop cleanup
+    When optimize_mobile runs on "Klein" as a standard_prop
+    Then contract validate reports no geometry.normals finding on any SM_Klein_Mobile LOD
+
+  @SCN004 @regression
+  Scenario: Faces with no consistent orientation are removed deterministically
+    Given two identical copies of a closed Klein bottle whose faces stay flagged after the shared per-island recalculation
+    When clean_mesh runs on each copy
+    Then the flagged faces are deleted and no face is added or reshaped
+    And both copies have identical vertices, faces, and normals
+
+  @SCN005
+  Scenario: Normals rule and existing clean behavior are preserved
+    Given a correctly facing open quad, an inside-out closed cube, and a clean crate
+    When the contract check runs on them and clean_mesh runs on the cube and the crate
+    Then the quad passes and the inside-out cube is flagged before cleanup
+    And the cleaned cube keeps all 6 faces facing outward with no finding
+    And the cleaned crate keeps its triangle count with no geometry finding
