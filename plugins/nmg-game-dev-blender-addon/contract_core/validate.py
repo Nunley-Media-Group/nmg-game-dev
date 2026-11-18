@@ -233,7 +233,7 @@ def triangle_count(mesh: bpy.types.Mesh) -> int:
 
 
 def export_name(name: str) -> str:
-    """The name an object, material, or image carries in the exported FBX and PNG files.
+    """The name an object, material, or image carries in the exported GLB and PNG files.
 
     Matches variants_core/export.py: only the Mobile suffix is removed.
     """
@@ -759,7 +759,7 @@ def _close(values: Any, expected: tuple[float, ...], tolerance: float) -> bool:
 
 
 def _local_bounds(obj: bpy.types.Object) -> dict[str, list[float]]:
-    """The object-local bounding box in meters, which the UE static mesh's local bounds must match.
+    """The object-local bounding box in meters, which the imported mesh's local bounds must match.
 
     The finalize pivot check (#69, AC5) compares the imported part's bounds with this box.
     """

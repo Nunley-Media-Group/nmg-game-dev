@@ -3,7 +3,7 @@
 A request names one authored collection in the open Blender session (or in a saved ``.blend``),
 the category and asset class that decide the contract and budgets, and the export root that the
 Desktop and Mobile folders are written under.  Validation happens at construction, so an invalid
-request never reaches Blender or Unreal.
+request never reaches Blender or Godot.
 """
 
 from __future__ import annotations
@@ -18,10 +18,8 @@ AssetClass = Literal[
     "small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"
 ]
 Device = Literal["GPU", "CPU"]
-PieMode = Literal["wait", "refuse"]
 
 _PASCAL_CASE = r"^[A-Z][A-Za-z0-9]*$"
-DEFAULT_PIE_WAIT_SECONDS = 600.0
 _COMPATIBLE_WITH = re.compile(r"^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$")
 
 
@@ -31,23 +29,22 @@ class FinalizeRequest(BaseModel):
     Attributes:
         collection: Blender collection name, e.g. ``Crate``.  Mobile output lives in
             ``<collection>_Mobile``.
-        category: Content category, e.g. ``Props``.  Used in ``/Game/<Category>/<Name>/``.
+        category: Asset category, e.g. ``Props``.  Used in ``<export_root>/<Category>/<Name>/``.
         asset_class: Contract class; selects the budgets and the contract rules.
-        export_root: Directory the FBX variants and sidecars are written under, as
-            ``<export_root>/<Category>/<Name>/{Desktop,Mobile}``.
+        export_root: Directory the ``.glb`` variants and sidecars are written under, as
+            ``<export_root>/<Category>/<Name>/{Desktop,Mobile}``.  It lies inside the Godot
+            project (normally ``<project>/game/assets``), whose ``project.godot`` ``import_godot``
+            finds by walking up from here.
         blend: Optional saved ``.blend`` to finalize headlessly instead of the open session.
         budgets_path: Optional budget overrides file.  ``None`` uses the add-on defaults.
         device: Bake device.  ``GPU`` falls back to ``CPU`` inside Blender when unavailable.
         backlog_path: The design backlog (``docs/design/backlog.json``) when it holds an asset
             entry for ``collection``.  A successful ``finalize_asset`` job marks that entry
             ``finalized``.  It never enters the cache settings.
-        pie_mode: What ``import_ue`` does when the editor is in Play In Editor (#149).  ``wait``
-            polls until PIE ends or ``pie_wait_seconds`` elapses.  ``refuse`` fails at once.
-        pie_wait_seconds: The PIE wait limit for ``wait`` mode.  Like ``pie_mode``, it never
-            enters the cache settings.
         compatible_with: ``<Category>/<Name>`` characters whose Desktop skeleton this character's
-            clips may play on (#138).  ``import_anims`` registers them as compatible skeletons in
-            both directions.  Duplicates are dropped, keeping the first occurrence.
+            clips may play on (#138).  ``import_anims`` checks that every bone track of each clip
+            exists in each one's Desktop skeleton.  Duplicates are dropped, keeping the first
+            occurrence.
         material_variants_path: The ``<collection>.material-variants.json`` declaration, given
             explicitly or found beside ``blend``.  ``None`` means the asset declares no material
             variants.  Validate and export key their cache on its bytes (#148).
@@ -63,8 +60,6 @@ class FinalizeRequest(BaseModel):
     budgets_path: Path | None = None
     device: Device = "GPU"
     backlog_path: Path | None = None
-    pie_mode: PieMode = "wait"
-    pie_wait_seconds: float = Field(default=DEFAULT_PIE_WAIT_SECONDS, ge=0)
     material_variants_path: Path | None = None
     compatible_with: tuple[str, ...] = ()
 

@@ -16,21 +16,22 @@ Developer in Claude Code
 ┌────────────────────────────────────────────────────────────┐
 │ nmg-game-dev Claude Code plugin                            │
 │   skills/ + agent tools: texture gen, validate, bake,      │
-│   variants, export, re-import check, UE import, ship       │
+│   variants, export, re-import check, Godot import, ship    │
 └───────┬───────────────────────────────────┬────────────────┘
         │                                   │
         ▼                                   ▼
 ┌──────────────────────┐          ┌──────────────────────────┐
-│ Blender MCP          │          │ Unreal MCP               │
-│ (+ nmg add-on)       │          │ Epic native MCP (5.8)    │
-│                      │          │ + VibeUE expansion       │
+│ Blender MCP          │          │ src/nmg_game_dev/godot/  │
+│ (+ nmg add-on)       │          │ godot --headless only:   │
+│                      │          │ --import, -s probes,     │
+│                      │          │ --check-only, --export-* │
 └──────┬───────────────┘          └──────┬───────────────────┘
        │                                 │
        ▼                                 ▼
 ┌──────────────────────┐          ┌──────────────────────────┐
-│ Blender 5.2 LTS      │          │ UE 5.8                   │
-│ (GUI session +       │          │ (editor + runtime;       │
-│  background jobs)    │          │  level composition)      │
+│ Blender 5.2 LTS      │          │ Godot 4 (latest stable)  │
+│ (GUI session +       │          │ (headless; no editor     │
+│  background jobs)    │          │  bridge, no engine MCP)  │
 └──────┬───────────────┘          └──────────────────────────┘
        │
        ▼
@@ -47,8 +48,9 @@ Developer in Claude Code
 │ Installed artifacts from nmg-game-dev                      │
 │   • Claude Code plugin (skills + MCP configs)              │
 │   • Blender add-on (authoring tools)                       │
-│   • UE plugin (editor tools + runtime module shipped in    │
-│     the consumer's game binary)                            │
+│   • Godot add-on game/addons/nmg_game_dev (runtime: the    │
+│     NmgAssets variant resolver, NmgMissionDefinition,      │
+│     terrain shader) in the Godot project under game/       │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -62,11 +64,12 @@ Developer in Claude Code
 | Distribution | Claude Code plugin from the `nmg-plugins` marketplace (what nmg-game-dev SHIPS) | targets current Claude Code |
 | Host tooling | Python | 3.11+ (matches Blender bundled python) |
 | Authoring surface | Blender | 5.2 LTS (latest LTS) |
-| Game engine | Unreal Engine | 5.8 (Apple Silicon native) |
-| UE plugin source | C++ (+ Blueprints for composition) | Epic coding standard |
+| Game engine | Godot 4 (consumer project in `game/`, `game/project.godot`) | latest stable 4.x; never pinned |
+| Runtime add-on source | GDScript (`plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/`) | statically typed; Godot style guide |
 | Shell scripts | bash | `set -euo pipefail`; shellcheck-clean |
 | Asset authoring | Blender 5.2 through the Blender MCP (`mcp-for-blender`, published from `ahujasid/blender-mcp`), driven freeform by the agent | latest release (`uvx mcp-for-blender@latest`); never pinned |
-| UE control | Epic's native Unreal MCP server on UE 5.8 (`127.0.0.1:8000/mcp`, `ModelContextProtocol` + `EditorToolset`), expanded by the VibeUE plugin | VibeUE latest (`scripts/install-vibeue.sh`); never pinned; NMG does NOT author its own UE-side bridge |
+| Engine control | `godot --headless` only (`--import`, `--check-only`, `-s <script>`, `--export-release`), driven through `src/nmg_game_dev/godot/`; GDScript probes print one `NMG_RESULT {json}` line | resolved from `GODOT_BIN`, then `godot` on `PATH`, then `/Applications/Godot.app`; no live editor bridge and no engine MCP server |
+| Audio encoding | ffmpeg (music → Ogg Vorbis for Godot) | latest; resolved from `FFMPEG_BIN`, then `PATH` |
 | Texture generation | Local models via mflux (Z-Image Turbo, FLUX.2 klein 4B, 4-bit) | optional install; procedural Blender materials as fallback |
 
 ### External Services
@@ -107,7 +110,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 | `VERSION` | (entire file) | Plain semver, one line |
 | `.claude-plugin/plugin.json` | `version` | Claude Code plugin manifest |
 | `plugins/nmg-game-dev-blender-addon/blender_manifest.toml` | `version` | Blender extension manifest |
-| `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` | `VersionName` | UE plugin manifest |
+| `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/plugin.cfg` | `version` | Godot add-on manifest (`[plugin]` section) |
 
 ### Path Syntax
 
@@ -115,6 +118,7 @@ The `VERSION` file (plain text semver at project root) is the **single source of
 - **TOML files**: dot-notation matching TOML keys (e.g., `project.version`).
 - **`pyproject.toml` `project.version`**: not listed — the version is `dynamic`, and hatchling derives it from `VERSION` (`[tool.hatch.version] path = "VERSION"`). No bump rewrites it, and no lockfile records it.
 - **Plain text**: `line:N` or omit Path if the whole file is the version.
+- **Godot `plugin.cfg`**: the `version` key of its `[plugin]` section, a quoted string.
 - **Blender add-on `bl_info.version`**: not listed — `__init__.py` derives it from `VERSION` at import time via `utils.version.version_tuple()`, so it never needs rewriting.
 
 ### Version Bump Classification
@@ -144,18 +148,18 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 
 | Metric | Target | Rationale |
 |--------|--------|-----------|
-| Finalize a standard prop (validate → UE import, both variants) | ≤ 90 s on M-series Mac | Adhoc iteration requires tight loops |
+| Finalize a standard prop (validate → Godot import, both variants) | ≤ 90 s on M-series Mac | Adhoc iteration requires tight loops |
 | Finalize a hero asset or character | ≤ 5 min on M-series Mac | Bakes dominate; budget is generous but bounded |
 | One local AI texture (1024 px) | ≤ 30 s (klein 4B) / ≤ 100 s (Z-Image Turbo) | Measured with 4-bit weights on an M1 Max |
-| `/build-platform desktop` cold build | ≤ 20 min | Includes UE cook + sign + notarize |
+| `/ship desktop` cold export | ≤ 20 min | Includes Godot export + sign + notarize |
 | Skill cold-start (first invocation per session) | ≤ 2 s | MCP handshake + env validation only |
 
-### Performance (runtime — shipped UE plugin code)
+### Performance (runtime — shipped Godot add-on code)
 
 | Metric | Target | Rationale |
 |--------|--------|-----------|
-| Any per-frame hook added by nmg-game-dev's UE runtime module | ≤ 0.1 ms on iPhone 15-tier hardware | Shipped overhead must be near-zero |
-| Memory footprint of UE runtime module | ≤ 4 MB resident | Mobile RAM is the limiting resource |
+| Any per-frame hook added by nmg-game-dev's Godot add-on | ≤ 0.1 ms on iPhone 15-tier hardware | Shipped overhead must be near-zero |
+| Memory footprint of the Godot add-on | ≤ 4 MB resident | Mobile RAM is the limiting resource |
 
 ### Security
 
@@ -164,7 +168,7 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 | Authentication (to external services) | API keys via env vars; never in git |
 | Credential storage | `.claude/settings.local.json` `env` (gitignored) for session-local overrides; production uses keychain / CI secrets |
 | Signing identities | Read from OS keychain (macOS) or env (`ANDROID_KEYSTORE_PASSWORD`); never echoed to logs |
-| Third-party MCP trust | Third-party tools (Blender MCP, its add-on, VibeUE) track their latest releases and are never pinned; `scripts/smoke-blender-mcp.py` and `scripts/smoke-unreal-mcp.py` verify that the latest versions work together |
+| Third-party tool trust | Third-party tools (Blender MCP, its add-on, Godot) track their latest releases and are never pinned; `scripts/smoke-blender-mcp.py` verifies that the latest Blender MCP and add-on work together, and `gate-godot-headless` runs the add-on tests on the latest stable Godot |
 | Supply chain | `pyproject.toml` pins exact versions for build-critical deps; `uv.lock` / `requirements.lock` committed |
 
 ---
@@ -180,13 +184,14 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 - Prefer `pathlib.Path` over `os.path`.
 - Blender add-on code runs inside Blender's bundled Python — no dependencies that require compiled wheels unless they're already in Blender's env. Validate in CI against Blender 4.2 LTS and latest.
 
-### C++ (UE plugin)
+### GDScript (Godot add-on and probes)
 
-- Epic's coding standard.
-- UHT/UBT rejects violations — don't fight them.
-- One module per feature domain; no circular dependencies.
-- Editor-only code lives in a separate `*Editor` module.
+- Godot's GDScript style guide: tabs, `snake_case` functions and files, `PascalCase` `class_name`.
+- Static typing on every variable, parameter, and return value.
+- Probes are `extends SceneTree` scripts that read a params JSON path after `--`, print exactly one
+  `NMG_RESULT {json}` line, and `quit(0)`.
 - Runtime code is budget-sensitive (see Runtime Performance above).
+- Everything must run under `godot --headless`; nothing may assume an open editor.
 
 ### Shell
 
@@ -194,12 +199,6 @@ Pre-1.0: breaking changes are allowed inside minor bumps without a major gate. T
 - `set -euo pipefail` at the top of every script.
 - shellcheck-clean (CI enforces).
 - No bashisms in scripts that must run cross-shell.
-
-### Blueprints (UE)
-
-- Node comments for any non-obvious flow.
-- Pure functions preferred for logic.
-- No hidden casts across module boundaries.
 
 ### Markdown (docs)
 
@@ -229,27 +228,33 @@ Every nmg-game-dev-authored MCP server MUST:
 3. Log to stderr only — stdout is the MCP channel.
 4. Handle cancellation / timeout gracefully (clean up partial state).
 
-### Session-start contract (Blender MCP + Unreal MCP auto-launch)
+### Session-start contract (Blender MCP auto-launch)
 
-Neither Blender nor Unreal Editor boot themselves when a Claude Code session starts, and every downstream skill assumes their MCP endpoints are already reachable. nmg-game-dev owns this bootstrap and distributes it to consumer projects via the Claude Code plugin.
+Blender does not boot itself when a Claude Code session starts, and every authoring skill assumes the
+Blender MCP endpoint is already reachable. nmg-game-dev owns this bootstrap and distributes it to
+consumer projects via the Claude Code plugin. Godot needs no session-start launch: every Godot stage
+runs `godot --headless` on demand and exits.
 
-The framework ships two idempotent launch scripts, wired as `SessionStart` hooks in every consumer's `.claude/settings.json` by the onboarding skill. The MCP servers come from the plugin's bundled `.mcp.json`, so consumers need no separate MCP config.
+The framework ships one idempotent launch script, wired as a `SessionStart` hook in every consumer's
+`.claude/settings.json` by the onboarding skill. The MCP servers come from the plugin's bundled
+`.mcp.json`, so consumers need no separate MCP config.
 
 | Script | Responsibility | Port |
 |--------|----------------|------|
 | `start-blender-mcp.sh` | Launches Blender (via `BLENDER_BIN` or `BLENDER_APP` env) with the Blender MCP add-on enabled; registers a deferred timer to start the socket server after the UI is ready. | `BLENDER_MCP_PORT` (default 9876) |
-| `start-unreal-mcp.sh` | Launches UE Editor with the consumer's `.uproject`; Epic's native Unreal MCP server auto-starts and **VibeUE** (installed by `onboard-consumer`) registers its tools on it. nmg-game-dev's UE plugin contributes Runtime helpers + Editor authoring hooks but does NOT bind any port. | `UE_MCP_PORT` (default 8000) |
 
-**Contract invariants** (every launch script MUST honor):
+**Contract invariants** (the launch script MUST honor):
 
 1. **Idempotent** — if the target port is already `LISTEN`, exit 0 immediately. No double-launch.
 2. **Detached** — `nohup … & disown`; return to the shell (and Claude Code) in under the hook timeout.
-3. **Actionable failure** — exit non-zero with a one-line remediation hint if the binary or project file is missing.
-4. **Path resolution** — prefer env-var overrides (`BLENDER_BIN`, `UE_ROOT`, `BLENDER_APP`), fall back to documented defaults, never hard-code the reference-project location.
+3. **Actionable failure** — exit non-zero with a one-line remediation hint if the binary is missing.
+4. **Path resolution** — prefer env-var overrides (`BLENDER_BIN`, `BLENDER_APP`), fall back to documented defaults, never hard-code the reference-project location.
 5. **Logs** — stdout/stderr to `/tmp/<tool>-mcp.log`; path is documented in the skill that consumes it so failure triage is copy-paste.
-6. **Plugin/addon discovery** — the Blender script probes multiple candidate addon names (Extensions system `bl_ext.*` and legacy folder names) and enables the first one installed. The UE script relies on the nmg-game-dev UE plugin being enabled in the consumer's `.uproject`.
+6. **Add-on discovery** — the script probes multiple candidate add-on names (Extensions system `bl_ext.*` and legacy folder names) and enables the first one installed.
 
-The onboarding skill (one of the v1 deliverables) installs these scripts into each consumer's `scripts/` directory, and merges the `SessionStart` hook entries into `.claude/settings.json`. Without this auto-launch path, the adhoc workflow is broken on every cold session.
+The onboarding skill installs this script into each consumer's `scripts/` directory, and merges the
+`SessionStart` hook entry into `.claude/settings.json`. Without this auto-launch path, the adhoc
+workflow is broken on every cold session.
 
 ### Texture generation interface
 
@@ -264,6 +269,25 @@ Errors:  TextureGenError with .code and .remediation
 ```
 
 Whatever the agent authors, the bake step (#67) turns it into the contract's texture sets, proofed in Blender before export.
+
+### Ship flow
+
+`/ship <target>` (`python -m nmg_game_dev.ship <target> --project game/project.godot`) exports the
+consumer's Godot project through the presets in `game/export_presets.cfg`, which `/onboard-consumer`
+writes. Targets are `macos`, `ios`, `android`, `windows`, `web`, and the groups `desktop`, `mobile`,
+and `all`.
+
+1. Gates: `godot --headless --check-only` on every `.gd`, `game/tests/run_tests.gd` when it exists,
+   and the mobile budget gate for `ios`, `android`, and `web`.
+2. Export: `godot --headless --path game --export-release "<preset>" <out>` per platform. The iOS,
+   Android, and Web presets exclude every `assets/*/Desktop/*` folder; the macOS and Windows presets
+   exclude every `assets/*/Mobile/*` folder.
+3. macOS is signed and notarized by `scripts/sign-macos.sh` and `scripts/notarize-macos.sh`. Windows
+   exports locally on the same host, with no remote build machine. The web target uses the
+   Compatibility renderer with threads off and warns when `index.pck` is over 38 MB.
+4. Artifacts land under `release/<platform>/` (`.app`, `.ipa`, `.aab`, `.exe`, and a web folder),
+   listed with SHA-256 in `release/RELEASE-NOTES.md`. `--dry-run` prints every command with a
+   `DRY-RUN:` prefix and runs no export.
 
 ### Long-running Blender work
 
@@ -282,7 +306,7 @@ Load-back rule: after the Blender steps pass, the baked `<Name>` and `<Name>_Mob
 | Layer | Framework | Location |
 |-------|-----------|----------|
 | Python tooling | pytest-bdd | `tests/bdd/` with `.feature` files alongside step defs |
-| UE runtime module | UE Automation Framework | `plugins/nmg-game-dev-ue-plugin/Source/**/Tests/*.spec.cpp` |
+| Godot runtime add-on | GDScript test runner under `godot --headless` | `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/tests/test_*.gd` |
 | Blender add-on | pytest + Blender headless | `tests/blender/` invoked via `blender --background --python` |
 | End-to-end pipeline | pytest-bdd driving actual MCPs on fixture projects | `tests/e2e/` |
 | Designer-facing acceptance | Gherkin `.feature` files used as manual QA scripts | `specs/<issue>/feature.gherkin` |
@@ -293,14 +317,14 @@ Load-back rule: after the Blender steps pass, the baked `<Name>` and `<Name>_Mob
 # tests/bdd/features/finalize.feature
 Feature: Finalize an authored asset
   As an NMG game developer
-  I want a finished Blender asset turned into Desktop and Mobile variants in Unreal
+  I want a finished Blender asset turned into Desktop and Mobile variants in Godot
   So that I can iterate on content without leaving Claude Code
 
   Scenario: Standard prop authored in Blender
     Given the Blender MCP is running
     And a collection "Crate" that satisfies the asset contract
     When I finalize "Crate" in category "Props"
-    Then both Desktop and Mobile variants exist under Content/Props/Crate/
+    Then both Desktop and Mobile variants exist under game/assets/Props/Crate/
     And the mobile variant passes gate-mobile-budgets
     And the desktop variant is unbudgeted
 ```
@@ -321,7 +345,7 @@ def _(blender_mcp):
 | Python unit | pytest | `tests/unit/` | `pytest tests/unit/` |
 | Python BDD | pytest-bdd | `tests/bdd/` | `pytest tests/bdd/` |
 | Blender add-on | pytest in headless Blender | `tests/blender/` | `scripts/run-blender-tests.sh` |
-| UE runtime | UE Automation | `plugins/nmg-game-dev-ue-plugin/Source/**/Tests/` | `scripts/run-ue-tests.sh` |
+| Godot add-on | GDScript runner, headless Godot | `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/tests/` | `scripts/run-godot-tests.sh` |
 | E2E pipeline | pytest-bdd | `tests/e2e/` | `pytest tests/e2e/ --runslow` |
 
 ### Test Pyramid
@@ -330,12 +354,12 @@ def _(blender_mcp):
         /\
        /  \  E2E pipeline (pytest-bdd driving real MCPs)
       /----\
-     /      \ BDD acceptance (pytest-bdd + Blender headless + UE Automation)
+     /      \ BDD acceptance (pytest-bdd + Blender headless + Godot headless)
     /--------\
    /          \ Component tests (per-MCP, per-skill)
   /            \
  /--------------\
-/                \ Unit tests (Python logic, UE C++ utilities)
+/                \ Unit tests (Python logic, GDScript add-on tests)
  \________________/
 ```
 
@@ -352,17 +376,17 @@ def _(blender_mcp):
 | `repository.format` | anything | `uv run ruff format --check .` | — |
 | `repository.types` | anything | `uv run mypy src tests` | — |
 | `gate-blender-headless` | `plugins/nmg-game-dev-blender-addon/**`, `tests/blender/**`, `scripts/blender/**`, `scripts/run-blender-tests.sh` | `scripts/run-blender-tests.sh` (headless Blender pytest) | Blender 5.2. When it is not at `/Applications/Blender.app`, export `BLENDER_APP` (or `BLENDER_BIN`) in `~/.zshenv`; the gate forwards only those two variables |
-| `gate-ue-compile` | `plugins/nmg-game-dev-ue-plugin/Source/**`, `plugins/nmg-game-dev-ue-plugin/*.uplugin`, `fixtures/Source/**`, `fixtures/dogfood.uproject` | extension `project.ue-compile`: the engine `Build.sh DogfoodEditor Mac Development -WaitMutex` for `fixtures/dogfood.uproject`, which compiles the UE plugin and its automation specs | UE 5.8 (`UE_ROOT` overrides the default path); VibeUE in `fixtures/Plugins/` from `scripts/install-vibeue.sh`; no Live Coding session open on the dogfood project |
+| `gate-godot-headless` | `plugins/nmg-game-dev-godot-addon/**`, `src/nmg_game_dev/godot/**`, `tests/godot/**`, `scripts/run-godot-tests.sh` | `scripts/run-godot-tests.sh`: imports the `tests/godot/fixture/` project with the add-on (`--import`, no `ERROR:` lines), runs the add-on's `tests/run_tests.gd`, and checks `probe_asset.gd` on the fixture `Crate.glb` against `expected-probe.json` | Godot 4 via `GODOT_BIN` or `godot` on `PATH`; otherwise the script downloads the latest stable release into the git-ignored `.cache/godot/` and reuses it. The gate forwards only `GODOT_BIN` |
 | `gate-mcp-schema` | `mcp-servers/**`, `scripts/validate-mcp-tools.py` | `uv run python scripts/validate-mcp-tools.py` | — |
 | `gate-shellcheck` | `scripts/**.sh` | `shellcheck -S style` on every `scripts/**.sh` (through `find -exec`) | shellcheck |
-| `gate-ship-smoke` | `skills/ship/**`, `src/nmg_game_dev/ship/**`, `scripts/build-*.sh`, `scripts/sign-macos.sh`, `scripts/notarize-macos.sh`, `scripts/verify-cook-manifest.sh`, `scripts/ship-smoke.sh` | `scripts/ship-smoke.sh`: a dry-run ship of the fixture with placeholder credentials; no UE build | — |
+| `gate-ship-smoke` | `skills/ship/**`, `src/nmg_game_dev/ship/**`, `scripts/sign-macos.sh`, `scripts/notarize-macos.sh`, `scripts/ship-smoke.sh` | `scripts/ship-smoke.sh`: a dry-run `/ship all` of `tests/godot/fixture/project.godot` with placeholder credentials; no Godot export runs | — |
 | `plugin.validate` | `.claude-plugin/**`, `.mcp.json`, `skills/**`, `agents/**`, `commands/**`, `hooks/**`, `templates/consumer/**` | `claude plugin validate .` | — |
 | `plugin.session-smoke` | the same paths as `plugin.validate` | extension `project.plugin-session-smoke`: loads this checkout with `--plugin-dir` and checks that its MCP servers connect | Herdr |
 
 ### Not gated yet
 
-- **UE Automation** (`scripts/run-ue-tests.sh`). It writes its reports into tracked files under `tests/ue-automation/`, so running it dirties the tree in the middle of verification. `gate-ue-compile` compiles the specs but does not run them. Register `gate-ue-automation` once the reports move to an ignored path.
-- **E2E pipeline** (`uv run pytest tests/e2e --runslow`). It drives live Blender, Unreal and texture MCPs. Run it by hand before a release.
+- **E2E pipeline** (`uv run pytest tests/e2e --runslow`). It drives live Blender and texture MCPs and
+  a real Godot binary. Run it by hand before a release.
 
 Specs name these validation ids in their tasks. Do not cite the gates above as passing evidence unless the verification artifact recorded them.
 
@@ -374,15 +398,16 @@ Specs name these validation ids in their tasks. Do not cite the gates above as p
 
 | Variable | When needed |
 |----------|-------------|
-| `UE_ROOT` | Override if UE 5.8 isn't at the default install path |
-| `UE_PROJECT` | Override the `.uproject` that `start-unreal-mcp.sh` opens |
-| `UE_MCP_PORT` / `BLENDER_MCP_PORT` | Override the MCP endpoint ports (defaults 8000 and 9876) |
+| `GODOT_BIN` | Override if Godot 4 is not `godot` on `PATH` or at `/Applications/Godot.app` |
+| `FFMPEG_BIN` | Override if ffmpeg is not on `PATH` (music imports encode Ogg Vorbis) |
+| `BLENDER_MCP_PORT` | Override the Blender MCP endpoint port (default 9876) |
 | `BLENDER_BIN` / `BLENDER_APP` | Override if Blender isn't at the default install path |
 | `TEXTURE_GEN_MODELS_DIR` / `HF_HOME` | Local texture model weights location (optional texture models) |
-| `NOTARIZATION_KEYCHAIN_PROFILE` (preferred), or `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS notarization (`/build-platform macos` / `/build-platform ios`) |
-| `IOS_PROVISIONING_PROFILE` | iOS builds |
-| `ANDROID_HOME` / `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` | Android builds |
-| `WINDOWS_BUILD_HOST` / `_USER` / `_SSH_KEY` / `WINDOWS_REMOTE_PROJECT_PATH` | Windows remote builds |
+| `NOTARIZATION_KEYCHAIN_PROFILE` (preferred), or `NOTARIZATION_APPLE_ID` / `_APP_SPECIFIC_PASSWORD` / `_TEAM_ID` | macOS signing and notarization (`/ship macos`) |
+| `IOS_PROVISIONING_PROFILE` / `IOS_TEAM_ID` | iOS exports (`/ship ios`) |
+| `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` (`ANDROID_KEYSTORE_ALIAS` optional, default `upload`) | Android exports (`/ship android`) |
+
+Windows and web exports run locally and need no extra variables.
 
 ### Optional
 
@@ -397,6 +422,6 @@ Specs name these validation ids in their tasks. Do not cite the gates above as p
 
 ## References
 
-- `CLAUDE.md` for project overview (added when scaffolding lands).
-- `steering/product.md` for product direction.
-- `steering/structure.md` for code organization.
+- `CLAUDE.md` for project overview.
+- `steering/snippets/project-product.md` for product direction.
+- `steering/snippets/project-structure.md` for code organization.

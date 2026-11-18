@@ -27,7 +27,7 @@ from .bake_fixtures import (  # noqa: E402
 )
 from .texel_fixtures import TRIM_PROPERTY  # noqa: E402
 
-# Mobile limits for the environment piece in these tests: 128 px textures, one LOD chain.
+# Mobile limits for the environment piece in these tests: 128 px textures.
 MOBILE_BUDGET = {"tris": 40000, "max_texture_px": 128, "materials": 3}
 
 
@@ -44,7 +44,7 @@ def budgets(tmp_path: Path) -> str:
 
 
 def _grid(obj: Any) -> None:
-    """Cut the one-quad plane into a grid, so the Mobile LOD chain has triangles to remove."""
+    """Cut the one-quad plane into a grid, so the Mobile decimation has triangles to remove."""
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bmesh.ops.subdivide_edges(bm, edges=list(bm.edges), cuts=15, use_grid_fill=True)

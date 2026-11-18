@@ -1,11 +1,11 @@
-"""Onboard a consumer project: preflight, then the install steps in design order (#7 FR1, FR2, AC5).
+"""Onboard a consumer project: preflight, then the install steps in design order (#7, #249 FR10).
 
-Preflight resolves the ``.uproject``, the models directory, the framework sources, git, git-lfs, and
+Preflight checks the game directory, the models directory, the framework sources, git, git-lfs, and
 (only when a model is missing) the platform and free disk. Every failure raises ``OnboardError``
-before the first consumer write. The steps then run in this order: scripts, settings hooks, asset
-contract, design contract, design dir, agent instructions, UE plugin, VibeUE, ``.uproject`` plugins,
-MCP auto-start ini, Blender add-on, texture models, texture env, gitignore env, gitattributes LFS,
-git LFS hooks.
+before the first consumer write. The steps then run in this order: the Blender start script,
+settings hooks, asset contract, design contract, design dir, agent instructions, Godot project,
+Godot add-on, export presets, Godot and ffmpeg checks, Blender add-on, texture models, texture env,
+gitignore env, gitattributes LFS, git LFS hooks.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
+from nmg_game_dev.godot.binary import DEFAULT_GODOT_APP_BINARY
 from nmg_game_dev.onboard.blender import DEFAULT_EXTENSIONS_DIR, link_addon
 from nmg_game_dev.onboard.commands import (
     FreeBytes,
@@ -27,34 +28,41 @@ from nmg_game_dev.onboard.commands import (
 from nmg_game_dev.onboard.errors import OnboardError
 from nmg_game_dev.onboard.files import sync_file, sync_tree
 from nmg_game_dev.onboard.gitignore import ensure_gitignore_env
+from nmg_game_dev.onboard.godot import (
+    ADDON_REL,
+    PRESETS_FILE,
+    PROJECT_FILE,
+    ensure_export_presets,
+    ensure_godot_project,
+    find_ffmpeg,
+    find_godot,
+    project_name_of,
+)
 from nmg_game_dev.onboard.instructions import upsert_block
 from nmg_game_dev.onboard.lfs import ensure_gitattributes_lfs, ensure_lfs_hooks
 from nmg_game_dev.onboard.report import StepResult
 from nmg_game_dev.onboard.settings import merge_env, merge_session_hooks
 from nmg_game_dev.onboard.textures import REQUIRED_FREE_BYTES, install_models, missing_models
-from nmg_game_dev.onboard.unreal import enable_plugins, ensure_mcp_autostart, ensure_vibeue
 from nmg_game_dev.texture.paths import HF_HOME_NAME, MODELS_DIR_ENV
 
-START_SCRIPTS: tuple[str, ...] = ("start-blender-mcp.sh", "start-unreal-mcp.sh")
+START_SCRIPTS: tuple[str, ...] = ("start-blender-mcp.sh",)
 ASSET_CONTRACT_SRC = Path("docs/asset-contract.md")
 ASSET_CONTRACT_DST = "docs/nmg-game-dev/asset-contract.md"
 DESIGN_CONTRACT_SRC = Path("docs/design-contract.md")
 DESIGN_CONTRACT_DST = "docs/nmg-game-dev/design-contract.md"
 DESIGN_DIR_REL = "docs/design"
 HOOK_TEMPLATE = Path("templates/consumer/.claude/settings.json")
-UE_PLUGIN_SRC = Path("plugins/nmg-game-dev-ue-plugin")
-UE_PLUGIN_DST = "Plugins/nmg-game-dev"
-UE_PLUGIN_DESCRIPTOR = Path("plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin")
+GODOT_ADDON_SRC = Path("plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev")
+GODOT_ADDON_IGNORE: tuple[str, ...] = ("tests",)
 BLENDER_ADDON_MANIFEST = Path("plugins/nmg-game-dev-blender-addon/blender_manifest.toml")
-INI_REL = "Config/DefaultEditorPerProjectUserSettings.ini"
 EXTENSIONS_DIR_ENV = "BLENDER_EXTENSIONS_DIR"
+DEFAULT_GAME_DIR = "game"
 REQUIRED_FRAMEWORK: tuple[Path, ...] = (
     Path("scripts/start-blender-mcp.sh"),
-    Path("scripts/start-unreal-mcp.sh"),
     ASSET_CONTRACT_SRC,
     DESIGN_CONTRACT_SRC,
     HOOK_TEMPLATE,
-    UE_PLUGIN_DESCRIPTOR,
+    GODOT_ADDON_SRC / "plugin.cfg",
     BLENDER_ADDON_MANIFEST,
 )
 
@@ -63,32 +71,16 @@ def _gib(value: int) -> str:
     return f"{value / 2**30:.1f} GiB"
 
 
-def resolve_uproject(consumer: Path, uproject: Path | None) -> Path:
-    """The ``.uproject`` to enable: the one given, else the only one at the consumer root."""
-    if uproject is not None:
-        path = uproject if uproject.is_absolute() else consumer / uproject
-        if not path.is_file():
-            raise OnboardError(
-                "onboard.uproject_not_found",
-                f"No .uproject at {path}.",
-                "Pass --uproject with the path to the project's .uproject file.",
-            )
-        return path
-    found = sorted(consumer.glob("*.uproject"))
-    if not found:
+def resolve_game_dir(game_dir: str) -> str:
+    """The Godot project folder relative to the consumer root (default ``game``)."""
+    rel = Path(game_dir)
+    if not game_dir.strip() or rel.is_absolute() or ".." in rel.parts:
         raise OnboardError(
-            "onboard.uproject_not_found",
-            f"No .uproject in {consumer}.",
-            "Run onboarding from the project root, or pass --uproject <file>.",
+            "onboard.game_dir_invalid",
+            f"--game-dir {game_dir!r} is not a folder inside the consumer.",
+            "Pass --game-dir with a relative folder such as game.",
         )
-    if len(found) > 1:
-        names = ", ".join(p.name for p in found)
-        raise OnboardError(
-            "onboard.uproject_ambiguous",
-            f"Several .uproject files in {consumer}: {names}.",
-            "Pass --uproject with the one project file to onboard.",
-        )
-    return found[0]
+    return rel.as_posix()
 
 
 def resolve_models_dir(models_dir: Path | None, env: Mapping[str, str]) -> Path:
@@ -132,7 +124,7 @@ def _check_prerequisites(
     if which("git") is None:
         raise OnboardError(
             "onboard.git_missing",
-            "git is not on PATH; VibeUE cannot be cloned.",
+            "git is not on PATH; the Git LFS setup needs it.",
             "Install git (xcode-select --install on macOS), then re-run onboarding.",
         )
     if which("git-lfs") is None:
@@ -179,7 +171,7 @@ def run_onboard(
     consumer: Path,
     *,
     framework: Path,
-    uproject: Path | None = None,
+    game_dir: str = DEFAULT_GAME_DIR,
     models_dir: Path | None = None,
     refresh: bool = False,
     env: Mapping[str, str] | None = None,
@@ -187,8 +179,13 @@ def run_onboard(
     which: Which = shutil.which,
     host: HostFacts | None = None,
     free_bytes: FreeBytes = lambda path: shutil.disk_usage(str(path)).free,
+    godot_app: Path = DEFAULT_GODOT_APP_BINARY,
 ) -> list[StepResult]:
-    """Onboard ``consumer`` from ``framework`` and return one StepResult per step."""
+    """Onboard ``consumer`` from ``framework`` and return one StepResult per step.
+
+    ``game_dir`` is the Godot project folder relative to the consumer root. ``godot_app`` is the
+    last place the Godot executable is looked for, after ``GODOT_BIN`` and ``godot`` on PATH.
+    """
     env_map: Mapping[str, str] = os.environ if env is None else env
     facts = default_host() if host is None else host
     target = consumer.expanduser().resolve()
@@ -198,7 +195,7 @@ def run_onboard(
             f"The consumer directory {target} does not exist.",
             "Pass --consumer with the project root.",
         )
-    project_file = resolve_uproject(target, uproject)
+    game_rel = resolve_game_dir(game_dir)
     models_root = resolve_models_dir(models_dir, env_map)
     _check_framework(framework)
     _check_prerequisites(models_root, facts, free_bytes, which)
@@ -244,14 +241,31 @@ def run_onboard(
         block = upsert_block(f"agent_instructions:{filename}", target / filename, create=create)
         if block is not None:
             results.append(block)
+    game = target / game_rel
+    project_name = project_name_of(game / PROJECT_FILE, target.name)
+    results.append(
+        ensure_godot_project("godot_project", game / PROJECT_FILE, project_name, refresh=refresh)
+    )
     results.append(
         sync_tree(
-            framework / UE_PLUGIN_SRC, target, UE_PLUGIN_DST, name="ue_plugin", refresh=refresh
+            framework / GODOT_ADDON_SRC,
+            target,
+            f"{game_rel}/{ADDON_REL}",
+            name="godot_addon",
+            refresh=refresh,
+            ignore=GODOT_ADDON_IGNORE,
         )
     )
-    results.append(ensure_vibeue(target, run=run, refresh=refresh))
-    results.append(enable_plugins("uproject_plugins", project_file))
-    results.append(ensure_mcp_autostart("mcp_autostart_ini", target / INI_REL))
+    results.append(
+        ensure_export_presets(
+            "export_presets",
+            game / PRESETS_FILE,
+            project_name_of(game / PROJECT_FILE, project_name),
+            refresh=refresh,
+        )
+    )
+    results.append(find_godot("godot_binary", env_map, which, default_app=godot_app))
+    results.append(find_ffmpeg("ffmpeg_binary", env_map, which))
     results.append(link_addon(framework, _extensions_dir(env_map), refresh=refresh))
     results.append(install_models(models_root, run=run, which=which))
     results.append(
@@ -264,7 +278,7 @@ def run_onboard(
             },
         )
     )
-    results.append(ensure_gitignore_env("gitignore_env", target / ".gitignore"))
+    results.append(ensure_gitignore_env("gitignore_env", target / ".gitignore", game_dir=game_rel))
     results.append(
         ensure_gitattributes_lfs("gitattributes_lfs", target / ".gitattributes", refresh=refresh)
     )

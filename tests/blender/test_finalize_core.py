@@ -187,8 +187,7 @@ def test_validate_step_prints_per_check_progress_lines(
     assert progress == sorted(progress)
     messages = [line["message"] for line in inner]
     assert "desktop: UV overlap check on SM_Crate" in messages
-    for name in ("SM_Crate_Mobile_LOD0", "SM_Crate_Mobile_LOD1", "SM_Crate_Mobile_LOD2"):
-        assert f"mobile: UV overlap check on {name}" in messages
+    assert "mobile: UV overlap check on SM_Crate_Mobile" in messages
 
 
 def test_a_missing_collection_stops_the_step_before_any_work(core: Any, tmp_path: Path) -> None:
@@ -233,7 +232,7 @@ def test_variants_export_and_reimport_chain_from_a_compliant_asset(
     variants = core.run_step("variants", request, job)
     _record(job, variants)
     assert variants["ok"] is True, variants["error"]
-    assert variants["outputs"]["tris"]["Mobile"]["lod_levels"] >= 1
+    assert variants["outputs"]["tris"]["Mobile"]["tris"] > 0
 
     export = core.run_step("export", request, job)
     _record(job, export)
@@ -244,7 +243,14 @@ def test_variants_export_and_reimport_chain_from_a_compliant_asset(
     assert pre_report["passed"] is True, pre_report["findings"]
     assert export["outputs"]["exported"] is True, export["summary"]
     for variant in ("Desktop", "Mobile"):
-        assert Path(export["outputs"]["variants"][variant]["dir"], "SM_Crate.fbx").is_file()
+        assert Path(export["outputs"]["variants"][variant]["dir"], "Crate.glb").is_file()
+        assert export["outputs"]["glb"][variant] == str(
+            Path(export["outputs"]["variants"][variant]["dir"], "Crate.glb")
+        )
+        asset = json.loads(
+            Path(export["outputs"]["asset_sidecars"][variant]).read_text(encoding="utf-8")
+        )
+        assert [mesh["name"] for mesh in asset["meshes"]] == ["SM_Crate"]
 
     reimport = _run_entry(None, ["reimport", "--job-dir", str(job)], factory_startup=True)
 
@@ -459,7 +465,7 @@ def test_load_back_restores_the_session_when_it_fails_after_appending(
 
 def test_object_snapshot_records_the_mesh_datablock_name(enabled_addon: str) -> None:
     # A part whose datablock differs from its object name (#145, T001): the snapshot records the
-    # datablock so the UE import can map it back to the part's export name.
+    # datablock so the engine import can map it back to the part's export name.
     validate = importlib.import_module(f"{enabled_addon}.contract_core.validate")
     collection = bpy.data.collections.new("Crate")
     bpy.context.scene.collection.children.link(collection)

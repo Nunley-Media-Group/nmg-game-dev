@@ -87,13 +87,6 @@
       "providers": [
         "project.plugin-session-smoke"
       ]
-    },
-    {
-      "id": "project.ue-compile",
-      "path": "steering/extensions/ue-compile.mjs",
-      "providers": [
-        "project.ue-compile"
-      ]
     }
   ],
   "validations": [
@@ -199,21 +192,25 @@
       }
     },
     {
-      "id": "gate-ue-compile",
-      "provider": "project.ue-compile",
+      "id": "gate-godot-headless",
+      "provider": "builtin.command",
       "required": true,
       "when": {
         "kind": "changed_paths",
         "include": [
-          "plugins/nmg-game-dev-ue-plugin/Source/**",
-          "plugins/nmg-game-dev-ue-plugin/*.uplugin",
-          "fixtures/Source/**",
-          "fixtures/dogfood.uproject"
+          "plugins/nmg-game-dev-godot-addon/**",
+          "src/nmg_game_dev/godot/**",
+          "tests/godot/**",
+          "scripts/run-godot-tests.sh"
         ]
       },
       "config": {
-        "project": "fixtures/dogfood.uproject",
-        "target": "DogfoodEditor"
+        "program": "scripts/run-godot-tests.sh",
+        "args": [],
+        "cwd": ".",
+        "env": [
+          "GODOT_BIN"
+        ]
       }
     },
     {
@@ -274,10 +271,8 @@
         "include": [
           "skills/ship/**",
           "src/nmg_game_dev/ship/**",
-          "scripts/build-*.sh",
           "scripts/sign-macos.sh",
           "scripts/notarize-macos.sh",
-          "scripts/verify-cook-manifest.sh",
           "scripts/ship-smoke.sh"
         ]
       },

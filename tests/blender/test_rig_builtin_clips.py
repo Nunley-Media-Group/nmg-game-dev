@@ -288,7 +288,9 @@ def test_scn007_provenance_matches_the_definition_and_survives_export(
         assert clip["source"]["sha256"] == clips.clip_digest(clips.BUILTIN_CLIPS[clip["name"]])
 
     reset_scene()
-    assert bpy.ops.import_scene.fbx(filepath=str(out_dir / f"SM_{rig}.fbx")) == {"FINISHED"}
+    assert bpy.ops.import_scene.gltf(
+        filepath=str(out_dir / f"{rig}.glb"), disable_bone_shape=True
+    ) == {"FINISHED"}
     reimported = {action.name.rsplit("|", 1)[-1] for action in bpy.data.actions}
     assert set(names) <= reimported
 

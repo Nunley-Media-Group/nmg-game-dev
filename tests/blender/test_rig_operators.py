@@ -118,7 +118,7 @@ def test_ac4_import_and_export_operators_match_direct_calls(
 
     assert export_outcome == {"FINISHED"}
     assert _stored_result() == direct_export
-    assert (out_dir / "SM_Hero.fbx").is_file()
+    assert (out_dir / "Hero.glb").is_file()
 
 
 def test_ac4_import_operator_cancels_on_unknown_clip(rig_core: Any, tmp_path: Path) -> None:

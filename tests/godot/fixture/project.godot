@@ -1,0 +1,22 @@
+; Fixture Godot 4 project for gate-godot-headless (scripts/run-godot-tests.sh) and the ship smoke.
+; The gate copies this folder and the nmg_game_dev add-on into a temp project before running Godot.
+
+config_version=5
+
+[application]
+
+config/name="Fixture"
+
+[autoload]
+
+NmgAssets="*res://addons/nmg_game_dev/nmg_assets.gd"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/nmg_game_dev/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+renderer/rendering_method.web="gl_compatibility"

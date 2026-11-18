@@ -1,7 +1,7 @@
 """Blender fixtures for the contract tests: a compliant Crate and one defect per AC2 class.
 
-The compliant Crate is a unit box with a Desktop root (SM_Crate) and a Mobile LOD group
-(SM_Crate_Mobile with LOD0-2). Its six faces sit in separate UV islands, and each variant has a
+The compliant Crate is a unit box with a Desktop root (SM_Crate) and a Mobile root
+(SM_Crate_Mobile). Its six faces sit in separate UV islands, and each variant has a
 baked-style material whose Image Texture nodes sample UVMap through a UV Map node.
 """
 
@@ -24,7 +24,7 @@ DEFECTS: tuple[str, ...] = (
     "uv_overlap",
     "noise_material",
     "position_coords",
-    "mobile_lod0_4000_tris",
+    "mobile_4000_tris",
     "mobile_name_mismatch",
 )
 _ISLAND_COLUMNS = 3
@@ -68,15 +68,10 @@ def build_crate() -> None:
     desktop.objects.link(root)
 
     mobile_material = _baked_material("M_Crate_Body_Mobile", "_Mobile")
-    group = bpy.data.objects.new("SM_Crate_Mobile", None)
-    group.empty_display_type = "PLAIN_AXES"
-    group["fbx_type"] = "LodGroup"
-    mobile.objects.link(group)
-    for level in range(3):
-        name = f"SM_Crate_Mobile_LOD{level}"
-        lod = bpy.data.objects.new(name, _box_mesh(name, mobile_material))
-        mobile.objects.link(lod)
-        lod.parent = group
+    mobile_root = bpy.data.objects.new(
+        "SM_Crate_Mobile", _box_mesh("SM_Crate_Mobile", mobile_material)
+    )
+    mobile.objects.link(mobile_root)
 
 
 def apply_defect(defect: str) -> None:
@@ -95,8 +90,8 @@ def apply_defect(defect: str) -> None:
         _noise_base_color(bpy.data.materials["M_Crate_Body"])
     elif defect == "position_coords":
         _position_coordinates(bpy.data.materials["M_Crate_Body"])
-    elif defect == "mobile_lod0_4000_tris":
-        replace_mesh_with_grid("SM_Crate_Mobile_LOD0", 4000)
+    elif defect == "mobile_4000_tris":
+        replace_mesh_with_grid("SM_Crate_Mobile", 4000)
     elif defect == "mobile_name_mismatch":
         _rename_mobile("SM_Crate_Mobile", "SM_Krate_Mobile")
     else:
@@ -239,8 +234,6 @@ def add_trim_material(object_name: str) -> None:
 
 def _rename_mobile(old_root: str, new_root: str) -> None:
     bpy.data.objects[old_root].name = new_root
-    for level in range(3):
-        bpy.data.objects[f"{old_root}_LOD{level}"].name = f"{new_root}_LOD{level}"
 
 
 def export_crate(export_root: Path) -> Path:

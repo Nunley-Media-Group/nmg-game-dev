@@ -1,10 +1,10 @@
-"""Build the single-mesh static Crate for the opt-in finalize e2e test of a static LOD group (#146).
+"""Build the single-mesh static Crate for the opt-in finalize e2e test of a static asset (#146).
 
 ``build_static_crate()`` makes a non-rigged ``Crate`` collection in the open Blender scene with one
 mesh, ``SM_Crate``, and no child parts. The Desktop box and its baked-style material come from
 ``tests/blender/contract_fixtures.py``, which this module loads by path. Its edges are then
-subdivided into a grid of about 3,900 triangles, so the variants step can decimate Mobile LOD0 and
-still record strictly decreasing LOD triangle counts. The Mobile collection that ``build_crate``
+subdivided into a grid of about 3,900 triangles, so the variants step has to decimate the Mobile
+variant to its budget. The Mobile collection that ``build_crate``
 also makes is removed, because the variants step builds Mobile from Desktop.
 
 Run it headless to write the fixture::

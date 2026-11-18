@@ -1,6 +1,7 @@
 """pytest-bdd step definitions for scaffold-plugin-repo-session-start-hooks.feature.
 
-Launcher-invoking steps mock Blender/UE so the suite runs without either installed.
+Launcher-invoking steps mock Blender so the suite runs without it installed. Godot needs no
+launcher: it only runs headless on demand, so the session-start steps cover Blender alone.
 Idempotency binds a real TCP socket on an ephemeral port to simulate LISTEN state.
 """
 
@@ -11,7 +12,6 @@ import importlib
 import os
 import pathlib
 import re
-import shutil
 import signal
 import socket
 import subprocess
@@ -22,27 +22,30 @@ from typing import Any
 
 import pytest
 from _scaffold_contract import (
-    BANNED_DOGFOOD_ARTIFACTS,
     BANNED_SUBSTRINGS,
     BLENDER_MCP_PACKAGE,
     CONSUMER_FACING,
     EXPECTED_VERSION,
     GITKEEP_DIRS,
+    GODOT_ADDON_DIR,
+    GODOT_PLUGIN_CFG,
+    REPO_FIXTURE_REFERENCES,
     REPO_ROOT,
     REQUIRED_DIRS,
     REQUIRED_SERVERS,
+    SESSION_START_SCRIPTS,
+    godot_plugin_cfg_version,
 )
 from pytest_bdd import given, scenario, then, when
 
 FEATURE = "scaffold-plugin-repo-session-start-hooks.feature"
 
 BLENDER_TEST_PORT = "19876"
-UE_TEST_PORT = "18088"
 MISSING_BINARY_TEST_PORT = "29876"
 SLOW_MARKER_NAME = "slow-launcher-marker"
 DETACH_RETURN_LIMIT_SECONDS = 2.0
 
-# A fake Blender or UE editor. It records its argv, then its own PID, then stays alive until the
+# A fake Blender. It records its argv, then its own PID, then stays alive until the
 # stop file appears, FAKE_CHILD_LIFETIME seconds pass, or 120 s pass, whichever comes first.
 _FAKE_CHILD_BODY = """\
 #!/usr/bin/env bash
@@ -62,7 +65,7 @@ exit 0
 
 @dataclass(frozen=True)
 class FakeChild:
-    """A long-lived fake editor whose argv and PID the test reads, then stops."""
+    """A long-lived fake Blender whose argv and PID the test reads, then stops."""
 
     script: pathlib.Path
     argv: pathlib.Path
@@ -176,13 +179,8 @@ def test_directory_layout() -> None:
     pass
 
 
-@scenario(FEATURE, "Launcher scripts detach Blender and UE when invoked manually (AC3)")
+@scenario(FEATURE, "The Blender launcher detaches when invoked manually (AC3)")
 def test_blender_launcher_detaches() -> None:
-    pass
-
-
-@scenario(FEATURE, "start-unreal-mcp.sh detaches the UE Editor on the expected port (AC3)")
-def test_unreal_launcher_detaches() -> None:
     pass
 
 
@@ -201,7 +199,7 @@ def test_slow_launcher_fails_detach_check() -> None:
     pass
 
 
-@scenario(FEATURE, "Launchers are idempotent when the port is already bound (AC4)")
+@scenario(FEATURE, "The launcher is idempotent when the port is already bound (AC4)")
 def test_launcher_idempotent() -> None:
     pass
 
@@ -223,6 +221,11 @@ def test_python_package_bootstraps() -> None:
 
 @scenario(FEATURE, "VERSION and CHANGELOG are seeded (AC7)")
 def test_versioning_seeded() -> None:
+    pass
+
+
+@scenario(FEATURE, "The Godot runtime add-on ships with a manifest at the plugin version (#249)")
+def test_godot_addon_manifest() -> None:
     pass
 
 
@@ -269,21 +272,6 @@ def fake_child(tmp_path: pathlib.Path) -> Iterator[FakeChild]:
 @pytest.fixture
 def fake_blender_bin(fake_child: FakeChild) -> pathlib.Path:
     return fake_child.script
-
-
-@pytest.fixture
-def fake_ue_root(tmp_path: pathlib.Path) -> pathlib.Path:
-    ue_dir = tmp_path / "Engine" / "Binaries" / "Mac" / "UnrealEditor.app" / "Contents" / "MacOS"
-    ue_dir.mkdir(parents=True)
-    # The fake editor records its argv and PID through the fake_child env, as the fake Blender does.
-    _write_fake_child(ue_dir / "UnrealEditor")
-    # The launcher builds source-only project plugins through Build.sh before it starts the editor.
-    build_dir = tmp_path / "Engine" / "Build" / "BatchFiles" / "Mac"
-    build_dir.mkdir(parents=True)
-    build = build_dir / "Build.sh"
-    build.write_text("#!/usr/bin/env bash\nexit 0\n")
-    build.chmod(0o755)
-    return tmp_path
 
 
 @pytest.fixture
@@ -363,12 +351,13 @@ def empty_dirs_have_gitkeep(repo_root: pathlib.Path) -> None:
 
 
 @then(
-    "the Python package `src/nmg_game_dev/` is importable with submodule stubs"
-    " for `pipeline/`, `variants/`, `quality/`, `ship/`"
+    "the Python package `src/nmg_game_dev/` is importable with submodules"
+    " `godot/`, `pipeline/`, `variants/`, `quality/`, `ship/`"
 )
 def python_package_importable() -> None:
     for mod in (
         "nmg_game_dev",
+        "nmg_game_dev.godot",
         "nmg_game_dev.pipeline",
         "nmg_game_dev.variants",
         "nmg_game_dev.quality",
@@ -425,63 +414,14 @@ def script_does_not_block(launcher_run: LauncherRun) -> None:
     assert not launcher_run.timed_out, f"launcher blocked past {launcher_run.timeout} s"
 
 
-@given("`UE_ROOT` resolves to an installed Unreal Engine 5.8 install")
-def ue_root_resolves(fake_ue_root: pathlib.Path) -> None:
-    editor = (
-        fake_ue_root
-        / "Engine"
-        / "Binaries"
-        / "Mac"
-        / "UnrealEditor.app"
-        / "Contents"
-        / "MacOS"
-        / "UnrealEditor"
-    )
-    assert editor.is_file()
-
-
-@given("a valid `.uproject` resolves via the env-var or auto-detect chain")
-def uproject_resolves(repo_root: pathlib.Path) -> None:
-    assert (repo_root / "fixtures" / "dogfood.uproject").is_file()
-
-
-@when("`scripts/start-unreal-mcp.sh` runs", target_fixture="launcher_run")
-def run_unreal_script(
-    fake_ue_root: pathlib.Path, repo_root: pathlib.Path, fake_child: FakeChild
-) -> LauncherRun:
-    # Launch against a copy of the dogfood .uproject with no plugin directories beside it, so the
-    # launch does not wait on the plugin build check over fixtures/Plugins.
-    project_dir = fake_ue_root / "project"
-    project_dir.mkdir()
-    project = project_dir / "dogfood.uproject"
-    shutil.copyfile(repo_root / "fixtures" / "dogfood.uproject", project)
-    return _run_launcher(
-        "start-unreal-mcp.sh",
-        {
-            "UE_ROOT": str(fake_ue_root),
-            "UE_MCP_PORT": UE_TEST_PORT,
-            "UE_PROJECT": str(project),
-            **fake_child.env(),
-        },
-    )
-
-
 def _wait_for_lines(path: pathlib.Path, timeout: float = 5.0) -> list[str]:
-    """Wait for the detached fake editor to record its argv, then return the lines."""
+    """Wait for the detached fake Blender to record its argv, then return the lines."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.is_file() and path.stat().st_size > 0:
             return path.read_text(encoding="utf-8").splitlines()
         time.sleep(0.05)
-    raise AssertionError(f"UE editor never recorded its argv at {path}")
-
-
-@then("UE Editor is detached opened against the target `.uproject`")
-def ue_editor_detached(launcher_run: LauncherRun, fake_child: FakeChild) -> None:
-    assert_detached(launcher_run, fake_child.pid)
-    argv = _wait_for_lines(fake_child.argv)
-    assert "-ModelContextProtocolStartServer" in argv, f"editor argv: {argv}"
-    assert f"-ModelContextProtocolPort={UE_TEST_PORT}" in argv, f"editor argv: {argv}"
+    raise AssertionError(f"the fake Blender never recorded its argv at {path}")
 
 
 @given(
@@ -644,15 +584,24 @@ def reader_inspects_template() -> None:
     pass
 
 
-@then(
-    "it declares `SessionStart` hook commands invoking"
-    " `scripts/start-blender-mcp.sh` and `scripts/start-unreal-mcp.sh`"
-)
+def _session_start_commands(consumer_hooks_data: dict[str, Any]) -> list[str]:
+    return [
+        hook["command"]
+        for entry in consumer_hooks_data["hooks"]["SessionStart"]
+        for hook in entry["hooks"]
+    ]
+
+
+@then("it declares a `SessionStart` hook command invoking `scripts/start-blender-mcp.sh`")
 def consumer_template_has_hooks(consumer_hooks_data: dict[str, Any]) -> None:
-    hooks = consumer_hooks_data["hooks"]["SessionStart"][0]["hooks"]
-    commands = [h["command"] for h in hooks]
-    assert any("start-blender-mcp.sh" in c for c in commands)
-    assert any("start-unreal-mcp.sh" in c for c in commands)
+    commands = _session_start_commands(consumer_hooks_data)
+    assert any("scripts/start-blender-mcp.sh" in c for c in commands), commands
+
+
+@then("no other launcher runs at session start, because Godot only runs headless on demand")
+def consumer_template_has_only_blender(consumer_hooks_data: dict[str, Any]) -> None:
+    for command in _session_start_commands(consumer_hooks_data):
+        assert any(script in command for script in SESSION_START_SCRIPTS), command
 
 
 @then("no `.claude/settings.json` exists at this repo's root")
@@ -740,6 +689,39 @@ def pyproject_version(pyproject_data: dict[str, Any]) -> None:
     assert pyproject_data["tool"]["hatch"]["version"]["path"] == "VERSION"
 
 
+@given("the add-on folder `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/`")
+def godot_addon_folder() -> None:
+    assert GODOT_ADDON_DIR.is_dir(), f"Godot add-on folder missing: {GODOT_ADDON_DIR}"
+
+
+@when("its `plugin.cfg` is read", target_fixture="plugin_cfg_text")
+def read_plugin_cfg() -> str:
+    assert GODOT_PLUGIN_CFG.is_file(), f"plugin.cfg missing: {GODOT_PLUGIN_CFG}"
+    text: str = GODOT_PLUGIN_CFG.read_text(encoding="utf-8")
+    return text
+
+
+@then("the `[plugin]` section names `nmg-game-dev` with the script `plugin.gd`")
+def plugin_cfg_names_addon(plugin_cfg_text: str) -> None:
+    assert plugin_cfg_text.lstrip().startswith("[plugin]")
+    assert 'name="nmg-game-dev"' in plugin_cfg_text
+    assert 'script="plugin.gd"' in plugin_cfg_text
+
+
+@then("its `version` equals `VERSION`")
+def plugin_cfg_version_matches() -> None:
+    assert godot_plugin_cfg_version() == EXPECTED_VERSION
+
+
+@then(
+    "the add-on holds `nmg_assets.gd`, `nmg_mission_definition.gd`,"
+    " and the headless runner `tests/run_tests.gd`"
+)
+def addon_holds_runtime_files() -> None:
+    for rel in ("nmg_assets.gd", "nmg_mission_definition.gd", "tests/run_tests.gd"):
+        assert (GODOT_ADDON_DIR / rel).is_file(), f"add-on file missing: {rel}"
+
+
 @given("`.mcp.json` at the repo root")
 def mcp_json_exists(repo_root: pathlib.Path) -> None:
     assert (repo_root / ".mcp.json").is_file()
@@ -751,13 +733,12 @@ def parse_mcp_json(mcp_data: dict[str, Any]) -> None:
 
 
 @then(
-    "it declares two MCP server entries:"
-    " `blender` (mcp-for-blender) and `unreal` (Epic's native Unreal MCP with VibeUE)"
+    "it declares the `blender` (mcp-for-blender), `finalize`, `texture-gen`, and `meshy`"
+    " server entries and no engine server"
 )
-def mcp_two_servers(mcp_data: dict[str, Any]) -> None:
-    for name in REQUIRED_SERVERS:
-        assert name in mcp_data["mcpServers"], f".mcp.json missing server: {name}"
-    assert mcp_data["mcpServers"]["unreal"]["type"] == "http"
+def mcp_declares_plugin_servers(mcp_data: dict[str, Any]) -> None:
+    assert set(mcp_data["mcpServers"]) == set(REQUIRED_SERVERS)
+    assert not any(entry.get("type") == "http" for entry in mcp_data["mcpServers"].values())
 
 
 @then(
@@ -775,7 +756,8 @@ def mcp_tracks_latest(mcp_data: dict[str, Any]) -> None:
     " (usable verbatim by `onboard-consumer` in a consumer project)"
 )
 def mcp_no_repo_paths(mcp_text: str) -> None:
-    assert "fixtures/" not in mcp_text
+    for fixture_ref in REPO_FIXTURE_REFERENCES:
+        assert fixture_ref not in mcp_text
     assert not re.search(r'"/(?:Users|home)/[^"]+nmg-game-dev', mcp_text), (
         ".mcp.json contains an absolute path to the nmg-game-dev repo"
     )
@@ -819,7 +801,7 @@ def claude_md_pointer_only(claude_md_text: str) -> None:
 
 @given(
     "the consumer-facing artifacts: `.claude-plugin/plugin.json`,"
-    " `scripts/start-*-mcp.sh`, `templates/consumer/.claude/settings.json`,"
+    " `scripts/start-blender-mcp.sh`, `templates/consumer/.claude/settings.json`,"
     " `.mcp.json`, `pyproject.toml`"
 )
 def consumer_artifacts_present(repo_root: pathlib.Path) -> None:
@@ -829,7 +811,7 @@ def consumer_artifacts_present(repo_root: pathlib.Path) -> None:
 
 @when(
     "these artifacts are grep-scanned for repo-specific absolute paths,"
-    " `fixtures/dogfood.uproject` references, this-repo-only module imports, and credentials"
+    " in-repo fixture project references, this-repo-only module imports, and credentials"
 )
 def grep_scan() -> None:
     pass
@@ -841,18 +823,16 @@ def no_banned_found(artifact_text: Any) -> None:
         content = artifact_text(rel)
         for pattern in BANNED_SUBSTRINGS:
             assert pattern not in content, f"Banned pattern {pattern!r} found in {rel}"
-    for rel in BANNED_DOGFOOD_ARTIFACTS:
-        assert "fixtures/dogfood.uproject" not in artifact_text(rel), (
-            f"Dogfood fixture reference found in {rel} (AC10 leak)"
-        )
+        for fixture_ref in REPO_FIXTURE_REFERENCES:
+            assert fixture_ref not in content, f"Fixture reference {fixture_ref!r} in {rel}"
 
 
 @then(
-    "every path resolution in the launcher scripts uses either env-var overrides"
+    "every path resolution in the launcher script uses either env-var overrides"
     " or documented defaults a consumer can override without editing the script"
 )
 def launchers_use_env_vars(artifact_text: Any) -> None:
-    for name in ("start-blender-mcp.sh", "start-unreal-mcp.sh"):
+    for name in SESSION_START_SCRIPTS:
         assert "${" in artifact_text(f"scripts/{name}"), (
             f"{name} does not use env-var path resolution"
         )
@@ -895,6 +875,6 @@ def no_install_scope_encoding(artifact_text: Any) -> None:
         content = artifact_text(rel)
         old_user_plugin_path = "~/.cla" + "ude/plugins/"
         assert old_user_plugin_path not in content, f"{rel} hard-codes {old_user_plugin_path}"
-        # /Users/Shared/Epic Games/ is the documented UE default — permitted.
+        # /Users/Shared/ is a machine-wide default a consumer may rely on — permitted.
         forbidden = re.findall(r"/Users/(?!Shared/)[^\s\"'/]+", content)
         assert not forbidden, f"{rel} contains non-default /Users/ path: {forbidden}"

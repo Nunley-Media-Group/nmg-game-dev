@@ -53,7 +53,7 @@ def export_material_variants(
                 "material": material,
                 "base_color": texture,
                 "parameters": dict(entry.get("parameters", {})),
-                "material_instance": f"MI_{collection}_{part}_{name}",
+                "material_resource": f"M_{collection}_{part}_{name}.tres",
             }
         )
     return {"desktop": records, "mobile": [dict(record) for record in records]}

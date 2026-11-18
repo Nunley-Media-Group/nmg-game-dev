@@ -20,11 +20,11 @@ viewport or renderer is not done.
 - Each part has its own mesh data: no two mesh objects of one variant may share a mesh
   datablock. Validate reports `naming.mesh_data` for a shared one; fix it with Object >
   Relations > Make Single User > Object & Data.
-- Export names each mesh datablock after its object (the `_Mobile` suffix removed, Mobile
-  LOD meshes included), so every FBX mesh carries the name its object has in Unreal.
+- Export names each mesh datablock after its object (the `_Mobile` suffix removed), so every
+  glTF mesh carries the name its object has in Godot.
 - When one request produces several assets, each one is a separate deliverable with
   its own collection at the world origin; overlapping in Blender is expected. Don't
-  compose scenes in Blender. Placement and level composition happen in Unreal.
+  compose scenes in Blender. Placement and level composition happen in Godot.
 
 ## 2. Units, orientation, pivot
 
@@ -37,6 +37,9 @@ viewport or renderer is not done.
 - Child parts: rotation (0,0,0) and scale (1,1,1), with the origin at the hinge or
   axle and the location wherever that pivot sits relative to the root.
 - All modifiers applied before export.
+- 1 Blender unit = 1 m = 1 Godot unit. Export converts to Godot's Y-up space: a Blender point
+  `(x, y, z)` becomes `(x, z, -y)`, so the asset's origin stays at its base centre and its front
+  faces Godot's +Z.
 
 ## 3. Geometry
 
@@ -67,18 +70,18 @@ viewport or renderer is not done.
     A source texture that does not tile is made seamless with
     `python -m nmg_game_dev.texture seamless <image.png>`. Texel density is measured per
     material slot; mark a trim-atlas material with `nmg_trim_atlas` (section 6).
-- Materials must survive FBX export. At export time each material is a Principled
+- Materials must survive glTF export. At export time each material is a Principled
   BSDF fed only by Image Texture nodes sampling `UVMap`, a Normal Map node, and a
   Separate Color node to split ORM. No procedural texture nodes, no
   Generated/Object/Position/triplanar coordinates. Author procedurally if you want,
   then **bake** to images and rewire the material to the baked images. The bake step is
   `nmggamedev.bake_materials` (see `docs/skills/bake-materials.md`).
-- FBX carries base color and normal; it does not carry the ORM wiring. Ship the ORM
-  texture anyway: the Unreal import step wires it.
+- The `.glb` embeds the base color, normal, and ORM images through glTF's metallic-roughness and
+  occlusion channels, which Godot's `StandardMaterial3D` reads directly. The PNG set is also written
+  beside the `.glb`, because the re-import check (section 8) reads it.
 - Texture set per material, power-of-two square, PNG:
   - `T_<Name>_<Part>_BC`: base color (sRGB)
-  - `T_<Name>_<Part>_N`: normal (Non-Color, OpenGL convention; the Unreal import step
-    sets Flip Green Channel)
+  - `T_<Name>_<Part>_N`: normal (Non-Color, OpenGL convention, which Godot uses as is)
   - `T_<Name>_<Part>_ORM`: R=ambient occlusion, G=roughness, B=metallic (Non-Color)
 - Materials named `M_<Name>_<Part>`, where `<Part>` names what the material covers
   (`Body`, `Glass`, `Surface`). Prefer one material per variant; at most the material
@@ -87,10 +90,10 @@ viewport or renderer is not done.
 ### Material variants
 
 A material variant is another look of one baked material: a replacement base-colour
-texture, `M_NmgORM` parameter values (`Tint`), or both. It shares the material's normal and
-ORM textures. Unlike Desktop and Mobile it is not a separate asset: the mesh slots stay bound
-to the main `MI_<Name>_<Part>`. Replacement normal or ORM textures, masked tinting, and mesh
-or UV changes are out of scope.
+texture, a `Tint` value, or both. It shares the material's normal and ORM textures. Unlike
+Desktop and Mobile it is not a separate asset: the mesh slots stay bound to the main
+`M_<Name>_<Part>`. Replacement normal or ORM textures, masked tinting, and mesh or UV changes are
+out of scope.
 
 - **Declaration.** Write `<Name>.material-variants.json` beside the asset's `.blend`. A
   `--blend` run finds it there; otherwise pass its path with `--material-variants` (CLI) or
@@ -108,43 +111,38 @@ or UV changes are out of scope.
   }
   ```
 
-  `base_color` is a PNG path, relative to the declaration. `parameters` maps an `M_NmgORM`
-  parameter to a value. `Tint` is `[r, g, b]` or `[r, g, b, a]`, with every component finite and
-  at least 0; alpha defaults to 1. An entry has `base_color`, `parameters`, or both.
+  `base_color` is a PNG path, relative to the declaration. `parameters` maps a supported parameter
+  to a value; `Tint` is the only one. `Tint` is `[r, g, b]` or `[r, g, b, a]`, with every component
+  finite and at least 0; alpha defaults to 1. An entry has `base_color`, `parameters`, or both.
 - **Naming.** Finalize writes `T_<Name>_<Part>_BC_<Variant>` (a PNG base colour in sRGB, in both
-  the Desktop and Mobile folders) and `MI_<Name>_<Part>_<Variant>` (a material instance parented
-  to `M_NmgORM` in the same Content folder as the main set). A parameter-only variant has no
-  texture, so its instance uses the main base colour.
+  the Desktop and Mobile folders). During `import_godot` it writes
+  `M_<Name>_<Part>_<Variant>.tres` into each variant folder: a `StandardMaterial3D` whose
+  `albedo_texture` is the variant base colour, whose `normal_texture` and ORM channels use the main
+  set, and whose `albedo_color` is the `Tint` value (white by default). A parameter-only variant has
+  no texture, so its material uses the main base colour. `nmg-variants.json` records each variant's
+  `material_resource`.
 - **Validation.** `validate` fails with a `material_variant.*` finding before anything is baked
   or exported: `material_variant.name` (not PascalCase letters and digits, or `<Part>_<Variant>`
   names another part), `material_variant.duplicate`, `material_variant.material_missing` (not a
   material the asset has after the bake), `material_variant.material_merged` (see below),
   `material_variant.texture_missing` (not an existing PNG), `material_variant.texture_size` (not
   a power-of-two square, or not the Desktop base-colour size of its material),
-  `material_variant.parameter` (not a parameter of `M_NmgORM`, or a malformed value), and
+  `material_variant.parameter` (not `Tint`, or a malformed value), and
   `material_variant.empty` (neither `base_color` nor `parameters`). A file that is not valid JSON,
   or does not match this format, raises `material_variant.declaration_invalid`.
 - **Merged materials.** When the bake merges several authored materials into `M_<Name>_Body`
   (more of them than the Mobile material limit), declare variants on `M_<Name>_Body`. A variant
   on one of the merged authored materials fails `material_variant.material_merged`, which names
   `M_<Name>_Body`. A variant declared on `M_<Name>_Body` is produced for both Desktop and Mobile.
-- **Tint.** `M_NmgORM` multiplies its base colour by a `Tint` vector parameter that defaults to
-  white (1, 1, 1, 1). Rebuild `M_NmgORM` with `scripts/unreal/build_master_material.py` before
-  importing a parameter variant, because a shipped master built before #148 has no `Tint`. When the
-  master lacks a declared parameter, the import still succeeds and its result's `warnings` names the
-  instance and the parameter.
-- **Import result.** Each variant's import result lists `material_variants` with one entry per
-  instance it imported: `name`, `material`, `instance` (the `MI_<Name>_<Part>_<Variant>` path), and
-  `texture` (the variant base-colour texture path, or `null` for a parameter-only variant). A variant
-  name used on several materials gives one entry for each material.
-- **Stale deletion.** Running finalize again with a variant removed deletes its material instance
-  and texture from both Content folders, and its PNG leaves the export folders. Only assets that
-  finalize tagged (`nmg.asset`, `nmg.material_variant`, `nmg.material_slot`) are deleted, and the
-  import result lists the removed paths.
+- **Using a variant.** Game code applies a variant by loading its `.tres` and setting it as the
+  surface override material of the slot it names.
 - **Listing.** The `list_material_variants` MCP tool and
   `python -m nmg_game_dev.finalize material-variants --category <C> --collection <N> [--json]`
-  list each variant with its material and its Desktop and Mobile instance paths. An asset with no
-  material variants returns an empty list.
+  read only `<Category>/<Name>/nmg-variants.json` under the export root (`game/assets` by default)
+  and never start Godot. Each row gives the variant's name, its material, and the `res://` path of
+  its Desktop and Mobile `.tres`, or `null` for a folder that does not hold it. An asset with no
+  material variants returns an empty list; a missing or invalid sidecar fails with
+  `finalize.material_variants_failed`.
 
 ## 5. Variants
 
@@ -164,20 +162,12 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
   uses: degenerate, zero-area, non-manifold-edge, duplicate, and loose geometry are removed, and
   normals are recalculated. It then re-seats the Mobile variant so its bottom centre is at the
   world origin, because decimation can move it. The root's origin and the rig are not changed.
-- Mobile export is an LOD group: an Empty `SM_<Name>` with `fbx_type = "LodGroup"` whose
-  children are `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and `SM_<Name>_LOD2`. LOD1 and LOD2 are
-  50% and 25% of LOD0's triangles. Assets with child parts keep the root mesh `SM_<Name>`
-  and their parts, with LOD0 only.
-- In Unreal, a static Mobile LOD group is one Static Mesh `/Game/<Category>/<Name>/Mobile/SM_<Name>`
-  with three LODs: LOD 0, 1, and 2 are the exported `SM_<Name>_LOD0`, `SM_<Name>_LOD1`, and
-  `SM_<Name>_LOD2` meshes, and no separate asset is made for them. `import_ue` checks that the
-  Static Mesh's LOD count equals the snapshot's LOD object count, and it checks LOD 0's bounds
-  against `SM_<Name>_LOD0` (#146).
-- A rigged character (its armature `SK_<Name>` is in the collection; see §7) has no LOD
-  group. Its Mobile variant is three skinned meshes, `SM_<Name>_Mobile`,
-  `SM_<Name>_Mobile_LOD1`, and `SM_<Name>_Mobile_LOD2`, each parented to `SK_<Name>` with an
-  Armature modifier. Each exports to its own FBX: one per LOD level. LOD1 and LOD2 are 50%
-  and 25% of LOD0's triangles. Assets with child parts keep LOD0 only, skinned the same way.
+- Blender makes no LOD meshes. Godot generates LODs for both variants when it imports the
+  `.glb` (the `meshes/generate_lods` import option), so the exported Mobile mesh is LOD 0 and must
+  itself be within the mobile triangle budget (section 6).
+- A rigged character (its armature `SK_<Name>` is in the collection; see section 7) exports its
+  Mobile variant as one skinned mesh, `SM_<Name>_Mobile`, parented to `SK_<Name>` with an Armature
+  modifier. Assets with child parts keep their parts, skinned the same way.
 - Inside the .blend, Mobile objects, materials, and images may carry a suffix to avoid
   name clashes. Exported files never do: object, material, and texture names in the
   Mobile export are identical to the Desktop export.
@@ -239,71 +229,72 @@ variant:
 
 ## 7. Export
 
-- Terrain exports PNG heightfields and layer textures instead of FBX. See section 9.
-- FBX, one file per variant, selected objects only, mesh (and armature if rigged) only,
-  modifiers applied, smoothing = Face, Apply Scalings = FBX Units Scale, no embedded
-  textures. Textures are written as separate PNGs beside the FBX.
-- Layout (relative to the export root the caller gives you):
+- Terrain exports chunked meshes and a scene instead of one `.glb` per variant. See section 9.
+- glTF binary (`.glb`), one file per variant, selected objects only, mesh (and armature if rigged)
+  only, modifiers applied, Y up (`export_yup`), at 1 unit = 1 m with the origin at the base centre
+  (section 2). The texture set is embedded in the `.glb` and also written as separate PNGs beside
+  it.
+- Layout, relative to the export root the caller gives (`game/assets` in a consumer project):
   ```
-  <Category>/<Name>/Desktop/SM_<Name>.fbx + T_*.png
-  <Category>/<Name>/Mobile/SM_<Name>.fbx  + T_*.png
+  <Category>/<Name>/Desktop/<Name>.glb + T_*.png + nmg-asset.json
+  <Category>/<Name>/Mobile/<Name>.glb  + T_*.png + nmg-asset.json
+  <Category>/<Name>/nmg-variants.json
   ```
+- `nmg-asset.json` sits in **both** variant folders: `{class, tris, max_texture_px, materials,
+  meshes}`, where each entry of `meshes` is `{name, tris, material_slots, bounds}` and `bounds` is
+  `{min: [x, y, z], max: [x, y, z]}` in Godot space and metres. `import_godot` compares the imported
+  scene against it. `nmg-variants.json` names the variant files `Desktop/<Name>.glb` and
+  `Mobile/<Name>.glb`.
+- In Godot, each variant is the scene `res://assets/<Category>/<Name>/<Variant>/<Name>.glb`. Godot
+  imports it with LOD generation on; nothing else is created beside it except the material-variant
+  `.tres` files (section 4).
+
+### Variant references in game code
+
+Desktop and Mobile are separate files, and a build ships only one of them:
+
+- Game code refers to an asset by its variant-free path, `res://assets/<Category>/<Name>/<Name>.glb`,
+  and loads it through `NmgAssets.resolve_variant_path(path)` from the `addons/nmg_game_dev` add-on.
+  The resolver returns the `Mobile/` path when the running platform has the `mobile` or `web`
+  feature tag, and the `Desktop/` path otherwise. A path that is not in that shape, or already names
+  a variant folder, is returned unchanged with a warning.
+- The export presets that `/onboard-consumer` writes filter the folders: the iOS, Android, and Web
+  presets exclude every `assets/*/Desktop/*` folder, and the macOS and Windows presets exclude every
+  `assets/*/Mobile/*` folder.
 
 ### Rigged characters
 
-A character rigged with `rig_humanoid` (see
-`docs/rigging-and-animation.md`) exports one FBX that carries its armature and
-every baked clip:
+A character rigged with `rig_humanoid` (see `docs/rigging-and-animation.md`) exports its armature
+with each variant's mesh:
 
 - The armature `SK_<Name>` sits at the world origin with identity transforms and
   lives in collection `<Name>`.
 - The root mesh `SM_<Name>` is parented to `SK_<Name>` through an Armature
   modifier. Every vertex has a non-zero weight on at least one deform bone.
-- The deform bones are the 26 UE5 Mannequin bones, in the Mannequin parent
-  hierarchy. The rig has no leaf, finger, twist, or helper bones.
-- The FBX holds the armature and each baked clip as an action. The armature is
-  named `Armature` inside the FBX, so it does not add an extra root bone.
-- `nmg-animations.json` sits beside the FBX. It lists each clip's name, frame
-  range, frame count, fps, and source (library, file, SHA-256, skeleton).
-- A built-in clip's `source` has `library` `"builtin"`, `file` `null`, `skeleton`
-  `"manny"`, and a `sha256` that is the SHA-256 of the clip's pose definition
-  (`docs/rigging-and-animation.md`, Built-in library).
-
-The finalize export places a rigged character in the layout above:
-
-- `Desktop/SM_<Name>.fbx` holds the armature and the skinned Desktop mesh. Cleanup
-  applies every modifier except the Armature modifier, so the skin and the vertex
-  groups survive.
-- `Mobile/SM_<Name>.fbx`, `Mobile/SM_<Name>_LOD1.fbx`, and `Mobile/SM_<Name>_LOD2.fbx`
-  each hold the armature and one skinned mesh. An asset with child parts writes only
-  `Mobile/SM_<Name>.fbx`, which holds LOD0 and its parts.
-- Both variants export with the armature named `Armature`, `add_leaf_bones` off,
-  deform-only armature export, primary bone axis Y, secondary X, and no baked animation.
-- In Unreal, `/Game/<Category>/<Name>/Desktop/SM_<Name>` is a Skeletal Mesh. It creates
-  `SM_<Name>_Skeleton` and `SM_<Name>_PhysicsAsset` beside it. `/Game/<Category>/<Name>/Mobile/SM_<Name>`
-  is a Skeletal Mesh with up to three LODs that uses the Desktop skeleton and physics asset.
-  Each skeletal material slot `M_<Name>_<Part>` binds to `MI_<Name>_<Part>`.
-- `nmg-variants.json` records `"rigged": true` and, when rigged, lists the Mobile files
-  in `mobile.lod_files`. An unrigged asset records `"rigged": false` and writes the
-  Static Mesh layout above.
+- The deform bones are the 26 Mannequin-style bones listed in `docs/rigging-and-animation.md`, in
+  that parent hierarchy. The rig has no leaf, finger, twist, or helper bones.
+- Each variant's `.glb` holds the armature and that variant's skinned mesh, exported with skins on
+  and animations off. Cleanup applies every modifier except the Armature modifier, so the skin and
+  the vertex groups survive. In Godot the armature is a `Skeleton3D` inside the variant scene.
+- `nmg-variants.json` records `"rigged": true`. An unrigged asset records `"rigged": false`.
 
 ### Animation clips
 
 A rigged character's clips are finalized next to its mesh (`docs/mcp/finalize.md`, "Animation
 clips"). The contract for them:
 
-- Each clip is one FBX at `<export_root>/<Category>/<Name>/Animations/A_<Name>_<Clip>.fbx`, with
-  the armature named `Armature` and exactly one clip. `<Clip>` matches `^[A-Za-z][A-Za-z0-9_]*$`.
-  An action with any other name stops the export.
+- Each clip is one `.glb` at `<export_root>/<Category>/<Name>/Animations/A_<Name>_<Clip>.glb`,
+  holding the armature only and exactly one sampled action. `<Clip>` matches
+  `^[A-Za-z][A-Za-z0-9_]*$`. An action with any other name stops the export.
 - `Animations/nmg-animations.json` lists each clip's `name`, `file`, `asset_path`, `frame_start`,
   `frame_end`, `frame_count`, `fps`, and `source`. A provenance clip's `source` is its library,
-  file, SHA-256, and source skeleton. An authored clip's `source` is `"authored"`.
-- In Unreal, each clip is the AnimSequence `/Game/<Category>/<Name>/Animations/A_<Name>_<Clip>` on
-  `/Game/<Category>/<Name>/Desktop/SM_<Name>_Skeleton`. Mobile uses the same AnimSequences, so the
-  `Animations/` folder has no Desktop or Mobile split. The skeleton and the frame count of each
-  clip must match the sidecar.
-- Stale AnimSequences are never deleted automatically. A sequence whose clip was removed from the
-  rig is listed as stale in the finalize result, and it is removed by hand.
+  file, SHA-256, and source skeleton. An authored clip's `source` is `"authored"`. A built-in clip's
+  `source` has `library` `"builtin"`, `file` `null`, `skeleton` `"manny"`, and a `sha256` that is the
+  SHA-256 of the clip's pose definition (`docs/rigging-and-animation.md`, Built-in library).
+- In Godot, each clip file imports as an `AnimationLibrary` (its `.import` file sets
+  `importer="animation_library"`). The `Animations/` folder has no Desktop or Mobile split: both
+  variants share the same skeleton bone names, so both play the same libraries. Each clip's
+  animation and frame count (`round(length * fps)`) must match the sidecar.
 - A character with no clips has no `Animations/` folder.
 
 ## 8. Before you say it's done
@@ -341,21 +332,22 @@ clips"). The contract for them:
    The bake step writes the pre-bake and baked renders as `<Name>_prebake.png` and
    `<Name>_baked.png`, and fails when they differ beyond tolerance (see
    `docs/skills/bake-materials.md`).
-4. **Re-import check**: import the exported FBX into an empty scene and confirm it
+4. **Re-import check**: import the exported `.glb` into an empty scene and confirm it
    still has its base color and normal textures, UVs, scale, orientation, part pivots,
-   and names. Render it with the ORM texture wired in the same way the Unreal import
-   will wire it, and confirm it matches the proofed look.
+   and names. Render it with the ORM texture wired the way Godot's `StandardMaterial3D`
+   reads it, and confirm it matches the proofed look.
    Standard tool: `nmggamedev.reimport_check`, or `python -m nmg_game_dev.contract
    reimport --variant-dir <dir> --pre-report <validate report> --report <json>`. It
-   imports the FBX in a fresh headless Blender and compares it with the report written
+   imports the `.glb` in a fresh headless Blender and compares it with the report written
    before export, using the `reimport.*` rules. A missing texture fails with
    `reimport.texture_missing` and names the file.
 
 ## 9. Terrain
 
-Terrain (`asset_class` `terrain`) is a heightfield. Finalize turns each variant into an Unreal
-Landscape instead of a Static Mesh. The §2 origin rule does not apply, because the grid is centered
-on the origin, and terrain does not use the §5 decimation or LOD rules or the §7 FBX export.
+Terrain (`asset_class` `terrain`) is a heightfield. Finalize turns each variant into chunked meshes
+and a Godot scene with heightmap collision instead of one `.glb`. The section 2 origin rule does not
+apply, because the grid is centered on the origin, and terrain does not use the section 5 decimation
+rules or the section 7 single-file export.
 
 ### Grid
 
@@ -377,7 +369,7 @@ on the origin, and terrain does not use the §5 decimation or LOD rules or the �
 - The validator reports each violation as a finding named by rule: `terrain.structure`,
   `terrain.resolution_invalid`, `terrain.spacing`, `terrain.not_centered`, `terrain.layer_missing`,
   `terrain.layer_range`, `terrain.over_budget`, `terrain.layer_texture_missing`, and `texel.density`.
-  A failing terrain exports no file and creates no Unreal asset.
+  A failing terrain exports no file and writes nothing into the Godot project.
 
 ### Mobile variant
 
@@ -397,39 +389,63 @@ Finalize derives the Mobile variant from the Desktop grid in the same run.
 
 Each variant folder `<Category>/<Name>/<Variant>/`, where `<Variant>` is `Desktop` or `Mobile`, holds:
 
-- `T_<Name>_Height.png`: the heightmap as a 16-bit grayscale PNG at the variant's size. 0 is the
-  minimum height, 65535 the maximum, and a flat terrain encodes 32768. Row 0 is the Blender +Y edge
-  and column 0 the Blender -X edge.
-- `T_<Name>_Layer_<L>.png`: one 8-bit grayscale weightmap per layer of that variant. The weights are
-  normalized per vertex, and the weightmaps of a variant sum to exactly 255 at every pixel.
+- `<Name>_Chunk_<row>_<col>.glb`: the variant grid cut into square chunks of 63 quads each (63
+  divides every valid size minus one, so chunks tile the grid exactly). Godot generates each chunk's
+  LODs on import (`meshes/generate_lods`).
+- `T_<Name>_Splat.png`: an 8-bit RGBA weightmap. Layer *i* of the variant is channel *i*, the weights
+  are normalized per vertex, and the channels sum to exactly 255 at every pixel. A terrain with more
+  than 4 layers fails with `variants.terrain_layers_unsupported`.
 - `T_<Name>_<L>_BC.png`, `T_<Name>_<L>_N.png`, and `T_<Name>_<L>_ORM.png`: each layer's tiling texture
   set, at the variant's texture maximum (2048 px Desktop, 1024 px Mobile).
+- `T_<Name>_Height.png`: the heightmap as a 16-bit grayscale PNG at the variant's size, kept for the
+  re-import check. 0 is the minimum height, 65535 the maximum, and a flat terrain encodes 32768.
+  Row 0 is the Blender +Y edge and column 0 the Blender -X edge.
+- `<Name>.tscn`, written by `import_godot` (below).
 
-No FBX is written. Two sidecars sit in `<Category>/<Name>/`:
+Two sidecars sit in `<Category>/<Name>/`:
 
 - `nmg-variants.json` records `"terrain": true` and, for each variant, its heightmap size, spacing in
   metres, height range in metres, layer list, texture maximum, and height samples. The samples are
   nine points and the lowest and highest vertex.
-- `Mobile/nmg-asset.json` records `"class": "terrain"`, `heightmap_px`, the Mobile layer count as
-  `layers`, and `max_texture_px`.
+- `<Variant>/nmg-asset.json` records `"class": "terrain"`, `heightmap_px`, the variant's layer count
+  as `layers`, and `max_texture_px`.
 
-### Unreal import
+### Godot scene
 
-For each variant, finalize imports into `/Game/<Category>/<Name>/<Variant>/`:
+For each variant, `import_godot` writes `<Variant>/<Name>.tscn`:
 
-- `T_<Name>_<L>_{BC,N,ORM}`: the layer textures. The Height and weightmap PNGs are read by the
-  Landscape import and are not imported as textures.
-- `M_<Name>_Landscape`: a layered landscape material that blends one layer per weightmap.
-- `LI_<Name>_<L>`: one layer info per layer.
-- `L_<Name>`: the level that holds the Landscape. Re-importing replaces the level.
+- The root is a `Node3D` named `<Name>` with one instance of every chunk `.glb`.
+- The chunks share a material override, a `ShaderMaterial` that uses
+  `res://addons/nmg_game_dev/terrain/nmg_terrain.gdshader` with the splat map and the layer textures.
+- A `StaticBody3D` holds a `CollisionShape3D` whose `HeightMapShape3D` has `map_width` and
+  `map_depth` equal to `heightmap_px` and `map_data` set to the decoded heights in metres. The shape
+  is scaled `(spacing, 1, spacing)` and centred like the mesh, so collision matches the surface.
 
-The Landscape is centered on the origin. Its XY scale is the spacing in centimetres, and its Z scale
-and location reproduce the sidecar's height range. The import samples the Landscape at the sidecar's
-sample points. If any sample differs from the Blender height by more than 5 cm, the step fails with
-`import_ue.terrain_height_mismatch`.
+It then imports the project headless and runs a probe that loads the scene and measures the height
+range of `map_data` and of the chunk bounds. If either range differs from the sidecar's height
+range (`height_min_m`, `height_max_m`) by more than 5 cm, the step fails with
+`import_godot.terrain_height_mismatch`. A missing chunk fails with `import_godot.mismatch`. A region
+in the design backlog uses the Desktop `<Name>.tscn` as its ground (`docs/design-contract.md`).
 
 ### Re-import check
 
-Terrain's re-import check decodes each variant's PNGs instead of importing an FBX. It checks the
+Terrain's re-import check decodes each variant's PNGs instead of importing a mesh. It checks the
 resolution, the layer files, the per-pixel weight sums of 255, and every decoded height against the
 pre-export heights within 5 cm. Its findings use the rule `reimport.terrain`.
+
+## 10. Godot import errors
+
+Every finalize, animation, and audio failure on the Godot side stops the run with one of these
+codes, a message, and a remediation. Godot always runs headless (`godot --headless`); nothing here
+needs an open editor.
+
+| Code | Raised when | Remediation |
+|------|-------------|-------------|
+| `godot.not_found` | No Godot binary at `GODOT_BIN`, `godot` on `PATH`, or `/Applications/Godot.app`. | Install Godot 4 (latest stable) or set `GODOT_BIN` to its executable. |
+| `import_godot.project_missing` | No `project.godot` in the export root or any folder above it. | Run `/onboard-consumer` to create `game/project.godot`, or pass an export root inside the Godot project (`game/assets`). |
+| `import_godot.import_failed` | `godot --headless --path game --import` exited non-zero or printed an `ERROR:` line. The first such line is in the message. | Fix the file the error names (usually a malformed `.glb` or `.import`), then rerun `import_godot`. |
+| `import_godot.mismatch` | A probed variant's mesh names, triangle counts, material slots, or bounds (within 1 mm) differ from its `nmg-asset.json`, or a terrain chunk is missing. The message names the mesh and the field. | Rerun finalize with `force` so the variant is re-exported and re-imported. If it persists, check the export settings in section 7. |
+| `import_godot.terrain_height_mismatch` | A terrain scene's collision or chunk height range differs from the sidecar by more than 5 cm. | Re-export the terrain with `force`. If it persists, check the heightmap encoding and the spacing in `nmg-variants.json`. |
+| `import_anims.clip_mismatch` | An imported clip is absent from its `AnimationLibrary`, or its frame count differs from the sidecar. The message names the clip, the expected value, and the measured value. | Re-export the clip, then rerun `import_anims` with `force`. |
+| `import_anims.failed` | The clip import or its probe failed. | Run `godot --headless --path game --import` and read its errors, confirm the clip `.glb` files exist, then rerun `import_anims`. |
+| `audio.ffmpeg_not_found` | A music import found no ffmpeg at `FFMPEG_BIN` or on `PATH`. Nothing was written under `game/`. | Install ffmpeg or set `FFMPEG_BIN` to its executable. |

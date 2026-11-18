@@ -14,97 +14,92 @@ nmg-game-dev/
 ├── plugins/
 │   ├── nmg-game-dev-blender-addon/
 │   │   ├── __init__.py            # bl_info + register/unregister
+│   │   ├── blender_manifest.toml  # Blender extension manifest
 │   │   ├── operators/             # bpy operators (cleanup, bake, variants)
 │   │   ├── panels/                # UI panels
 │   │   ├── contract_core/         # Contract validation and re-import check (headless-safe cores)
 │   │   ├── bake_core/             # Authored materials → contract texture sets
-│   │   ├── variants_core/         # Cleanup, Mobile LODs, Desktop/Mobile export
+│   │   ├── variants_core/         # Cleanup, Mobile variant, Desktop/Mobile .glb export and sidecars
+│   │   ├── terrain_core/          # Terrain grid checks, Mobile derivation, chunked .glb export
+│   │   ├── rig_core/              # Humanoid rig, landmarks, animation library import
+│   │   ├── reduce_core/           # Reduce a generated asset to its Desktop budget
 │   │   ├── finalize_core/         # Finalize steps run in background Blender; content hash and load-back
 │   │   ├── mcp_server/            # The Blender-side MCP server module
 │   │   └── utils/
-│   └── nmg-game-dev-ue-plugin/
-│       ├── nmg-game-dev.uplugin   # UE plugin manifest
-│       ├── Source/
-│       │   ├── NmgGameDevRuntime/ # Runtime module — ships inside consumer games
-│       │   │   ├── Public/
-│       │   │   ├── Private/
-│       │   │   └── Tests/         # *.spec.cpp UE Automation tests
-│       │   └── NmgGameDevEditor/  # Editor-only module — NOT shipped in game builds
-│       │       ├── Public/
-│       │       ├── Private/
-│       │       └── Tests/
-│       │       # Note: the Claude Code → editor MCP wire is owned by VibeUE
-│       │       # (third-party UE plugin on Epic's native MCP); nmg-game-dev does
-│       │       # NOT ship its own MCP module.
-│       ├── Content/               # Plugin-owned UE content (templates, defaults)
-│       └── Resources/             # Plugin icon, thumbnails
+│   └── nmg-game-dev-godot-addon/
+│       └── addons/nmg_game_dev/   # GDScript runtime add-on, copied into game/addons/ by /onboard-consumer
+│           ├── plugin.cfg         # Add-on manifest (version = VERSION)
+│           ├── plugin.gd          # EditorPlugin: registers the NmgAssets autoload
+│           ├── nmg_assets.gd      # NmgAssets.resolve_variant_path: Desktop/Mobile routing
+│           ├── nmg_mission_definition.gd  # NmgMissionDefinition resource class
+│           ├── terrain/           # nmg_terrain.gdshader (four-layer splat)
+│           └── tests/             # Headless test runner (run_tests.gd) + test_*.gd; not installed
 ├── skills/                        # Claude Code skills shipped to consumers
-│   ├── finalize-asset/            # Validate → bake → variants → export → re-import → load back → UE import
-│   │   ├── SKILL.md               # Skill definition + frontmatter
-│   │   └── references/            # Large context files loaded on demand
-│   ├── generate-texture/          # Local AI texture models (mflux), agent-callable
-│   ├── retarget-animation/
-│   ├── build-platform/            # /build-platform per-platform orchestrator
-│   ├── ship/                      # Build, sign, notarize, package
-│   ├── verify-cook-manifest/      # Runtime of gate-cook-manifest-*
-│   ├── audit-mobile-budgets/      # Runtime of gate-mobile-budgets
-│   └── onboard-consumer/          # Installs hooks, add-on, UE plugin, asset contract into a consumer
-├── mcp-servers/                   # NMG-authored MCP servers (beyond Blender/UE plugin hosts)
-│   ├── finalize/                  # finalize MCP: finalize_asset, run_finalize_step, get_finalize_job
+│   ├── model-asset/               # Freeform Blender modeling loop
+│   ├── finalize-asset/            # Validate → bake → variants → export → re-import → load back → Godot import
+│   ├── design/                    # Design docs → backlog → Godot scaffolds (.tscn / .tres / .gd)
+│   ├── ship/                      # Godot export, sign, notarize, package
+│   ├── onboard-consumer/          # Installs hooks, Blender add-on, Godot project + add-on, asset contract
+│   └── convert-to-godot/          # Migrates an existing consumer from an older engine project
+├── mcp-servers/                   # NMG-authored MCP servers
+│   ├── finalize/                  # finalize MCP: finalize_asset, run_finalize_step, get_finalize_job, import_audio
 │   │   ├── pyproject.toml
 │   │   ├── tools.json
 │   │   └── src/finalize_mcp/
+│   ├── meshy/                     # Optional Meshy generation and retexturing
 │   └── texture-gen/               # Local texture backends exposed as MCP tools
-│       ├── pyproject.toml
-│       └── src/
 ├── scripts/                       # Bash + Python tooling (session-start, CI, automation)
 │   ├── start-blender-mcp.sh       # SessionStart hook — idempotent Blender launcher
-│   ├── start-unreal-mcp.sh        # SessionStart hook — idempotent UE Editor launcher
+│   ├── install-blender-mcp-addon.sh
 │   ├── blender/                   # Headless Blender entries: contract_entry.py, finalize_entry.py, finalize_session.py
-│   ├── unreal/                    # UE Python run through the Unreal MCP: build_master_material.py
 │   ├── validate-mcp-tools.py      # Runtime of gate-mcp-schema
 │   ├── audit-mobile-budgets.py
-│   ├── verify-cook-manifest.sh
-│   ├── run-blender-tests.sh
-│   ├── run-ue-tests.sh
-│   ├── ship-smoke.sh              # /sdlc-verify-code's gate-ship-smoke backer
-│   ├── bump-uproject-version.py
-│   └── tests/                     # pytest for the scripts themselves
+│   ├── run-blender-tests.sh       # Runtime of gate-blender-headless
+│   ├── run-godot-tests.sh         # Runtime of gate-godot-headless
+│   ├── sign-macos.sh / notarize-macos.sh
+│   └── ship-smoke.sh              # Runtime of gate-ship-smoke
 ├── src/
 │   └── nmg_game_dev/              # Importable Python package (CLI glue, shared utils)
 │       ├── __init__.py
+│       ├── godot/                 # The only engine boundary: binary, headless runner, probes, project/preset writers
+│       │   └── gd/                # GDScript probes run with `godot --headless -s`
 │       ├── contract/              # Contract validate / re-import / render CLI, run headless in Blender
 │       ├── finalize/              # `python -m nmg_game_dev.finalize` CLI over the finalize pipeline
-│       ├── pipeline/              # Finalize orchestrator: steps, cache, job runner, Blender and Unreal clients
-│       ├── unreal/                # UE import code and pivot check, run through the Unreal MCP
+│       ├── pipeline/              # Finalize orchestrator: steps, cache, job runner, Blender and Godot clients
+│       ├── audio/                 # Saved audio → SourceArt/Audio + Godot AudioStream import
+│       ├── design/                # Design backlog sync and Godot scaffold writer
+│       ├── onboard/               # /onboard-consumer implementation
+│       ├── convert/               # /convert-to-godot implementation
 │       ├── variants/              # Desktop/Mobile variant path helpers
-│       ├── quality/               # Quality gates (contract and re-import reports)
-│       └── ship/                  # Build + sign + notarize + package
+│       ├── quality/               # Quality gates (contract, re-import, mobile budgets)
+│       └── ship/                  # Godot export + sign + notarize + package
 ├── tests/
 │   ├── unit/                      # Pure-Python unit tests
 │   ├── bdd/                       # pytest-bdd acceptance tests (.feature + steps)
 │   │   ├── features/
 │   │   └── steps/
 │   ├── blender/                   # Runs under `blender --background --python`
+│   ├── godot/                     # Fixture Godot project used by gate-godot-headless and ship-smoke
 │   └── e2e/                       # Full pipeline against a fixture consumer project
-│       └── fixtures/
+├── templates/consumer/            # Files /onboard-consumer installs (SessionStart hook settings)
 ├── docs/
 │   ├── onboarding/                # "Install and ship your first game" — consumer-facing
 │   ├── skills/                    # Per-skill reference docs
 │   ├── mcp/                       # MCP server / tool reference
 │   ├── contributing/              # For nmg-game-dev maintainers
-│   └── asset-contract.md          # What "done" means for any generated asset
+│   ├── asset-contract.md          # What "done" means for any generated asset
+│   └── design-contract.md         # Design docs, backlog, and scaffold rules
 ├── specs/                         # nmg-sdlc per-issue specs (one dir per issue)
 ├── steering/                      # This directory — canonical conventions
-│   ├── product.md
-│   ├── tech.md
-│   └── structure.md
-├── .mcp.json                      # Pinned MCP servers (Blender, Unreal); bundled with the plugin
+├── .mcp.json                      # MCP servers (Blender, finalize, texture-gen, meshy); bundled with the plugin
 ├── pyproject.toml                 # Python package + dev dependencies
 ├── VERSION                        # Plain-text semver, managed by /sdlc-open-pr
 ├── CHANGELOG.md                   # Managed by /sdlc-open-pr
 └── CLAUDE.md                      # Entry-point pointer document
 ```
+
+There is no engine editor plugin and no engine MCP server. Godot runs only as `godot --headless`,
+driven from `src/nmg_game_dev/godot/`.
 
 ### Finalize locations
 
@@ -113,11 +108,19 @@ nmg-game-dev/
 | `plugins/nmg-game-dev-blender-addon/finalize_core/` | Finalize steps run in background Blender: content hash, step runner, and load-back |
 | `scripts/blender/finalize_entry.py` | Headless entry for one finalize step, run as `blender --background --python` |
 | `scripts/blender/finalize_session.py` | Live-session operations (content hash and load-back) sent through the Blender MCP |
-| `scripts/unreal/build_master_material.py` | Builds `M_NmgORM` in a running UE 5.8 and saves it into the plugin's Content |
 | `mcp-servers/finalize/` | The `finalize` MCP server: `finalize_asset`, `run_finalize_step`, `get_finalize_job` |
 | `src/nmg_game_dev/finalize/` | `python -m nmg_game_dev.finalize` CLI over the same implementation |
-| `src/nmg_game_dev/pipeline/` | Finalize orchestrator: steps, cache, job runner, Blender and Unreal clients |
-| `src/nmg_game_dev/unreal/` | UE import code and pivot check, run through the Unreal MCP |
+| `src/nmg_game_dev/pipeline/` | Finalize orchestrator: steps, cache, job runner, Blender and Godot clients |
+| `src/nmg_game_dev/godot/` | Godot binary resolution, headless runner, `NMG_RESULT` parsing, `import_godot`, `import_anims`, and terrain scene writing |
+
+### Godot locations
+
+| Path | Contents |
+|------|----------|
+| `plugins/nmg-game-dev-godot-addon/` | The GDScript runtime add-on (`addons/nmg_game_dev/`) and its headless tests |
+| `src/nmg_game_dev/godot/` | The engine boundary: `resolve_godot`, the headless runner, probes, and `project.godot` / `export_presets.cfg` writers |
+| `src/nmg_game_dev/convert/` | `python -m nmg_game_dev.convert`, behind `/convert-to-godot` |
+| `tests/godot/` | The fixture Godot project that `gate-godot-headless` imports and `ship-smoke.sh` dry-runs |
 
 ---
 
@@ -147,7 +150,7 @@ Developer asks for an asset in conversation
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ Export + re-import    │ ← FBX per variant; headless re-import check against the contract
+│ Export + re-import    │ ← .glb per variant (+ one per animation clip); headless re-import check
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
@@ -155,36 +158,34 @@ Developer asks for an asset in conversation
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ UE import             │ ← Unreal MCP → Content/<Category>/<Name>/{Desktop,Mobile}/, ORM wired
+│ Godot import          │ ← godot --headless --import + GDScript probe →
+│                       │   game/assets/<Category>/<Name>/{Desktop,Mobile}/; Godot generates LODs
 └───────────────────────┘
 
-Level composition (placing several assets together) happens afterwards, in Unreal.
+Level composition (placing several assets together) happens afterwards, in Godot.
 ```
 
 ### Ship Flow (build + release)
 
 ```
-/build-platform <platform>
+/ship <target>
         │
         ▼
 ┌───────────────────────┐
-│ Pre-ship gates        │ ← cook manifest, mobile budgets, UE Automation tests
+│ Pre-export gates      │ ← --check-only on every .gd, game/tests/run_tests.gd, mobile budgets
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ UE package stage      │ ← UAT / UBT per target
+│ Godot export          │ ← godot --headless --export-release <preset> (macOS, iOS, Android,
+│                       │   Windows locally, Web); presets filter Desktop/ or Mobile/
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ Sign stage            │ ← codesign (macOS/iOS), apksigner (Android), signtool (Windows)
+│ Sign + notarize       │ ← codesign + Apple Notary (macOS); Android keystore via env
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
-│ Notarize stage        │ ← Apple Notary (macOS/iOS only)
-└───────┬───────────────┘
-        ▼
-┌───────────────────────┐
-│ Package artifact      │ ← .ipa / .aab / .app / .exe → release/ directory
+│ Package artifact      │ ← .app / .ipa / .aab / .exe / web folder → release/ + RELEASE-NOTES.md
 └───────────────────────┘
 ```
 
@@ -192,14 +193,14 @@ Level composition (placing several assets together) happens afterwards, in Unrea
 
 | Layer | Does | Doesn't Do |
 |-------|------|------------|
-| Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call the finalize MCP tools or `python -m nmg_game_dev.finalize` | Directly touch MCP sockets, know UE or Blender internals, encode per-asset-type modeling recipes |
+| Skill entry (`skills/*/SKILL.md`) | Parse invocation, validate env, call the finalize MCP tools or the `python -m nmg_game_dev.*` CLIs | Directly touch MCP sockets, know Godot or Blender internals, encode per-asset-type modeling recipes |
 | Pipeline (`src/nmg_game_dev/pipeline/`) | Compose finalize steps; cache on asset content; run long steps in background Blender; enforce ordering | Generate assets from prompts, handle Claude Code I/O, write skill UX |
-| Step implementations (`finalize_core/`, `src/nmg_game_dev/unreal/`) | Run one finalize step against one tool or core | Compose multi-step flows, cache, or ordering |
-| MCP servers (Blender add-on, VibeUE on Epic's native Unreal MCP, texture-gen, finalize) | Expose tool endpoints; own tool implementation. VibeUE is third-party; nmg-game-dev does NOT author the UE-side bridge. The finalize server wraps `src/nmg_game_dev/pipeline/` without adding logic. | Know about skills or pipelines upstream |
+| Step implementations (`finalize_core/`, `src/nmg_game_dev/godot/`) | Run one finalize step against one tool or core | Compose multi-step flows, cache, or ordering |
+| Godot boundary (`src/nmg_game_dev/godot/`) | Resolve the binary, run `godot --headless`, parse probe output, write Godot text resources | Talk to a running editor; nothing in nmg-game-dev bridges to a live Godot editor |
+| MCP servers (Blender add-on, texture-gen, finalize, meshy) | Expose tool endpoints; own tool implementation. The finalize server wraps `src/nmg_game_dev/pipeline/` without adding logic. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
-| Ship (`src/nmg_game_dev/ship/`) | Build, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
-| UE Runtime module | Ship inside consumer games; variant-aware asset resolvers; perf-critical helpers | Anything editor-only; anything authoring |
-| UE Editor module | Editor-time helpers; import pipelines | Ship inside cooked game content; bind any HTTP bridge (VibeUE owns that) |
+| Ship (`src/nmg_game_dev/ship/`) | Export, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
+| Godot runtime add-on (`addons/nmg_game_dev`) | Ships inside consumer games: variant resolver autoload, mission resource class, terrain shader | Authoring, importing, or anything editor-only beyond registering its autoload |
 
 ---
 
@@ -224,15 +225,17 @@ Level composition (placing several assets together) happens afterwards, in Unrea
 | Panel `bl_idname` | `NMGGAMEDEV_PT_panel_name` | `NMGGAMEDEV_PT_main_panel` |
 | Property group classes | `NmgGameDev<Name>Props` | `NmgGameDevPipelineProps` |
 
-### UE C++
+### GDScript (Godot add-on, probes, scaffolds)
 
 | Element | Convention | Example |
 |---------|------------|---------|
-| Module directory | `PascalCase` under `Source/` | `NmgGameDevRuntime` |
-| Runtime class | `FName`/`UName`/`AName`/`SName` per UE convention | `UNmgAssetResolver`, `FNmgVariantContext` |
-| Editor class | Prefix with `FNmg<Editor>` | `FNmgImportPipeline` |
-| Public header | `NmgGameDev/Public/*.h` | `Public/NmgAssetResolver.h` |
-| Test spec | `*.spec.cpp` in `Tests/` | `Tests/NmgAssetResolver.spec.cpp` |
+| Files | `snake_case.gd` | `nmg_assets.gd`, `probe_asset.gd` |
+| `class_name` | `PascalCase`, prefixed `Nmg` for add-on classes | `NmgMissionDefinition` |
+| Functions / variables | `snake_case`, statically typed | `resolve_variant_path(path: String) -> String` |
+| Constants | `UPPER_SNAKE_CASE` | `MOBILE_FOLDER` |
+| Indentation | Tabs | — |
+| Tests | `tests/test_*.gd`, methods `test_*`, run by `tests/run_tests.gd` | `test_nmg_assets.gd` |
+| Autoload | `PascalCase` singleton name | `NmgAssets` |
 
 ### Skills
 
@@ -242,16 +245,15 @@ Level composition (placing several assets together) happens afterwards, in Unrea
 | Skill file | `SKILL.md` (uppercase) | `skills/finalize-asset/SKILL.md` |
 | Frontmatter `name` | matches directory | `name: finalize-asset` |
 
-### UE Asset naming (for plugin-owned content)
+### Finalized asset files (consumer projects)
 
-| Asset type | Prefix | Example |
+| File | Pattern | Example |
 |---|---|---|
-| Blueprint | `BP_` | `BP_NmgAssetResolver` |
-| Master material | `M_` | `M_NmgDefault` |
-| Material instance | `MI_` | `MI_NmgDefault_Dark` |
-| Texture | `T_<Name>_<Part>_<BC\|N\|ORM>` (per `docs/asset-contract.md`) | `T_NmgLogo_Body_BC` |
-
-Plugin-owned assets live under `plugins/nmg-game-dev-ue-plugin/Content/`. Consumer projects own their own `Content/` and follow the same variant convention described below.
+| Variant mesh | `<Variant>/<Name>.glb` | `Mobile/Crate.glb` |
+| Texture | `T_<Name>_<Part>_<BC\|N\|ORM>.png` (per `docs/asset-contract.md`) | `T_Crate_Body_BC.png` |
+| Material variant | `M_<Name>_<Part>_<Variant>.tres` | `M_Crate_Body_Red.tres` |
+| Animation clip | `Animations/A_<Name>_<Clip>.glb` | `Animations/A_Guard_Walk.glb` |
+| Terrain | `<Variant>/<Name>_Chunk_<row>_<col>.glb` + `<Variant>/<Name>.tscn` | `Desktop/Valley.tscn` |
 
 ---
 
@@ -261,20 +263,20 @@ Plugin-owned assets live under `plugins/nmg-game-dev-ue-plugin/Content/`. Consum
 
 Desktop and mobile use **separate physical asset variants**, not scaled versions of one asset. This is the single most important structural rule the framework enforces in consumer projects.
 
-- `Content/<Category>/<Name>/Desktop/` — full-quality variant (macOS, Windows). Blender structural cleanup only; no decimation, no texture reduction, no bone reduction.
-- `Content/<Category>/<Name>/Mobile/` — fully optimized variant (iOS, Android). Decimated or rebuilt at lower detail, LOD chain, texture bake-down, bone reduction. Satisfies the budget in `docs/asset-contract.md`.
-- Both variants have **identical logical names** (e.g., `SK_Guard`, `M_Guard`). Only the subfolder differs.
-- Asset Manager cook rules (per-platform INIs) include/exclude per target. Desktop packages never contain `Mobile/`; mobile packages never contain `Desktop/`. `gate-cook-manifest-*` is the hard gate.
-- `Content/Shared/` is platform-agnostic — ships on every platform.
+- `game/assets/<Category>/<Name>/Desktop/` — full-quality variant (macOS, Windows). Blender structural cleanup only; no decimation, no texture reduction, no bone reduction.
+- `game/assets/<Category>/<Name>/Mobile/` — fully optimized variant (iOS, Android, Web). Decimated or rebuilt at lower detail, texture bake-down, materials merged. Satisfies the budget in `docs/asset-contract.md`. Godot generates the LODs of both variants at import time.
+- Both variants have **identical logical names** (e.g., `Guard.glb`, `T_Guard_Body_BC.png`). Only the subfolder differs.
+- Export preset filters include/exclude per target: the iOS, Android, and Web presets exclude `assets/*/Desktop/*`, and the macOS and Windows presets exclude `assets/*/Mobile/*`. `/onboard-consumer` writes those presets into `game/export_presets.cfg`.
+- Assets outside a `Desktop/` or `Mobile/` folder are platform-agnostic and ship on every platform.
 
 ### Why split instead of LODs
 
-A single asset with aggressive LODs would still ship the full source mesh in every cooked package. Splitting keeps mobile downloads small, lets the desktop variant retain hero detail, and makes the boundary auditable via cook manifests rather than runtime LOD selection.
+A single asset with aggressive LODs would still ship the full source mesh in every exported package. Splitting keeps mobile and web downloads small, lets the desktop variant retain hero detail, and makes the boundary auditable through the export filters rather than runtime LOD selection.
 
 ### Asset reference rules (consumer gameplay code)
 
-- Gameplay code uses soft references (`TSoftObjectPtr`, `TSoftClassPtr`) for any asset that has a Desktop/Mobile split.
-- A parent Blueprint one level above the variant folder uses a platform-aware resolver (`UNmgAssetResolver`, shipped by the nmg-game-dev UE runtime module) to pick the right variant at runtime.
+- Gameplay code refers to a split asset by its variant-free path (`res://assets/<Category>/<Name>/<Name>.glb`) and loads it at runtime through `NmgAssets.resolve_variant_path(path)`, from the `addons/nmg_game_dev` add-on. The resolver picks `Mobile/` when the platform has the `mobile` or `web` feature tag, and `Desktop/` otherwise.
+- Never `preload()` or hard-link a `Desktop/` or `Mobile/` path from a scene or script that ships on every platform; the export filter would leave a dangling reference.
 - Never reference `Mobile/` from `Desktop/`, or vice versa. The folder boundary is the contract.
 
 ---
@@ -287,8 +289,8 @@ A single asset with aggressive LODs would still ship the full source mesh in eve
 ---
 name: <kebab-case-name>
 description: <one-line description used by Claude Code's skill picker>
-required_mcp: [blender, unreal, texture-gen?]
-required_env: [UE_ROOT?, BLENDER_APP?]
+required_mcp: [blender, finalize, texture-gen?]
+required_env: [GODOT_BIN?, BLENDER_APP?]
 unattended_safe: true | false
 ---
 
@@ -328,25 +330,19 @@ class NMGGAMEDEV_OT_cleanup_desktop(bpy.types.Operator):
         return {"FINISHED"}
 ```
 
-### UE runtime class (`plugins/nmg-game-dev-ue-plugin/Source/NmgGameDevRuntime/Public/NmgAssetResolver.h`)
+### GDScript probe (`src/nmg_game_dev/godot/gd/probe_*.gd`)
 
-```cpp
-#pragma once
+```gdscript
+extends SceneTree
 
-#include "CoreMinimal.h"
-#include "UObject/Object.h"
-#include "NmgAssetResolver.generated.h"
 
-UCLASS(BlueprintType)
-class NMGGAMEDEVRUNTIME_API UNmgAssetResolver : public UObject
-{
-    GENERATED_BODY()
-
-public:
-    // Returns the variant path (Desktop/ or Mobile/) appropriate for the current platform.
-    UFUNCTION(BlueprintCallable, Category = "nmg-game-dev")
-    static FSoftObjectPath ResolveVariantPath(const FSoftObjectPath& ParentPath);
-};
+func _initialize() -> void:
+	var args: PackedStringArray = OS.get_cmdline_user_args()
+	var params: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(args[0]))
+	var result: Dictionary = {}
+	# ... load resources named in params and measure them
+	print("NMG_RESULT " + JSON.stringify(result))
+	quit(0)
 ```
 
 ---
@@ -362,14 +358,13 @@ public:
 # 4. Type-only imports (under `if TYPE_CHECKING:`)
 ```
 
-### UE C++
+### GDScript
 
 ```
-// 1. Module's own Public headers
-// 2. CoreMinimal + other engine
-// 3. Same-module Private headers
-// 4. Third-party
-// 5. Generated .h MUST be last
+# 1. @tool / class_name / extends
+# 2. signals, enums, constants
+# 3. @export and other member variables
+# 4. built-in virtual methods (_init, _ready, ...), then public, then private (_leading_underscore) methods
 ```
 
 ---
@@ -378,12 +373,13 @@ public:
 
 | Anti-Pattern | Problem | Solution |
 |--------------|---------|----------|
-| A skill that directly opens MCP sockets | Duplicates logic the pipeline owns; breaks cancellation | Call the finalize MCP tools or `python -m nmg_game_dev.finalize` — never open Blender or Unreal sockets from a SKILL.md flow |
-| Desktop asset referenced from the Mobile variant (or vice versa) | Cross-variant leak into cooked packages | Use `UNmgAssetResolver` parent Blueprint; never hard-link across the boundary |
-| Hard-coded Blender / UE paths in any shipped script | Breaks on every consumer that didn't clone the reference project | Env vars with documented defaults; fail with an actionable message when unset |
+| A skill that directly opens MCP sockets | Duplicates logic the pipeline owns; breaks cancellation | Call the finalize MCP tools or `python -m nmg_game_dev.finalize` — never open Blender sockets or run Godot from a SKILL.md flow |
+| A live Godot editor bridge or Godot MCP server | Pipeline stages stop being file-based and reproducible | Run Godot headless through `src/nmg_game_dev/godot/`; write Godot text resources directly |
+| Desktop asset referenced from the Mobile variant (or vice versa) | Cross-variant leak into exported packages | Load through `NmgAssets.resolve_variant_path`; never hard-link across the boundary |
+| Hard-coded Blender / Godot paths in any shipped script | Breaks on every consumer that didn't clone the reference project | Env vars (`BLENDER_BIN`, `GODOT_BIN`) with documented defaults; fail with an actionable message when unset |
 | Texture backend called directly instead of through the backend registry | Locks the framework to one model; skips allowlist, hardware, and seamless checks | Go through the texture backend interface (see tech steering) |
 | A per-asset-type modeling recipe or skill | Coverage becomes recipe-authoring work; the agent already models freeform | Put rules that apply to every asset in `docs/asset-contract.md`; leave modeling to the agent |
-| Composing multi-asset scenes in Blender for export | Assets overlap at the origin and layout gets baked into exports | Export each asset on its own; compose levels in Unreal |
+| Composing multi-asset scenes in Blender for export | Assets overlap at the origin and layout gets baked into exports | Export each asset on its own; compose levels in Godot |
 | Long Blender work (bakes, variants) run directly through an MCP call | MCP call times out; the session hangs | Run it as a background Blender job and load results back |
 | Session-start hook that blocks the shell | Claude Code session never reaches prompt | Scripts must detach with `nohup … & disown` and return in well under the hook timeout |
 | Importing Blender add-on modules from pytest without headless mode | Crashes on CI / non-GUI hosts | Always invoke via `blender --background --python` or use the test harness in `tests/blender/` |
@@ -393,6 +389,6 @@ public:
 
 ## References
 
-- `CLAUDE.md` — project overview (added when scaffolding lands).
-- `steering/product.md` — product direction.
-- `steering/tech.md` — technical standards, verification gates, session-start contract.
+- `CLAUDE.md` — project overview.
+- `steering/snippets/project-product.md` — product direction.
+- `steering/snippets/project-tech.md` — technical standards, verification gates, session-start contract.

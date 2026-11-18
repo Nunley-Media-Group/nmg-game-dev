@@ -22,7 +22,7 @@ from nmg_game_dev.pipeline import (
     finalize,
     jobs,
 )
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot
 
 
 @pytest.fixture()
@@ -32,7 +32,7 @@ def state(tmp_path: Path) -> dict[str, Any]:
 
 @scenario("finalize.feature", "Finalize runs the eight steps from an authored collection")
 def test_eight_steps_in_order() -> None:
-    """AC1: validate → import_anims in order, with the UE content paths in the result."""
+    """AC1: validate → import_anims in order, with the Godot resource paths in the result."""
 
 
 @scenario("finalize.feature", "A single step runs through the same implementation")
@@ -45,9 +45,9 @@ def test_unchanged_asset_is_cached() -> None:
     """AC4: a rerun is all cache hits; a material change reruns from the first affected step."""
 
 
-@scenario("finalize.feature", "A failing step stops the run before UE import")
+@scenario("finalize.feature", "A failing step stops the run before the Godot import")
 def test_failing_step_stops_the_run() -> None:
-    """AC6: a failing contract report stops the run and nothing reaches UE."""
+    """AC6: a failing contract report stops the run and nothing reaches Godot."""
 
 
 def _make_request(state: dict[str, Any], collection: str, asset_class: str, category: str) -> None:
@@ -91,15 +91,15 @@ def _finalized(state: dict[str, Any]) -> None:
 
 
 def finalize_once(state: dict[str, Any], job: str, runner: FakeStepRunner) -> Any:
-    """Run finalize for the state's request with ``runner``, storing the unreal fake."""
-    unreal = FakeUnrealRunner()
-    state["unreal"] = unreal
+    """Run finalize for the state's request with ``runner``, storing the Godot fake."""
+    godot = FinalizeGodot(state["tmp"])
+    state["godot"] = godot
     return finalize(
         state["request"],
         cache_dir=state.get("cache", state["tmp"] / "cache"),
         runner=runner,
         job_dir=state["tmp"] / job,
-        clients=FinalizeClients(unreal=unreal),
+        clients=FinalizeClients(godot=godot),
     )
 
 
@@ -107,9 +107,9 @@ def finalize_once(state: dict[str, Any], job: str, runner: FakeStepRunner) -> An
 def _run(state: dict[str, Any]) -> None:
     events: list[str] = []
     runner = FakeStepRunner(state["request"], failing_reports=state["failing"], events=events)
-    unreal = FakeUnrealRunner(events=events)
+    godot = FinalizeGodot(state["tmp"], events=events)
     state["runner"] = runner
-    state["unreal"] = unreal
+    state["godot"] = godot
     state["events"] = events
     try:
         state["result"] = finalize(
@@ -117,7 +117,7 @@ def _run(state: dict[str, Any]) -> None:
             cache_dir=state["tmp"] / "cache",
             runner=runner,
             job_dir=state["tmp"] / "job",
-            clients=FinalizeClients(unreal=unreal),
+            clients=FinalizeClients(godot=godot),
         )
     except PipelineError as error:
         state["error"] = error
@@ -141,7 +141,9 @@ def _single_step(state: dict[str, Any]) -> None:
         )
         jobs.run_job(
             job_dir,
-            clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+            clients=FinalizeClients(
+                blender=FakeBlenderSession(), godot=FinalizeGodot(state["tmp"])
+            ),
             runner=FakeStepRunner(run_request),
         )
         return _finished_process_id()
@@ -159,21 +161,26 @@ def _single_step(state: dict[str, Any]) -> None:
 
 
 @then(
-    "the steps validate, bake, variants, export, export_anims, reimport, import_ue, and "
+    "the steps validate, bake, variants, export, export_anims, reimport, import_godot, and "
     "import_anims run in that order"
 )
 def _order(state: dict[str, Any]) -> None:
-    # The Blender steps, then the two UE calls of import_ue.  import_anims has no clips here, so it
-    # makes no UE call.
-    assert state["events"] == [*STEP_ORDER[:-2], "import_ue", "import_ue"]
+    # The Blender steps, then import_godot: one headless import and a probe per variant.
+    # import_anims has no clips here, so it runs no Godot.
+    assert state["events"] == [
+        *STEP_ORDER[:-2],
+        "import",
+        "probe_asset.gd",
+        "probe_asset.gd",
+    ]
 
 
-@then("the result lists each step and the UE content paths under /Game/Props/Crate/")
+@then("the result lists each step and the Godot resource paths under res://export/Props/Crate/")
 def _content(state: dict[str, Any]) -> None:
     result = state["result"]
     assert [step.step for step in result.steps] == list(STEP_ORDER)
-    assert result.desktop_content_path == "/Game/Props/Crate/Desktop"
-    assert result.mobile_content_path == "/Game/Props/Crate/Mobile"
+    assert result.desktop_resource_path == "res://export/Props/Crate/Desktop/Crate.glb"
+    assert result.mobile_resource_path == "res://export/Props/Crate/Mobile/Crate.glb"
 
 
 @then('it receives a result with step "validate", cache_hit, outputs, and summary')
@@ -187,10 +194,10 @@ def _single_result(state: dict[str, Any]) -> None:
     assert "summary" in step
 
 
-@then("every step reports cache_hit true and nothing is reimported into UE")
+@then("every step reports cache_hit true and nothing is imported into Godot again")
 def _all_hits(state: dict[str, Any]) -> None:
     assert all(step.cache_hit for step in state["result"].steps)
-    assert state["unreal"].codes == []
+    assert state["godot"].calls == []
 
 
 @then("after a material change the bake step and every later step run again")
@@ -215,10 +222,10 @@ def _raises(state: dict[str, Any], code: str) -> None:
     assert error.remediation
 
 
-@then("no later step runs and nothing is imported into UE")
+@then("no later step runs and nothing is imported into Godot")
 def _stopped(state: dict[str, Any]) -> None:
     assert state["runner"].steps_run() == ["validate"]
-    assert state["unreal"].codes == []
+    assert state["godot"].calls == []
 
 
 def _finished_process_id() -> int:

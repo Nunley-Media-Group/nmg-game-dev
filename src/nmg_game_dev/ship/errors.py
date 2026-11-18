@@ -1,6 +1,6 @@
 """ShipError: the error the ship flow raises for a failed gate, script, or precondition (#6).
 
-``stage`` names the ship step that failed, e.g. ``preflight``, ``build``, or ``notarize``.
+``stage`` names the ship step that failed, e.g. ``preflight``, ``export``, or ``notarize``.
 """
 
 from __future__ import annotations

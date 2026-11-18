@@ -33,14 +33,14 @@ Wooden crate by the harbor gate. Free text.
 | `type` | yes | all | One of `character`, `vehicle`, `prop`, `environment`, `region`, `mission`, `system`. |
 | `name` | yes | all | Free text. Its asset name is derived from it (section 3). |
 | `asset_class` | yes | `character`, `vehicle`, `prop`, `environment` | One of `small_prop`, `standard_prop`, `hero_prop`, `character`, `environment_piece`, `terrain`. Use `terrain` for an `environment` entry that is a heightfield (`docs/asset-contract.md` section 9). |
-| `category` | yes | `character`, `vehicle`, `prop`, `environment` | PascalCase, matching `^[A-Z][A-Za-z0-9]*$`. The Unreal category: finalized content lands in `/Game/<Category>/<Name>/`. |
+| `category` | yes | `character`, `vehicle`, `prop`, `environment` | PascalCase, matching `^[A-Z][A-Za-z0-9]*$`. The asset category: finalized files land in `game/assets/<Category>/<Name>/`. |
 | `act` | no | all | Integer, 1 or more. |
 | `depends_on` | no | all | List of other entries' `name` values. |
 | `region` | no | `mission` | The `name` of a `region` entry. |
-| `terrain` | no | `region` | The `name` of an `environment` entry whose `asset_class` is `terrain`. The region's ground is that terrain's Desktop level (section 8). |
+| `terrain` | no | `region` | The `name` of an `environment` entry whose `asset_class` is `terrain`. The region's ground is that terrain's Desktop scene (section 8). |
 
 The types `character`, `vehicle`, `prop`, and `environment` are asset types. Finalize turns them
-into assets. The types `region`, `mission`, and `system` are scaffolded in Unreal (section 6).
+into assets. The types `region`, `mission`, and `system` are scaffolded as Godot files (section 6).
 
 Any other key in the frontmatter is kept in the entry's `fields`.
 
@@ -61,7 +61,7 @@ The result must match `^[A-Z][A-Za-z0-9]*$`. A `name` that does not yield a matc
 `design.invalid_name`. Two entries that derive the same `asset_name` are `design.duplicate_name`.
 
 The asset name is also the Blender collection name `<Name>` in the asset contract
-(`docs/nmg-game-dev/asset-contract.md` in your project) and the `<Name>` in every Unreal path for the
+(`docs/nmg-game-dev/asset-contract.md` in your project) and the `<Name>` in every Godot path for the
 asset.
 
 ## 4. Statuses
@@ -70,7 +70,7 @@ asset.
 |--------|---------|--------|
 | `planned` | Read from a design file and not yet done. | `sync`: a new entry, or an `orphaned` entry whose file came back. |
 | `finalized` | An asset entry whose `finalize_asset` job succeeded. | Finalize, on a successful `finalize_asset` job. |
-| `scaffolded` | A region, mission, or system that scaffold created, or found already in Unreal. | `scaffold`. |
+| `scaffolded` | A region, mission, or system whose Godot file scaffold created, or found already present. | `scaffold`. |
 | `orphaned` | Its design file was deleted. The entry stays so its progress is not lost. | `sync`. |
 
 What moves an entry between statuses:
@@ -82,7 +82,7 @@ What moves an entry between statuses:
 - A deleted design file makes its entry `orphaned`.
 - An `orphaned` entry whose design file returns becomes `planned`.
 - A successful `finalize_asset` job makes the matching asset entry `finalized`.
-- `scaffold` makes a region, mission, or system `scaffolded` when its Unreal asset is created or
+- `scaffold` makes a region, mission, or system `scaffolded` when its Godot file is created or
   already exists. An item that fails keeps its status. `orphaned` entries are skipped and stay
   `orphaned`.
 - Re-running `sync` on an unchanged set of design files rewrites a byte-identical backlog.
@@ -123,7 +123,7 @@ What moves an entry between statuses:
 
 ```text
 python -m nmg_game_dev.design sync [--project DIR]
-python -m nmg_game_dev.design scaffold [--project DIR] [--url URL]
+python -m nmg_game_dev.design scaffold [--project DIR]
 ```
 
 The project root is `--project DIR` when given. Otherwise it is `CLAUDE_PROJECT_DIR` when that is set,
@@ -156,28 +156,27 @@ error <code> <source>: <field> — <message>
 
 ### scaffold
 
-Creates the Unreal assets for every `region`, `mission`, and `system` entry that is not `orphaned`,
-in the open Unreal editor. The Unreal MCP endpoint is `--url` when given. Otherwise it is
-`http://127.0.0.1:$UE_MCP_PORT/mcp`, using port 8000 when `UE_MCP_PORT` is unset.
+Writes the Godot files for every `region`, `mission`, and `system` entry that is not `orphaned`. It
+writes text files directly into `game/` and never starts Godot or needs an open editor. The project
+must hold `game/project.godot`; otherwise scaffold exits 1 with `design.godot_project_missing`.
 
-- An asset whose path already exists is not modified.
-- An item whose Unreal work fails is reported, and the other items still run.
+- A file that already exists is never overwritten.
+- An item whose write fails is reported, and the other items still run.
 - The backlog is written once, after all items, with the new statuses.
-- If the editor cannot be reached, the command exits 2.
 
 Report lines, one per item:
 
 ```text
-created <type> <asset_name>: <asset path>
-unchanged <type> <asset_name>: <asset path>
+created <type> <asset_name>: <file path>
+unchanged <type> <asset_name>: <file path>
 skipped <type> <asset_name>: <source>
-error design.scaffold_failed <asset_name>: <UE error>
+error design.scaffold_failed <asset_name>: <error>
 error design.unknown_reference <asset_name>: <message>
 ```
 
 `skipped` is printed for `orphaned` entries. `created` and `unchanged` both mean the item is now
-`scaffolded`. A region whose `terrain` names no terrain entry is reported with `design.unknown_reference`
-and does not stop the other items.
+`scaffolded`. A region whose `terrain` names no terrain entry is reported with `design.unknown_reference`,
+writes nothing, and does not stop the other items.
 
 ## 7. Exit codes
 
@@ -186,24 +185,24 @@ and does not stop the other items.
 | `sync` | 0 | The backlog was written. |
 | `sync` | 1 | A design file has an error, or `docs/design/` is missing. Nothing was written. |
 | `scaffold` | 0 | Every item was created, unchanged, or skipped. |
-| `scaffold` | 1 | At least one item failed with `design.scaffold_failed` or `design.unknown_reference`. The other items still ran. |
-| `scaffold` | 2 | The Unreal editor is unreachable (`mcp.unreal.unreachable`). |
+| `scaffold` | 1 | At least one item failed with `design.scaffold_failed` or `design.unknown_reference`, and the other items still ran; or `game/project.godot` is missing (`design.godot_project_missing`). |
 
-## 8. Scaffolded assets
+## 8. Scaffolded files
 
-| Type | Asset | Path | Contents |
-|------|-------|------|----------|
-| `region` | Level | `/Game/Levels/<Name>/L_<Name>` | Ground, `PlayerStart`, `DirectionalLight`, `SkyLight`. The ground is a flat plane, or the terrain sublevel described below. |
-| `mission` | Mission data asset (`UNmgMissionDefinition`) | `/Game/Missions/<Name>/DA_<Name>` | `MissionName`, `Act`, `Region`, `DependsOn`, and `DesignDocPath` from the entry. `Act` is 0 when `act` is absent. `Region` and `DependsOn` hold asset names. |
-| `system` | Actor Component Blueprint | `/Game/Systems/<Name>/BPC_<Name>` | The Blueprint only. |
+| Type | File | Contents |
+|------|------|----------|
+| `region` | `game/levels/<Name>/<Name>.tscn` | A `Node3D` root with a `Marker3D` named `PlayerSpawn`, a `DirectionalLight3D`, a `WorldEnvironment` with an `Environment` sub-resource, and a ground: a flat plane, or the terrain scene described below. |
+| `mission` | `game/missions/<Name>.tres` | An `NmgMissionDefinition` resource (the add-on's `res://addons/nmg_game_dev/nmg_mission_definition.gd`) with `mission_name`, `act`, `region`, `depends_on` (`Array[StringName]`), and `design_doc_path` from the entry. `act` is 0 when it is absent. `region` and `depends_on` hold asset names. |
+| `system` | `game/systems/<Name>/<snake_name>.gd` | A component script: `class_name <Name>Component` and `extends Node`, where `<snake_name>` is the snake_case form of `<Name>`. |
 
-A region with a `terrain` field streams the named terrain's Desktop level in as an always-loaded
-sublevel, `/Game/<Category>/<Name>/Desktop/L_<Name>`, where `<Category>` and `<Name>` are the terrain
-entry's. It spawns no ground plane. A region without `terrain`, or whose terrain level does not exist
-in Unreal yet, gets the flat plane.
+A region with a `terrain` field instances the named terrain's Desktop scene,
+`res://assets/<Category>/<Name>/Desktop/<Name>.tscn`, where `<Category>` and `<Name>` are the terrain
+entry's. It gets no flat plane. A region without `terrain`, or whose terrain scene does not exist yet,
+gets the flat ground: a `MeshInstance3D` with a 200 m `PlaneMesh` and a `StaticBody3D` with a
+`BoxShape3D`.
 
-Mission assets need the `UNmgMissionDefinition` class from the nmg-game-dev runtime plugin. If the
-editor does not have it, the mission fails with `design.scaffold_failed`.
+Mission resources need the `addons/nmg_game_dev` add-on, which `/onboard-consumer` installs into
+`game/addons/nmg_game_dev/`.
 
 ## 9. Errors
 
@@ -220,8 +219,8 @@ Sync reports every error it finds. A sync error exits 1 and leaves the backlog u
 | `design.invalid_name` | `name` does not yield a valid `asset_name` (section 3). |
 | `design.unknown_reference` | A `depends_on` name matches no entry, a `region` name matches no `region` entry, or a region's `terrain` names no `environment` entry with `asset_class` `terrain`. Sync reports it, and scaffold reports it for that region. |
 | `design.dir_missing` | `docs/design/` does not exist. Sync exits 1. |
-| `design.scaffold_failed` | Unreal work for one scaffold item failed. The item keeps its status, the other items still run, and scaffold exits 1. |
-| `mcp.unreal.unreachable` | Scaffold could not reach the Unreal MCP endpoint. Scaffold exits 2. |
+| `design.scaffold_failed` | Writing the file for one scaffold item failed. The item keeps its status, the other items still run, and scaffold exits 1. |
+| `design.godot_project_missing` | Scaffold found no `game/project.godot`. Nothing is written, and scaffold exits 1. Run `/onboard-consumer` first. |
 | `design.backlog_update_failed` | Warning only. Finalize could not update the backlog after a successful job. The job still succeeds, and the warning is in its result. Sync and scaffold never raise it. |
 
 ## 10. Finalize fallback

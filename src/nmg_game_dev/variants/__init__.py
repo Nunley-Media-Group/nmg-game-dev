@@ -1,10 +1,10 @@
 """Desktop/Mobile variant path helpers and cross-reference guard.
 
-Implements the split-variant asset convention from ``steering/structure.md``
-§ split-variant asset convention::
+Implements the split-variant asset convention (``docs/asset-contract.md``) inside the consumer's
+Godot project::
 
-    Content/<Category>/<Name>/Desktop/   — full-quality variant
-    Content/<Category>/<Name>/Mobile/    — optimised variant
+    game/assets/<Category>/<Name>/Desktop/   — full-quality variant
+    game/assets/<Category>/<Name>/Mobile/    — optimised variant
 
 The ``assert_no_cross_reference`` guard checks that a variant's sidecar contains no paths that
 leak across the variant boundary (e.g. a mobile sidecar referencing a Desktop/ path).
@@ -17,39 +17,39 @@ from pathlib import Path
 
 from nmg_game_dev.pipeline.errors import PipelineError
 
+ASSETS_DIR = Path("game") / "assets"
 
-def desktop_path(consumer_content_root: Path, category: str, name: str) -> Path:
+
+def desktop_path(consumer_root: Path, category: str, name: str) -> Path:
     """Return the Desktop variant directory for ``category`` and ``name``.
 
-    The path is ``<consumer_content_root>/Content/<Category>/<Name>/Desktop/``.
+    The path is ``<consumer_root>/game/assets/<Category>/<Name>/Desktop/``.
 
     Args:
-        consumer_content_root: The consumer project root (the directory that contains
-            ``Content/``).
-        category: Content category, e.g. ``Props``.
+        consumer_root: The consumer project root (the directory that contains ``game/``).
+        category: Asset category, e.g. ``Props``.
         name: Asset name, e.g. ``Crate``.
 
     Returns:
         A ``pathlib.Path`` to the Desktop variant directory.
     """
-    return consumer_content_root / "Content" / category / name / "Desktop"
+    return consumer_root / ASSETS_DIR / category / name / "Desktop"
 
 
-def mobile_path(consumer_content_root: Path, category: str, name: str) -> Path:
+def mobile_path(consumer_root: Path, category: str, name: str) -> Path:
     """Return the Mobile variant directory for ``category`` and ``name``.
 
-    The path is ``<consumer_content_root>/Content/<Category>/<Name>/Mobile/``.
+    The path is ``<consumer_root>/game/assets/<Category>/<Name>/Mobile/``.
 
     Args:
-        consumer_content_root: The consumer project root (the directory that contains
-            ``Content/``).
-        category: Content category, e.g. ``Props``.
+        consumer_root: The consumer project root (the directory that contains ``game/``).
+        category: Asset category, e.g. ``Props``.
         name: Asset name, e.g. ``Crate``.
 
     Returns:
         A ``pathlib.Path`` to the Mobile variant directory.
     """
-    return consumer_content_root / "Content" / category / name / "Mobile"
+    return consumer_root / ASSETS_DIR / category / name / "Mobile"
 
 
 def assert_no_cross_reference(sidecar: Mapping[str, object] | None) -> None:
@@ -93,8 +93,8 @@ def assert_no_cross_reference(sidecar: Mapping[str, object] | None) -> None:
             ),
             remediation=(
                 "Ensure the variants step writes Desktop assets only under "
-                "Content/<Category>/<Name>/Desktop/ and Mobile assets only under "
-                "Content/<Category>/<Name>/Mobile/.  Never reference paths from the "
+                "game/assets/<Category>/<Name>/Desktop/ and Mobile assets only under "
+                "game/assets/<Category>/<Name>/Mobile/.  Never reference paths from the "
                 "opposite variant directory."
             ),
             stage="variants",

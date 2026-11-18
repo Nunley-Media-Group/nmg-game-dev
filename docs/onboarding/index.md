@@ -5,18 +5,28 @@ first, then follow the guides in order.
 
 ## The flow
 
-1. **Onboard the project.** Run `/onboard-consumer` in the game's project. It installs the start
-   scripts and SessionStart hooks, the asset contract and the design contract, the Unreal and Blender
-   plugins, the two local texture models, a `.gitignore` entry for `.env`, and Git LFS tracking for
-   binary assets (install Git LFS first; see below). It also creates `docs/design/` for your design
-   docs. The `CLAUDE.md` block it writes routes Blender asset authoring and editing to `/model-asset`;
+1. **Onboard the project.** Run `/onboard-consumer` in the game's project. It installs the Blender
+   start script and its SessionStart hook, the asset contract and the design contract, the Godot
+   project in `game/` (`game/project.godot` with the Compatibility renderer for mobile and web, the
+   `nmg_game_dev` add-on in `game/addons/nmg_game_dev/`, and `game/export_presets.cfg` with one
+   preset per ship target), the Blender add-on link, the two local texture models, `.gitignore`
+   entries for `.env` and `game/.godot/`, and Git LFS tracking for binary assets (install Git LFS
+   first; see below). It also creates `docs/design/` for your design docs, and reports whether Godot
+   4 (`GODOT_BIN`, then `godot` on PATH) and ffmpeg (`FFMPEG_BIN`, then PATH) were found. The `CLAUDE.md` block it writes routes Blender asset authoring and editing to `/model-asset`;
    scene inspection and `/finalize-asset` runs are exempt (see [model-asset.md](../skills/model-asset.md)).
    See `skills/onboard-consumer/SKILL.md`.
 2. **Make your first asset.** [first-asset.md](first-asset.md) covers prompting for an asset, the
-   review loop, the contract checks, texture sources, budget overrides, and import into Unreal.
+   review loop, the contract checks, texture sources, budget overrides, and import into Godot.
 3. **Ship it.** [first-ship.md](first-ship.md) walks through the `ship` skill on a fixture project.
 4. **Keep up to date.** [upgrading.md](upgrading.md) covers reviewing breaking changes, re-registering
    the plugin, and re-running onboarding with `--refresh`.
+
+## Converting an existing project
+
+A project that was set up for the previous engine target converts to Godot with one command,
+`/convert-to-godot`. It onboards the Godot project, re-finalizes every asset from its Blender
+source, imports the audio, re-scaffolds the design backlog, and removes the old engine files only
+after every item converts. See [docs/skills/convert-to-godot.md](../skills/convert-to-godot.md).
 
 ## Local texture models
 
@@ -26,10 +36,10 @@ generate with the CLI or the `texture-gen` MCP tools, and what the output folder
 
 ## Git LFS for binary assets
 
-The pipeline writes large binaries into your repository: Blender sources, Meshy GLBs, generated
-textures, audio, and the Unreal `.uasset` and `.umap` files. Onboarding tracks them in Git LFS, so
-git history stores small pointers instead of full copies. The tracked types are `.blend`, `.glb`,
-`.fbx`, `.obj`, `.abc`, `.usd`, `.usdz`, `.uasset`, `.umap`, the common image formats (`.png`,
+The pipeline writes large binaries into your repository: Blender sources, the finalized `.glb`
+variants, Meshy GLBs, generated textures, and audio. Onboarding tracks them in Git LFS, so git
+history stores small pointers instead of full copies. The tracked types are `.blend`, `.glb`,
+`.fbx`, `.obj`, `.abc`, `.usd`, `.usdz`, the common image formats (`.png`,
 `.jpg`, `.jpeg`, `.tga`, `.tif`, `.tiff`, `.exr`, `.hdr`, `.psd`), `.wav`, `.mp3`, `.ogg`, and `.mp4`.
 
 Install Git LFS before you onboard (`brew install git-lfs`). Onboarding stops with
@@ -58,7 +68,8 @@ add `MESHY_API_KEY=<key>` to the project's `.env`. Onboarding adds `.env` to you
 
 Sound effects and music are optional. The official ElevenLabs MCP server generates them, and you run
 it yourself with your own key. Onboarding asks for no key and installs no ElevenLabs server. To bring
-a saved file into Unreal, call `import_audio`. See [docs/mcp/elevenlabs.md](../mcp/elevenlabs.md).
+a saved file into Godot, call `import_audio`. Music is encoded to Ogg Vorbis with ffmpeg, so
+install ffmpeg (or set `FFMPEG_BIN`) before you import music. See [docs/mcp/elevenlabs.md](../mcp/elevenlabs.md).
 
 ## Reference
 

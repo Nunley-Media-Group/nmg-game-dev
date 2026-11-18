@@ -19,10 +19,11 @@ from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.reduce import ReduceRequest
 from nmg_game_dev.pipeline.reduce import build_request as build_reduce_validated
-from nmg_game_dev.pipeline.request import DEFAULT_PIE_WAIT_SECONDS, FinalizeRequest
+from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER
 
 BUDGET_FILE: Final = "nmg-budgets.json"
+DEFAULT_EXPORT_ROOT: Final = Path("game") / "assets"
 MATERIAL_VARIANTS_SUFFIX: Final = ".material-variants.json"
 MAX_WAIT_SECONDS: Final = 150
 BATCH_ENTRY_KEYS: Final = frozenset(
@@ -34,8 +35,6 @@ BATCH_ENTRY_KEYS: Final = frozenset(
         "blend",
         "budgets_path",
         "device",
-        "pie_mode",
-        "pie_wait_seconds",
         "compatible_with",
         "material_variants_path",
     }
@@ -97,6 +96,14 @@ def default_budgets_path() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def default_export_root() -> Path:
+    """Return ``<project>/game/assets``, where finalize writes into the consumer's Godot project.
+
+    The project root is ``CLAUDE_PROJECT_DIR`` when set, otherwise the working directory.
+    """
+    return project_root() / DEFAULT_EXPORT_ROOT
+
+
 def resolve_material_variants(
     collection: str,
     blend: Path | None,
@@ -131,16 +138,16 @@ def build_request(
     collection: str,
     category: str | None,
     asset_class: str | None,
-    export_root: str | Path,
+    export_root: str | Path | None = None,
     blend: str | Path | None = None,
     budgets_path: str | Path | None = None,
     device: str = "GPU",
-    pie_mode: str = "wait",
-    pie_wait_seconds: object = DEFAULT_PIE_WAIT_SECONDS,
     compatible_with: Sequence[str] = (),
     material_variants_path: str | Path | None = None,
 ) -> FinalizeRequest:
     """Validate the arguments into a ``FinalizeRequest``, defaulting the budget file.
+
+    A ``None`` export root is ``<project>/game/assets`` (``default_export_root``).
 
     A ``None`` category or asset class comes from the design backlog (#112 FR5).  Raises
     ``MissingArgumentError`` when neither the argument nor the backlog supplies it, and
@@ -162,13 +169,11 @@ def build_request(
             "collection": collection,
             "category": category,
             "asset_class": asset_class,
-            "export_root": Path(export_root),
+            "export_root": Path(export_root) if export_root else default_export_root(),
             "blend": blend_path,
             "budgets_path": budgets,
             "device": device,
             "backlog_path": backlog,
-            "pie_mode": pie_mode,
-            "pie_wait_seconds": pie_wait_seconds,
             "compatible_with": tuple(compatible_with),
             "material_variants_path": declaration,
         }
@@ -184,9 +189,10 @@ def build_batch(
 ) -> list[FinalizeRequest]:
     """Validate every batch entry before any work starts (#149, FR10).
 
-    ``defaults`` fill in any key an entry omits, so a batch-wide ``export_root`` or PIE mode applies
-    to every entry.  Raises ``finalize.invalid_batch`` naming the zero-based index and reason of
-    each invalid entry.  Nothing is written, so no job directory exists after a failure.
+    ``defaults`` fill in any key an entry omits, so a batch-wide ``export_root`` or category applies
+    to every entry.  An entry with no ``export_root`` anywhere uses ``<project>/game/assets``.
+    Raises ``finalize.invalid_batch`` naming the zero-based index and reason of each invalid
+    entry.  Nothing is written, so no job directory exists after a failure.
     """
     shared = {key: value for key, value in (defaults or {}).items() if value is not None}
     requests: list[FinalizeRequest] = []
@@ -213,20 +219,17 @@ def _request_from_entry(entry: object, shared: Mapping[str, object]) -> Finalize
     if unknown:
         raise _EntryError(f"unknown key(s): {', '.join(unknown)}")
     merged: dict[str, object] = {**shared, **entry}
-    for key in ("collection", "export_root"):
-        if merged.get(key) is None:
-            raise _EntryError(f"{key} is required")
+    if merged.get("collection") is None:
+        raise _EntryError("collection is required")
     try:
         return build_request(
             collection=str(merged["collection"]),
             category=_optional_str(merged.get("category")),
             asset_class=_optional_str(merged.get("asset_class")),
-            export_root=str(merged["export_root"]),
+            export_root=_optional_str(merged.get("export_root")),
             blend=_optional_str(merged.get("blend")),
             budgets_path=_optional_str(merged.get("budgets_path")),
             device=str(merged.get("device") or "GPU"),
-            pie_mode=str(merged.get("pie_mode", "wait")),
-            pie_wait_seconds=merged.get("pie_wait_seconds", DEFAULT_PIE_WAIT_SECONDS),
             compatible_with=_compatible_with(merged.get("compatible_with")),
             material_variants_path=_optional_str(merged.get("material_variants_path")),
         )
@@ -410,5 +413,6 @@ def is_prerequisite(code: str) -> bool:
     return code in {
         "finalize.blender_not_found",
         "mcp.blender.unreachable",
-        "mcp.unreal.unreachable",
+        "godot.not_found",
+        "import_godot.project_missing",
     }

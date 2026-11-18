@@ -47,22 +47,19 @@ def finalize_asset(
     fail_fast: bool = False,
     wait_for_lock: bool = False,
     lock_wait_seconds: float | None = None,
-    pie_mode: str = "wait",
-    pie_wait_seconds: float = 600,
     compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Finalize an authored collection, or a batch, through every step and import it into Unreal.
+    """Finalize an authored collection, or a batch, through every step and import it into Godot.
 
-    Pass exactly one of collection (with export_root) or requests, a list of finalize requests
-    that run one at a time in order under one job lock. Each request takes the same keys as
-    collection, and the top-level category, asset_class, export_root, blend, budgets_path, and
-    pie options fill in any a request omits. fail_fast skips the rest of a batch after a failed
-    collection, and by default the rest still run. wait_for_lock waits for another finalize job
-    to release the lock, for at most lock_wait_seconds, instead of failing with
-    finalize.job_running. pie_mode is wait (default) or refuse: an import waits up to
-    pie_wait_seconds for the Play In Editor session to end, or fails with import_ue.editor_busy.
-    Unreal import timeouts are retried with back-off (NMG_GAME_DEV_UE_RETRIES, default 4, and
-    NMG_GAME_DEV_UE_RETRY_DELAY_S, default 20).
+    Pass exactly one of collection or requests, a list of finalize requests that run one at a time
+    in order under one job lock. Each request takes the same keys as collection, and the top-level
+    category, asset_class, export_root, blend, and budgets_path fill in any a request omits.
+    export_root defaults to <project>/game/assets. import_godot runs godot --headless --import once
+    and probes each variant; it fails with godot.not_found, import_godot.project_missing,
+    import_godot.import_failed, import_godot.mismatch, or import_godot.terrain_height_mismatch.
+    fail_fast skips the rest of a batch after a failed collection, and by default the rest still
+    run. wait_for_lock waits for another finalize job to release the lock, for at most
+    lock_wait_seconds, instead of failing with finalize.job_running.
 
     Returns {"job_id", "status"} at once. When wait_seconds (0-150) is given and the job finishes in
     time, the result is included: for a batch, result.batch lists each collection's state and any
@@ -88,8 +85,6 @@ def finalize_asset(
             fail_fast=fail_fast,
             wait_for_lock=wait_for_lock,
             lock_wait_seconds=lock_wait_seconds,
-            pie_mode=pie_mode,
-            pie_wait_seconds=pie_wait_seconds,
             compatible_with=compatible_with,
         )
     )
@@ -99,7 +94,7 @@ def finalize_asset(
 def run_finalize_step(
     step: str,
     collection: str,
-    export_root: str,
+    export_root: str | None = None,
     category: str | None = None,
     asset_class: str | None = None,
     blend: str | None = None,
@@ -109,17 +104,14 @@ def run_finalize_step(
     wait_seconds: float = 0,
     wait_for_lock: bool = False,
     lock_wait_seconds: float | None = None,
-    pie_mode: str = "wait",
-    pie_wait_seconds: float = 600,
     compatible_with: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run one step: validate, bake, variants, export, export_anims, reimport, import_ue, or
+    """Run one step: validate, bake, variants, export, export_anims, reimport, import_godot, or
     import_anims.
 
     The step runs through the same implementation finalize_asset uses. Earlier steps it depends on
-    run first, from the cache when they are already there. wait_for_lock, lock_wait_seconds, and
-    the pie options behave as they do for finalize_asset: a wait for the job lock is bounded by
-    lock_wait_seconds, and import_ue fails with import_ue.editor_busy when PIE stays on.
+    run first, from the cache when they are already there. wait_for_lock and lock_wait_seconds
+    behave as they do for finalize_asset. export_root defaults to <project>/game/assets.
     """
     return _logged(
         _run_finalize_step(
@@ -135,8 +127,6 @@ def run_finalize_step(
             wait_seconds=wait_seconds,
             wait_for_lock=wait_for_lock,
             lock_wait_seconds=lock_wait_seconds,
-            pie_mode=pie_mode,
-            pie_wait_seconds=pie_wait_seconds,
             compatible_with=compatible_with,
         )
     )
@@ -188,24 +178,30 @@ def get_finalize_job(job_id: str) -> dict[str, Any]:
 
 
 @mcp.tool(name="list_material_variants")
-def list_material_variants(category: str, collection: str) -> Any:
-    """List the material variants Unreal holds for a finalized asset, for Desktop and Mobile.
+def list_material_variants(category: str, collection: str, export_root: str | None = None) -> Any:
+    """List a finalized asset's material variants, for Desktop and Mobile, without running Godot.
 
-    Returns rows of {name, material, desktop, mobile}, where desktop and mobile are the variant's
-    material instance path in each folder, sorted by material then name. An asset with no material
-    variants, or one not in Content, returns []. A failure returns {"error": {...}}.
+    Reads <export_root>/<Category>/<Name>/nmg-variants.json (export_root defaults to
+    <project>/game/assets) and the M_<Name>_<Part>_<Variant>.tres files finalize wrote. Returns rows
+    of {name, material, desktop, mobile}, where desktop and mobile are the res:// path of the
+    variant's .tres in each folder or null, sorted by material then name. An asset with no material
+    variants returns []. A missing or invalid sidecar returns finalize.material_variants_failed.
     """
-    return _logged(_list_material_variants(category=category, collection=collection))
+    return _logged(
+        _list_material_variants(category=category, collection=collection, export_root=export_root)
+    )
 
 
 @mcp.tool(name="import_audio")
 def import_audio(file: str, name: str, kind: str, loop: bool = False) -> dict[str, Any]:
-    """Import a saved ElevenLabs sound effect or music file into Unreal as a SoundWave.
+    """Import a saved ElevenLabs sound effect or music file into the Godot project.
 
     kind is "sfx" or "music"; name is PascalCase. The file (.wav, .mp3, .ogg, or .flac) is stored
-    as a 16-bit WAV under SourceArt/Audio/<SFX|Music>/ and imported as
-    /Game/Audio/<SFX|Music>/SW_<name>. Returns the result, or {"error": {code, message, remediation,
-    stage}}.
+    as a 16-bit WAV under SourceArt/Audio/<SFX|Music>/. A sound effect is copied to
+    game/assets/Audio/<name>.wav and imported as an AudioStreamWAV; music is encoded with ffmpeg to
+    game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis, looping when loop is
+    true. The result names godot_asset and imported_to_godot. A failure returns {"error": {code,
+    message, remediation, stage}}.
     """
     return _logged(_import_audio(file=file, name=name, kind=kind, loop=loop))
 

@@ -7,8 +7,9 @@ Grid convention, shared by every function here:
 - A grid is a flat, row-major sequence of ``n * n`` samples, index ``row * n + col``.
 - Row 0 is the Blender +Y edge and column 0 is the Blender -X edge. The grid is centred on the
   origin: vertex ``(row, col)`` sits at ``x = -half + col * spacing`` and
-  ``y = half - row * spacing``, where ``half = (n - 1) * spacing / 2``. Unreal's +Y is Blender's
-  -Y, so the Unreal side reads row 0 as its minimum Y edge.
+  ``y = half - row * spacing``, where ``half = (n - 1) * spacing / 2``. In engine axes (+Y up,
+  Blender ``(x, y, z)`` -> ``(x, z, -y)``) row 0 is the minimum Z edge, so image row 0 of every
+  PNG here lies along engine -Z.
 - Heights are metres in Blender Z. Height codes are 16-bit, 0 at the minimum and 65535 at the
   maximum, stored as ``bytes16``: two big-endian bytes per sample (PNG byte order).
 - Layer weights are layer-major: ``layers[k]`` is the flat grid of layer ``k``.
@@ -28,36 +29,43 @@ VALID_SIZES: Final[tuple[int, ...]] = (127, 253, 505, 1009, 2017, 4033)
 HEIGHT_CODE_MAX: Final = 65535
 HEIGHT_CODE_FLAT: Final = 32768
 WEIGHT_TOTAL: Final = 255
-# Order of the points sample_points returns: nw is row 0, col 0 (Blender -X, +Y).
-SAMPLE_POINT_NAMES: Final[tuple[str, ...]] = (
-    "nw",
-    "ne",
-    "sw",
-    "se",
-    "n",
-    "s",
-    "w",
-    "e",
-    "center",
-    "min",
-    "max",
-)
+#: Quads along each exported chunk edge. 63 divides every valid size minus one (126 ... 4032).
+CHUNK_QUADS: Final = 63
+#: Channels of the RGBA splat map, so the most layers one terrain may export.
+SPLAT_CHANNELS: Final = 4
 
 _PNG_SIGNATURE: Final = b"\x89PNG\r\n\x1a\n"
+_COLOR_GRAY: Final = 0
+_COLOR_RGBA: Final = 6
 _T = TypeVar("_T")
 
 
 class GrayImage(NamedTuple):
-    """A decoded grayscale PNG.
+    """A decoded grayscale or RGBA PNG.
 
-    ``samples`` is the raw row-major sample data: one byte per 8-bit sample, or two big-endian
-    bytes per 16-bit sample (the bytes16 layout that encode_heights returns).
+    ``samples`` is the raw row-major sample data: one byte per 8-bit sample, two big-endian bytes
+    per 16-bit sample (the bytes16 layout that encode_heights returns), or four bytes (R, G, B, A)
+    per RGBA pixel.
     """
 
     width: int
     height: int
     bit_depth: int
     samples: bytes
+
+
+def chunk_name(name: str, row: int, col: int) -> str:
+    """The node name and file stem of one terrain chunk: ``<Name>_Chunk_<row>_<col>``."""
+    return f"{name}_Chunk_{row}_{col}"
+
+
+def chunk_file_names(name: str, n: int) -> list[str]:
+    """Every chunk GLB file name of an n x n heightfield, row-major from row 0 / column 0."""
+    _check_size(n)
+    if (n - 1) % CHUNK_QUADS != 0:
+        raise ValueError(f"n - 1 = {n - 1} is not a multiple of {CHUNK_QUADS}")
+    count = (n - 1) // CHUNK_QUADS
+    return [f"{chunk_name(name, row, col)}.glb" for row in range(count) for col in range(count)]
 
 
 def mobile_size(desktop: int, budget_px: int) -> tuple[int, int]:
@@ -210,40 +218,6 @@ def reduce_layers(
     return kept, reduced
 
 
-def sample_points(heights: Sequence[float], n: int, spacing: float) -> list[list[float]]:
-    """Return 11 points in Blender space, each ``[x_m, y_m, z_m]``, in SAMPLE_POINT_NAMES order.
-
-    The first nine are the corners (nw, ne, sw, se), the edge midpoints (n, s, w, e), and the
-    centre. Then come the minimum and maximum vertex (the first occurrence of each).
-    """
-    _check_size(n)
-    _check_samples(len(heights), n)
-    if spacing <= 0:
-        raise ValueError(f"spacing must be positive, got {spacing}")
-    half = (n - 1) * spacing / 2
-    last = n - 1
-    mid = last // 2
-
-    def point(row: int, col: int) -> list[float]:
-        return [-half + col * spacing, half - row * spacing, float(heights[row * n + col])]
-
-    lowest = heights.index(min(heights))
-    highest = heights.index(max(heights))
-    grid_positions = [
-        (0, 0),
-        (0, last),
-        (last, 0),
-        (last, last),
-        (0, mid),
-        (last, mid),
-        (mid, 0),
-        (mid, last),
-        (mid, mid),
-    ]
-    positions = [*grid_positions, divmod(lowest, n), divmod(highest, n)]
-    return [point(row, col) for row, col in positions]
-
-
 def write_png_gray16(data: bytes, width: int, height: int, path: Path) -> None:
     """Write a 16-bit grayscale PNG. ``data`` is bytes16: two big-endian bytes per sample."""
     _write_gray_png(data, width, height, 16, path)
@@ -254,11 +228,47 @@ def write_png_gray8(data: bytes, width: int, height: int, path: Path) -> None:
     _write_gray_png(data, width, height, 8, path)
 
 
+def splat_pixels(codes: Sequence[bytes]) -> bytes:
+    """Interleave up to four 8-bit weightmaps into RGBA pixels: layer ``i`` in channel ``i``.
+
+    ``codes`` is quantize_weights' output (one byte string per layer, equal lengths). Channels past
+    the last layer are 0. More than four layers raises ValueError.
+    """
+    if not codes:
+        raise ValueError("at least one layer is required")
+    if len(codes) > SPLAT_CHANNELS:
+        raise ValueError(f"a splat map holds at most {SPLAT_CHANNELS} layers, got {len(codes)}")
+    count = len(codes[0])
+    if any(len(layer) != count for layer in codes):
+        raise ValueError("every layer must have the same number of samples")
+    out = bytearray(count * SPLAT_CHANNELS)
+    for channel, layer in enumerate(codes):
+        out[channel::SPLAT_CHANNELS] = layer
+    return bytes(out)
+
+
+def write_png_rgba8(data: bytes, width: int, height: int, path: Path) -> None:
+    """Write an 8-bit RGBA PNG. ``data`` holds four bytes (R, G, B, A) per pixel."""
+    _write_png(data, width, height, 8, _COLOR_RGBA, path)
+
+
 def read_png_gray(path: Path) -> GrayImage:
     """Read a non-interlaced 8- or 16-bit grayscale PNG with any of the five filter types.
 
     Colour, palette, alpha, and interlaced PNGs raise ValueError. Chunk CRCs are checked.
     """
+    return _read_png(path, rgba=False)
+
+
+def read_png_rgba8(path: Path) -> GrayImage:
+    """Read a non-interlaced 8-bit RGBA PNG; ``samples`` holds four bytes per pixel.
+
+    Any other colour type or bit depth raises ValueError. Chunk CRCs are checked.
+    """
+    return _read_png(path, rgba=True)
+
+
+def _read_png(path: Path, *, rgba: bool) -> GrayImage:
     data = path.read_bytes()
     if not data.startswith(_PNG_SIGNATURE):
         raise ValueError(f"{path} is not a PNG file")
@@ -289,7 +299,12 @@ def read_png_gray(path: Path) -> GrayImage:
     width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
         ">IIBBBBB", header
     )
-    if color_type != 0:
+    if rgba:
+        if color_type != _COLOR_RGBA or bit_depth != 8:
+            raise ValueError(
+                f"{path} is not 8-bit RGBA (colour type {color_type}, bit depth {bit_depth})"
+            )
+    elif color_type != _COLOR_GRAY:
         raise ValueError(f"{path} is not grayscale (colour type {color_type})")
     if bit_depth not in (8, 16):
         raise ValueError(f"{path} has bit depth {bit_depth}; only 8 and 16 are supported")
@@ -299,7 +314,10 @@ def read_png_gray(path: Path) -> GrayImage:
         raise ValueError(f"{path} is interlaced; only non-interlaced PNGs are supported")
     if width < 1 or height < 1 or not compressed:
         raise ValueError(f"{path} has no image data")
-    samples = _unfilter(zlib.decompress(bytes(compressed)), width, height, bit_depth // 8)
+    channels = SPLAT_CHANNELS if rgba else 1
+    samples = _unfilter(
+        zlib.decompress(bytes(compressed)), width, height, channels * bit_depth // 8
+    )
     return GrayImage(width, height, bit_depth, samples)
 
 
@@ -324,9 +342,16 @@ def _check_layers(layers: Sequence[Sequence[float]]) -> int:
 
 
 def _write_gray_png(data: bytes, width: int, height: int, bit_depth: int, path: Path) -> None:
+    _write_png(data, width, height, bit_depth, _COLOR_GRAY, path)
+
+
+def _write_png(
+    data: bytes, width: int, height: int, bit_depth: int, color_type: int, path: Path
+) -> None:
     if width < 1 or height < 1:
         raise ValueError(f"PNG dimensions must be positive, got {width}x{height}")
-    row_bytes = width * (bit_depth // 8)
+    channels = SPLAT_CHANNELS if color_type == _COLOR_RGBA else 1
+    row_bytes = width * channels * (bit_depth // 8)
     if len(data) != row_bytes * height:
         raise ValueError(
             f"expected {row_bytes * height} bytes for a {width}x{height} image, got {len(data)}"
@@ -335,7 +360,7 @@ def _write_gray_png(data: bytes, width: int, height: int, bit_depth: int, path: 
     for row in range(height):
         raw.append(0)  # filter type 0 (None) on every row
         raw += data[row * row_bytes : (row + 1) * row_bytes]
-    header = struct.pack(">IIBBBBB", width, height, bit_depth, 0, 0, 0, 0)
+    header = struct.pack(">IIBBBBB", width, height, bit_depth, color_type, 0, 0, 0)
     path.write_bytes(
         _PNG_SIGNATURE
         + _png_chunk(b"IHDR", header)

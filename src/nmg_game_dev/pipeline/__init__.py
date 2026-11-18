@@ -1,8 +1,9 @@
-"""Finalize pipeline: turns an authored Blender asset into Desktop and Mobile Unreal content (#69).
+"""Finalize pipeline: turns an authored Blender asset into Desktop and Mobile Godot resources (#69).
 
-An agent authors an asset freely in Blender.  The pipeline then finalizes that asset in six steps,
-in order: ``validate`` → ``bake`` → ``variants`` → ``export`` → ``reimport`` → ``import_ue``.
-Each step is a cached unit, and each Blender step runs headless.  The package does not generate
+An agent authors an asset freely in Blender.  The pipeline then finalizes that asset in order:
+``validate`` → ``bake`` → ``variants`` → ``export`` → ``export_anims`` → ``reimport`` →
+``import_godot`` → ``import_anims``.  Each step is a cached unit, each Blender step runs headless,
+and the Godot steps run ``godot --headless`` (#249).  The package does not generate
 assets from prompts.  There is no ``Prompt`` type, no ``generate`` stage, and no ``source``
 argument.
 
@@ -28,7 +29,6 @@ from .engine import (
     BlenderSession,
     FinalizeClients,
     FinalizeSessionChangedError,
-    UnrealPythonRunner,
     execute,
 )
 from .errors import PipelineError
@@ -55,7 +55,6 @@ __all__ = [
     "StepResult",
     "StepRunner",
     "SubprocessStepRunner",
-    "UnrealPythonRunner",
     "finalize",
     "run_step",
 ]
@@ -86,7 +85,7 @@ def finalize(
     cache_dir:
         Override the cache root.  Defaults to ``${NMG_GAME_DEV_CACHE_DIR:-~/.cache/nmg-game-dev}``.
     clients:
-        Optional Blender session and Unreal client overrides.  Real clients are used when unset.
+        Optional Blender session and Godot runner overrides.  Real ones are used when unset.
     runner:
         Optional step runner.  Defaults to headless Blender subprocesses.  Tests substitute an
         in-process fake.

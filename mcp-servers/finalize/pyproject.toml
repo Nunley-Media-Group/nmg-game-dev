@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "finalize-mcp"
 version = "0.1.0"
-description = "finalize MCP server: finalize an authored Blender asset into Desktop and Mobile Unreal content (#69)"
+description = "finalize MCP server: finalize an authored Blender asset into Desktop and Mobile Godot assets (#69)"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "Nunley Media Group" }]

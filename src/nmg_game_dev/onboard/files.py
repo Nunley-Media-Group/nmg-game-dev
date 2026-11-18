@@ -16,7 +16,7 @@ from nmg_game_dev.onboard.errors import OnboardError
 from nmg_game_dev.onboard.paths import assert_not_excluded
 from nmg_game_dev.onboard.report import REFRESH_REMEDIATION, StepResult
 
-TREE_IGNORE: tuple[str, ...] = ("Binaries", "Intermediate")
+TREE_IGNORE: tuple[str, ...] = ()
 
 
 def _same_bytes(a: Path, b: Path) -> bool:
@@ -74,7 +74,8 @@ def sync_tree(
 ) -> StepResult:
     """Install, verify, or (with ``refresh``) restore a framework-owned tree.
 
-    Files the consumer adds in the tree (for example UE build output) are not compared.
+    Files the consumer adds in the tree are not compared. Any path with a part in ``ignore`` is
+    neither copied nor compared.
     """
     rel_path = Path(rel)
     assert_not_excluded(rel_path)

@@ -1,4 +1,4 @@
-"""AC11: skills/ship/SKILL.md is the single Claude Code entry point (#6)."""
+"""skills/ship/SKILL.md is the single Claude Code entry point (#6, AC11; #249 FR9)."""
 
 from __future__ import annotations
 
@@ -22,8 +22,18 @@ def test_flow_invokes_the_ship_cli_and_lists_the_failure_codes() -> None:
     text = SKILL.read_text(encoding="utf-8")
     assert "python -m nmg_game_dev.ship" in text
     assert 'uv run --project "${CLAUDE_PLUGIN_ROOT}"' in text
-    for code in ("ship.env_missing", "ship.mobile_budget_exceeded", "ship.cook_manifest_failed"):
+    assert "--project game/project.godot" in text
+    for code in (
+        "ship.env_missing",
+        "ship.mobile_budget_exceeded",
+        "ship.script_check_failed",
+        "ship.tests_failed",
+        "ship.export_failed",
+        "ship.web_pack_large",
+        "godot.not_found",
+    ):
         assert code in text
+    assert "WINDOWS_BUILD" not in text
 
 
 def test_the_skill_directory_is_named_for_its_skill() -> None:

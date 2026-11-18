@@ -1,29 +1,32 @@
 """Command line for the finalize pipeline (#69, #148, #149).
 
     python -m nmg_game_dev.finalize {all,validate,bake,variants,export,export_anims,reimport,
-        import_ue,import_anims}
+        import_godot,import_anims}
         (--collection N [--collection M ...] | --batch FILE)
         [--category C] [--class K] [--export-root R] [--blend B] [--budgets P]
         [--material-variants P] [--device GPU|CPU] [--compatible-with C/N ...] [--force]
-        [--fail-fast] [--wait [--wait-limit S]] [--pie wait|refuse] [--pie-wait-limit S] [--json]
+        [--fail-fast] [--wait [--wait-limit S]] [--json]
 
     python -m nmg_game_dev.finalize reduce --collection N --class C [--blend B] [--budgets P]
         [--device GPU|CPU] [--cage M] [--ray M] [--miss-threshold X] [--parts JSON] [--wait S]
 
-    python -m nmg_game_dev.finalize material-variants --category C --collection N [--json]
-        (lists the material variants Unreal holds for the asset, #148)
+    python -m nmg_game_dev.finalize material-variants --category C --collection N
+        [--export-root R] [--json]
+        (lists the asset's material variants from the files finalize wrote, #148)
 
     python -m nmg_game_dev.finalize run-job <job_dir>        (internal: the background job body)
 
 Several ``--collection`` values, or a ``--batch`` file of finalize requests, run as one batch: the
 collections are finalized one at a time, in order, under one lock.  A ``--batch`` entry takes its
 own keys, and the asset options given on the command line fill in any key an entry omits.
-``--material-variants`` and ``--compatible-with`` apply to one collection only.
+``--material-variants`` and ``--compatible-with`` apply to one collection only.  ``--export-root``
+defaults to ``<project>/game/assets`` (the project is ``CLAUDE_PROJECT_DIR`` or the working
+directory).
 
 Exit codes: 0 success; 1 a step or a collection failed (``ERROR [code] message`` and
 ``Remediation:`` on stderr; a batch prints one line per collection); 2 a prerequisite is missing
-(Blender or an MCP endpoint is unreachable) or the arguments are wrong.  The command blocks until
-its job is terminal.
+(Blender, the Blender MCP, Godot, or the Godot project is missing) or the arguments are wrong.
+The command blocks until its job is terminal.
 """
 
 from __future__ import annotations
@@ -40,9 +43,7 @@ from pydantic import ValidationError
 from nmg_game_dev.pipeline import jobs
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.reduce import parts_from_json
-from nmg_game_dev.pipeline.request import DEFAULT_PIE_WAIT_SECONDS
 from nmg_game_dev.pipeline.steps import STEP_ORDER
-from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
 from .mcp_tools import list_material_variants
 from .service import (
@@ -65,7 +66,7 @@ EXIT_PREREQUISITE: Final = 2
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m nmg_game_dev.finalize",
-        description="Finalize an authored Blender asset into Desktop and Mobile Unreal content.",
+        description="Finalize an authored Blender asset into Desktop and Mobile Godot resources.",
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     for name in STEP_COMMANDS:
@@ -78,10 +79,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     listing = commands.add_parser(
         LIST_VARIANTS_COMMAND,
-        help="List the material variants Unreal holds for a finalized asset.",
+        help="List a finalized asset's material variants from the files finalize wrote.",
     )
-    listing.add_argument("--category", required=True, help="Content category, e.g. Props.")
+    listing.add_argument("--category", required=True, help="Asset category, e.g. Props.")
     listing.add_argument("--collection", required=True, help="Asset name, e.g. Crate.")
+    listing.add_argument(
+        "--export-root", help="The finalize export root. Defaults to <project>/game/assets."
+    )
     listing.add_argument("--json", action="store_true", help="Print the rows as JSON on stdout.")
     run_job = commands.add_parser(
         "run-job", help="Internal: run a job directory in the background."
@@ -122,11 +126,11 @@ _STEP_HELP: Final = {
     "validate": "Run the contract validation.",
     "bake": "Bake the authored materials.",
     "variants": "Build the Desktop and Mobile variants.",
-    "export": "Export the FBX variants and the sidecar.",
-    "export_anims": "Export one animation FBX per clip on the rig.",
+    "export": "Export the .glb variants and the sidecars.",
+    "export_anims": "Export one animation .glb per clip on the rig.",
     "reimport": "Re-import the exported variants and check them.",
-    "import_ue": "Import the variants into Unreal and finish the materials.",
-    "import_anims": "Import the clips as AnimSequences on the Desktop skeleton.",
+    "import_godot": "Import the variants into the Godot project headless and verify them.",
+    "import_anims": "Import the clips as Godot animation libraries and verify them.",
 }
 
 
@@ -145,7 +149,7 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--category",
-        help="Content category, e.g. Props. Defaults to the design backlog entry's category.",
+        help="Asset category, e.g. Props. Defaults to the design backlog entry's category.",
     )
     parser.add_argument(
         "--class",
@@ -155,8 +159,8 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--export-root",
-        help="Directory for the exported variants. Required with --collection; a --batch entry "
-        "may set its own.",
+        help="Directory for the exported variants, inside the Godot project. Defaults to "
+        "<project>/game/assets; a --batch entry may set its own.",
     )
     parser.add_argument("--blend", help="Finalize this saved .blend instead of the open session.")
     parser.add_argument("--budgets", help="Budget overrides file. Defaults to nmg-budgets.json.")
@@ -173,7 +177,7 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
         default=[],
         metavar="CATEGORY/NAME",
         help="Another character whose Desktop skeleton this character's clips may play on. "
-        "Repeat for each. import_anims registers both directions.",
+        "Repeat for each. import_anims checks every animated bone exists in its skeleton.",
     )
     parser.add_argument(
         "--force", action="store_true", help="Rerun every step, ignoring the cache."
@@ -195,20 +199,6 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="SECONDS",
         help="With --wait, fail with finalize.job_running after this many seconds of waiting.",
     )
-    parser.add_argument(
-        "--pie",
-        choices=("wait", "refuse"),
-        default="wait",
-        help="When the editor is in Play In Editor before an import: wait for it to end (default) "
-        "or refuse at once.",
-    )
-    parser.add_argument(
-        "--pie-wait-limit",
-        type=float,
-        default=DEFAULT_PIE_WAIT_SECONDS,
-        metavar="SECONDS",
-        help="With --pie wait, the longest wait for PIE to end (default 600).",
-    )
 
 
 def main(
@@ -217,13 +207,8 @@ def main(
     service: FinalizeService | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
-    unreal_client: UnrealPythonClient | None = None,
 ) -> int:
-    """Run the command and return its exit code.
-
-    ``unreal_client`` replaces the Unreal MCP connection for ``material-variants``, so tests can
-    run the command without an editor.
-    """
+    """Run the command and return its exit code."""
     out = stdout if stdout is not None else sys.stdout
     err = stderr if stderr is not None else sys.stderr
     parser = build_parser()
@@ -236,10 +221,8 @@ def main(
     if args.command == "reduce":
         return _run_reduce(args, service, out, err)
     if args.command == LIST_VARIANTS_COMMAND:
-        return _list_variants(args, out, err, unreal_client)
+        return _list_variants(args, out, err)
 
-    if args.collection is not None and args.export_root is None:
-        parser.error("--export-root is required with --collection")
     if args.wait_limit is not None and not args.wait:
         parser.error("--wait-limit needs --wait")
     is_batch = args.batch is not None or len(args.collection) > 1
@@ -277,8 +260,6 @@ def _run_single_command(
             blend=args.blend,
             budgets_path=args.budgets,
             device=args.device or "GPU",
-            pie_mode=args.pie,
-            pie_wait_seconds=args.pie_wait_limit,
             compatible_with=args.compatible_with,
             material_variants_path=args.material_variants,
         )
@@ -337,8 +318,6 @@ def _run_batch_command(
         "blend": args.blend,
         "budgets_path": args.budgets,
         "device": args.device,
-        "pie_mode": args.pie,
-        "pie_wait_seconds": args.pie_wait_limit,
     }
     try:
         entries = (
@@ -445,16 +424,11 @@ def _run_reduce(
     return _report_error(error_payload, False, out, err)
 
 
-def _list_variants(
-    args: argparse.Namespace,
-    out: TextIO,
-    err: TextIO,
-    unreal_client: UnrealPythonClient | None,
-) -> int:
+def _list_variants(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     rows = list_material_variants(
         category=args.category,
         collection=args.collection,
-        client=unreal_client,
+        export_root=args.export_root,
     )
     if isinstance(rows, dict):
         return _report_error(rows["error"], args.json, out, err)
@@ -462,7 +436,7 @@ def _list_variants(
         out.write(json.dumps(rows, indent=2, sort_keys=True) + "\n")
         return EXIT_OK
     if not rows:
-        out.write(f"{args.collection} has no material variants in Unreal.\n")
+        out.write(f"{args.collection} has no material variants.\n")
     for row in rows:
         out.write(
             f"{row['name']}  {row['material']}  Desktop: {row['desktop'] or '-'}  "
@@ -479,9 +453,9 @@ def _print_success(status: dict[str, Any], as_json: bool, out: TextIO) -> None:
     for step in result.get("steps", []):
         source = "cache" if step.get("cache_hit") else "ran"
         out.write(f"{step.get('step')}: {step.get('summary', '')} ({source})\n")
-    if result.get("desktop_content_path"):
-        out.write(f"Desktop: {result['desktop_content_path']}\n")
-        out.write(f"Mobile: {result['mobile_content_path']}\n")
+    if result.get("desktop_resource_path"):
+        out.write(f"Desktop: {result['desktop_resource_path']}\n")
+        out.write(f"Mobile: {result['mobile_resource_path']}\n")
 
 
 def _print_batch(batch: dict[str, Any], as_json: bool, out: TextIO) -> None:

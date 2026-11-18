@@ -15,13 +15,6 @@ from nmg_game_dev.design.parse import parse_file
 from nmg_game_dev.design.paths import backlog_path
 
 
-class _NeverCalled:
-    """Fails the test if scaffold reaches the Unreal editor."""
-
-    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-        raise AssertionError("no Unreal call is expected when the backlog is unreadable")
-
-
 def test_a_utf8_byte_order_mark_before_the_frontmatter_is_accepted(tmp_path: Path) -> None:
     path = tmp_path / "docs" / "design" / "props" / "crate.md"
     path.parent.mkdir(parents=True)
@@ -36,16 +29,14 @@ def test_a_utf8_byte_order_mark_before_the_frontmatter_is_accepted(tmp_path: Pat
 
 def test_scaffold_reports_an_unreadable_backlog_and_exits_1(tmp_path: Path) -> None:
     (tmp_path / "docs" / "design").mkdir(parents=True)
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text("", encoding="utf-8")
     backlog_path(tmp_path).write_text("not json", encoding="utf-8")
     out, err = io.StringIO(), io.StringIO()
 
-    code = main(
-        ["scaffold", "--project", str(tmp_path)],
-        client=_NeverCalled(),
-        stdout=out,
-        stderr=err,
-    )
+    code = main(["scaffold", "--project", str(tmp_path)], stdout=out, stderr=err)
 
     assert code == 1
     assert err.getvalue().startswith("ERROR: ")
     assert out.getvalue() == ""
+    assert sorted(p.name for p in (tmp_path / "game").iterdir()) == ["project.godot"]

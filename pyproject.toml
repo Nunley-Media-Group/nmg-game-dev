@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "nmg-game-dev"
 dynamic = ["version"]
-description = "Blender-first, Unreal-shipped content pipeline for NMG games"
+description = "Blender-first, Godot-shipped content pipeline for NMG games"
 readme = "CLAUDE.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nunley Media Group" }]

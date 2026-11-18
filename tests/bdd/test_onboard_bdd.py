@@ -1,4 +1,4 @@
-"""pytest-bdd bindings for onboard_consumer.feature: SCN001–SCN011 (#7).
+"""pytest-bdd bindings for onboard_consumer.feature: SCN001–SCN011 (#7, #249 AC10).
 
 Each scenario runs the real onboarding package against a fixture consumer, with stub commands from
 ``tests/onboard_fakes.py``. No real git, mflux-save, or uv runs.
@@ -14,6 +14,7 @@ from typing import Any
 
 from pytest_bdd import given, parsers, scenario, then, when
 
+from nmg_game_dev.godot.project import read_config
 from nmg_game_dev.onboard import OnboardError, list_volumes, run_onboard
 from nmg_game_dev.onboard.paths import framework_root
 from tests.onboard_fakes import (
@@ -30,10 +31,7 @@ from tests.onboard_fakes import (
 )
 
 FEATURE = "onboard_consumer.feature"
-HOOK_COMMANDS = (
-    'bash "$CLAUDE_PROJECT_DIR/scripts/start-blender-mcp.sh"',
-    'bash "$CLAUDE_PROJECT_DIR/scripts/start-unreal-mcp.sh"',
-)
+HOOK_COMMANDS = ('bash "$CLAUDE_PROJECT_DIR/scripts/start-blender-mcp.sh"',)
 
 
 def _context(
@@ -72,6 +70,7 @@ def _install(ctx: dict[str, Any], *, refresh: bool = False) -> None:
             which=all_tools_present,
             host=ctx["host"],
             free_bytes=ctx["free"],
+            godot_app=ctx["tmp"] / "no-godot-app",
         )
         ctx["error"] = None
     except OnboardError as error:
@@ -92,10 +91,7 @@ def test_fresh_onboarding_installs_framework_files() -> None:
     """AC1: scripts, hooks, asset contract, CLAUDE.md block, and the exclusions."""
 
 
-@given(
-    "a consumer with Game.uproject, unrelated Claude settings, and a CLAUDE.md",
-    target_fixture="ctx",
-)
+@given("a consumer with unrelated Claude settings and a CLAUDE.md", target_fixture="ctx")
 def _consumer_with_settings(tmp_path: Path) -> dict[str, Any]:
     return _fresh(tmp_path)
 
@@ -105,14 +101,14 @@ def _onboard(ctx: dict[str, Any]) -> None:
     _install(ctx)
 
 
-@then("both start scripts are in the consumer scripts folder and executable")
+@then("the Blender start script is in the consumer scripts folder and executable")
 def _scripts_executable(ctx: dict[str, Any]) -> None:
-    for script in ("start-blender-mcp.sh", "start-unreal-mcp.sh"):
-        path = ctx["consumer"] / "scripts" / script
-        assert path.is_file() and os.access(path, os.X_OK), script
+    path = ctx["consumer"] / "scripts" / "start-blender-mcp.sh"
+    assert path.is_file() and os.access(path, os.X_OK)
+    assert [p.name for p in (ctx["consumer"] / "scripts").iterdir()] == ["start-blender-mcp.sh"]
 
 
-@then("the SessionStart hooks are merged and the unrelated settings are unchanged")
+@then("only the Blender SessionStart hook is merged and the unrelated settings are unchanged")
 def _hooks_merged(ctx: dict[str, Any]) -> None:
     settings = json.loads((ctx["consumer"] / ".claude" / "settings.json").read_text())
     assert settings["model"] == "opus"
@@ -142,41 +138,58 @@ def _nothing_excluded(ctx: dict[str, Any]) -> None:
 # --- SCN002 ------------------------------
 
 
-@scenario(FEATURE, "Unreal plugins are installed and enabled")
-def test_unreal_plugins_installed_and_enabled() -> None:
-    """AC2: UE plugin copy, VibeUE clone on branch 5-8, .uproject plugins, and MCP auto-start."""
+@scenario(FEATURE, "The Godot project is set up")
+def test_godot_project_is_set_up() -> None:
+    """#249 AC10: project.godot, the add-on, export presets, and the tool report."""
 
 
-@given("a consumer with Game.uproject and git available", target_fixture="ctx")
-def _consumer_with_git(tmp_path: Path) -> dict[str, Any]:
+@given("a game project with no nmg-game-dev setup", target_fixture="ctx")
+def _bare_consumer(tmp_path: Path) -> dict[str, Any]:
     return _fresh(tmp_path)
 
 
-@then("the nmg-game-dev UE plugin is in Plugins/nmg-game-dev")
-def _ue_plugin_present(ctx: dict[str, Any]) -> None:
-    assert (ctx["consumer"] / "Plugins" / "nmg-game-dev" / "nmg-game-dev.uplugin").is_file()
+@then(
+    "game/project.godot uses the Compatibility renderer for mobile and web and enables the add-on"
+)
+def _project_godot(ctx: dict[str, Any]) -> None:
+    config = read_config(ctx["consumer"] / "game" / "project.godot")
+    assert config[("rendering", "renderer/rendering_method.mobile")] == '"gl_compatibility"'
+    assert config[("rendering", "renderer/rendering_method.web")] == '"gl_compatibility"'
+    assert "res://addons/nmg_game_dev/plugin.cfg" in config[("editor_plugins", "enabled")]
+    assert config[("autoload", "NmgAssets")] == '"*res://addons/nmg_game_dev/nmg_assets.gd"'
 
 
-@then("VibeUE is cloned from branch 5-8 into Plugins/VibeUE")
-def _vibeue_cloned(ctx: dict[str, Any]) -> None:
-    clones = ctx["runner"].argv_starting("git", "clone")
-    assert len(clones) == 1
-    assert clones[0][clones[0].index("--branch") + 1] == "5-8"
-    assert clones[0][-1] == str(ctx["consumer"] / "Plugins" / "VibeUE")
+@then("the nmg_game_dev add-on is in game/addons/nmg_game_dev without its tests")
+def _addon_installed(ctx: dict[str, Any]) -> None:
+    addon = ctx["consumer"] / "game" / "addons" / "nmg_game_dev"
+    assert (addon / "plugin.cfg").is_file() and (addon / "nmg_assets.gd").is_file()
+    assert not (addon / "tests").exists()
 
 
-@then("Game.uproject enables ModelContextProtocol, EditorToolset, VibeUE, and nmg-game-dev")
-def _uproject_enabled(ctx: dict[str, Any]) -> None:
-    uproject = json.loads((ctx["consumer"] / "Game.uproject").read_text())
-    enabled = {entry["Name"] for entry in uproject["Plugins"] if entry["Enabled"]}
-    assert {"ModelContextProtocol", "EditorToolset", "VibeUE", "nmg-game-dev"} <= enabled
+@then(
+    "game/export_presets.cfg excludes Mobile folders from desktop presets and Desktop folders "
+    "from mobile and web presets"
+)
+def _presets(ctx: dict[str, Any]) -> None:
+    config = read_config(ctx["consumer"] / "game" / "export_presets.cfg")
+    filters = {
+        config[(section, "name")]: config[(section, "exclude_filter")]
+        for (section, key) in config
+        if key == "name"
+    }
+    for preset in ('"macOS"', '"Windows Desktop"'):
+        assert filters[preset] == '"assets/*/Mobile/*"', preset
+    for preset in ('"iOS"', '"Android"', '"Web"'):
+        assert filters[preset] == '"assets/*/Desktop/*"', preset
 
 
-@then("the MCP settings section has bAutoStartServer=True and ServerPortNumber=8000")
-def _mcp_section(ctx: dict[str, Any]) -> None:
-    ini = (ctx["consumer"] / "Config" / "DefaultEditorPerProjectUserSettings.ini").read_text()
-    assert "bAutoStartServer=True" in ini
-    assert "ServerPortNumber=8000" in ini
+@then("the Godot binary and ffmpeg are reported as found")
+def _tools_found(ctx: dict[str, Any]) -> None:
+    results = {r.name: r for r in ctx["results"]}
+    assert results["godot_binary"].status == "unchanged"
+    assert results["godot_binary"].detail.startswith("found at ")
+    assert results["ffmpeg_binary"].status == "unchanged"
+    assert results["ffmpeg_binary"].detail.startswith("found at ")
 
 
 # --- SCN003 ------------------------------
@@ -372,6 +385,7 @@ def _already_onboarded(tmp_path: Path) -> dict[str, Any]:
     _install(ctx)
     assert ctx["error"] is None
     ctx["runner"] = FakeRunner()
+    ctx["before"] = snapshot(ctx["consumer"])
     return ctx
 
 
@@ -380,21 +394,17 @@ def _again(ctx: dict[str, Any]) -> None:
     _install(ctx)
 
 
-@then("no hook, plugin entry, ini key, or CLAUDE.md block is duplicated")
+@then("no hook or CLAUDE.md block is duplicated and every consumer file is byte-identical")
 def _no_duplicates(ctx: dict[str, Any]) -> None:
     settings = json.loads((ctx["consumer"] / ".claude" / "settings.json").read_text())
     assert len(settings["hooks"]["SessionStart"]) == 1
-    uproject = json.loads((ctx["consumer"] / "Game.uproject").read_text())
-    assert [e["Name"] for e in uproject["Plugins"]].count("VibeUE") == 1
-    ini = (ctx["consumer"] / "Config" / "DefaultEditorPerProjectUserSettings.ini").read_text()
-    assert ini.count("ServerPortNumber=") == 1
     assert (ctx["consumer"] / "CLAUDE.md").read_text().count("<!-- nmg-game-dev:begin -->") == 1
+    assert snapshot(ctx["consumer"]) == ctx["before"]
 
 
-@then("no git clone or mflux-save runs and the command exits 0")
-def _no_clone(ctx: dict[str, Any]) -> None:
+@then("no mflux-save runs and the command exits 0")
+def _no_saves(ctx: dict[str, Any]) -> None:
     assert ctx["error"] is None
-    assert ctx["runner"].argv_starting("git", "clone") == []
     assert ctx["runner"].argv_starting("mflux-save") == []
 
 

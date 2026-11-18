@@ -16,7 +16,7 @@ import bpy
 
 from ..contract_core.terrain import TerrainGrid, terrain_grid
 from ..variants_core.errors import VariantError
-from .heightfield import downsample, mobile_size, normalize_weights, reduce_layers, sample_points
+from .heightfield import downsample, mobile_size, normalize_weights, reduce_layers
 
 DESKTOP: str = "Desktop"
 MOBILE: str = "Mobile"
@@ -52,8 +52,12 @@ class TerrainVariant:
         return max(self.texture_px.values(), default=0)
 
     def metrics(self) -> dict[str, Any]:
-        """The per-variant fields that nmg-variants.json and the Unreal import read."""
-        points = sample_points(self.heights, self.heightmap_px, self.spacing_m)
+        """The per-variant fields that nmg-variants.json records and the engine import reads.
+
+        ``spacing_m`` is the distance between neighbouring samples, ``height_min_m`` and
+        ``height_max_m`` bound the heights, and ``uv_tile_m`` is the metres one layer texture
+        repeat spans.
+        """
         return {
             "heightmap_px": self.heightmap_px,
             "spacing_m": round(self.spacing_m, SAMPLE_DECIMALS),
@@ -62,7 +66,6 @@ class TerrainVariant:
             "uv_tile_m": round(self.uv_tile_m, SAMPLE_DECIMALS),
             "layers": list(self.layers),
             "max_texture_px": self.max_texture_px,
-            "samples": [[round(value, SAMPLE_DECIMALS) for value in point] for point in points],
         }
 
 

@@ -6,10 +6,12 @@ Each step is cached per clip, not as a whole. A clip's export key is
 re-exports and re-imports only that clip, and the mesh steps' keys do not move.
 
 ``run_export_anims`` probes the rig in one Blender run, serves the clips it can from the cache,
-exports the rest in one more Blender run, and writes ``nmg-animations.json`` beside the FBX files.
-``run_import_anims`` sends one UE Python call. It imports the clips that missed the cache, verifies
-every clip against the sidecar, lists stale sequences, and registers compatible skeletons. A call
-with no clips and no ``compatible_with`` makes no Unreal call at all.
+exports the rest in one more Blender run, and writes ``nmg-animations.json`` beside the clip
+``.glb`` files. ``run_import_anims`` hands the clips that missed the cache to
+``nmg_game_dev.godot.anims``: it writes their ``animation_library`` import settings, runs one
+headless ``--import``, and probes only those clips, so one changed clip re-imports only that clip.
+It lists stale clip files and checks each ``compatible_with`` Desktop skeleton. A call with no
+clips and no ``compatible_with`` runs no Godot at all.
 
 Failures raise ``PipelineError`` with a stable code. A clip's cache entry is written only after the
 clip has passed its checks.
@@ -19,23 +21,27 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from itertools import chain
 from pathlib import Path
-from typing import Any, Final
-
-from nmg_game_dev.unreal.import_anims import build_anim_import_code
-from nmg_game_dev.unreal.import_asset import UnrealPythonClient, parse_nmg_result
+from typing import TYPE_CHECKING, Any, Final
 
 from .blender_proc import StepRunner
-from .cache import ArtifactCache
+from .cache import ArtifactCache, CacheEntry
 from .errors import PipelineError
 from .request import FinalizeRequest
 from .steps import (
     StepName,
     clip_settings_hash,
-    desktop_skeleton_path,
     envelope_outputs,
+    glb_path,
     output_hash,
 )
+
+if TYPE_CHECKING:
+    from nmg_game_dev.godot.runner import GodotRunner
+
+# nmg_game_dev.godot is imported where it is used: it imports nmg_game_dev.pipeline.errors, so a
+# module-level import here would be circular while the pipeline package initializes.
 
 ANIMATIONS_DIR: Final = "Animations"
 SIDECAR_NAME: Final = "nmg-animations.json"
@@ -51,37 +57,44 @@ _SIDECAR_CLIP_FIELDS: Final = (
     "fps",
     "source",
 )
-_IMPORT_REMEDIATION: Final = (
-    "Read the UE error in the message, confirm the clip FBX files exist in the Animations folder "
-    "and that the editor is idle, then rerun import_anims."
-)
-_MISMATCH_REMEDIATION: Final = (
-    "Re-export the clip and rerun import_anims with force, so the AnimSequence is rebuilt from "
-    "the current FBX."
-)
-
-UnrealClientFactory = Callable[[], UnrealPythonClient]
-_ImportPlan = tuple[Mapping[str, Any], str, bool]
+GodotRunnerFactory = Callable[[], "GodotRunner"]
+_ImportPlan = tuple[Mapping[str, Any], str, CacheEntry | None]
 
 
 def animations_dir(request: FinalizeRequest) -> Path:
-    """Return the clip FBX folder: ``<export_root>/<Category>/<Name>/Animations``."""
+    """Return the clip folder: ``<export_root>/<Category>/<Name>/Animations``."""
     return request.export_root / request.category / request.collection / ANIMATIONS_DIR
 
 
+def resource_path(request: FinalizeRequest, path: Path) -> str:
+    """Return ``path`` as a ``res://`` path, or as a plain path when no Godot project holds it."""
+    from nmg_game_dev.godot.project import find_project, res_path
+
+    try:
+        return res_path(find_project(request.export_root), path)
+    except (PipelineError, ValueError):
+        return path.as_posix()
+
+
 def content_path(request: FinalizeRequest) -> str:
-    """Return the UE folder for the clip AnimSequences: ``/Game/<Category>/<Name>/Animations``."""
-    return f"/Game/{request.category}/{request.collection}/{ANIMATIONS_DIR}"
+    """Return the Animations folder as a resource path: ``res://.../<Category>/<Name>/Animations``."""
+    return resource_path(request, animations_dir(request))
 
 
-def clip_asset_name(request: FinalizeRequest, clip: str) -> str:
-    """Return the AnimSequence name for ``clip``: ``A_<Name>_<Clip>``."""
-    return f"A_{request.collection}_{clip}"
+def clip_file_name(request: FinalizeRequest, clip: str) -> str:
+    """Return the clip file the add-on writes: ``A_<Name>_<Clip>.glb``."""
+    return f"A_{request.collection}_{clip}.glb"
 
 
-def clip_asset_path(request: FinalizeRequest, clip: str) -> str:
-    """Return the AnimSequence path for ``clip``: ``/Game/<Category>/<Name>/Animations/A_..``."""
-    return f"{content_path(request)}/{clip_asset_name(request, clip)}"
+def clip_asset_path(request: FinalizeRequest, clip: str, file: str | None = None) -> str:
+    """Return the clip's resource path: ``res://.../Animations/A_<Name>_<Clip>.glb``."""
+    return resource_path(request, animations_dir(request) / (file or clip_file_name(request, clip)))
+
+
+def _compatible_scene(request: FinalizeRequest, item: str) -> Path:
+    """Return the Desktop scene of a ``<Category>/<Name>`` compatible character."""
+    category, name = item.split("/", 1)
+    return request.export_root / category / name / "Desktop" / f"{name}.glb"
 
 
 def run_export_anims(
@@ -169,56 +182,96 @@ def run_import_anims(
     cache: ArtifactCache,
     job_dir: Path,
     exported: Sequence[Mapping[str, Any]],
-    client: UnrealClientFactory,
+    client: GodotRunnerFactory,
     force: bool,
 ) -> dict[str, Any]:
-    """Import the clips that missed the cache, verify every clip, and register compatible skeletons.
+    """Import the clips that changed, verify them, and check the compatible skeletons.
 
     The outputs are ``{clips, content_dir, stale, compatible}``. Each clip is ``{name, asset_path,
-    cache_hit}``. ``stale`` lists AnimSequences that are no longer clips, and it never deletes them.
-    ``compatible`` lists the registered skeletons. ``client`` is called only when there is work.
+    cache_hit}``. ``stale`` lists clip ``.glb`` files that are no longer clips; they are never
+    deleted. ``compatible`` lists the compatible Desktop scenes whose skeletons hold every bone the
+    clips animate. ``client`` is called only when there is Godot work: a changed clip or a
+    ``compatible_with`` check.
     """
-    compatible = list(request.compatible_with)
-    if not exported and not compatible:
+    from nmg_game_dev.godot.anims import (
+        ClipPlan,
+        check_compatible,
+        has_library_importer,
+        import_clips,
+        skeleton_not_found,
+        verify_clips,
+    )
+    from nmg_game_dev.godot.project import find_project
+
+    targets = [(item, _compatible_scene(request, item)) for item in request.compatible_with]
+    if not exported and not targets:
         return {"clips": [], "content_dir": None, "stale": [], "compatible": []}
 
+    own = glb_path(request, "Desktop")
+    if not own.is_file():
+        raise skeleton_not_found(f"{request.category}/{request.collection}", str(own), own=True)
+    for label, scene in targets:
+        if not scene.is_file():
+            raise skeleton_not_found(label, str(scene))
+
     settings = clip_settings_hash(_IMPORT, request)
+    folder = animations_dir(request)
     plans: list[_ImportPlan] = []
     for clip in exported:
         key = cache.key(_IMPORT, str(clip["output_hash"]), settings)
-        hit = not force and cache.get(key, job_dir=job_dir) is not None
-        plans.append((clip, key, hit))
+        entry = None if force else cache.get(key, job_dir=job_dir)
+        file = folder / str(clip["file"])
+        if entry is not None and not has_library_importer(file):
+            # The .import was lost, so Godot would import the clip as a scene: import it again.
+            entry = None
+        plans.append((clip, key, entry))
 
-    code = build_anim_import_code(_params(request, plans, compatible))
-    output = client().execute_python_code(code)
-    result = _parse(output)
-    _raise_blocked(request, result)
-    if result.get("error"):
-        raise PipelineError(
-            code="import_anims.failed",
-            message=f"UE import of the {request.collection} clips failed: {result['error']}",
-            remediation=_IMPORT_REMEDIATION,
-            stage=_IMPORT,
+    changed = [
+        ClipPlan(
+            name=str(clip["name"]),
+            file=folder / str(clip["file"]),
+            fps=float(clip["fps"]),
+            expected_frames=int(clip["frame_end"]) - int(clip["frame_start"]),
         )
-    reported = result.get("clips")
-    measured: dict[str, Any] = reported if isinstance(reported, dict) else {}
-    _verify(request, plans, measured)
+        for clip, _key, entry in plans
+        if entry is None
+    ]
+    project = find_project(request.export_root)
+    bones: dict[str, list[str]] = {}
+    compatible: list[str] = []
+    if changed or targets:
+        probe = import_clips(
+            client(), project, clips=changed, skeletons=[scene for _label, scene in targets]
+        )
+        bones = verify_clips(changed, probe["clips"])
+        required = set(chain.from_iterable(bones.values()))
+        for _clip, _key, entry in plans:
+            if entry is not None:
+                required.update(str(bone) for bone in _list(entry.outputs.get("bones")))
+        compatible = check_compatible(project, sorted(required), targets, probe["skeletons"])
 
     clips: list[dict[str, Any]] = []
-    for clip, key, hit in plans:
+    for clip, key, entry in plans:
         name = str(clip["name"])
-        if not hit:
-            outputs = {"name": name, "asset_path": clip_asset_path(request, name)}
+        asset_path = clip_asset_path(request, name, str(clip["file"]))
+        if entry is None:
+            outputs = {"name": name, "asset_path": asset_path, "bones": bones.get(name, [])}
             digest = output_hash(_IMPORT, outputs, {}, job_dir=job_dir)
             cache.put(
                 key, step=_IMPORT, output_hash=digest, outputs=outputs, blobs={}, job_dir=job_dir
             )
-        clips.append({"name": name, "asset_path": clip_asset_path(request, name), "cache_hit": hit})
+        clips.append({"name": name, "asset_path": asset_path, "cache_hit": entry is not None})
+    current = {str(clip["file"]) for clip in exported}
+    stale = [
+        resource_path(request, path)
+        for path in sorted(folder.glob(f"A_{request.collection}_*.glb"))
+        if path.name not in current
+    ]
     return {
         "clips": clips,
         "content_dir": content_path(request) if clips else None,
-        "stale": [str(path) for path in _list(result.get("stale"))],
-        "compatible": [str(path) for path in _list(result.get("compatible"))],
+        "stale": stale,
+        "compatible": compatible,
     }
 
 
@@ -250,7 +303,7 @@ def _clip_record(request: FinalizeRequest, item: Mapping[str, Any]) -> dict[str,
     return {
         "name": name,
         "file": str(item["file"]),
-        "asset_path": clip_asset_path(request, name),
+        "asset_path": clip_asset_path(request, name, str(item["file"])),
         "frame_start": int(item["frame_start"]),
         "frame_end": int(item["frame_end"]),
         "frame_count": int(item["frame_count"]),
@@ -267,7 +320,7 @@ def _write_sidecar(request: FinalizeRequest, clips: Sequence[Mapping[str, Any]])
     payload = {
         "asset": request.collection,
         "armature": ARMATURE_NAME,
-        "skeleton": desktop_skeleton_path(request),
+        "skeleton": resource_path(request, glb_path(request, "Desktop")),
         "clips": [
             {
                 "name": clip["name"],
@@ -285,115 +338,6 @@ def _write_sidecar(request: FinalizeRequest, clips: Sequence[Mapping[str, Any]])
     path = folder / SIDECAR_NAME
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
-
-
-def _params(
-    request: FinalizeRequest,
-    plans: Sequence[_ImportPlan],
-    compatible: Sequence[str],
-) -> dict[str, Any]:
-    clips = []
-    for clip, _key, hit in plans:
-        name = str(clip["name"])
-        clips.append(
-            {
-                "name": name,
-                "asset_name": clip_asset_name(request, name),
-                "asset_path": clip_asset_path(request, name),
-                "file": str(animations_dir(request) / str(clip["file"])),
-                "import": not hit,
-                "expected_frame_count": int(clip["frame_count"]),
-            }
-        )
-    targets = []
-    for item in compatible:
-        category, name = item.split("/", 1)
-        targets.append(
-            {"name": item, "skeleton": f"/Game/{category}/{name}/Desktop/SM_{name}_Skeleton"}
-        )
-    return {
-        "name": request.collection,
-        "anim_dir": content_path(request),
-        "skeleton": desktop_skeleton_path(request),
-        "prefix": f"A_{request.collection}_",
-        "clips": clips,
-        "compatible": targets,
-    }
-
-
-def _parse(output: str) -> dict[str, Any]:
-    try:
-        return parse_nmg_result(output)
-    except PipelineError as error:
-        raise PipelineError(
-            code="import_anims.failed",
-            message=error.message,
-            remediation=_IMPORT_REMEDIATION,
-            stage=_IMPORT,
-        ) from error
-
-
-def _raise_blocked(request: FinalizeRequest, result: Mapping[str, Any]) -> None:
-    blocked = result.get("blocked")
-    if not isinstance(blocked, dict):
-        return
-    own = desktop_skeleton_path(request)
-    target = str(blocked.get("target", ""))
-    if blocked.get("code") == "skeleton_mismatch":
-        bones = ", ".join(str(bone) for bone in _list(blocked.get("bones")))
-        raise PipelineError(
-            code="finalize.skeleton_mismatch",
-            message=f"{target} has different bone names from {own}: {bones}.",
-            remediation="Only register characters rigged with the same bone names.",
-            stage=_IMPORT,
-        )
-    if target == own:
-        remediation = (
-            f"Run import_ue for {request.category}/{request.collection} first, then rerun "
-            "import_anims."
-        )
-    else:
-        remediation = (
-            f"Finalize {target} first so its Desktop skeleton exists, or remove it from "
-            "compatible_with, then rerun import_anims."
-        )
-    raise PipelineError(
-        code="finalize.skeleton_not_found",
-        message=f"The skeleton {blocked.get('path', target)} does not exist in the project.",
-        remediation=remediation,
-        stage=_IMPORT,
-    )
-
-
-def _verify(
-    request: FinalizeRequest,
-    plans: Sequence[_ImportPlan],
-    measured: Mapping[str, Any],
-) -> None:
-    """Compare each clip's measured skeleton and key count with the sidecar values."""
-    expected_skeleton = desktop_skeleton_path(request)
-    for clip, _key, _hit in plans:
-        name = str(clip["name"])
-        seen = measured.get(name)
-        if not isinstance(seen, dict):
-            raise PipelineError(
-                code="import_anims.clip_mismatch",
-                message=f"Clip {name} has no measured AnimSequence after import_anims.",
-                remediation=_MISMATCH_REMEDIATION,
-                stage=_IMPORT,
-            )
-        checks = (
-            ("frame count", int(clip["frame_count"]), seen.get("frame_count")),
-            ("skeleton", expected_skeleton, seen.get("skeleton")),
-        )
-        for field, expected, actual in checks:
-            if actual != expected:
-                raise PipelineError(
-                    code="import_anims.clip_mismatch",
-                    message=f"Clip {name} {field}: expected {expected}, measured {actual}.",
-                    remediation=_MISMATCH_REMEDIATION,
-                    stage=_IMPORT,
-                )
 
 
 def _list(value: object) -> list[Any]:

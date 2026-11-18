@@ -14,15 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-
-@dataclass(frozen=True)
-class CommandResult:
-    """The outcome of one external command."""
-
-    returncode: int
-    stdout: str = ""
-    stderr: str = ""
-
+from nmg_game_dev.process import CommandResult as CommandResult
 
 Runner = Callable[[Sequence[str], Mapping[str, str] | None], CommandResult]
 Which = Callable[[str], str | None]

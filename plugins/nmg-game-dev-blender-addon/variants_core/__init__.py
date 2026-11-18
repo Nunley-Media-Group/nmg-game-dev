@@ -1,4 +1,4 @@
-"""Variant core: Desktop cleanup, Mobile decimation with LODs, and FBX and sidecar export.
+"""Variant core: Desktop cleanup, Mobile decimation, and GLB and sidecar export.
 
 The operators and the finalize pipeline call these functions directly. Every failure is
 raised as VariantError with a stable code, message, and remediation, before any file is
@@ -25,7 +25,7 @@ from .cleanup import cleanup_desktop
 from .errors import VariantError
 from .export import export_variants
 from .mobile import build_mobile
-from .sidecars import write_sidecars
+from .sidecars import mesh_payload, write_sidecars
 from .textures import max_texture_px, source_images
 
 __all__ = [
@@ -68,39 +68,29 @@ def generate_variants(
     mobile = build_mobile(collection_name, budget)
     exported = export_variants(collection_name, category, export_root)
 
-    payload: dict[str, Any] = {
-        "name": collection_name,
-        "category": category,
-        "class": asset_class,
-        "budget": budget,
-        "rigged": exported["rigged"],
+    metrics = {
         "desktop": {
-            "fbx": f"Desktop/SM_{collection_name}.fbx",
             "tris": cleanup["tris_after"],
-            "texture_bytes": exported["desktop_texture_bytes"],
             "max_texture_px": desktop_px,
             "materials": len(desktop_materials),
         },
-        "mobile": {
-            "fbx": f"Mobile/SM_{collection_name}.fbx",
-            "tris": mobile["tris"],
-            "lod_tris": mobile["lod_tris"],
-            "lod_levels": mobile["lod_levels"],
-            "texture_bytes": exported["mobile_texture_bytes"],
-            "max_texture_px": mobile["max_texture_px"],
-            "materials": mobile["materials"],
-        },
+        "mobile": mobile,
     }
-    if exported["rigged"]:
-        payload["mobile"]["lod_files"] = [
-            f"Mobile/{path.name}" for path in exported["mobile_fbx_files"]
-        ]
-    write_sidecars(Path(export_root) / category / collection_name, payload)
+    payload = mesh_payload(
+        collection=collection_name,
+        category=category,
+        asset_class=asset_class,
+        budget=budget,
+        metrics=metrics,
+        exported=exported,
+    )
+    assets = write_sidecars(Path(export_root) / category / collection_name, payload)
 
     return {
         **payload,
-        "desktop_path": str(exported["desktop_fbx"]),
-        "mobile_path": str(exported["mobile_fbx"]),
+        "desktop_path": str(exported["desktop_glb"]),
+        "mobile_path": str(exported["mobile_glb"]),
+        "asset_sidecars": {variant: str(path) for variant, path in assets.items()},
         "poly_count_desktop": cleanup["tris_after"],
         "poly_count_mobile": mobile["tris"],
         "texture_bytes_desktop": exported["desktop_texture_bytes"],

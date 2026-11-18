@@ -2,7 +2,9 @@
 
 The guard reads the snippets as they are checked in. It fails when a prompt-to-asset term returns,
 when the tech snippet's long-running Blender section stops naming the finalize job runner, MCP
-tools, and CLI, or when that section points at an issue instead of describing the design.
+tools, and CLI, or when that section points at an issue instead of describing the design. Since
+#249 it also fails when the snippets stop describing the headless Godot flow: Godot as the engine,
+never pinned, `godot --headless` only, a Blender-only session start, and the Godot layout.
 """
 
 from __future__ import annotations
@@ -20,13 +22,17 @@ _STRUCTURE_PATHS = (
     "plugins/nmg-game-dev-blender-addon/finalize_core/",
     "scripts/blender/finalize_entry.py",
     "scripts/blender/finalize_session.py",
-    "scripts/unreal/build_master_material.py",
     "mcp-servers/finalize/",
     "src/nmg_game_dev/finalize/",
     "src/nmg_game_dev/pipeline/",
-    "src/nmg_game_dev/unreal/",
+    "src/nmg_game_dev/godot/",
+    "src/nmg_game_dev/convert/",
+    "plugins/nmg-game-dev-godot-addon/",
+    "tests/godot/",
 )
-_RETIRED_STRUCTURE_PATHS = ("pipeline/stages", "prompt.py")
+_RETIRED_STRUCTURE_PATHS = ("pipeline/stages", "prompt.py", "fixtures/", "build-platform")
+_SESSION_START_HEADING = "### Session-start contract"
+_GODOT_ENV = ("GODOT_BIN", "FFMPEG_BIN")
 
 
 def _snippet(repo_root: pathlib.Path, name: str) -> str:
@@ -83,3 +89,65 @@ def test_structure_lists_finalize_locations(repo_root: pathlib.Path, path: str) 
 @pytest.mark.parametrize("path", _RETIRED_STRUCTURE_PATHS)
 def test_structure_omits_retired_stage_modules(repo_root: pathlib.Path, path: str) -> None:
     assert path not in _snippet(repo_root, "project-structure.md")
+
+
+def test_product_snippet_names_godot_and_the_conversion_path(repo_root: pathlib.Path) -> None:
+    text = _snippet(repo_root, "project-product.md")
+    assert "Godot 4" in text
+    assert "/convert-to-godot" in text
+    assert "docs/skills/convert-to-godot.md" in text
+
+
+def test_tech_stack_tracks_latest_godot_and_runs_it_headless(repo_root: pathlib.Path) -> None:
+    stack = _section(_snippet(repo_root, "project-tech.md"), "## Technology Stack")
+    assert "Godot 4" in stack
+    assert "latest stable" in stack
+    assert "never pinned" in stack
+    assert "godot --headless" in stack
+    assert "no live editor bridge" in stack
+
+
+def test_tech_session_start_contract_is_blender_only(repo_root: pathlib.Path) -> None:
+    section = _section(_snippet(repo_root, "project-tech.md"), _SESSION_START_HEADING)
+    assert "start-blender-mcp.sh" in section
+    scripts = set(re.findall(r"start-[a-z-]+\.sh", section))
+    assert scripts == {"start-blender-mcp.sh"}
+
+
+@pytest.mark.parametrize("variable", _GODOT_ENV)
+def test_tech_environment_tables_name_the_godot_tools(
+    repo_root: pathlib.Path, variable: str
+) -> None:
+    env = _section(_snippet(repo_root, "project-tech.md"), "### Required (per capability)")
+    assert f"`{variable}`" in env
+
+
+def test_tech_environment_drops_remote_windows_builds(repo_root: pathlib.Path) -> None:
+    env = _section(_snippet(repo_root, "project-tech.md"), "### Required (per capability)")
+    assert "WINDOWS_BUILD" not in env
+    assert "WINDOWS_REMOTE" not in env
+
+
+def test_tech_ship_flow_exports_through_godot_presets(repo_root: pathlib.Path) -> None:
+    ship = _section(_snippet(repo_root, "project-tech.md"), "### Ship flow")
+    assert "--export-release" in ship
+    assert "export_presets.cfg" in ship
+    assert "web" in ship
+    assert "locally" in ship
+
+
+def test_structure_restates_the_split_variant_rule_for_godot(repo_root: pathlib.Path) -> None:
+    text = _snippet(repo_root, "project-structure.md")
+    assert "game/assets/<Category>/<Name>/Desktop/" in text
+    assert "game/assets/<Category>/<Name>/Mobile/" in text
+    assert "NmgAssets.resolve_variant_path" in text
+    assert "assets/*/Desktop/*" in text
+    assert "assets/*/Mobile/*" in text
+
+
+def test_structure_names_gdscript_conventions(repo_root: pathlib.Path) -> None:
+    text = _snippet(repo_root, "project-structure.md")
+    naming = _section(text, "### GDScript (Godot add-on, probes, scaffolds)")
+    assert "snake_case.gd" in naming
+    assert "class_name" in naming
+    assert "PascalCase" in naming

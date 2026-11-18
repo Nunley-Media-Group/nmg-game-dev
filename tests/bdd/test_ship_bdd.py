@@ -1,13 +1,14 @@
-"""pytest-bdd bindings for ship.feature: the eleven acceptance scenarios of #6 (SCN001-SCN011).
+"""pytest-bdd bindings for ship.feature: the Godot ship scenarios (#6 SCN001-SCN011, #249 AC9).
 
-Each scenario runs the real runner and scripts against the PATH shims in ``tests/ship_fakes.py``. No
-scenario contacts Apple, Google, or a store, reads a keychain, or reads a real credential. The
-scenarios that need live notarization, a real UAT build, or a real remote host are not run here.
+Each scenario runs the real runner, and the real sign and notarize scripts, against the fake Godot
+and PATH shims in ``tests/ship_fakes.py``. No scenario runs Godot, contacts Apple, Google, or a
+store, reads a keychain, or reads a real credential.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,23 +16,31 @@ from pathlib import Path
 import pytest
 from pytest_bdd import given, parsers, scenario, then, when
 
-from nmg_game_dev.quality.mobile_budgets import MobileBudgetAudit, check_mobile_budgets
-from nmg_game_dev.ship.artifacts import ReleaseEntry
+from nmg_game_dev.godot.runner import CommandResult
+from nmg_game_dev.quality.mobile_budgets import (
+    OVERRIDES_NAME,
+    MobileBudgetAudit,
+    check_mobile_budgets,
+)
+from nmg_game_dev.ship.artifacts import ReleaseEntry, artifact_sha256
 from nmg_game_dev.ship.errors import ShipError
-from nmg_game_dev.ship.runner import run_ship
 from tests.ship_fakes import (
+    APP,
     REPO_ROOT,
     ShipSandbox,
     make_sandbox,
     parse_frontmatter,
+    write_mobile_report,
 )
 
 _SECRETS = (
     "placeholder-app-password",
     "placeholder-keystore-password",
 )
+_IDENTITY = "Developer ID Application: Example Studio (SMOKE00000)"
 _SMOKE_SCRIPT = REPO_ROOT / "scripts" / "ship-smoke.sh"
 _SKILL = REPO_ROOT / "skills" / "ship" / "SKILL.md"
+_MIB = 1024 * 1024
 
 
 @dataclass
@@ -56,9 +65,7 @@ def ship(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> ShipScenario:
 
 def _run(ship: ShipScenario, target: str, *, dry_run: bool = False) -> None:
     try:
-        ship.entries = run_ship(
-            target, ship.sandbox.project, ship.sandbox.release_dir, dry_run, ship.sandbox.env
-        )
+        ship.entries = ship.sandbox.ship(target, dry_run=dry_run)
     except ShipError as error:
         ship.error = error
     captured = ship.capsys.readouterr()
@@ -72,120 +79,129 @@ def _artifacts(ship: ShipScenario, platform: str) -> list[Path]:
     return [path for path in folder.rglob("*") if path.is_file()]
 
 
-def _project_file(ship: ShipScenario, rel: str, report: dict[str, object] | None) -> None:
-    path = ship.sandbox.project.parent / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if report is not None:
-        path.write_text(json.dumps(report), encoding="utf-8")
+def _notes(ship: ShipScenario) -> str:
+    return (ship.sandbox.release_dir / "RELEASE-NOTES.md").read_text(encoding="utf-8")
 
 
-@scenario("ship.feature", "Ship macOS packages, signs, notarizes, and releases the app")
-def test_ship_macos_packages_signs_notarizes_and_releases() -> None:
-    """AC1: a macOS ship runs UAT, codesigns, notarizes, staples, and publishes the .app."""
+@scenario("ship.feature", "Ship macOS exports, signs, notarizes, and releases the app")
+def test_ship_macos_exports_signs_notarizes_and_releases() -> None:
+    """SCN001: a macOS ship exports, codesigns, notarizes, staples, and lists the .app."""
 
 
-@scenario("ship.feature", "Dry-run ship reports the plan without building")
+@scenario("ship.feature", "Dry-run ship reports the plan without exporting")
 def test_dry_run_ship_reports_the_plan() -> None:
-    """AC2: a dry-run ship runs no tool and writes the plan."""
+    """SCN002: a dry-run ship runs no Godot or tool and writes the plan."""
 
 
-@scenario("ship.feature", "Ship mobile produces an .ipa and an .aab")
-def test_ship_mobile_produces_ipa_and_aab() -> None:
-    """AC3: a mobile ship publishes an .ipa and an .aab and keeps the password out of output."""
+@scenario("ship.feature", "Ship exports every target through Godot")
+def test_ship_exports_every_target_through_godot() -> None:
+    """SCN003 (#249 SCN009): the gates run first, then every platform exports its artifact."""
 
 
-@scenario("ship.feature", "Cook-manifest gate blocks cross-variant leakage")
-def test_cook_manifest_gate_blocks_leakage() -> None:
-    """AC4: a Desktop path in the iOS cooked content blocks the iOS artifact."""
+@scenario("ship.feature", "A script that does not parse stops the ship")
+def test_a_script_that_does_not_parse_stops_the_ship() -> None:
+    """SCN004: --check-only failing on one script stops the ship before any export."""
 
 
-@scenario("ship.feature", "Windows build runs on the remote host")
-def test_windows_build_runs_on_the_remote_host() -> None:
-    """AC5: the Windows build runs over SSH and the .exe is copied back."""
+@scenario("ship.feature", "A large web pack warns")
+def test_a_large_web_pack_warns() -> None:
+    """SCN005: a web index.pck over 38 MiB prints ship.web_pack_large and still ships."""
 
 
-@scenario("ship.feature", "Mobile budget gate blocks an over-budget asset before any build")
+@scenario("ship.feature", "Mobile budget gate blocks an over-budget asset before any export")
 def test_mobile_budget_gate_blocks_over_budget_asset() -> None:
-    """AC6: an over-budget Mobile asset stops the ship before any UAT invocation."""
+    """SCN006: an over-budget Mobile asset stops the ship before any export."""
 
 
 @scenario("ship.feature", "A Mobile variant without a report fails the budget gate")
 def test_mobile_variant_without_report_fails_gate() -> None:
-    """AC7: a Mobile folder with no nmg-asset.json fails with ship.budget_report_missing."""
+    """SCN007: a Mobile folder with no nmg-asset.json fails with ship.budget_report_missing."""
 
 
 @scenario("ship.feature", "Consumer budget overrides apply")
 def test_consumer_budget_overrides_apply() -> None:
-    """AC8: nmg-budgets.json raises the standard_prop tris budget, and the gate passes."""
+    """SCN008: nmg-budgets.json raises the standard_prop tris budget, and the gate passes."""
 
 
 @scenario("ship.feature", "Missing prerequisites fail fast without leaking secrets")
 def test_missing_prerequisites_fail_fast() -> None:
-    """AC9: an unset NOTARIZATION_TEAM_ID stops the ship before any UAT invocation."""
+    """SCN009: an unset NOTARIZATION_TEAM_ID stops the ship before any Godot command."""
 
 
 @scenario("ship.feature", "Ship smoke dry-run succeeds on the fixture project")
 def test_ship_smoke_dry_run_succeeds() -> None:
-    """AC10: scripts/ship-smoke.sh runs a dry-run all ship of the fixture and exits 0."""
+    """SCN010: scripts/ship-smoke.sh runs a dry-run all ship of the fixture and exits 0."""
 
 
 @scenario("ship.feature", "The ship skill is the single Claude Code entry point")
 def test_ship_skill_is_the_entry_point() -> None:
-    """AC11: the ship skill has the required frontmatter and invokes the CLI."""
+    """SCN011: the ship skill has the required frontmatter and invokes the CLI."""
 
 
 # --- Given ---------------------------------------------------------------------------------
 
 
-@given("a consumer project, a UE_ROOT with RunUAT.sh, and notarization variables set")
-def _consumer_with_engine(ship: ShipScenario) -> None:
-    # An earlier macOS build sits in release/ so the replacement can be checked.
-    stale = ship.sandbox.release_dir / "macos" / "Dogfood.app" / "stale.marker"
+@given("a consumer Godot project with notarization variables set and an earlier macOS build")
+def _consumer_with_earlier_build(ship: ShipScenario) -> None:
+    stale = ship.sandbox.release_dir / "macos" / "Old.app" / "stale.marker"
     stale.parent.mkdir(parents=True)
     stale.write_text("earlier build", encoding="utf-8")
 
 
-@given("a consumer project with notarization variables set and no Unreal Engine installed")
-def _consumer_without_engine(ship: ShipScenario) -> None:
-    ship.sandbox.env["UE_ROOT"] = str(ship.sandbox.project.parent / "no-engine-here")
+@given("a consumer Godot project with notarization variables set")
+def _consumer(ship: ShipScenario) -> None:
+    assert ship.sandbox.env["NOTARIZATION_TEAM_ID"]
 
 
-@given("iOS and Android signing variables are set and every Mobile variant is within budget")
-def _mobile_signing_set(ship: ShipScenario) -> None:
-    assert ship.sandbox.env["IOS_PROVISIONING_PROFILE"]
-    assert ship.sandbox.env["ANDROID_KEYSTORE_PASSWORD"]
+@given('a consumer Godot project with project tests and the environment for target "all"')
+def _consumer_for_all(ship: ShipScenario) -> None:
+    tests = ship.sandbox.game / "tests"
+    tests.mkdir()
+    (tests / "run_tests.gd").write_text("extends SceneTree\n", encoding="utf-8")
+    write_mobile_report(
+        ship.sandbox.game,
+        "Props/Crate",
+        {"class": "standard_prop", "tris": 2800, "max_texture_px": 1024, "materials": 1},
+    )
 
 
-@given(parsers.parse('the iOS cooked content contains "{rel_path}"'))
-def _ios_leak(ship: ShipScenario, rel_path: str) -> None:
-    ship.sandbox.env["NMG_SHIP_FAKE_COOK_LEAK"] = rel_path
+@given(parsers.parse('"{rel}" in the consumer project does not parse'))
+def _broken_script(ship: ShipScenario, rel: str) -> None:
+    def check(args: list[str], project: Path) -> CommandResult:
+        if args[2] == f"res://{rel}":
+            return CommandResult(1, stderr="SCRIPT ERROR: Parse Error: Unexpected token.\n")
+        return CommandResult(0)
+
+    ship.sandbox.godot.responses["--check-only"] = check
 
 
-@given("the Windows build host, user, SSH key, and remote project path are set")
-def _windows_set(ship: ShipScenario) -> None:
-    assert ship.sandbox.env["WINDOWS_REMOTE_PROJECT_PATH"]
+@given(parsers.parse("the web export writes an index.pck of {size:d} MiB"))
+def _large_web_pack(ship: ShipScenario, size: int) -> None:
+    ship.sandbox.web_pack_bytes = size * _MIB
 
 
-@given(parsers.parse('"{rel_path}" reports a standard_prop with {tris:d} tris'))
-def _standard_prop_report(ship: ShipScenario, rel_path: str, tris: int) -> None:
-    _project_file(
-        ship,
-        rel_path,
+@given(
+    parsers.parse(
+        '"assets/{rel_dir}/Mobile/nmg-asset.json" reports a standard_prop with {tris:d} tris'
+    )
+)
+def _standard_prop_report(ship: ShipScenario, rel_dir: str, tris: int) -> None:
+    write_mobile_report(
+        ship.sandbox.game,
+        rel_dir,
         {"class": "standard_prop", "tris": tris, "max_texture_px": 1024, "materials": 1},
     )
 
 
-@given(parsers.parse('"{rel_dir}" has no nmg-asset.json'))
+@given(parsers.parse('"assets/{rel_dir}/Mobile/" has no nmg-asset.json'))
 def _mobile_folder_without_report(ship: ShipScenario, rel_dir: str) -> None:
-    (ship.sandbox.project.parent / rel_dir).mkdir(parents=True, exist_ok=True)
+    write_mobile_report(ship.sandbox.game, rel_dir, None)
 
 
 @given("nmg-budgets.json sets standard_prop tris to 5000")
 def _override_tris(ship: ShipScenario) -> None:
-    _project_file(
-        ship,
-        "nmg-budgets.json",
-        {"standard_prop": {"tris": 5000}},
+    (ship.sandbox.game.parent / OVERRIDES_NAME).write_text(
+        json.dumps({"standard_prop": {"tris": 5000}}), encoding="utf-8"
     )
 
 
@@ -194,7 +210,7 @@ def _team_unset(ship: ShipScenario) -> None:
     ship.sandbox.env.pop("NOTARIZATION_TEAM_ID")
 
 
-@given("the repository checkout with no Unreal Engine install")
+@given("the repository checkout with no Godot install required")
 def _checkout(ship: ShipScenario) -> None:
     assert _SMOKE_SCRIPT.is_file()
 
@@ -213,15 +229,22 @@ def _ship_command(ship: ShipScenario, command: str) -> None:
     _run(ship, parts[0], dry_run="--dry-run" in parts)
 
 
-@when("gate-mobile-budgets runs")
+@when("the mobile budget gate runs")
 def _gate(ship: ShipScenario) -> None:
-    ship.audit = check_mobile_budgets(ship.sandbox.project.parent)
+    game = ship.sandbox.game
+    ship.audit = check_mobile_budgets(game / "assets", game.parent / OVERRIDES_NAME)
 
 
 @when("scripts/ship-smoke.sh runs")
 def _smoke(ship: ShipScenario) -> None:
-    uv = _uv_dir()
-    env = {"PATH": f"{uv}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(REPO_ROOT), "LANG": "C"}
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv is required to run scripts/ship-smoke.sh")
+    env = {
+        "PATH": f"{Path(uv).parent}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": str(REPO_ROOT),
+        "LANG": "C",
+    }
     ship.smoke = subprocess.run(
         [str(_SMOKE_SCRIPT)],
         cwd=REPO_ROOT,
@@ -238,144 +261,145 @@ def _parse_skill(ship: ShipScenario) -> None:
     ship.frontmatter = parse_frontmatter(ship.skill_text)
 
 
-def _uv_dir() -> str:
-    import shutil
-
-    uv = shutil.which("uv")
-    if uv is None:
-        pytest.skip("uv is required to run scripts/ship-smoke.sh")
-    return str(Path(uv).parent)
-
-
 # --- Then ----------------------------------------------------------------------------------
 
 
-@then("RunUAT BuildCookRun is invoked with -platform=Mac and Shipping package flags")
-def _uat_mac(ship: ShipScenario) -> None:
-    (argv,) = ship.sandbox.calls("RunUAT.sh")
-    for flag in ("BuildCookRun", "-platform=Mac", "-clientconfig=Shipping", "-cook", "-stage"):
-        assert flag in argv
-    for flag in ("-pak", "-package", "-archive"):
-        assert flag in argv
+@then(parsers.parse('Godot exports the "{preset}" preset headless'))
+def _exported(ship: ShipScenario, preset: str) -> None:
+    assert ship.error is None, ship.error
+    assert ship.sandbox.exports() == [preset]
 
 
 @then("the .app is codesigned with the team's signing identity")
 def _codesigned(ship: ShipScenario) -> None:
-    signed = ship.sandbox.calls("codesign")[0]
-    identity = signed[signed.index("--sign") + 1]
-    assert "(SMOKE00000)" in identity
+    app = ship.sandbox.release_dir / "macos" / f"{APP}.app"
+    sign = ship.sandbox.calls("codesign")[0]
+    assert sign[5:8] == ["--sign", _IDENTITY, str(app)]
 
 
 @then("the .app is submitted with notarytool for the team and stapled")
 def _notarized(ship: ShipScenario) -> None:
+    app = ship.sandbox.release_dir / "macos" / f"{APP}.app"
     xcrun = ship.sandbox.calls("xcrun")
-    submit = next(call for call in xcrun if call[:2] == ["notarytool", "submit"])
+    (submit,) = [call for call in xcrun if call[:2] == ["notarytool", "submit"]]
     assert submit[submit.index("--team-id") + 1] == "SMOKE00000"
-    assert any(call[:2] == ["stapler", "staple"] for call in xcrun)
+    assert ["stapler", "staple", str(app)] in xcrun
 
 
-@then("the signed .app is in release/macos/ replacing any earlier .app")
+@then("the signed .app is in release/macos/ replacing any earlier build")
 def _replaced(ship: ShipScenario) -> None:
-    assert (ship.sandbox.release_dir / "macos" / "Dogfood.app").is_dir()
-    assert not (ship.sandbox.release_dir / "macos" / "Dogfood.app" / "stale.marker").exists()
+    macos = ship.sandbox.release_dir / "macos"
+    assert (macos / f"{APP}.app").is_dir()
+    assert not (macos / "Old.app").exists()
 
 
 @then("release/RELEASE-NOTES.md lists the .app with its SHA-256")
-def _notes(ship: ShipScenario) -> None:
-    notes = (ship.sandbox.release_dir / "RELEASE-NOTES.md").read_text(encoding="utf-8")
+def _notes_list_app(ship: ShipScenario) -> None:
     (entry,) = ship.entries
-    assert "macos/Dogfood.app" in notes
-    assert entry.sha256 in notes
+    assert entry.path == f"macos/{APP}.app"
+    assert f"| macos | `{entry.path}` | `{entry.sha256}` |" in _notes(ship)
 
 
-@then("no UAT, codesign, security, or xcrun process runs")
+@then("no Godot, codesign, or xcrun process runs")
 def _nothing_ran(ship: ShipScenario) -> None:
-    assert ship.sandbox.calls() == []
+    assert ship.error is None, ship.error
+    assert ship.sandbox.godot.calls == []
+    assert not ship.sandbox.invoked("codesign")
+    assert not ship.sandbox.invoked("xcrun")
 
 
 @then(
     'each planned command is printed with a "DRY-RUN:" prefix including a notarization dry-run pass'
 )
 def _planned(ship: ShipScenario) -> None:
-    assert "DRY-RUN:" in ship.output
+    assert "DRY-RUN: godot --headless" in ship.output
+    assert "--export-release macOS" in ship.output
+    assert "DRY-RUN: codesign" in ship.output
     assert "DRY-RUN: notarization pass (no submission) for team SMOKE00000" in ship.output
 
 
-@then("release/macos/DRY-RUN.txt records the plan and the command exits 0")
+@then("release/macos/DRY-RUN.txt records the plan")
 def _dry_run_file(ship: ShipScenario) -> None:
-    assert ship.error is None
     dry = (ship.sandbox.release_dir / "macos" / "DRY-RUN.txt").read_text(encoding="utf-8")
-    assert "DRY-RUN:" in dry
+    assert "--export-release macOS" in dry
+    assert "DRY-RUN: notarization pass" in dry
+    assert "DRY RUN" in _notes(ship)
 
 
-@then("UAT is invoked for IOS and for Android")
-def _uat_mobile(ship: ShipScenario) -> None:
-    platforms = [
-        next(arg for arg in call if arg.startswith("-platform="))
-        for call in ship.sandbox.calls("RunUAT.sh")
-    ]
-    assert platforms == ["-platform=IOS", "-platform=Android"]
+@then("the script check, the project tests, and the mobile budget gate run before any export")
+def _gates_first(ship: ShipScenario) -> None:
+    assert ship.error is None, ship.error
+    commands = ship.sandbox.godot_commands()
+    first_export = next(i for i, call in enumerate(commands) if call[0] == "--export-release")
+    before = commands[:first_export]
+    assert [call[0] for call in before[:-1]] == ["--check-only"] * (len(before) - 1)
+    assert before[-1] == ["-s", "res://tests/run_tests.gd"]
+    # The budget gate passed (a within-budget Mobile report exists), so the mobile exports ran.
+    assert "iOS" in ship.sandbox.exports()
 
 
-@then("an .ipa is in release/ios/ and an .aab is in release/android/")
-def _ipa_aab(ship: ShipScenario) -> None:
-    assert ship.error is None
-    assert (ship.sandbox.release_dir / "ios" / "Dogfood.ipa").is_file()
-    assert (ship.sandbox.release_dir / "android" / "Dogfood.aab").is_file()
+@then(
+    "release/ holds the macOS .app, the .ipa, the .aab, the .exe, and the web folder, each with "
+    "SHA-256 in RELEASE-NOTES.md"
+)
+def _all_artifacts(ship: ShipScenario) -> None:
+    release = ship.sandbox.release_dir
+    expected = {
+        "macos": f"macos/{APP}.app",
+        "windows": f"windows/{APP}.exe",
+        "ios": f"ios/{APP}.ipa",
+        "android": f"android/{APP}.aab",
+        "web": "web",
+    }
+    assert {entry.platform: entry.path for entry in ship.entries} == expected
+    notes = _notes(ship)
+    for entry in ship.entries:
+        assert (release / entry.path).exists()
+        assert entry.sha256 == artifact_sha256(release / entry.path)
+        assert f"`{entry.path}` | `{entry.sha256}`" in notes
+    assert (release / "web" / "index.html").is_file()
 
 
-@then("the mobile cook-manifest gate passed for both platforms")
-def _gate_passed(ship: ShipScenario) -> None:
-    # A platform is published only after its cook-manifest gate passes, so both entries prove it.
-    assert [entry.platform for entry in ship.entries] == ["ios", "android"]
+@then("no WINDOWS_BUILD_* variable was required")
+def _no_windows_vars(ship: ShipScenario) -> None:
+    assert not any(name.startswith("WINDOWS_") for name in ship.sandbox.env)
 
 
 @then("the Android keystore password does not appear in the output")
 def _no_password(ship: ShipScenario) -> None:
-    for secret in _SECRETS:
-        assert secret not in ship.output
+    assert "placeholder-keystore-password" not in ship.output
 
 
-@then("verify-cook-manifest.sh reports the Desktop path")
-def _reports_path(ship: ShipScenario) -> None:
-    assert "Content/Props/Crate/Desktop/SM_Crate.uasset" in ship.output
-
-
-@then("the ship exits non-zero with a remediation")
-def _non_zero(ship: ShipScenario) -> None:
+@then(parsers.parse('the ship fails with code "{code}" naming "{rel}"'))
+def _fails_naming(ship: ShipScenario, code: str, rel: str) -> None:
     assert ship.error is not None
-    assert ship.error.remediation
+    assert ship.error.code == code
+    assert rel in ship.error.message
 
 
-@then("no artifact is in release/ios/")
-def _no_ios(ship: ShipScenario) -> None:
-    assert _artifacts(ship, "ios") == []
+@then("no preset is exported")
+def _no_export(ship: ShipScenario) -> None:
+    assert ship.sandbox.exports() == []
 
 
-@then("ssh invokes RunUAT.bat BuildCookRun with -platform=Win64 on the remote project")
-def _ssh_uat(ship: ShipScenario) -> None:
-    remote = ship.sandbox.calls("ssh")[0][-1]
-    assert "RunUAT.bat" in remote
-    assert "BuildCookRun" in remote
-    assert "-platform=Win64" in remote
-    assert "C:\\build\\Dogfood\\Dogfood.uproject" in remote
+@then(parsers.parse('the output warns "{warning}"'))
+def _warns(ship: ShipScenario, warning: str) -> None:
+    assert ship.error is None, ship.error
+    assert warning in ship.output
 
 
-@then("the remote cooked listing passes the desktop cook-manifest gate")
-def _listing_passed(ship: ShipScenario) -> None:
-    assert [entry.platform for entry in ship.entries] == ["windows"]
+@then("release/web/ is listed in RELEASE-NOTES.md")
+def _web_listed(ship: ShipScenario) -> None:
+    (entry,) = ship.entries
+    assert entry.path == "web"
+    assert f"| web | `web` | `{entry.sha256}` |" in _notes(ship)
 
 
-@then("a .exe is copied back into release/windows/")
-def _exe(ship: ShipScenario) -> None:
-    assert (ship.sandbox.release_dir / "windows" / "Dogfood.exe").is_file()
-
-
-@then("gate-mobile-budgets fails before any UAT invocation")
-def _gate_fails_before_uat(ship: ShipScenario) -> None:
+@then("the mobile budget gate fails before any export")
+def _gate_fails_before_export(ship: ShipScenario) -> None:
     assert ship.error is not None
     assert ship.error.code == "ship.mobile_budget_exceeded"
-    assert not ship.sandbox.invoked("RunUAT.sh")
+    assert ship.sandbox.exports() == []
 
 
 @then("no artifact is in release/ios/ or release/android/")
@@ -387,9 +411,7 @@ def _no_mobile(ship: ShipScenario) -> None:
 @then('the remediation names "Props/Crate", tris, 4200, budget 3000, and overage 1200')
 def _names_overage(ship: ShipScenario) -> None:
     assert ship.error is not None
-    remediation = ship.error.remediation
-    for text in ("Props/Crate", "tris", "4200", "3000", "1200"):
-        assert text in remediation
+    assert "Props/Crate: tris 4200 > 3000 (+1200)" in ship.error.remediation
 
 
 @then(parsers.parse('it fails with code "{code}" telling the developer to finalize "{asset}"'))
@@ -398,21 +420,21 @@ def _missing_report(ship: ShipScenario, code: str, asset: str) -> None:
     assert ship.audit.passed is False
     (finding,) = ship.audit.findings
     assert finding.code == code
-    assert f"finalize {asset} to write Mobile/nmg-asset.json" in finding.remediation
+    assert f"finalize {asset}" in finding.remediation
 
 
 @then("the gate passes")
 def _gate_passes(ship: ShipScenario) -> None:
     assert ship.audit is not None
-    assert ship.audit.passed is True
+    assert ship.audit.passed is True, ship.audit.findings
 
 
-@then("it exits 1 before any UAT invocation naming NOTARIZATION_TEAM_ID")
-def _exits_1(ship: ShipScenario) -> None:
+@then("it fails before any Godot command naming NOTARIZATION_TEAM_ID")
+def _fails_before_godot(ship: ShipScenario) -> None:
     assert ship.error is not None
     assert ship.error.code == "ship.env_missing"
     assert "NOTARIZATION_TEAM_ID" in ship.error.message
-    assert not ship.sandbox.invoked("RunUAT.sh")
+    assert ship.sandbox.godot.calls == []
 
 
 @then("no secret value appears in the output")
@@ -423,11 +445,12 @@ def _no_secret(ship: ShipScenario) -> None:
         assert secret not in text
 
 
-@then('a dry-run "all" ship of fixtures/dogfood.uproject exits 0')
+@then('a dry-run "all" ship of tests/godot/fixture/project.godot exits 0')
 def _smoke_exits_0(ship: ShipScenario) -> None:
     assert ship.smoke is not None
     assert ship.smoke.returncode == 0, ship.smoke.stderr
     assert "DRY-RUN" in ship.smoke.stdout
+    assert "tests/godot/fixture" in ship.smoke.stdout
 
 
 @then(

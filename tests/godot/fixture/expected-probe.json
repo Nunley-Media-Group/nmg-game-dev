@@ -1,0 +1,13 @@
+{
+  "meshes": [
+    {
+      "name": "Crate",
+      "tris": 12,
+      "material_slots": 1,
+      "bounds": {
+        "min": [-0.5, -0.5, -0.5],
+        "max": [0.5, 0.5, 0.5]
+      }
+    }
+  ]
+}

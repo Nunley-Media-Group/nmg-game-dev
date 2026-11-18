@@ -1,15 +1,16 @@
 """Command line for the design backlog (#112).
 
     python -m nmg_game_dev.design sync [--project DIR]
-    python -m nmg_game_dev.design scaffold [--project DIR] [--url URL]
+    python -m nmg_game_dev.design scaffold [--project DIR]
 
 ``sync`` parses ``docs/design/**/*.md`` into ``docs/design/backlog.json`` and prints one
 ``<status> <type> <asset_name>: <source>`` line per entry.  On any ``design.*`` error it prints
-every error line and writes nothing.  ``scaffold`` creates the region, mission, and system assets
-in the open Unreal editor and prints ``created``, ``unchanged``, ``skipped``, or ``error`` lines.
+every error line and writes nothing.  ``scaffold`` writes the region scenes, mission resources,
+and system scripts into the Godot project at ``game/`` and prints ``created``, ``unchanged``,
+``skipped``, or ``error`` lines.
 
-Exit codes: 0 success; 1 a design error, a failed item, or a missing or unreadable backlog;
-2 the Unreal editor is unreachable (``mcp.unreal.unreachable``).
+Exit codes: 0 success; 1 a design error, a failed item, a missing or unreadable backlog, or a
+missing ``game/project.godot`` (``design.godot_project_missing``).
 """
 
 from __future__ import annotations
@@ -20,24 +21,21 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Final, TextIO
 
-from nmg_game_dev.pipeline.clients.unreal_mcp import UnrealMcpClient
 from nmg_game_dev.pipeline.errors import PipelineError
-from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
 from . import backlog
 from .parse import parse_tree
 from .paths import backlog_path, project_root
-from .scaffold import UNREACHABLE, ScaffoldReport, run_scaffold
+from .scaffold import ScaffoldReport, run_scaffold
 
 EXIT_OK: Final = 0
 EXIT_FAILED: Final = 1
-EXIT_PREREQUISITE: Final = 2
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m nmg_game_dev.design",
-        description="Sync markdown design docs into a backlog and scaffold them in Unreal.",
+        description="Sync markdown design docs into a backlog and scaffold them as Godot files.",
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
@@ -45,13 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_project_argument(sync)
 
     scaffold = commands.add_parser(
-        "scaffold", help="Create the region, mission, and system assets in Unreal."
+        "scaffold", help="Write the region, mission, and system files into game/."
     )
     _add_project_argument(scaffold)
-    scaffold.add_argument(
-        "--url",
-        help="Unreal MCP endpoint. Defaults to http://127.0.0.1:$UE_MCP_PORT/mcp.",
-    )
     return parser
 
 
@@ -66,21 +60,17 @@ def _add_project_argument(parser: argparse.ArgumentParser) -> None:
 def main(
     argv: Sequence[str] | None = None,
     *,
-    client: UnrealPythonClient | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
-    """Run the command and return its exit code.
-
-    ``client`` replaces the live Unreal MCP client.  Tests pass a fake.
-    """
+    """Run the command and return its exit code."""
     out = stdout if stdout is not None else sys.stdout
     err = stderr if stderr is not None else sys.stderr
     args = build_parser().parse_args(argv)
     root = args.project if args.project is not None else project_root()
     if args.command == "sync":
         return _sync(root, out, err)
-    return _scaffold(root, client, args.url, out, err)
+    return _scaffold(root, out, err)
 
 
 def _sync(root: Path, out: TextIO, err: TextIO) -> int:
@@ -103,20 +93,10 @@ def _sync(root: Path, out: TextIO, err: TextIO) -> int:
     return EXIT_OK
 
 
-def _scaffold(
-    root: Path,
-    client: UnrealPythonClient | None,
-    url: str | None,
-    out: TextIO,
-    err: TextIO,
-) -> int:
+def _scaffold(root: Path, out: TextIO, err: TextIO) -> int:
     report = ScaffoldReport()
     try:
-        if client is not None:
-            run_scaffold(client, root, report)
-        else:
-            with UnrealMcpClient(url) as live:
-                run_scaffold(live, root, report)
+        run_scaffold(root, report)
     except FileNotFoundError:
         err.write(
             f"ERROR: {backlog_path(root)} does not exist. Run `python -m nmg_game_dev.design sync` "
@@ -130,7 +110,7 @@ def _scaffold(
         _print_report(report, out)
         err.write(f"ERROR [{error.code}] {error.message}\n")
         err.write(f"Remediation: {error.remediation}\n")
-        return EXIT_PREREQUISITE if error.code == UNREACHABLE else EXIT_FAILED
+        return EXIT_FAILED
 
     _print_report(report, out)
     return EXIT_FAILED if report.failed else EXIT_OK

@@ -1,8 +1,9 @@
-"""The ``python -m nmg_game_dev.audio import`` CLI (#155 AC7).
+"""The ``python -m nmg_game_dev.audio import`` CLI (#155 AC7, #249).
 
 The CLI prints the result JSON on success and exits 0. A ``PipelineError`` prints
 ``ERROR [code] message`` and ``Remediation:`` to stderr and exits 1. Argument errors exit 2. The
-tests call ``main`` in process, with the fake editor injected by the ``fake_unreal`` fixture.
+tests call ``main`` in process; the ``wired`` fixture makes the fake Godot and ffmpeg runners the
+defaults ``import_audio`` builds.
 """
 
 from __future__ import annotations
@@ -16,13 +17,17 @@ from pathlib import Path
 import pytest
 
 from nmg_game_dev.audio.__main__ import main
-from tests.unit.fake_unreal_audio import FakeUnrealPythonClient
+from nmg_game_dev.pipeline.errors import PipelineError
+from tests.godot_fakes import FakeGodotRunner
+from tests.unit.audio.conftest import FakeFfmpeg
+
+Wired = tuple[FakeGodotRunner, FakeFfmpeg]
 
 
 def test_import_prints_the_result_json_and_exits_zero(
     project: Path,
     source_file: Callable[[str], Path],
-    fake_unreal: FakeUnrealPythonClient,
+    wired: Wired,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     src = source_file("tone.wav")
@@ -31,15 +36,15 @@ def test_import_prints_the_result_json_and_exits_zero(
 
     assert code == 0
     printed = json.loads(capsys.readouterr().out)
-    assert printed["imported_to_unreal"] is True
-    assert printed["unreal_asset"] == "/Game/Audio/SFX/SW_DoorCreak"
+    assert printed["imported_to_godot"] is True
+    assert printed["godot_asset"] == "res://assets/Audio/DoorCreak.wav"
     assert printed["looping"] is False
 
 
-def test_loop_flag_makes_the_soundwave_loop(
+def test_loop_flag_makes_the_music_loop(
     project: Path,
     source_file: Callable[[str], Path],
-    fake_unreal: FakeUnrealPythonClient,
+    wired: Wired,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     src = source_file("tone.mp3")
@@ -49,16 +54,17 @@ def test_loop_flag_makes_the_soundwave_loop(
     )
 
     assert code == 0
-    assert json.loads(capsys.readouterr().out)["looping"] is True
-    sound = fake_unreal.editor.sound_wave("/Game/Audio/Music/SW_ForestTheme")
-    assert sound is not None
-    assert sound.get_editor_property("looping") is True
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["looping"] is True
+    assert printed["godot_asset"] == "res://assets/Audio/ForestTheme.ogg"
+    sidecar = project / "game" / "assets" / "Audio" / "ForestTheme.ogg.import"
+    assert "\nloop=true\n" in sidecar.read_text(encoding="utf-8")
 
 
 def test_an_error_prints_code_and_remediation_and_exits_one(
     project: Path,
     source_file: Callable[[str], Path],
-    fake_unreal: FakeUnrealPythonClient,
+    wired: Wired,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     code = main(
@@ -70,20 +76,19 @@ def test_an_error_prints_code_and_remediation_and_exits_one(
     assert captured.out == ""
     assert captured.err.startswith("ERROR [audio.invalid_request] ")
     assert "\nRemediation: " in captured.err
-    assert fake_unreal.codes == []
+    assert wired[0].calls == []
 
 
-def test_an_unreachable_editor_still_exits_zero_with_a_warning(
+def test_a_missing_godot_still_exits_zero_with_a_warning(
     project: Path,
     source_file: Callable[[str], Path],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    unreachable = FakeUnrealPythonClient(reachable=False)
-    monkeypatch.setattr(
-        "nmg_game_dev.audio.__main__.UnrealMcpClient", lambda *_a, **_k: unreachable
-    )
-    monkeypatch.setattr("nmg_game_dev.audio.core.UnrealMcpClient", lambda *_a, **_k: unreachable)
+    def _not_found() -> Path:
+        raise PipelineError("godot.not_found", "Godot was not found.", "Install Godot 4", "godot")
+
+    monkeypatch.setattr("nmg_game_dev.audio.core.resolve_godot", _not_found)
 
     code = main(
         ["import", "--file", str(source_file("tone.wav")), "--name", "DoorCreak", "--kind", "sfx"]
@@ -91,39 +96,26 @@ def test_an_unreachable_editor_still_exits_zero_with_a_warning(
 
     assert code == 0
     printed = json.loads(capsys.readouterr().out)
-    assert printed["imported_to_unreal"] is False
-    assert printed["warning"]["code"] == "mcp.unreal.unreachable"
+    assert printed["imported_to_godot"] is False
+    assert printed["warning"]["code"] == "godot.not_found"
 
 
-def test_the_url_option_builds_a_client_for_that_endpoint(
-    project: Path,
-    source_file: Callable[[str], Path],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[str] = []
-    fake = FakeUnrealPythonClient()
-
-    def _factory(url: str | None = None, **_kwargs: object) -> FakeUnrealPythonClient:
-        seen.append(str(url))
-        return fake
-
-    monkeypatch.setattr("nmg_game_dev.audio.__main__.UnrealMcpClient", _factory)
-
-    main(
-        [
-            "import",
-            "--file",
-            str(source_file("tone.wav")),
-            "--name",
-            "DoorCreak",
-            "--kind",
-            "sfx",
-            "--url",
-            "http://127.0.0.1:9999/mcp",
-        ]
-    )
-
-    assert seen == ["http://127.0.0.1:9999/mcp"]
+def test_the_url_option_is_gone(project: Path, source_file: Callable[[str], Path]) -> None:
+    with pytest.raises(SystemExit) as caught:
+        main(
+            [
+                "import",
+                "--file",
+                str(source_file("tone.wav")),
+                "--name",
+                "DoorCreak",
+                "--kind",
+                "sfx",
+                "--url",
+                "http://127.0.0.1:9999/mcp",
+            ]
+        )
+    assert caught.value.code == 2
 
 
 @pytest.mark.parametrize(
@@ -152,3 +144,4 @@ def test_the_module_runs_as_a_script(tmp_path: Path) -> None:
     )
     assert result.returncode == 0
     assert "--kind" in result.stdout
+    assert "--url" not in result.stdout

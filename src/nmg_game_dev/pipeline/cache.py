@@ -6,7 +6,7 @@ Cache layout on disk::
       by-key/{first-2-hex}/{key}/
         entry.json                      # step, output_hash, outputs, blob names
         files/<blob name>               # file or directory copy of each step output
-      runs/{asset_hash}.json            # alias index: step keys, result_blend, content_paths
+      runs/{asset_hash}.json            # alias index: step keys, result_blend, resource_paths
       tmp/                              # atomic-write staging
       jobs/                             # job directories (owned by jobs.py)
 

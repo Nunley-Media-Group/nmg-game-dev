@@ -14,15 +14,16 @@ def test_step_result_is_frozen() -> None:
         result.cache_hit = True
 
 
-def test_finalize_result_lists_steps_and_content_paths() -> None:
-    step = StepResult(step="import_ue", cache_hit=True)
+def test_finalize_result_lists_steps_and_resource_paths() -> None:
+    step = StepResult(step="import_godot", cache_hit=True)
     result = FinalizeResult(
         steps=[step],
-        desktop_content_path="/Game/Props/Crate/Desktop",
-        mobile_content_path="/Game/Props/Crate/Mobile",
+        desktop_resource_path="res://assets/Props/Crate/Desktop/Crate.glb",
+        mobile_resource_path="res://assets/Props/Crate/Mobile/Crate.glb",
     )
     assert result.steps == [step]
-    assert result.desktop_content_path == "/Game/Props/Crate/Desktop"
+    assert result.desktop_resource_path == "res://assets/Props/Crate/Desktop/Crate.glb"
+    assert result.mobile_resource_path == "res://assets/Props/Crate/Mobile/Crate.glb"
     assert result.loaded_back is False
     assert result.result_blend is None
 

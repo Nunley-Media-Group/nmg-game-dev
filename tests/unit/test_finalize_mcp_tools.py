@@ -1,7 +1,8 @@
-"""The finalize MCP tool parameters for batches, lock waits, and PIE (#149, AC2, AC5, AC10).
+"""The finalize MCP tool parameters for batches, lock waits, and the export root (#149, #249).
 
 The tool functions are tested directly, so the MCP SDK is not needed.  Batch jobs run in-process
-through ``BatchRouter`` with fake steps, so no Blender or Unreal editor is started.
+through ``BatchRouter`` with fake steps and a fake Godot runner, so no Blender or Godot process is
+started.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from nmg_game_dev.finalize import (
     FinalizeService,
@@ -136,10 +139,56 @@ def test_requests_and_collection_are_mutually_exclusive(tmp_path: Path) -> None:
     assert response["error"]["code"] == "finalize.invalid_request"
 
 
-def test_a_single_collection_still_needs_an_export_root(tmp_path: Path) -> None:
-    response = finalize_asset(collection="Crate", service=_deferred(tmp_path / "cache"))
-    assert response["error"]["code"] == "finalize.invalid_request"
-    assert "export_root" in response["error"]["message"]
+def test_a_single_collection_without_export_root_uses_the_project_game_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    cache = tmp_path / "cache"
+    response = finalize_asset(
+        collection="Crate",
+        category="Props",
+        asset_class="standard_prop",
+        service=_deferred(cache),
+    )
+
+    assert "error" not in response
+    (job_dir,) = _job_dirs(cache)
+    request = json.loads((job_dir / "request.json").read_text(encoding="utf-8"))
+    assert Path(request["export_root"]) == tmp_path / "game" / "assets"
+
+
+def test_run_finalize_step_without_export_root_uses_the_project_game_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    cache = tmp_path / "cache"
+    response = run_finalize_step(
+        step="validate",
+        collection="Crate",
+        category="Props",
+        asset_class="standard_prop",
+        service=_deferred(cache),
+    )
+
+    assert "error" not in response
+    (job_dir,) = _job_dirs(cache)
+    request = json.loads((job_dir / "request.json").read_text(encoding="utf-8"))
+    assert Path(request["export_root"]) == tmp_path / "game" / "assets"
+
+
+def test_a_batch_entry_without_export_root_uses_the_project_game_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    cache = tmp_path / "cache"
+    entries = [{"collection": "Alpha", "category": "Props", "asset_class": "standard_prop"}]
+
+    response = finalize_asset(requests=entries, service=_deferred(cache))
+
+    assert "error" not in response
+    (job_dir,) = _job_dirs(cache)
+    job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    assert Path(job["items"][0]["export_root"]) == tmp_path / "game" / "assets"
 
 
 def test_an_invalid_batch_entry_is_refused_and_writes_no_job(tmp_path: Path) -> None:
@@ -187,14 +236,12 @@ def test_the_batch_wait_options_reach_the_job(tmp_path: Path) -> None:
     assert job["lock_wait_s"] == 30
 
 
-def test_the_single_wait_and_pie_options_reach_the_request(tmp_path: Path) -> None:
+def test_the_single_wait_options_reach_the_job(tmp_path: Path) -> None:
     cache = tmp_path / "cache"
     response = finalize_asset(
         **_single_args(tmp_path),
         wait_for_lock=True,
         lock_wait_seconds=12,
-        pie_mode="refuse",
-        pie_wait_seconds=30,
         service=_deferred(cache),
     )
 
@@ -202,19 +249,17 @@ def test_the_single_wait_and_pie_options_reach_the_request(tmp_path: Path) -> No
     (job_dir,) = _job_dirs(cache)
     request = json.loads((job_dir / "request.json").read_text(encoding="utf-8"))
     job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    assert request["pie_mode"] == "refuse"
-    assert request["pie_wait_seconds"] == 30
+    assert "pie_mode" not in request
+    assert "pie_wait_seconds" not in request
     assert job["lock_wait_s"] == 12
 
 
-def test_run_finalize_step_accepts_the_wait_and_pie_options(tmp_path: Path) -> None:
+def test_run_finalize_step_accepts_the_wait_options(tmp_path: Path) -> None:
     cache = tmp_path / "cache"
     response = run_finalize_step(
         step="validate",
         **_single_args(tmp_path),
         wait_for_lock=True,
-        pie_mode="wait",
-        pie_wait_seconds=60,
         service=_deferred(cache),
     )
 
@@ -224,13 +269,21 @@ def test_run_finalize_step_accepts_the_wait_and_pie_options(tmp_path: Path) -> N
     assert job["wait_for_lock"] is True
 
 
-def test_an_unknown_pie_mode_is_a_structured_invalid_request(tmp_path: Path) -> None:
-    response = finalize_asset(
-        **_single_args(tmp_path),
-        pie_mode="ignore",
-        service=_deferred(tmp_path / "cache"),
-    )
-    assert response["error"]["code"] == "finalize.invalid_request"
+@pytest.mark.parametrize("option", ["pie_mode", "pie_wait_seconds"])
+def test_the_removed_play_in_editor_options_are_not_parameters(tmp_path: Path, option: str) -> None:
+    arguments: dict[str, Any] = {**_single_args(tmp_path), option: "refuse"}
+    with pytest.raises(TypeError):
+        finalize_asset(**arguments, service=_deferred(tmp_path / "cache"))
+
+
+def test_a_batch_entry_with_a_play_in_editor_key_is_an_unknown_key(tmp_path: Path) -> None:
+    entries = _entries(tmp_path, "Alpha")
+    entries[0]["pie_mode"] = "refuse"
+
+    response = finalize_asset(requests=entries, service=_deferred(tmp_path / "cache"))
+
+    assert response["error"]["code"] == "finalize.invalid_batch"
+    assert "unknown key(s): pie_mode" in response["error"]["message"]
 
 
 def test_a_negative_lock_wait_is_a_structured_invalid_request(tmp_path: Path) -> None:

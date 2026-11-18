@@ -1,7 +1,7 @@
 """Result models returned by ``pipeline.finalize`` and ``pipeline.run_step``.
 
 ``StepResult`` records one step's outcome and whether it was served from the cache.
-``FinalizeResult`` lists every step and the UE content paths the run produced.
+``FinalizeResult`` lists every step and the Godot resource paths the run produced.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ class StepResult(BaseModel):
 
     Attributes:
         step: Step name: ``validate``, ``bake``, ``variants``, ``export``, ``export_anims``,
-            ``reimport``, ``import_ue``, or ``import_anims``.
+            ``reimport``, ``import_godot``, or ``import_anims``.
         cache_hit: ``True`` when the step was served from the content-addressed cache.
         outputs: Step-specific outputs.  Paths are strings.
         summary: One human-readable line.
@@ -35,24 +35,26 @@ class FinalizeResult(BaseModel):
 
     Attributes:
         steps: One ``StepResult`` per requested step, in execution order.
-        desktop_content_path: ``/Game/<Category>/<Name>/Desktop`` once ``import_ue`` ran or was
-            served from cache, otherwise ``None``.
-        mobile_content_path: ``/Game/<Category>/<Name>/Mobile`` under the same condition.
+        desktop_resource_path: ``res://assets/<Category>/<Name>/Desktop/<Name>.glb`` once
+            ``import_godot`` ran or was served from cache, otherwise ``None``.
+        mobile_resource_path: ``res://assets/<Category>/<Name>/Mobile/<Name>.glb`` under the same
+            condition.
         loaded_back: ``True`` when the baked collections replaced the session's copies.
         result_blend: The last mutating step's ``.blend``, used for load-back.
         warnings: Non-fatal problems, each ``{"code", "message", "remediation"}``.  The job still
             succeeds.  For example, ``design.backlog_update_failed``.
         animations: The clip result (#138), or ``None`` when no clip step ran.  It holds
-            ``content_path`` (``/Game/<Category>/<Name>/Animations`` or ``None`` with no clips),
+            ``content_path`` (the ``res://`` Animations folder, or ``None`` with no clips),
             ``clips`` (each ``{name, asset_path, export_cache_hit, import_cache_hit}``), ``stale``
-            (AnimSequences no longer on the rig), and ``compatible`` (skeletons registered).
+            (clip files no longer on the rig), and ``compatible`` (the compatible Desktop scenes
+            whose skeletons hold every bone track).
     """
 
     model_config = ConfigDict(frozen=True)
 
     steps: list[StepResult]
-    desktop_content_path: str | None = None
-    mobile_content_path: str | None = None
+    desktop_resource_path: str | None = None
+    mobile_resource_path: str | None = None
     loaded_back: bool = False
     result_blend: str | None = None
     warnings: list[dict[str, str]] = Field(default_factory=list)

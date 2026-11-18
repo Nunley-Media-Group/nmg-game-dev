@@ -1,9 +1,10 @@
-"""pytest-bdd bindings for audio_import.feature: SCN001-SCN008 (#155).
+"""pytest-bdd bindings for audio_import.feature: SCN001-SCN010 (#155, #249 AC5).
 
-The Unreal side is the fake editor in ``tests/unit/fake_unreal_audio.py``, which runs the
-generated UE code against a fake ``unreal`` module. The fixtures are the committed clips in
-``tests/fixtures/audio``. No live editor is started and no ElevenLabs call is made. The steps share
-one ``state`` dict per scenario.
+Godot is ``tests.godot_fakes.FakeGodotRunner``, whose audio probe answers from the ``.import`` file
+the import wrote; ffmpeg is a fake encoder. Both are wired in as the runners ``import_audio``
+builds, so the CLI and the finalize tool use them too. The fixtures are the committed clips in
+``tests/fixtures/audio``. No real Godot or ffmpeg runs and no ElevenLabs call is made. The steps
+share one ``state`` dict per scenario.
 """
 
 from __future__ import annotations
@@ -21,12 +22,13 @@ from pytest_bdd import given, parsers, scenarios, then, when
 from nmg_game_dev.audio import AudioError, import_audio
 from nmg_game_dev.audio.__main__ import main as audio_main
 from nmg_game_dev.finalize import import_audio as import_audio_tool
-from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
+from nmg_game_dev.godot.project import read_config
+from nmg_game_dev.pipeline.errors import PipelineError
+from tests.godot_fakes import FakeGodotRunner
+from tests.unit.audio.conftest import FakeFfmpeg, audio_probe, fake_godot
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "audio"
-SFX_ASSET = "/Game/Audio/SFX/SW_DoorCreak"
-MUSIC_ASSET = "/Game/Audio/Music/SW_ForestTheme"
 INVALID_CODES = {"audio.invalid_request", "audio.unsupported_format", "audio.asset_exists"}
 
 scenarios("audio_import.feature")
@@ -37,14 +39,17 @@ _FORMAT_FIXTURES = {"WAV": "tone.wav", "MP3": "tone.mp3", "OGG": "tone.ogg", "FL
 @pytest.fixture
 def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     root = tmp_path / "project"
-    root.mkdir()
+    _godot_project(root)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root))
     saved = tmp_path / "saved"
     saved.mkdir()
     values: dict[str, Any] = {
         "root": root,
         "saved": saved,
-        "client": FakeUnrealPythonClient(FakeEditor()),
+        "godot": fake_godot(),
+        "ffmpeg": FakeFfmpeg(),
+        "godot_installed": True,
+        "ffmpeg_installed": True,
         "name": "DoorCreak",
         "kind": "sfx",
         "loop": False,
@@ -59,13 +64,48 @@ def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "repo": None,
     }
 
-    def _factory(*_args: Any, **_kwargs: Any) -> FakeUnrealPythonClient:
-        client: FakeUnrealPythonClient = values["client"]
-        return client
+    def _resolve_godot() -> Path:
+        if not values["godot_installed"]:
+            raise PipelineError(
+                "godot.not_found",
+                "Godot was not found. Tried: godot on PATH.",
+                "Install Godot 4 (latest stable) or set GODOT_BIN to its executable.",
+                "godot",
+            )
+        return Path("/fake/godot")
 
-    monkeypatch.setattr("nmg_game_dev.audio.core.UnrealMcpClient", _factory)
-    monkeypatch.setattr("nmg_game_dev.audio.__main__.UnrealMcpClient", _factory)
+    def _resolve_ffmpeg() -> Path:
+        if not values["ffmpeg_installed"]:
+            raise AudioError(
+                "audio.ffmpeg_not_found",
+                "ffmpeg was not found. Tried: ffmpeg on PATH.",
+                "Install ffmpeg or set FFMPEG_BIN to its executable.",
+            )
+        return Path("/fake/ffmpeg")
+
+    core = "nmg_game_dev.audio.core"
+    monkeypatch.setattr(f"{core}.resolve_godot", _resolve_godot)
+    monkeypatch.setattr(f"{core}.SubprocessGodotRunner", lambda _binary: values["godot"])
+    monkeypatch.setattr(f"{core}.resolve_ffmpeg", _resolve_ffmpeg)
+    monkeypatch.setattr(f"{core}.SubprocessFfmpegRunner", lambda _binary: values["ffmpeg"])
     return values
+
+
+def _godot_project(root: Path) -> None:
+    (root / "game").mkdir(parents=True)
+    (root / "game" / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+
+def _sidecar(state: dict[str, Any], name: str) -> dict[tuple[str, str], str]:
+    return read_config(state["root"] / "game" / "assets" / "Audio" / f"{name}.import")
+
+
+def _probed(state: dict[str, Any], res: str) -> dict[str, Any]:
+    runner: FakeGodotRunner = state["godot"]
+    assert runner.count("--import") >= 1
+    assert {"stream": res} in runner.params
+    answer: dict[str, Any] = audio_probe(state["root"] / "game")({"stream": res})
+    return answer
 
 
 def _save(state: dict[str, Any], fixture: str) -> Path:
@@ -83,7 +123,7 @@ def _import(state: dict[str, Any], name: str | None = None, kind: str | None = N
     state["error"] = None
     try:
         state["result"] = import_audio(state["src"], state["name"], state["kind"], state["loop"])
-    except AudioError as error:
+    except PipelineError as error:
         state["result"] = None
         state["error"] = error
 
@@ -103,13 +143,15 @@ def _tree(root: Path) -> list[tuple[str, bytes | None]]:
 @given(
     parsers.re(
         r"^a saved (?P<what>WAV|MP3|OGG|FLAC|audio) file"
-        r"(?: and (?:a|an) (?P<link>reachable|unreachable) Unreal MCP)?$"
+        r"(?: and (?P<tool>an installed Godot|no Godot|no ffmpeg))?$"
     )
 )
-def _saved_file(state: dict[str, Any], what: str, link: str | None) -> None:
+def _saved_file(state: dict[str, Any], what: str, tool: str | None) -> None:
     _save(state, _FORMAT_FIXTURES.get(what, "tone.wav"))
-    if link == "unreachable":
-        state["client"] = FakeUnrealPythonClient(reachable=False)
+    if tool == "no Godot":
+        state["godot_installed"] = False
+    elif tool == "no ffmpeg":
+        state["ffmpeg_installed"] = False
 
 
 @given("an import request with a bad name, kind, path, format, or an existing target")
@@ -170,6 +212,12 @@ def _imported_named(state: dict[str, Any], name: str, kind: str) -> None:
     _import(state, name, kind)
 
 
+@when(parsers.parse('it is imported with name "{name}" and kind "{kind}" and loop {flag}'))
+def _imported_named_looping(state: dict[str, Any], name: str, kind: str, flag: str) -> None:
+    state["loop"] = flag == "true"
+    _import(state, name, kind)
+
+
 @when(parsers.parse("it is imported with loop {flag}"))
 def _imported_looping(state: dict[str, Any], flag: str) -> None:
     state["loop"] = flag == "true"
@@ -184,7 +232,7 @@ def _submitted(state: dict[str, Any]) -> None:
         try:
             import_audio(case["src"], case["name"], case["kind"])
             outcomes.append((case["codes"], None))
-        except AudioError as error:
+        except PipelineError as error:
             outcomes.append((case["codes"], error.code))
     state["outcomes"] = outcomes
 
@@ -192,7 +240,7 @@ def _submitted(state: dict[str, Any]) -> None:
 @when("it runs through the CLI and through the import_audio tool")
 def _cli_and_tool(state: dict[str, Any], capsys: pytest.CaptureFixture[str]) -> None:
     cli_root = state["saved"].parent / "cli-project"
-    cli_root.mkdir()
+    _godot_project(cli_root)
     code = audio_main(
         [
             "import",
@@ -207,8 +255,6 @@ def _cli_and_tool(state: dict[str, Any], capsys: pytest.CaptureFixture[str]) -> 
         ]
     )
     state["cli"] = (code, json.loads(capsys.readouterr().out))
-    # The CLI already imported this name, so the tool gets a fresh editor to import into.
-    state["client"].editor.assets.clear()
     state["tool"] = import_audio_tool(str(state["src"]), state["name"], state["kind"])
 
 
@@ -227,11 +273,13 @@ def _sfx_stored(state: dict[str, Any]) -> None:
     assert stored.read_bytes() == state["src"].read_bytes()
 
 
-@then("/Game/Audio/SFX/SW_DoorCreak is imported with looping off")
+@then("res://assets/Audio/DoorCreak.wav is imported as an AudioStreamWAV with looping off")
 def _sfx_imported(state: dict[str, Any]) -> None:
-    sound = state["client"].editor.sound_wave(SFX_ASSET)
-    assert sound is not None, "no SoundWave was imported"
-    assert sound.get_editor_property("looping") is False
+    assert state["result"]["godot_asset"] == "res://assets/Audio/DoorCreak.wav"
+    assert state["result"]["imported_to_godot"] is True
+    assert _sidecar(state, "DoorCreak.wav")[("params", "edit/loop_mode")] == "1"
+    probed = _probed(state, "res://assets/Audio/DoorCreak.wav")
+    assert probed == {"class": "AudioStreamWAV", "loop_mode": 0}
 
 
 @then("SourceArt/Audio/Music/ForestTheme.wav is a 16-bit PCM WAV at the source rate and channels")
@@ -249,17 +297,51 @@ def _converted(state: dict[str, Any]) -> None:
     assert state["result"]["converted"] is True
 
 
-@then("the SoundWave loops")
+@then("the AudioStreamWAV loops forward")
 def _loops(state: dict[str, Any]) -> None:
-    sound = state["client"].editor.sound_wave(SFX_ASSET)
-    assert sound is not None
-    assert sound.get_editor_property("looping") is True
+    config = _sidecar(state, "DoorCreak.wav")
+    assert config[("params", "edit/loop_mode")] == "2"
+    assert config[("params", "edit/loop_begin")] == "0"
+    assert config[("params", "edit/loop_end")] == "-1"
+    probed = _probed(state, "res://assets/Audio/DoorCreak.wav")
+    assert probed == {"class": "AudioStreamWAV", "loop_mode": 1}
 
 
-@then("the result has imported_to_unreal false and warning mcp.unreal.unreachable")
+@then("SourceArt/Audio/Music/Theme.wav and game/assets/Audio/Theme.ogg exist")
+def _music_files(state: dict[str, Any]) -> None:
+    assert state["error"] is None, state["error"]
+    assert (state["root"] / "SourceArt" / "Audio" / "Music" / "Theme.wav").is_file()
+    assert (state["root"] / "game" / "assets" / "Audio" / "Theme.ogg").is_file()
+    [call] = state["ffmpeg"].calls
+    assert call[2:6] == ["-c:a", "libvorbis", "-q:a", "5"]
+
+
+@then("res://assets/Audio/Theme.ogg is imported as an AudioStreamOggVorbis with loop enabled")
+def _music_imported(state: dict[str, Any]) -> None:
+    assert state["result"]["godot_asset"] == "res://assets/Audio/Theme.ogg"
+    config = _sidecar(state, "Theme.ogg")
+    assert config[("remap", "importer")] == '"oggvorbisstr"'
+    assert config[("params", "loop")] == "true"
+    probed = _probed(state, "res://assets/Audio/Theme.ogg")
+    assert probed == {"class": "AudioStreamOggVorbis", "loop": True}
+
+
+@then("it fails with audio.ffmpeg_not_found and a remediation line")
+def _no_ffmpeg(state: dict[str, Any]) -> None:
+    assert state["error"] is not None and state["error"].code == "audio.ffmpeg_not_found"
+    assert state["error"].remediation == "Install ffmpeg or set FFMPEG_BIN to its executable."
+
+
+@then("game/assets/Audio/Theme.ogg does not exist")
+def _no_ogg(state: dict[str, Any]) -> None:
+    assert not (state["root"] / "game" / "assets" / "Audio" / "Theme.ogg").exists()
+    assert state["godot"].calls == []
+
+
+@then("the result has imported_to_godot false and warning godot.not_found")
 def _warned(state: dict[str, Any]) -> None:
-    assert state["result"]["imported_to_unreal"] is False
-    assert state["result"]["warning"]["code"] == "mcp.unreal.unreachable"
+    assert state["result"]["imported_to_godot"] is False
+    assert state["result"]["warning"]["code"] == "godot.not_found"
 
 
 @then("the WAV stays under SourceArt/Audio")
@@ -274,10 +356,10 @@ def _invalid_codes(state: dict[str, Any]) -> None:
         assert actual in expected and actual in INVALID_CODES, f"got {actual}, want {expected}"
 
 
-@then("nothing is written and Unreal is not called")
+@then("nothing is written and Godot is not run")
 def _nothing_written(state: dict[str, Any]) -> None:
     assert _tree(state["root"]) == state["before"]
-    assert state["client"].codes == []
+    assert state["godot"].calls == []
 
 
 @then("it fails with audio.decode_failed and leaves no file behind")
@@ -286,7 +368,7 @@ def _decode_failed(state: dict[str, Any]) -> None:
     folder = state["root"] / "SourceArt" / "Audio" / "SFX"
     assert not (folder / "DoorCreak.wav").exists()
     assert not (folder / "DoorCreak.wav.tmp").exists()
-    assert state["client"].codes == []
+    assert state["godot"].calls == []
 
 
 @then("both return the same result JSON")
