@@ -4,8 +4,9 @@ FR5).
 A job lives in ``<output_root>/.jobs/<job_id>/`` with ``request.json`` and ``status.json``.
 ``request.json`` holds one ``request`` (or a ``requests`` list for a batch), the ``output_root``,
 and
-the ``submitted_ns`` that orders the queue. ``status.json`` is rewritten atomically (temp file, then
-rename) as the job runs and when it ends.
+the ``submitted_ns`` that orders the queue. An art job (#253) holds an ``art_request`` and the
+``project_root`` its takes are written under, in place of the texture request. ``status.json`` is
+rewritten atomically (temp file, then rename) as the job runs and when it ends.
 
 ``start`` validates the request or batch, writes the job as ``queued``, and spawns a detached
 ``run-queue`` runner. The runner takes the PID lock at ``<output_root>/.jobs/lock``, runs queued
@@ -34,12 +35,12 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from nmg_game_dev.texture import generate
+from nmg_game_dev.texture import art, generate
 from nmg_game_dev.texture.batch import Spawn
 from nmg_game_dev.texture.deps import DepsProbe, require_dependencies
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.hardware import HardwareFacts, probe, reserve_gb
-from nmg_game_dev.texture.paths import models_dir, output_root
+from nmg_game_dev.texture.paths import models_dir, output_root, project_root
 from nmg_game_dev.texture.registry import REGISTRY, BackendSpec
 
 JOBS_DIR_NAME = ".jobs"
@@ -167,8 +168,34 @@ def _total_images(
     return total
 
 
+def _art_total(
+    request: art.ArtRequest,
+    project: Path,
+    registry: Mapping[str, BackendSpec],
+    env_map: Mapping[str, str],
+    facts: HardwareFacts,
+    deps_probe: DepsProbe | None,
+) -> int:
+    """How many takes the art request still has to generate. When any are missing, its backend and
+    dependencies are checked now, so a job that cannot run is refused before it is queued (#253)."""
+    missing = art.missing_seeds(request, project)
+    if missing:
+        generate.select_backends(
+            request.backend,
+            registry,
+            models_dir(env_map),
+            facts,
+            reserve_gb(env_map),
+            deps_probe,
+        )
+        require_dependencies(deps_probe)
+    return len(missing)
+
+
 def start(
-    request_or_requests: generate.TextureRequest | Sequence[generate.TextureRequest],
+    request_or_requests: generate.TextureRequest
+    | Sequence[generate.TextureRequest]
+    | art.ArtRequest,
     *,
     registry: Mapping[str, BackendSpec] = REGISTRY,
     env: Mapping[str, str] | None = None,
@@ -177,24 +204,42 @@ def start(
     deps_probe: DepsProbe | None = None,
 ) -> str:
     """Validate a request or batch, queue it, start the queue runner, and return the job id at
-    once."""
+    once. An ``ArtRequest`` runs its missing takes as an ``art_request`` job (#253)."""
     env_map = dict(os.environ) if env is None else dict(env)
     host = probe() if facts is None else facts
     work_dir = cwd or Path.cwd()
     payload: dict[str, Any]
-    requests: tuple[generate.TextureRequest, ...]
-    if isinstance(request_or_requests, generate.TextureRequest):
-        generate.validate_request(request_or_requests)
-        requests = (request_or_requests,)
-        payload = {"request": generate.request_as_json(request_or_requests)}
+    if isinstance(request_or_requests, art.ArtRequest):
+        art.validate_request(request_or_requests, registry)
+        project = project_root(env_map, work_dir)
+        payload = {
+            "art_request": art.request_as_json(request_or_requests),
+            "project_root": str(project),
+        }
+        total = _art_total(request_or_requests, project, registry, env_map, host, deps_probe)
     else:
-        generate.validate_batch(request_or_requests)
-        requests = tuple(request_or_requests)
-        payload = {"requests": [generate.request_as_json(item) for item in requests]}
-    root = output_root(env_map, work_dir)
-    total = _total_images(requests, registry, env_map, host, deps_probe)
-    require_dependencies(deps_probe)
+        requests: tuple[generate.TextureRequest, ...]
+        if isinstance(request_or_requests, generate.TextureRequest):
+            generate.validate_request(request_or_requests)
+            requests = (request_or_requests,)
+            payload = {"request": generate.request_as_json(request_or_requests)}
+        else:
+            generate.validate_batch(request_or_requests)
+            requests = tuple(request_or_requests)
+            payload = {"requests": [generate.request_as_json(item) for item in requests]}
+        total = _total_images(requests, registry, env_map, host, deps_probe)
+        require_dependencies(deps_probe)
+    return _enqueue(payload, total, output_root(env_map, work_dir), work_dir, env_map)
 
+
+def _enqueue(
+    payload: Mapping[str, Any],
+    total: int,
+    root: Path,
+    work_dir: Path,
+    env_map: Mapping[str, str],
+) -> str:
+    """Write a queued job under ``root``'s jobs folder and start the detached queue runner."""
     jobs = jobs_root(root)
     job_id = uuid.uuid4().hex[:12]
     job_dir = jobs / job_id
@@ -218,7 +263,7 @@ def start(
             stderr=runner_log,
             start_new_session=True,
             cwd=str(work_dir),
-            env=env_map,
+            env=dict(env_map),
         )
     except BaseException:
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -366,6 +411,77 @@ def _crash_status(job_dir: Path, job_id: str, total: int, error: Exception) -> d
     }
 
 
+def _refused_status(job_id: str, total: int, error: TextureGenError) -> dict[str, Any]:
+    """The failed status of a job that stopped on a structured ``TextureGenError``."""
+    return {
+        "job_id": job_id,
+        "state": "failed",
+        "completed": 0,
+        "total": total,
+        "error": {
+            "code": error.code,
+            "message": error.message,
+            "remediation": error.remediation,
+        },
+    }
+
+
+def _run_art_job(
+    job_dir: Path,
+    job_id: str,
+    stored: Mapping[str, Any],
+    env_map: Mapping[str, str],
+    *,
+    facts: HardwareFacts | None,
+    spawn: Spawn | None,
+    registry: Mapping[str, BackendSpec],
+    job_log: Path,
+) -> dict[str, Any]:
+    """Run a queued art request: its missing takes, then its manifest and contact sheet (#253).
+
+    The job's total is the number of missing takes. ``start`` already checked that a backend is
+    available for them, so no hardware probe runs here.
+    """
+    try:
+        request = art.request_from_json(stored["art_request"])
+        project = Path(str(stored["project_root"]))
+        total = len(art.missing_seeds(request, project))
+    except (KeyError, TypeError, ValueError) as error:
+        _append_log(job_log, traceback.format_exc().rstrip())
+        return _crash_status(job_dir, job_id, 0, error)
+
+    def progress(done: int, count: int) -> None:
+        _write_status(
+            job_dir,
+            {"job_id": job_id, "state": "running", "completed": done, "total": count},
+        )
+
+    try:
+        _write_json_atomic(job_dir / RUNNER_NAME, {"pid": os.getpid()})
+        progress(0, total)
+        result = art.run(
+            request,
+            registry=registry,
+            env=env_map,
+            facts=facts,
+            spawn=spawn,
+            project_root_override=project,
+            on_progress=progress,
+        ).as_json()
+        return {
+            "job_id": job_id,
+            "state": "succeeded",
+            "completed": total,
+            "total": total,
+            "result": result,
+        }
+    except TextureGenError as error:
+        return _refused_status(job_id, total, error)
+    except Exception as error:  # noqa: BLE001 - a crashed job must still report a final state
+        _append_log(job_log, traceback.format_exc().rstrip())
+        return _crash_status(job_dir, job_id, total, error)
+
+
 def run_job(
     job_dir: Path,
     *,
@@ -392,12 +508,26 @@ def run_job(
 
     try:
         stored = json.loads((job_dir / REQUEST_NAME).read_text(encoding="utf-8"))
+        is_art = "art_request" in stored
         is_batch = "requests" in stored
-        requests = _requests_of(stored)
+        requests = () if is_art else _requests_of(stored)
         root = Path(str(stored["output_root"]))
     except (OSError, ValueError, KeyError, TypeError) as error:
         _append_log(job_log, traceback.format_exc().rstrip())
         return finish(_crash_status(job_dir, job_id, 0, error))
+    if is_art:
+        return finish(
+            _run_art_job(
+                job_dir,
+                job_id,
+                stored,
+                env_map,
+                facts=facts,
+                spawn=spawn,
+                registry=registry,
+                job_log=job_log,
+            )
+        )
 
     try:
         total = _total_images(requests, registry, env_map, facts or probe(), None)
@@ -444,17 +574,7 @@ def run_job(
             "result": result,
         }
     except TextureGenError as error:
-        final = {
-            "job_id": job_id,
-            "state": "failed",
-            "completed": 0,
-            "total": total,
-            "error": {
-                "code": error.code,
-                "message": error.message,
-                "remediation": error.remediation,
-            },
-        }
+        final = _refused_status(job_id, total, error)
     except Exception as error:  # noqa: BLE001 - a crashed job must still report a final state
         _append_log(job_log, traceback.format_exc().rstrip())
         final = _crash_status(job_dir, job_id, total, error)

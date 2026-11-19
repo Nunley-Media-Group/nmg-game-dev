@@ -205,3 +205,89 @@ keep into a game through the asset pipeline.
 Every map is the albedo's resolution and wraps seamlessly. Before it is written, each map is checked
 against the same seam rule the bake uses, and a failing `_N` or `_AO` gets the 8 px edge blend, so
 every generated map passes the bake's `not_seamless` check.
+
+## Generate 2D art
+
+Icons, UI panels, and paintings come from the same local models, but their takes are never tiled and
+no maps are derived from them. Use `art` to make the raw takes, pick one, and `art-finish` to cut it out
+into a game image. The raw takes under `SourceArt/Art/raw/` are the kept source. The game images under
+`game/assets/UI/` can always be rebuilt from them.
+
+```sh
+uv run --project <plugin root> python -m nmg_game_dev.texture art --kind icon --name HealthPotion --prompt "red potion bottle" --seeds 1,2,3
+uv run --project <plugin root> python -m nmg_game_dev.texture art-finish --kind icon --name HealthPotion --pick 2
+```
+
+`art` options:
+
+- `--kind`: `icon`, `ui`, or `painting` (required). `--name` is PascalCase, such as `HealthPotion`, and names
+  the takes.
+- `--seeds`: comma-separated seeds, such as `1,2,3`. Default: one random seed.
+- `--backend`: `z-image-turbo` or `flux2-klein-4b` (default `flux2-klein-4b`). `both` is not allowed for art.
+- `--aspect`: `16:9`, `3:2`, or `1:1` for a painting (default `16:9`). Icons and UI art are `1:1`.
+- `--resolution`: the long side, a multiple of 64 from 256 to 2048 (default 1024).
+
+| Kind | Framing | Aspects |
+|------|---------|---------|
+| `icon` | one object, centred, whole object visible, flat plain light grey background, no shadow or text | `1:1` |
+| `ui` | a game interface panel or frame, centred, flat plain light grey background, no text | `1:1` |
+| `painting` | a painterly illustration filling the frame, no text or border | `16:9`, `3:2`, `1:1` |
+
+### Project style
+
+Put one sentence in `SourceArt/Art/style.json` to give a set of art one look:
+
+```json
+{"style": "hand-painted, warm palette"}
+```
+
+Every art prompt becomes `<prompt>, <project style>, <kind framing>`. The sentence is recorded as
+`project_style` in the art manifest and in `textures.json`. Texture prompts do not change. Without the
+file, art prompts use only the kind framing, and `project_style` is `null`.
+
+### Raw takes, the manifest, and the contact sheet
+
+`art` writes into `SourceArt/Art/raw/<kind>/`:
+
+- `<Name>-<seed>.png`: one take per seed, exactly as the model wrote it. No seamless pass runs.
+- `<Name>.json`: the prompt, project style, kind framing, full prompt, backend, repo, revision, size,
+  each take with its seed and seconds, and the seeds skipped in the latest run.
+- `<Name>_sheet.png`: every take side by side, labelled by seed.
+
+A seed whose take already exists is reported under `skipped` and is not regenerated. When every seed has a
+take, `art` starts no worker and loads no model. To try another look, pass new seeds. To redo one, delete its
+take first.
+
+### Finish a take
+
+`art-finish --kind <kind> --name <Name> --pick <seed>` writes the game files and prints them:
+
+| Kind | Written to | Size |
+|------|------------|------|
+| `icon` | `game/assets/UI/Icons/<Name>.png` and `<Name>_small.png` | 512 px and 64 px |
+| `ui` | `game/assets/UI/Panels/<Name>.png` | 1024 px |
+| `painting` | `game/assets/UI/Paintings/<Name>.png` | `--width` (default 1920), aspect kept, RGB with no alpha |
+
+For an icon or UI take, the background must be flat: the four corners must agree within a small colour
+tolerance. The background, reached from the corners, becomes transparent, with a feathered 2 px edge. The
+subject is cropped, scaled to an 8 % margin, and centred horizontally with its bottom on the baseline at 92 %
+of the height. Running `art-finish` again gives byte-identical files. `art-finish` does not run a Godot
+import; import the files as you would any other asset.
+
+`art-finish` writes nothing when it refuses a take:
+
+| Code | Meaning | What to do |
+|------|---------|------------|
+| `art.take_not_found` | No raw take for that name and seed | Generate it with `art`, or pick a seed that exists |
+| `art.background_not_flat` | The corners differ in colour | Regenerate on a flat background, or pick another take |
+| `art.subject_cropped` | The subject touches the edge, or there is no subject | Regenerate with room around the subject, or pick another take |
+| `art.style_invalid` | `SourceArt/Art/style.json` is not `{"style": "<sentence>"}` | Fix or delete the file |
+| `texture.invalid_request` | A bad kind, name, aspect, seed list, or `--width` for a non-painting | Fix the option named in the message |
+
+### Art tools
+
+The `texture-gen` MCP server exposes the same flow, documented in `docs/mcp/texture-gen.md`:
+
+- `generate_art(kind, name, prompt, seeds, backend, aspect, resolution)` queues the missing takes and returns a
+  `job_id`. Poll it with `get_texture_job`, the same tool that polls texture jobs.
+- `finish_art(kind, name, pick, width)` finishes a take and returns the files written, or the structured error.

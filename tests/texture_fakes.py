@@ -59,9 +59,11 @@ for item in batch["items"]:
     started = time.monotonic()
     rng = np.random.default_rng(item["seed"])
     size = item["resolution"]
-    yy, xx = np.mgrid[0:size, 0:size]
-    base = (xx + yy) / (2 * size) * 255.0
-    noise = rng.integers(0, 40, size=(size, size, 3))
+    width = item.get("width") or size
+    height = item.get("height") or size
+    yy, xx = np.mgrid[0:height, 0:width]
+    base = (xx + yy) / (width + height) * 255.0
+    noise = rng.integers(0, 40, size=(height, width, 3))
     rgb = np.clip(base[..., None] + noise, 0, 255).astype(np.uint8)
     path = Path(item["path"])
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,6 +119,22 @@ def fake_spawn(
     return spawn
 
 
+def recording_spawn(
+    worker: Path,
+    log: Path,
+    captured: list[dict[str, Any]],
+    source_png: Path | None = None,
+) -> Callable[[Path], subprocess.CompletedProcess[str]]:
+    """A :func:`fake_spawn` that also appends each batch file it is given to ``captured`` (#253)."""
+    inner = fake_spawn(worker, log, source_png=source_png)
+
+    def spawn(batch_file: Path) -> subprocess.CompletedProcess[str]:
+        captured.append(json.loads(batch_file.read_text(encoding="utf-8")))
+        return inner(batch_file)
+
+    return spawn
+
+
 def read_log(log: Path) -> list[dict[str, Any]]:
     if not log.exists():
         return []
@@ -140,6 +158,22 @@ def synthetic_image(size: int = 256, seed: int = 0) -> np.ndarray:
     base = (xx + yy) / (2 * size) * 255.0
     noise = rng.integers(0, 20, size=(size, size, 3))
     rgb: np.ndarray = np.clip(base[..., None] + noise, 0, 255).astype(np.uint8)
+    return rgb
+
+
+def synthetic_disc(
+    size: int = 512,
+    radius: int = 200,
+    center_x: int | None = None,
+    background: tuple[int, int, int] = (200, 200, 200),
+    disc: tuple[int, int, int] = (180, 40, 40),
+) -> np.ndarray:
+    """A flat-background art take with one disc (#253): the cut-out fixture. ``center_x`` moves the
+    disc sideways, so it can touch an edge."""
+    cx = size // 2 if center_x is None else center_x
+    yy, xx = np.mgrid[0:size, 0:size]
+    rgb = np.full((size, size, 3), background, dtype=np.uint8)
+    rgb[(xx - cx) ** 2 + (yy - size // 2) ** 2 <= radius**2] = disc
     return rgb
 
 
