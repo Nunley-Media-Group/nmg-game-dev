@@ -18,7 +18,8 @@
 #   1. godot --headless --import must exit 0 and print no ERROR: line.
 #   2. res://addons/nmg_game_dev/tests/run_tests.gd must exit 0, print "N passed, 0 failed", print
 #      no ERROR: or SCRIPT ERROR: line, and print a PASS line for each test in required_tests (the
-#      variant-routing tests, and the NmgLaunch option, autoplay, and save-folder tests).
+#      variant-routing tests, the NmgLaunch option, autoplay, and save-folder tests, and the
+#      NmgAudio tests).
 #   3. src/nmg_game_dev/godot/gd/probe_asset.gd on res://Crate.glb must print an NMG_RESULT line
 #      that matches tests/godot/fixture/expected-probe.json (floats within 0.001).
 #   4. Every src/nmg_game_dev/godot/gd/*.gd must pass godot --check-only.
@@ -64,6 +65,13 @@ required_tests=(
   "test_nmg_launch.gd::test_autoplay_reaches_a_scene_that_connects_in_ready"
   "test_nmg_launch.gd::test_save_dir_with_test_saves"
   "test_nmg_launch.gd::test_save_dir_default"
+  "test_nmg_audio.gd::test_component_has_the_six_methods"
+  "test_nmg_audio.gd::test_missing_sound_plays_nothing_and_warns_once"
+  "test_nmg_audio.gd::test_music_repeat_crossfade_loop_and_stinger_duck"
+  "test_nmg_audio.gd::test_music_change_fades_over_crossfade_seconds"
+  "test_nmg_audio.gd::test_volumes_persist_to_a_new_component"
+  "test_nmg_audio.gd::test_new_volumes_reach_the_sfx_ui_and_positional_sounds_playing_now"
+  "test_nmg_audio.gd::test_region_music_plays_the_theme_of_the_current_scene"
 )
 cache_root="${GODOT_CACHE_DIR:-$repo_root/.cache/godot}"
 latest_url="https://api.github.com/repos/godotengine/godot/releases/latest"

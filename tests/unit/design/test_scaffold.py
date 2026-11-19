@@ -511,3 +511,61 @@ def test_an_asset_name_that_is_not_pascal_case_fails_that_entry_and_writes_nothi
     assert not list((root / "game" / "systems").rglob("*.gd"))
     # The other entries still scaffold.
     assert any(line.status == "created" for line in report.lines)
+
+
+AUDIO_SYSTEM = "---\ntype: system\nname: Audio\ntemplate: audio\n---\n"
+AUDIO_SCRIPT = "game/systems/Audio/audio.gd"
+AUDIO_TABLE = "game/systems/Audio/audio_table.tres"
+
+
+def test_audio_template_scaffolds_an_nmg_audio_component_and_its_table(tmp_path: Path) -> None:
+    """#237 AC1: template audio writes an NmgAudio script and its name table."""
+    _project(tmp_path, {"systems/audio.md": AUDIO_SYSTEM})
+
+    report = _run(tmp_path)
+
+    script = (tmp_path / AUDIO_SCRIPT).read_text(encoding="utf-8")
+    assert "class_name AudioComponent\n" in script
+    assert "extends NmgAudio\n" in script
+    assert 'table = load("res://systems/Audio/audio_table.tres")' in script
+    table = (tmp_path / AUDIO_TABLE).read_text(encoding="utf-8")
+    assert table.startswith('[gd_resource type="Resource" script_class="NmgAudioTable"')
+    assert "sounds = {}" in table
+    assert "themes = {}" in table
+    assert _texts(report) == [
+        "created system Audio: game/systems/Audio/audio.gd",
+        "created system Audio: game/systems/Audio/audio_table.tres",
+    ]
+
+
+def test_plain_system_keeps_the_plain_node_component_and_no_table(tmp_path: Path) -> None:
+    """#237 AC2: an entry without template renders exactly as before."""
+    _project(tmp_path, {"systems/inventory.md": SYSTEM})
+
+    _run(tmp_path)
+
+    text = (tmp_path / SYSTEM_FILE).read_text(encoding="utf-8")
+    assert "extends Node\n" in text
+    assert "NmgAudio" not in text
+    assert not (tmp_path / AUDIO_TABLE).exists()
+
+
+def test_existing_audio_script_and_table_are_reported_unchanged_and_not_rewritten(
+    tmp_path: Path,
+) -> None:
+    """#237 AC2: no existing script or table is overwritten, and each is reported unchanged."""
+    _project(tmp_path, {"systems/audio.md": AUDIO_SYSTEM})
+    script = tmp_path / AUDIO_SCRIPT
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("# mine\n", encoding="utf-8")
+    table = tmp_path / AUDIO_TABLE
+    table.write_text("# my table\n", encoding="utf-8")
+
+    report = _run(tmp_path)
+
+    assert script.read_text(encoding="utf-8") == "# mine\n"
+    assert table.read_text(encoding="utf-8") == "# my table\n"
+    assert _texts(report) == [
+        "unchanged system Audio: game/systems/Audio/audio.gd",
+        "unchanged system Audio: game/systems/Audio/audio_table.tres",
+    ]

@@ -12,6 +12,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Onboarding copies the secret scanner and installs a `pre-commit` hook that runs it on staged content. A foreign `pre-commit` hook is never overwritten: the step reports `conflict` with `onboard.precommit_hook_conflict` and names the line to add to it. (#255)
 - `/ship` scans the consumer's tracked files as its first gate, also in a dry run, and stops with `ship.secret_found`, listing masked matches, before any Godot command runs. Outside a git work tree it walks the consumer's files but skips `.env` and `.env.*` files, `.claude/settings.local.json`, and `.venv/` and `node_modules/` folders, where keys are meant to live; a git failure stops with `ship.secret_scan_failed`. A staged submodule no longer fails the pre-commit scan, a staged type change (a symlink replaced by a file) is scanned, and onboarding skips the hook when the consumer is a subfolder of a larger repository. (#255)
 
+## [0.35.0] - 2026-11-19
+
+### Added
+
+- Audio component: `design scaffold` with `template: audio` on a `system` entry writes a component script that extends the new `NmgAudio` add-on class and its `audio_table.tres` name table. `NmgAudio` plays sounds by name (`sfx`, `ui`, `music` with crossfades and loops, `stinger` with ducking, `region_music` from a region's `music` field, and volumes saved by `set_volumes`), and a sound the table does not hold plays nothing and warns once. `python -m nmg_game_dev.audio refresh` and the `refresh_audio_table` MCP tool rebuild the tables; every successful `import_audio` refreshes them and returns `refreshed_tables`. An unreadable design backlog is `audio.backlog_invalid`, and a table file that cannot be read or written is `audio.table_unreadable` or `audio.table_unwritable`: an error from a refresh, and a `refresh_warning` on an import that otherwise succeeded. A project with no Audio name table skips the refresh without reading the backlog, and a stinger plays at its own pitch, without `pitch_jitter`. `design sync` reports `design.invalid_field` for a `template` other than `audio` or a region `music` that is not a non-empty string. (#237)
+
 ## [0.34.0] - 2026-11-19
 
 ### Added

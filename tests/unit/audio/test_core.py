@@ -87,7 +87,57 @@ def test_a_wav_sound_effect_is_stored_and_imported_as_an_audio_stream_wav(
             "loudness_lufs": -16.0,
             "loop_crossfade_ms": 500,
         },
+        "refreshed_tables": [],
     }
+
+
+def test_a_successful_import_refreshes_the_audio_name_table(
+    project: Path, source_file: Callable[[str], Path], godot: FakeGodotRunner
+) -> None:
+    """#237 AC4: the new sound is in the Audio component's table with no separate refresh call."""
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    table.write_text(
+        '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n',
+        encoding="utf-8",
+    )
+
+    result = import_audio(source_file("tone.wav"), "DoorCreak", "sfx", godot=godot)
+
+    assert result["refreshed_tables"] == ["game/systems/Audio/audio_table.tres"]
+    assert '"DoorCreak": "res://assets/Audio/DoorCreak.wav"' in table.read_text(encoding="utf-8")
+
+
+def test_an_unreadable_backlog_leaves_the_import_successful_with_a_refresh_warning(
+    project: Path, source_file: Callable[[str], Path], godot: FakeGodotRunner
+) -> None:
+    """#237 review F1: the sound is stored and imported, so a table refresh failure only warns.
+
+    The backlog's region ``fields`` is not a mapping, which once raised a TypeError here. A rerun
+    of the same import still succeeds, so a finished import never turns into a failure.
+    """
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    header = '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n'
+    table.write_text(header, encoding="utf-8")
+    backlog = project / "docs" / "design" / "backlog.json"
+    backlog.parent.mkdir(parents=True)
+    backlog.write_text(
+        '{"version": 1, "entries": [{"type": "region", "name": "Forest", "asset_name": "Forest", '
+        '"source": "docs/design/forest.md", "status": "planned", "fields": 5}]}',
+        encoding="utf-8",
+    )
+
+    for _attempt in range(2):
+        result = import_audio(source_file("tone.wav"), "DoorCreak", "sfx", godot=godot)
+
+        assert result["imported_to_godot"] is True
+        assert result["refreshed_tables"] == []
+        assert result["refresh_warning"]["code"] == "audio.backlog_invalid"
+        assert result["refresh_warning"]["remediation"]
+        assert "warning" not in result
+    assert (project / "game" / "assets" / "Audio" / "DoorCreak.wav").is_file()
+    assert table.read_text(encoding="utf-8") == header
 
 
 @pytest.mark.parametrize(
