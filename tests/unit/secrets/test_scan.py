@@ -357,6 +357,18 @@ def test_a_staged_submodule_is_skipped_and_the_rest_is_scanned(repo: Path) -> No
     assert [(m.path, m.pattern) for m in scan_staged(repo)] == [("leak.gd", "meshy")]
 
 
+def test_a_staged_type_change_is_scanned(repo: Path) -> None:
+    """A symlink replaced by a regular file holding a key is a "T" change (review F1)."""
+    (repo / "f.txt").symlink_to("target.txt")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "a symlink")
+    (repo / "f.txt").unlink()
+    _stage(repo, "f.txt", f"{AWS}\n".encode())
+
+    assert [(m.path, m.pattern) for m in scan_staged(repo)] == [("f.txt", "aws")]
+    assert main(["--staged", "--root", str(repo)]) == 1
+
+
 def test_a_staged_rename_is_scanned_under_its_new_path(repo: Path) -> None:
     _stage(repo, "old.gd", f'var k = "{MESHY}"\n'.encode())
     _allow(repo, "old.gd:meshy\n")

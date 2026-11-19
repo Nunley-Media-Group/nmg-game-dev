@@ -207,9 +207,9 @@ def _walk_files(root: Path) -> Iterator[tuple[str, bytes]]:
 
 
 def _staged_paths(root: Path, run: Runner) -> list[str]:
-    """Staged added, copied, modified, or renamed paths, except gitlinks (submodules), which have
-    no blob to read."""
-    raw = _git(root, run, "diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=ACMR")
+    """Staged added, copied, modified, renamed, or type-changed paths, except gitlinks
+    (submodules), which have no blob to read."""
+    raw = _git(root, run, "diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=ACMRT")
     fields = _split_z(raw)
     # Each record is ":<old mode> <new mode> <old id> <new id> <status>" then its path.
     return [
@@ -220,7 +220,8 @@ def _staged_paths(root: Path, run: Runner) -> list[str]:
 
 
 def staged_files(root: Path, run: Runner = subprocess.run) -> Iterator[tuple[str, bytes]]:
-    """Each staged added, copied, modified, or renamed path with its index blob bytes."""
+    """Each staged added, copied, modified, renamed, or type-changed path with its index blob
+    bytes."""
     names = _staged_paths(root, run)
     return ((name, _git(root, run, "cat-file", "blob", f":{name}")) for name in names)
 

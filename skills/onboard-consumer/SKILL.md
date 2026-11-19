@@ -47,6 +47,9 @@ from the previous engine target to Godot, use `/convert-to-godot`, which runs th
    an error:
    - `git_lfs_hooks` and `precommit_hook` are skipped in a folder that is not a git work tree, so
      that consumer has no commit-time secret scan (`/ship` still scans before every build).
+     `precommit_hook` is also skipped when the consumer is a subfolder of a larger repository: the
+     hook runs the scanner from the repository root, where it would not be found and would block
+     every commit. Relay its remediation.
    - `godot_binary` is skipped when Godot 4 is not found (`GODOT_BIN`, then `godot` on PATH, then
      `/Applications/Godot.app`). Relay its remediation: install Godot 4 or set `GODOT_BIN`. Finalize,
      audio import, and ship need it.

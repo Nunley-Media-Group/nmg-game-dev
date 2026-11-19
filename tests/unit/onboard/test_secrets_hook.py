@@ -126,6 +126,24 @@ def test_outside_a_work_tree_the_hook_step_is_skipped(tmp_path: Path) -> None:
     assert not _repo_hook(consumer).exists()
 
 
+@pytest.mark.skipif(
+    subprocess.run(["git", "--version"], capture_output=True, check=False).returncode != 0,
+    reason="git is not installed",
+)
+def test_a_subfolder_of_a_larger_repository_skips_the_hook(tmp_path: Path) -> None:
+    """The hook runs the scanner from the repository root, so a subfolder target would block
+    every commit; the step is skipped instead (review F2)."""
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True, capture_output=True)
+    consumer = make_consumer(tmp_path / "games")
+
+    result = ensure_precommit_hook("precommit_hook", consumer, run=default_run)
+
+    assert result.status == "skipped"
+    assert "subfolder" in result.detail
+    assert result.remediation is not None
+    assert not (tmp_path / HOOK).exists()
+
+
 def test_a_conflict_is_reported_by_onboarding_and_still_exits_clean(tmp_path: Path) -> None:
     """Onboarding reports the conflict as a step and does not raise (AC5)."""
     framework = make_framework(tmp_path / "framework")
