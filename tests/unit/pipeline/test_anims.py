@@ -100,6 +100,14 @@ def _sidecar(request: FinalizeRequest) -> dict[str, Any]:
     return loaded
 
 
+def _written(request: FinalizeRequest) -> list[str]:
+    """Return the names under Animations/ (clip files and sidecar), or [] when there are none."""
+    folder = request.export_root / request.category / request.collection / "Animations"
+    if not folder.exists():
+        return []
+    return sorted(path.name for path in folder.iterdir())
+
+
 def _anim_result(result: FinalizeResult) -> Mapping[str, Any]:
     assert result.animations is not None
     return result.animations
@@ -250,6 +258,77 @@ class TestExportPerClip:
         assert "A_Crate_" not in info.value.message
         folder = request_for.export_root / "Props" / "Crate" / "Animations"
         assert not folder.exists()
+
+    def test_an_action_with_another_rigs_suffix_stops_before_any_write(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        # FR3 and AC4: the probe reports Idle@SK_Cop on SK_Crate, so no clip and no sidecar.
+        runner = FakeStepRunner(request_for, clips=[IDLE], rig_mismatch=["Idle@SK_Cop"])
+
+        with pytest.raises(PipelineError) as info:
+            _finalize(request_for, tmp_path, jobs, clips=[IDLE], runner=runner)
+
+        assert info.value.code == "finalize.clip_rig_mismatch"
+        assert info.value.stage == "export_anims"
+        assert "Idle@SK_Cop" in info.value.message
+        assert "<Clip>@SK_Crate" in info.value.remediation
+        assert _export_calls(runner) == []
+        assert _written(request_for) == []
+
+    def test_two_actions_giving_one_clip_stop_before_any_write(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        # FR4 and AC5: Idle is the clip of both Idle and Idle@SK_Crate, so nothing is exported.
+        duplicate = {"name": "Idle", "actions": ["Idle", "Idle@SK_Crate"]}
+        runner = FakeStepRunner(request_for, clips=[], duplicates=[duplicate])
+
+        with pytest.raises(PipelineError) as info:
+            _finalize(request_for, tmp_path, jobs, clips=[], runner=runner)
+
+        assert info.value.code == "finalize.clip_name_duplicate"
+        assert info.value.stage == "export_anims"
+        assert "Clip Idle" in info.value.message
+        assert "(Idle, Idle@SK_Crate)" in info.value.message
+        assert "Keep one action per clip on SK_Crate" in info.value.remediation
+        assert _export_calls(runner) == []
+        assert _written(request_for) == []
+
+    def test_mismatch_is_reported_before_a_duplicate_and_an_invalid_name(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        # The order is mismatch, then duplicate, then invalid name.  Each case holds all three.
+        bad = {"name": "Run-Fast", "hash": "hash-bad", "valid_name": False}
+        duplicate = {"name": "Idle", "actions": ["Idle", "Idle@SK_Crate"]}
+        everything = FakeStepRunner(
+            request_for, clips=[bad], rig_mismatch=["Idle@SK_Cop"], duplicates=[duplicate]
+        )
+        with pytest.raises(PipelineError) as mismatch:
+            _finalize(request_for, tmp_path, jobs, clips=[bad], runner=everything)
+        assert mismatch.value.code == "finalize.clip_rig_mismatch"
+
+        no_mismatch = FakeStepRunner(request_for, clips=[bad], duplicates=[duplicate])
+        with pytest.raises(PipelineError) as duplicated:
+            _finalize(request_for, tmp_path, jobs, clips=[bad], runner=no_mismatch)
+        assert duplicated.value.code == "finalize.clip_name_duplicate"
+        assert _written(request_for) == []
+
+    def test_a_probe_without_the_identity_keys_exports_as_before(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        # A probe that reports neither rig_mismatch nor duplicates is read as reporting none.
+        class _ProbeWithoutIdentityKeys(FakeStepRunner):
+            def _anim_outputs(
+                self, job_dir: Path, inputs: Mapping[str, Any] | None
+            ) -> dict[str, Any]:
+                outputs = super()._anim_outputs(job_dir, inputs)
+                outputs.pop("rig_mismatch", None)
+                outputs.pop("duplicates", None)
+                return outputs
+
+        runner = _ProbeWithoutIdentityKeys(request_for, clips=[IDLE, WALK])
+        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], runner=runner)
+
+        assert [call["inputs"]["clips"] for call in _export_calls(runner)] == [["Idle", "Walk"]]
 
     def test_an_unrigged_asset_passes_through_with_no_clips(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
