@@ -10,6 +10,21 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - The ElevenLabs audio guard denies a multi-take `creative_generate_in_flow` call for every audio node type, not only `sfx`, `music`, and `tts`. `dubbing-audio`, `voice-changer`, `voice-isolator`, `audio-effects`, `video-to-music`, and `composition` now get the same one-take rule. The guarded set is derived from a recorded ElevenLabs node-type list in the tests, and `/generate-audio` and `docs/mcp/elevenlabs.md` name each one. (#285)
 
+## [0.31.0] - 2026-11-19
+
+### Added
+
+- `python -m nmg_game_dev.texture art` generates 2D game art (`icon`, `ui`, or `painting`) with the local texture models. Each take is written untiled to `SourceArt/Art/raw/<kind>/`, with a `<Name>.json` manifest and a `<Name>_sheet.png` contact sheet, and seeds that already have a take are skipped without loading a model. (#253)
+- `python -m nmg_game_dev.texture art-finish` cuts a picked take into game images: icons at `game/assets/UI/Icons/` (512 px and a 64 px copy), UI panels at `game/assets/UI/Panels/` (1024 px), and paintings at `game/assets/UI/Paintings/` (1920 px wide by default, RGB with no alpha). A take with a non-flat background or a subject touching the edge is refused with nothing written, and rerunning gives byte-identical files. (#253)
+- `SourceArt/Art/style.json` holds a project style sentence that every art prompt carries and that texture manifests record as `project_style`. Texture prompts do not change. (#253)
+- The `texture-gen` MCP server's `generate_art` (a queued job, polled with `get_texture_job`) and `finish_art` tools, documented in `docs/mcp/texture-gen.md`. (#253)
+
+## [0.30.1] - 2026-11-19
+
+### Fixed
+
+- Rigged assets are measured and exported in their rest pose: validation, the Desktop re-seat, the reduce copy step, and the GLB exports read the rest shape whatever the pose bones hold, so a leftover pose no longer fails `pivot.bottom_center` or bakes into the geometry, and clip export puts every pose bone back where it was, also when it fails. Read-only (library-linked) armature data keeps its pose. (#236)
+
 ## [0.30.0] - 2026-11-19
 
 ### Added

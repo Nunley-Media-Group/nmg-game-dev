@@ -23,6 +23,7 @@ from .assets import (
     require_armature_name_free,
 )
 from .meshes import evaluated_mesh
+from .rest_pose import rest_pose
 from .textures import source_images, write_png
 
 _TEMP_PREFIX = "__nmg_tmp_"
@@ -90,35 +91,38 @@ def export_variants(collection_name: str, category: str, export_root: str) -> di
     original_paths = {img.name: (img.filepath_raw, img.file_format) for img in desktop_images}
     restores: list[tuple[bpy.types.ID, str]] = []
     try:
-        if rig is not None:
-            restores.append((rig, rig.name))
-            rig.name = ARMATURE_EXPORT_NAME
-        desktop_bytes = sum(
-            write_png(image, desktop_dir / f"{image.name}.png") for image in desktop_images
-        )
-        restores += _name_meshes(desktop_objects)
-        desktop_meshes = mesh_records(desktop_objects)
-        _select_only(desktop_objects)
-        bpy.ops.export_scene.gltf(filepath=str(desktop_glb), **options)
+        # Both measures and both GLBs read the rest shape, so no leftover pose is exported (#236).
+        with rest_pose(desktop_objects + mobile_objects):
+            if rig is not None:
+                restores.append((rig, rig.name))
+                rig.name = ARMATURE_EXPORT_NAME
+            desktop_bytes = sum(
+                write_png(image, desktop_dir / f"{image.name}.png") for image in desktop_images
+            )
+            restores += _name_meshes(desktop_objects)
+            desktop_meshes = mesh_records(desktop_objects)
+            _select_only(desktop_objects)
+            bpy.ops.export_scene.gltf(filepath=str(desktop_glb), **options)
 
-        # The rig keeps its export name, so both files name it the same way. Desktop mesh
-        # datablocks move aside with their objects, so Mobile meshes can take the names they export.
-        desktop_mesh_data = [obj.data for obj in desktop_objects if obj.type == "MESH"]
-        restores += _rename(
-            [obj for obj in desktop_objects if obj != rig]
-            + desktop_mesh_data
-            + desktop_materials
-            + desktop_images,
-            _to_temp,
-        )
-        restores += _rename(mobile_objects + mobile_materials + mobile_images, _unsuffixed)
-        restores += _name_meshes(mobile_objects)
-        mobile_bytes = sum(
-            write_png(image, mobile_dir / f"{image.name}.png") for image in mobile_images
-        )
-        mobile_meshes = mesh_records(mobile_objects)
-        _select_only(mobile_export)
-        bpy.ops.export_scene.gltf(filepath=str(mobile_glb), **options)
+            # The rig keeps its export name, so both files name it the same way. Desktop mesh
+            # datablocks move aside with their objects, so Mobile meshes can take the names they
+            # export.
+            desktop_mesh_data = [obj.data for obj in desktop_objects if obj.type == "MESH"]
+            restores += _rename(
+                [obj for obj in desktop_objects if obj != rig]
+                + desktop_mesh_data
+                + desktop_materials
+                + desktop_images,
+                _to_temp,
+            )
+            restores += _rename(mobile_objects + mobile_materials + mobile_images, _unsuffixed)
+            restores += _name_meshes(mobile_objects)
+            mobile_bytes = sum(
+                write_png(image, mobile_dir / f"{image.name}.png") for image in mobile_images
+            )
+            mobile_meshes = mesh_records(mobile_objects)
+            _select_only(mobile_export)
+            bpy.ops.export_scene.gltf(filepath=str(mobile_glb), **options)
     finally:
         for datablock, original_name in reversed(restores):
             datablock.name = original_name

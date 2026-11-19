@@ -1,7 +1,11 @@
-"""CLI: ``python -m nmg_game_dev.texture generate|status|seamless|sheet|run-job|run-queue``.
+"""CLI: ``python -m nmg_game_dev.texture`` with ``generate``, ``art``, ``art-finish``, ``status``,
+``seamless``, ``sheet``, ``run-job``, or ``run-queue``.
 
 ``generate`` runs synchronously and prints the JSON result. ``generate --batch FILE`` runs a JSON
-array of requests in one run and prints ``{"results": [...]}`` (#143 FR7). ``status`` prints the
+array of requests in one run and prints ``{"results": [...]}`` (#143 FR7). ``art`` generates 2D
+game art (icon, ui, or painting) untiled into ``SourceArt/Art/raw/<kind>/``, skipping seeds that
+already have a take, and prints the ``ArtResult`` JSON (#253). ``art-finish`` cuts a picked take
+out into game files and prints the files written (#253). ``status`` prints the
 availability of each backend. ``seamless`` makes an existing PNG tile (#147, #238): a PNG that
 already passes the seam rule is written unchanged, a narrowly failing one gets an edge-band repair,
 and a non-tiling one is cross-faded with ``make_seamless`` and then edge-banded (``fix_seam``). The
@@ -26,9 +30,9 @@ from typing import Any
 import numpy as np
 from PIL import Image as PILImage
 
-from nmg_game_dev.texture import contact_sheet, generate, jobs
+from nmg_game_dev.texture import art, art_finish, contact_sheet, generate, jobs
 from nmg_game_dev.texture.errors import TextureGenError
-from nmg_game_dev.texture.paths import output_root
+from nmg_game_dev.texture.paths import output_root, project_root
 from nmg_game_dev.texture.seamless import fix_seam, is_seamless
 
 _SEAMLESS_MODES = ("L", "RGB", "RGBA")
@@ -88,6 +92,32 @@ def _generate_request(args: argparse.Namespace) -> generate.TextureRequest:
     return generate.TextureRequest(**kwargs)
 
 
+def _seeds_from_text(text: str) -> list[int]:
+    """Parse ``--seeds 1,2,3``. Anything that is not a comma-separated integer is refused."""
+    try:
+        return [int(part) for part in text.split(",") if part.strip()]
+    except ValueError as error:
+        raise TextureGenError(
+            "texture.invalid_request",
+            f"--seeds {text!r} is not a comma-separated list of integers.",
+            "Pass seeds such as --seeds 1,2,3.",
+        ) from error
+
+
+def _art_request(args: argparse.Namespace) -> art.ArtRequest:
+    kwargs: dict[str, Any] = {
+        "kind": args.kind,
+        "name": args.name,
+        "prompt": args.prompt,
+        "backend": args.backend,
+        "aspect": args.aspect,
+        "resolution": args.resolution,
+    }
+    if args.seeds is not None:
+        kwargs["seeds"] = _seeds_from_text(args.seeds)
+    return art.ArtRequest(**kwargs)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m nmg_game_dev.texture",
@@ -138,6 +168,50 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Text appended to every prompt.",
     )
 
+    art_cmd = sub.add_parser(
+        "art",
+        help="Generate untiled 2D art (icon, ui, painting) as raw takes and print the result.",
+    )
+    art_cmd.add_argument("--kind", required=True, choices=sorted(art.KINDS), help="Art kind.")
+    art_cmd.add_argument(
+        "--name", required=True, help="PascalCase name, such as HealthPotion. Names the takes."
+    )
+    art_cmd.add_argument("--prompt", required=True, help="What the art shows.")
+    art_cmd.add_argument(
+        "--seeds",
+        default=None,
+        help="Comma-separated seeds, such as 1,2,3. Default: one random seed.",
+    )
+    art_cmd.add_argument(
+        "--backend",
+        default=art.DEFAULT_BACKEND,
+        help="z-image-turbo or flux2-klein-4b (default: flux2-klein-4b).",
+    )
+    art_cmd.add_argument(
+        "--aspect",
+        default=None,
+        help="16:9, 3:2, or 1:1 for painting (default 16:9); icon and ui are 1:1.",
+    )
+    art_cmd.add_argument(
+        "--resolution", type=int, default=1024, help="Long side in pixels (default 1024)."
+    )
+
+    finish_cmd = sub.add_parser(
+        "art-finish",
+        help="Cut a picked art take out into game files (icons, UI panels, paintings).",
+    )
+    finish_cmd.add_argument("--kind", required=True, choices=sorted(art_finish.DEST))
+    finish_cmd.add_argument(
+        "--name", required=True, help="The name the takes were generated under."
+    )
+    finish_cmd.add_argument("--pick", required=True, type=int, help="The seed of the chosen take.")
+    finish_cmd.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Painting width in pixels (default 1920); painting only.",
+    )
+
     sub.add_parser("status", help="Print the availability of each backend.")
 
     tile = sub.add_parser(
@@ -181,6 +255,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "generate":
             result = generate.run(_generate_request(args))
             print(json.dumps(result.as_json(), indent=2, sort_keys=True))
+        elif args.command == "art":
+            art_result = art.run(_art_request(args))
+            print(json.dumps(art_result.as_json(), indent=2, sort_keys=True))
+        elif args.command == "art-finish":
+            root = project_root(os.environ, Path.cwd())
+            finished = art_finish.finish(root, args.kind, args.name, args.pick, width=args.width)
+            print(json.dumps(finished, indent=2, sort_keys=True))
         elif args.command == "run-queue":
             jobs.run_queue(args.jobs_root)
         elif args.command == "status":

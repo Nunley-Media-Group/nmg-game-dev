@@ -48,6 +48,37 @@
         "type": "object",
         "properties": {}
       }
+    },
+    {
+      "name": "generate_art",
+      "description": "Start a background art job for 2D game art (icon, ui, or painting) and return its job_id at once. Each take is written untiled to SourceArt/Art/raw/<kind>/<name>-<seed>.png, with a prompt that adds the project style from SourceArt/Art/style.json when present. Seeds that already have a take are skipped. Icons and UI art are square; a painting takes aspect 16:9 (default), 3:2, or 1:1. Poll get_texture_job(job_id) for progress and the take paths.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "enum": ["icon", "ui", "painting"]},
+          "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "prompt": {"type": "string"},
+          "seeds": {"type": ["array", "null"], "items": {"type": "integer"}},
+          "backend": {"type": "string", "enum": ["z-image-turbo", "flux2-klein-4b"], "default": "flux2-klein-4b"},
+          "aspect": {"type": ["string", "null"], "enum": ["16:9", "3:2", "1:1", null]},
+          "resolution": {"type": "integer", "default": 1024}
+        },
+        "required": ["kind", "name", "prompt"]
+      }
+    },
+    {
+      "name": "finish_art",
+      "description": "Finish the picked take of a generated art image into game files. icon writes game/assets/UI/Icons/<name>.png (512 px) and <name>_small.png (64 px) from a flat background, with transparent corners; ui writes game/assets/UI/Panels/<name>.png (1024 px); painting writes game/assets/UI/Paintings/<name>.png at width (default 1920) with no alpha. Returns the files written, or art.take_not_found, art.background_not_flat, or art.subject_cropped with nothing written.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "enum": ["icon", "ui", "painting"]},
+          "name": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "pick": {"type": "integer"},
+          "width": {"type": ["integer", "null"]}
+        },
+        "required": ["kind", "name", "pick"]
+      }
     }
   ]
 }

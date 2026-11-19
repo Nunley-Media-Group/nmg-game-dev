@@ -40,10 +40,17 @@ from nmg_game_dev.texture.hardware import (
     reserve_gb,
 )
 from nmg_game_dev.texture.maps import MapSet, derive, resolve_material
-from nmg_game_dev.texture.paths import models_dir, output_root, slugify, weights_dir
+from nmg_game_dev.texture.paths import (
+    models_dir,
+    output_root,
+    project_root,
+    slugify,
+    weights_dir,
+)
 from nmg_game_dev.texture.registry import REGISTRY, BackendSpec, resolve
 from nmg_game_dev.texture.seamless import is_seamless, make_seamless, repair_seam
 from nmg_game_dev.texture.sheet import compare
+from nmg_game_dev.texture.style import project_style
 
 STYLE_SUFFIX = (
     "seamless tileable texture, flat top-down orthographic photo scan, uniform even diffuse "
@@ -353,11 +360,14 @@ def _generate(
     host: HardwareFacts,
     spawn: Spawn,
     base: Path,
+    project: Path,
     on_progress: Callable[[int, int], None] | None,
     deps_probe: DepsProbe | None,
 ) -> tuple[TextureResult, ...]:
     """Run ``requests`` as one job: one worker per backend covers every image, then each request is
-    finished."""
+    finished. ``project`` supplies the project style recorded in each manifest (#253)."""
+    # An invalid style.json fails here, before any model is loaded or any file is written.
+    style = project_style(project)
     root = models_dir(env_map)
     reserve = reserve_gb(env_map)
     plans: list[_Plan] = []
@@ -467,7 +477,8 @@ def _generate(
             compare=compare_path,
         )
         result.manifest.write_text(
-            json.dumps(_manifest(result), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(_manifest(result, style), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
         results.append(result)
 
@@ -492,13 +503,15 @@ def run(
     env_map = os.environ if env is None else env
     host = probe() if facts is None else facts
     validate_request(request)
+    work_dir = cwd or Path.cwd()
     results = _generate(
         [request],
         registry=registry,
         env_map=env_map,
         host=host,
         spawn=default_spawn if spawn is None else spawn,
-        base=output_root_override or output_root(env_map, cwd or Path.cwd()),
+        base=output_root_override or output_root(env_map, work_dir),
+        project=project_root(env_map, work_dir),
         on_progress=on_progress,
         deps_probe=deps_probe,
     )
@@ -522,13 +535,15 @@ def run_batch(
     env_map = os.environ if env is None else env
     host = probe() if facts is None else facts
     validate_batch(requests)
+    work_dir = cwd or Path.cwd()
     results = _generate(
         requests,
         registry=registry,
         env_map=env_map,
         host=host,
         spawn=default_spawn if spawn is None else spawn,
-        base=output_root_override or output_root(env_map, cwd or Path.cwd()),
+        base=output_root_override or output_root(env_map, work_dir),
+        project=project_root(env_map, work_dir),
         on_progress=on_progress,
         deps_probe=deps_probe,
     )
@@ -554,11 +569,12 @@ def _make_seamless_png(path: Path) -> None:
     PILImage.fromarray(result).save(path)
 
 
-def _manifest(result: TextureResult) -> dict[str, Any]:
+def _manifest(result: TextureResult, style: str | None) -> dict[str, Any]:
     return {
         "name": result.name,
         "prompt": result.prompt,
         "style_suffix": result.style_suffix,
+        "project_style": style,
         "images": [record.as_json() for record in result.images],
         "skipped": [dict(entry) for entry in result.skipped],
     }

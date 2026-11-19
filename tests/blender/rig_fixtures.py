@@ -401,3 +401,28 @@ def build_variant() -> dict[str, list[float]]:
     mesh.remesh_voxel_size = _VOXEL_SIZE
     bpy.ops.object.voxel_remesh()
     return {key: list(value) for key, value in marks.items()}
+
+
+def pose_hero(offset: float) -> None:
+    """Pose SK_Hero's left arm and spine so the skin's bounds move, with no action assigned (#236).
+
+    offset metres extend the left upper arm and forearm along their bones, and the spine bends by
+    offset radians. At 0.02 the bounds move about 10 mm, well over the 1 mm pivot tolerance. The
+    feet stay on the floor. offset 0.0 puts every pose bone back at identity. The rig's action
+    and pose_position are left as they are, apart from clearing the action.
+    """
+    import bpy  # noqa: PLC0415
+    from mathutils import Quaternion  # noqa: PLC0415
+
+    rig = bpy.data.objects["SK_Hero"]
+    if rig.animation_data is not None:
+        rig.animation_data.action = None
+    for pose_bone in rig.pose.bones:
+        pose_bone.location = (0.0, 0.0, 0.0)
+        pose_bone.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        pose_bone.scale = (1.0, 1.0, 1.0)
+    for name in ("upperarm_l", "lowerarm_l"):
+        rig.pose.bones[name].location = (0.0, offset, 0.0)
+    bend = Quaternion((1.0, 0.0, 0.0), offset)
+    rig.pose.bones["spine_01"].rotation_quaternion = bend
+    bpy.context.view_layer.update()
