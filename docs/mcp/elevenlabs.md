@@ -66,14 +66,14 @@ live under `NMG_GAME_DEV_HOOK_STATE_DIR/generate-audio-reminder` when that varia
 | `file` | yes | The saved file: `.wav`, `.mp3`, `.ogg`, or `.flac` |
 | `name` | yes | PascalCase, matching `^[A-Z][A-Za-z0-9]*$`. It must not start with `SFX_` or `MUS_` |
 | `kind` | yes | `sfx` (sound effect) or `music` |
-| `loop` | no | `true` makes the stream loop. Default `false` |
+| `loop` | no | `true` makes the stream loop and crossfades its seam. Default `false`. CLI `--loop`, and `--no-loop` to turn it off for a sound stored looping |
 | `max_seconds` | no | Cut the finished sound to this many seconds, with a 20 ms fade-out. Must be above 0. CLI `--max-seconds` |
 | `loudness_lufs` | no | Integrated loudness target, from -40 to -5 LUFS. Default -16 for `sfx`, -18 for `music`. CLI `--loudness-lufs` |
 | `loop_crossfade_ms` | no | Length of the loop seam crossfade, in milliseconds, zero or more. Default 500, capped at a quarter of the sound. CLI `--loop-crossfade-ms` |
 | `finish` | no | `false` imports the stored WAV unchanged, with no trim, cut, crossfade, or loudness match. Default `true`. CLI `--no-finish`, and `--finish` to turn it back on for a sound stored with it off |
 
-A setting you leave out comes from the sound's entry in `SourceArt/Audio/audio.json`, and then from
-the default for its kind. A setting you pass is stored for that sound, so the next import of the same
+A setting you leave out, `loop` included, comes from the sound's entry in `SourceArt/Audio/audio.json`,
+and then from the default for its kind. A setting you pass is stored for that sound, so the next import of the same
 file, or `refinish`, reuses it. Settings are stored per sound, and a stored `max_seconds` stays
 until you pass a new value.
 

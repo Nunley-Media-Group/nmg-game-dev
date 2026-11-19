@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import io
+import json
 import wave
 from collections.abc import Callable
 from pathlib import Path
@@ -502,6 +503,37 @@ def test_a_byte_identical_reimport_finishes_the_same_game_copy_with_stored_setti
     assert game.read_bytes() == first
     assert result["settings"]["max_seconds"] == 0.5
     assert result["finish"]["cut"] is True
+
+
+def test_a_reimport_that_omits_loop_keeps_the_stored_loop_and_crossfade(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    first = import_audio(src, "Door", "sfx", loop=True, godot=godot)
+    game = project / SFX_GAME_DOOR
+    looped = game.read_bytes()
+
+    again = import_audio(src, "Door", "sfx", godot=godot)
+
+    assert first["looping"] is True
+    assert again["looping"] is True
+    assert again["finish"] == first["finish"]
+    assert game.read_bytes() == looped
+    stored = json.loads((project / "SourceArt/Audio/audio.json").read_text("utf-8"))
+    assert stored["sounds"]["Door"]["loop"] is True
+
+
+def test_an_explicit_loop_false_turns_a_stored_loop_off(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    import_audio(src, "Door", "sfx", loop=True, godot=godot)
+
+    result = import_audio(src, "Door", "sfx", loop=False, godot=godot)
+
+    assert result["looping"] is False
+    stored = json.loads((project / "SourceArt/Audio/audio.json").read_text("utf-8"))
+    assert stored["sounds"]["Door"]["loop"] is False
 
 
 def test_a_different_source_under_the_same_name_still_fails_asset_exists(

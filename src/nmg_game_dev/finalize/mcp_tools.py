@@ -217,7 +217,7 @@ def import_audio(
     file: str,
     name: str,
     kind: str,
-    loop: bool = False,
+    loop: bool | None = None,
     *,
     max_seconds: float | None = None,
     loudness_lufs: float | None = None,
@@ -229,10 +229,10 @@ def import_audio(
     """Finish and store a saved sound as a WAV, and import it into Godot (#155, #249, #252).
 
     A sound effect becomes an ``AudioStreamWAV`` and music an ``AudioStreamOggVorbis`` under
-    ``game/assets/Audio/``. The finishing arguments (``max_seconds``, ``loudness_lufs``,
-    ``loop_crossfade_ms``, ``finish``) override the sound's stored settings. Returns the same result
-    JSON as ``python -m nmg_game_dev.audio import`` (``godot_asset``, ``imported_to_godot``,
-    ``finish``, ``settings``), or ``{"error"}``.
+    ``game/assets/Audio/``. ``loop`` and the finishing arguments (``max_seconds``,
+    ``loudness_lufs``, ``loop_crossfade_ms``, ``finish``) override the sound's stored settings.
+    Returns the same result JSON as ``python -m nmg_game_dev.audio import`` (``godot_asset``,
+    ``imported_to_godot``, ``finish``, ``settings``), or ``{"error"}``.
     """
     try:
         return _import_audio(

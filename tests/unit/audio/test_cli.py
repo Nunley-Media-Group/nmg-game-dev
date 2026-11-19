@@ -147,6 +147,30 @@ def test_the_module_runs_as_a_script(tmp_path: Path) -> None:
     assert "--url" not in result.stdout
 
 
+def test_no_loop_turns_a_stored_loop_off_and_omitting_it_keeps_the_stored_value(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = [
+        "import",
+        "--file",
+        str(source_file("tone.wav")),
+        "--name",
+        "DoorCreak",
+        "--kind",
+        "sfx",
+    ]
+
+    assert main([*args, "--loop"]) == 0
+    capsys.readouterr()
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["looping"] is True
+    assert main([*args, "--no-loop"]) == 0
+    assert json.loads(capsys.readouterr().out)["looping"] is False
+
+
 def test_the_finishing_flags_reach_the_import_and_are_stored(
     project: Path,
     source_file: Callable[[str], Path],

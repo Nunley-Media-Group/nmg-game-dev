@@ -197,7 +197,7 @@ def import_audio(
     file: str,
     name: str,
     kind: str,
-    loop: bool = False,
+    loop: bool | None = None,
     max_seconds: float | None = None,
     loudness_lufs: float | None = None,
     loop_crossfade_ms: int | None = None,
@@ -212,7 +212,8 @@ def import_audio(
     loudness_lufs (default -16 for sfx, -18 for music). A sound effect is copied to
     game/assets/Audio/<name>.wav and imported as an AudioStreamWAV; music is encoded with ffmpeg to
     game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis, looping when loop is
-    true. Settings are stored per sound and reused when omitted. The result names godot_asset,
+    true. loop and the finishing settings are stored per sound and reused when omitted (loop
+    defaults to false). The result names godot_asset,
     imported_to_godot, finish, and settings. A failure returns {"error": {code, message,
     remediation, stage}}.
     """

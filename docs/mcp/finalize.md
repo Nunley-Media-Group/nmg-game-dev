@@ -432,7 +432,7 @@ same function. The flow, the formats, the result fields, and the error codes are
 Before import the game copy is finished (trim, cut, loop crossfade, and loudness match), unless
 `finish` is `false`. The optional parameters are `max_seconds` (above 0), `loudness_lufs` (from -40
 to -5, default -16 for `sfx` and -18 for `music`), `loop_crossfade_ms` (zero or more, default 500),
-and `finish` (default `true`). A parameter you leave out comes from the sound's entry in
+and `finish` (default `true`). A parameter you leave out, `loop` included, comes from the sound's entry in
 `SourceArt/Audio/audio.json`. The result carries `finish` and `settings`.
 
 Its errors come back as `{"error": {"code", "message", "remediation", "stage"}}`, with the `audio`

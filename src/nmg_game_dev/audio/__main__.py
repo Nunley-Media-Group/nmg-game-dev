@@ -1,7 +1,7 @@
 """CLI: ``python -m nmg_game_dev.audio`` with ``import`` and ``refinish`` subcommands (#155, #252).
 
-``import --file F --name N --kind sfx|music [--loop] [--max-seconds S] [--loudness-lufs L]
-[--loop-crossfade-ms MS] [--finish | --no-finish]`` calls ``import_audio``.
+``import --file F --name N --kind sfx|music [--loop | --no-loop] [--max-seconds S]
+[--loudness-lufs L] [--loop-crossfade-ms MS] [--finish | --no-finish]`` calls ``import_audio``.
 ``refinish (--all | Name ...)`` calls ``refinish``. Both are the same functions the finalize
 ``import_audio`` tool and the tests call, and they print the same JSON. A ``PipelineError``
 prints ``ERROR [<code>] <message>`` and ``Remediation: <text>`` to stderr and exits 1. Argument
@@ -36,7 +36,13 @@ def _build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--file", required=True, type=Path, help="Saved .wav, .mp3, .ogg, or .flac.")
     imp.add_argument("--name", required=True, help="PascalCase asset name, e.g. DoorCreak.")
     imp.add_argument("--kind", required=True, choices=sorted(KINDS), help="sfx or music.")
-    imp.add_argument("--loop", action="store_true", help="Make the imported stream loop.")
+    imp.add_argument(
+        "--loop",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="--loop makes the imported stream loop and crossfades its seam; --no-loop does not. "
+        "Default: the stored setting, else no loop.",
+    )
     imp.add_argument(
         "--max-seconds",
         type=float,

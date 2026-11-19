@@ -43,7 +43,7 @@ def import_audio(
     file: str | Path,
     name: str,
     kind: str,
-    loop: bool = False,
+    loop: bool | None = None,
     *,
     max_seconds: float | None = None,
     loudness_lufs: float | None = None,
@@ -58,17 +58,18 @@ def import_audio(
     A sound effect becomes an ``AudioStreamWAV`` at ``res://assets/Audio/<name>.wav``; music is
     encoded with ffmpeg and becomes an ``AudioStreamOggVorbis`` at
     ``res://assets/Audio/<name>.ogg``.
-    The four finishing arguments (``max_seconds``, ``loudness_lufs``, ``loop_crossfade_ms``,
-    ``finish``) override the sound's stored settings; a value not passed comes from
-    ``audio.json`` or the kind's default. ``godot`` defaults to the binary ``resolve_godot``
-    finds and ``ffmpeg`` to the one ``resolve_ffmpeg`` finds. Raises ``AudioError`` before any
-    write when the request or a setting is invalid, a different file (or a sound of the other
-    kind) already holds the name, ``game/project.godot`` is missing, or music has no ffmpeg. A
-    byte-identical file re-finishes the sound with the same settings.
+    ``loop`` and the four finishing arguments (``max_seconds``, ``loudness_lufs``,
+    ``loop_crossfade_ms``, ``finish``) override the sound's stored settings; a value not passed
+    comes from ``audio.json`` or the default (``loop`` false). ``godot`` defaults to the binary
+    ``resolve_godot`` finds and ``ffmpeg`` to the one ``resolve_ffmpeg`` finds. Raises
+    ``AudioError`` before any write when the request or a setting is invalid, a different file (or
+    a sound of the other kind) already holds the name, ``game/project.godot`` is missing, or music
+    has no ffmpeg. A byte-identical file re-finishes the sound with the same settings.
     """
-    request = AudioRequest(file=Path(file), name=name, kind=kind, loop=bool(loop))
+    request = AudioRequest(file=Path(file), name=name, kind=kind)
     request.validate()
     root = project_root if project_root is not None else paths.project_root()
+    looping = sound_settings.resolve_loop(root, request.name, request.kind, loop)
     settings = sound_settings.resolve(
         root,
         request.name,
@@ -107,7 +108,7 @@ def import_audio(
             root,
             request.kind,
             request.name,
-            request.loop,
+            looping,
             target,
             settings,
             scratch,
@@ -115,14 +116,14 @@ def import_audio(
             encoder,
             replace=replace,
         )
-        sound_settings.save(root, request.name, request.kind, request.loop, settings)
+        sound_settings.save(root, request.name, request.kind, looping, settings)
     result: dict[str, Any] = {
         "kind": request.kind,
         "name": request.name,
         "source_art": str(target),
         "godot_asset": imported["godot_asset"],
         **stored,
-        "looping": request.loop,
+        "looping": looping,
         "imported_to_godot": imported["imported_to_godot"],
         "finish": report,
         "settings": sound_settings.describe(settings),

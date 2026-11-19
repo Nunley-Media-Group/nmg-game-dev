@@ -110,6 +110,15 @@ def resolve(
     return settings
 
 
+def resolve_loop(root: Path, name: str, kind: str, loop: bool | None) -> bool:
+    """Return the loop setting for one import: the explicit value, then the stored entry, then
+    ``False``."""
+    if loop is not None:
+        return bool(loop)
+    stored = load(root).get(name)
+    return stored.loop if stored is not None and stored.kind == kind else False
+
+
 def save(root: Path, name: str, kind: str, loop: bool, settings: FinishSettings) -> None:
     """Upsert ``name``'s entry and rewrite ``audio.json`` as sorted, indented JSON."""
     sounds = {key: _entry(sound) for key, sound in load(root).items()}

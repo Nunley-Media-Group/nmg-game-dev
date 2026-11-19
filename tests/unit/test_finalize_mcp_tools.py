@@ -409,6 +409,8 @@ def test_tools_json_declares_the_optional_settings_with_their_bounds() -> None:
     assert props["loudness_lufs"]["maximum"] == -5
     assert props["loop_crossfade_ms"]["minimum"] == 0
     assert "finish" in props
+    assert props["loop"]["type"] == ["boolean", "null"]
+    assert "default" not in props["loop"]
     assert schema["required"] == ["file", "name", "kind"]
 
 
