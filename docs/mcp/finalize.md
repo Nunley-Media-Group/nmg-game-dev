@@ -376,6 +376,9 @@ An asset is up to date when all of these hold, checked in this order:
 5. That `.blend` exists.
 6. The `.blend` was last modified no later than the run started.
 7. Every `res://` path in `imported` exists under the Godot project, and its `.import` file sits beside it.
+   Godot's own resource formats (`.tscn`, `.scn`, `.tres`, `.res`) load as they are and never get a
+   `.import` file, so for those only the file itself must exist. A terrain run records its
+   `<Variant>/<Name>.tscn` scenes this way.
 
 Each failure gives one reason: `project_missing` (no Godot project holds `export_root`), `no_record`,
 `record_unreadable` (the file is not valid JSON or does not match the record format), `last_run_failed`,
@@ -388,6 +391,11 @@ lock, and writes nothing, so it answers while another finalize job runs.
 **Caveat.** The check compares modification times, not content. A `.blend` saved with no change to its
 content reports `source_newer` and is not up to date. A rerun of that asset is then a full cache hit, because
 the step cache keys on content, so it finishes quickly with every step served from cache.
+
+**Caveat.** The check reads the source `.blend` named in the record, not the `.blend` a batch entry names.
+A batch entry that now points at a different `.blend` for the same asset is judged against the old record's
+source, so it can be skipped as up to date. Rerun that asset without `skip_up_to_date` after changing its
+source file.
 
 **How it differs from the step cache.** The step cache (see [Cache behavior](#cache-behavior)) decides what a run
 recomputes: each step is reused when its inputs are unchanged. The up-to-date check decides whether a run is

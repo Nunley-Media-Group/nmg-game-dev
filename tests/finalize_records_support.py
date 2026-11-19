@@ -14,9 +14,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from nmg_game_dev.godot.runner import CommandResult
 from nmg_game_dev.pipeline import STEP_ORDER, FinalizeClients, FinalizeRequest, jobs
 from nmg_game_dev.pipeline.records import record_file
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot, dead_pid
+from tests.finalize_fakes import (
+    FakeBlenderSession,
+    FakeStepRunner,
+    FinalizeGodot,
+    TerrainStepRunner,
+    dead_pid,
+)
 
 PAST = "2000-01-01T00:00:00+00:00"
 RECORD_FIELDS = frozenset(
@@ -68,6 +75,34 @@ class LoggingRunner(FakeStepRunner):
         )
 
 
+class TerrainLoggingRunner(LoggingRunner, TerrainStepRunner):
+    """The terrain Blender fake, plus the logs and ``hash.json`` the real runner leaves."""
+
+
+class ImportingGodot(FinalizeGodot):
+    """The finalize Godot fake, plus the ``.import`` files a real ``--import`` leaves.
+
+    After each ``--import`` every ``.glb`` and ``.png`` under the project gets its ``.import`` file
+    beside it, as Godot writes one for each resource it imports.  Godot's own formats, such as the
+    terrain ``.tscn``, get none.  A record a finished job wrote then checks as a real one would.
+    """
+
+    def run(
+        self,
+        args: Any,
+        *,
+        project: Path,
+        timeout: float | None = None,
+        env: Any = None,
+    ) -> CommandResult:
+        result = super().run(args, project=project, timeout=timeout, env=env)
+        if list(args)[:1] == ["--import"]:
+            for pattern in ("*.glb", "*.png"):
+                for resource in project.rglob(pattern):
+                    Path(f"{resource}.import").touch()
+        return result
+
+
 def asset_request(root: Path, collection: str = "Crate", *, blend: bool = True) -> FinalizeRequest:
     """Return a Props request whose export root is ``<root>/game/assets``.
 
@@ -87,6 +122,18 @@ def asset_request(root: Path, collection: str = "Crate", *, blend: bool = True) 
         asset_class="standard_prop",
         export_root=project / "assets",
         blend=source,
+    )
+
+
+def terrain_asset_request(root: Path, collection: str = "Hills") -> FinalizeRequest:
+    """Return an Environment terrain request with a saved source blend, like ``asset_request``."""
+    request = asset_request(root, collection)
+    return FinalizeRequest(
+        collection=collection,
+        category="Environment",
+        asset_class="terrain",
+        export_root=request.export_root,
+        blend=request.blend,
     )
 
 
@@ -123,7 +170,7 @@ def run_finalize(
         (job_dir / "job.log").write_text(f"job {job_dir.name}\n", encoding="utf-8")
         clients = FinalizeClients(
             blender=FakeBlenderSession(),
-            godot=FinalizeGodot(request.export_root.parent) if godot else None,
+            godot=ImportingGodot(request.export_root.parent) if godot else None,
         )
         jobs.run_job(job_dir, clients=clients, runner=runner or LoggingRunner(request))
         return dead_pid()

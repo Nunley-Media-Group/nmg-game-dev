@@ -47,6 +47,9 @@ REASONS: Final = (
 )
 ASSET_NAME: Final = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 _RES_PREFIX: Final = "res://"
+# Godot's own resource formats load as they are and never get a ``.import`` file.  A terrain run
+# records its ``<Variant>/<Name>.tscn`` scenes, so only the other paths need the sidecar.
+_NATIVE_SUFFIXES: Final = frozenset({".tscn", ".scn", ".tres", ".res"})
 _TERMINAL_STATES: Final = frozenset({"succeeded", "failed"})
 _TEXT_FIELDS: Final = ("category", "collection", "job_id", "started_at", "ended_at")
 
@@ -198,8 +201,7 @@ def check(category: str, collection: str, export_root: Path) -> CheckResult:
         return CheckResult(False, "source_newer", record)
     for resource in record["imported"]:
         relative = str(resource).removeprefix(_RES_PREFIX)
-        imported = project / relative
-        if not (imported.is_file() and (project / f"{relative}.import").is_file()):
+        if not (project / relative).is_file() or not _import_sidecar_present(project, relative):
             return CheckResult(False, "import_missing", record)
     return CheckResult(True, "up_to_date", record)
 
@@ -247,6 +249,13 @@ def _copy_logs(job_dir: Path, run_dir: Path, record: Path) -> dict[str, Any]:
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return names
+
+
+def _import_sidecar_present(project: Path, relative: str) -> bool:
+    """Return whether Godot's ``.import`` file is beside an imported (non-native) resource."""
+    if Path(relative).suffix.lower() in _NATIVE_SUFFIXES:
+        return True
+    return (project / f"{relative}.import").is_file()
 
 
 def _imported(result: FinalizeResult | None) -> list[str]:

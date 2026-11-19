@@ -19,6 +19,7 @@ from tests.finalize_fakes import FakeStepRunner
 from tests.finalize_records_support import (
     PAST,
     RECORD_FIELDS,
+    TerrainLoggingRunner,
     asset_request,
     consumer_of,
     hold_cache_lock,
@@ -27,6 +28,7 @@ from tests.finalize_records_support import (
     record_of,
     run_finalize,
     snapshot,
+    terrain_asset_request,
     up_to_date_asset,
     write_imports,
     write_record_file,
@@ -255,6 +257,44 @@ def test_a_source_blend_changed_after_the_run_began_is_source_newer(tmp_path: Pa
 def test_a_missing_mobile_import_file_is_import_missing(tmp_path: Path) -> None:
     request = up_to_date_asset(tmp_path)
     (request.export_root / "Props" / "Crate" / "Mobile" / "Crate.glb.import").unlink()
+    assert _check(request).reason == "import_missing"
+
+
+def test_a_native_scene_needs_no_import_file_but_must_exist(tmp_path: Path) -> None:
+    request = up_to_date_asset(tmp_path)
+    scene = request.export_root / "Props" / "Crate" / "Desktop" / "Crate.tscn"
+    imported = ["res://assets/Props/Crate/Desktop/Crate.tscn"]
+    write_record_file(request, manual_record(request, imported=imported))
+    assert _check(request).reason == "import_missing"
+    scene.touch()
+    assert _check(request).reason == "up_to_date"
+
+
+# AC7 round trip: a record a finished job wrote checks as up to date once Godot has imported.
+
+
+def test_a_record_written_by_a_finished_prop_run_is_up_to_date(tmp_path: Path) -> None:
+    request = asset_request(tmp_path)
+    status = run_finalize(tmp_path / "cache", request)
+    assert status["state"] == "succeeded"
+    result = _check(request)
+    assert (result.reason, result.up_to_date) == ("up_to_date", True)
+    (request.export_root / "Props" / "Crate" / "Mobile" / "Crate.glb.import").unlink()
+    assert _check(request).reason == "import_missing"
+
+
+def test_a_record_written_by_a_finished_terrain_run_is_up_to_date(tmp_path: Path) -> None:
+    request = terrain_asset_request(tmp_path)
+    status = run_finalize(tmp_path / "cache", request, runner=TerrainLoggingRunner(request))
+    assert status["state"] == "succeeded"
+    record = _read(record_of(request))
+    assert record["imported"] == [
+        "res://assets/Environment/Hills/Desktop/Hills.tscn",
+        "res://assets/Environment/Hills/Mobile/Hills.tscn",
+    ]
+    result = _check(request)
+    assert (result.reason, result.up_to_date) == ("up_to_date", True)
+    (request.export_root / "Environment" / "Hills" / "Mobile" / "Hills.tscn").unlink()
     assert _check(request).reason == "import_missing"
 
 
