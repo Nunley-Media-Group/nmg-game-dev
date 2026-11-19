@@ -7,8 +7,10 @@ whose export writes the artifact, and every other tool is a shim that records it
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,7 @@ import pytest
 from nmg_game_dev.godot.project import parse_config
 from nmg_game_dev.godot.runner import CommandResult
 from nmg_game_dev.pipeline.errors import PipelineError
+from nmg_game_dev.secrets.scan import GitError
 from nmg_game_dev.ship import runner as ship_runner
 from nmg_game_dev.ship.__main__ import main as ship_main
 from nmg_game_dev.ship.artifacts import artifact_sha256
@@ -611,7 +614,8 @@ def test_dry_run_prints_every_command_and_runs_no_godot(
     assert "DRY-RUN: notarization pass (no submission) for team SMOKE00000" in output
     for platform in ("macos", "windows", "ios", "android", "web"):
         dry = (sandbox.release_dir / platform / "DRY-RUN.txt").read_text(encoding="utf-8")
-        assert dry.splitlines()[0].startswith("DRY-RUN: godot --headless")
+        assert dry.splitlines()[0] == "secrets: no matches"
+        assert dry.splitlines()[1].startswith("DRY-RUN: godot --headless")
         assert "--export-release" in dry
     notes = (sandbox.release_dir / "RELEASE-NOTES.md").read_text(encoding="utf-8")
     assert "DRY RUN" in notes
@@ -846,7 +850,8 @@ def test_a_dry_run_records_the_version_and_changelog_lines_in_each_dry_run_file(
     assert "DRY-RUN: changelog ## 1.2.4 found in " in output
     for platform in ("macos", "windows", "ios", "android", "web"):
         dry = (sandbox.release_dir / platform / "DRY-RUN.txt").read_text(encoding="utf-8")
-        assert dry.splitlines()[0].startswith("DRY-RUN: godot --headless")
+        assert dry.splitlines()[0] == "secrets: no matches"
+        assert dry.splitlines()[1].startswith("DRY-RUN: godot --headless")
         assert "DRY-RUN: version 1.2.3 -> 1.2.4" in dry
         assert "DRY-RUN: changelog ## 1.2.4 found in " in dry
 
@@ -862,3 +867,106 @@ def test_cli_takes_bump_and_version_and_refuses_both(
     with pytest.raises(SystemExit) as caught:
         ship_main([*args, "--bump", "minor", "--version", "1.3.0"])
     assert caught.value.code == 2
+
+
+# The secret scan gate (#255 AC4, FR3) -------------------------------------------------------------
+
+_LEAKED_KEY = "msy_" + "Ab3dEf6hIj9kLm2nOp5q"
+
+
+def _plant_key(sandbox: ShipSandbox, rel: str = "scripts/player.gd") -> None:
+    path = sandbox.game / rel
+    path.write_text(path.read_text(encoding="utf-8") + f'var key = "{_LEAKED_KEY}"\n')
+
+
+def test_a_key_in_a_non_git_consumer_stops_the_ship_before_any_godot_call(
+    sandbox: ShipSandbox,
+) -> None:
+    """AC4: outside a git work tree every regular file under the consumer is scanned."""
+    _plant_key(sandbox)
+
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("macos")
+
+    assert caught.value.code == "ship.secret_found"
+    digest = hashlib.sha256(_LEAKED_KEY.encode()).hexdigest()
+    assert f"scripts/player.gd:2: meshy msy_… (sha256:{digest})" in caught.value.message
+    assert _LEAKED_KEY not in caught.value.message
+    assert sandbox.godot.calls == []
+    assert not sandbox.invoked("codesign")
+
+
+def test_a_key_also_stops_a_dry_run_before_any_godot_call(
+    sandbox: ShipSandbox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _plant_key(sandbox)
+
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("all", dry_run=True)
+
+    assert caught.value.code == "ship.secret_found"
+    assert sandbox.godot.calls == []
+    assert not sandbox.release_dir.exists()
+    assert _LEAKED_KEY not in _output(capsys)
+
+
+def test_a_git_consumer_scans_tracked_files_only(sandbox: ShipSandbox) -> None:
+    """AC4: in a git work tree only tracked files are scanned, so an untracked key passes."""
+    consumer = sandbox.game.parent
+    subprocess.run(["git", "-C", str(consumer), "init", "-q"], check=True, capture_output=True)
+    _plant_key(sandbox)
+
+    assert sandbox.ship("windows", dry_run=True) == []
+
+    subprocess.run(
+        ["git", "-C", str(consumer), "add", "game/scripts/player.gd"],
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("windows", dry_run=True)
+    assert caught.value.code == "ship.secret_found"
+    assert sandbox.godot.calls == []
+
+
+def test_a_git_failure_in_the_scan_is_a_structured_ship_error(
+    sandbox: ShipSandbox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F5: a failing ``git ls-files`` stops the ship with a code, not a traceback."""
+
+    def failing_scan(consumer: Path) -> list[object]:
+        raise GitError(f"git ls-files failed in {consumer}: index file corrupt")
+
+    monkeypatch.setattr(ship_runner, "scan_tracked", failing_scan)
+
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("windows", dry_run=True)
+
+    assert caught.value.code == "ship.secret_scan_failed"
+    assert "index file corrupt" in caught.value.message
+    assert "git -C" in caught.value.remediation
+    assert sandbox.godot.calls == []
+
+
+def test_a_non_git_consumer_with_keys_in_dotenv_ships(sandbox: ShipSandbox) -> None:
+    """Review F1: keys kept in ``.env`` (as the remediation asks) never block a non-git ship."""
+    consumer = sandbox.game.parent
+    (consumer / ".env").write_text(f"MESHY_API_KEY={_LEAKED_KEY}\n", encoding="utf-8")
+    local = consumer / ".claude" / "settings.local.json"
+    local.parent.mkdir(exist_ok=True)
+    local.write_text(f'{{"env": {{"MESHY_API_KEY": "{_LEAKED_KEY}"}}}}\n', encoding="utf-8")
+
+    assert sandbox.ship("windows", dry_run=True) == []
+
+
+def test_the_allow_file_suppresses_a_reviewed_false_positive(sandbox: ShipSandbox) -> None:
+    _plant_key(sandbox)
+    allow = sandbox.game.parent / ".nmg" / "secret-scan-allow"
+    allow.parent.mkdir()
+    digest = hashlib.sha256(_LEAKED_KEY.encode()).hexdigest()
+    allow.write_text(f"sha256:{digest}\n", encoding="utf-8")
+
+    entries = sandbox.ship("windows", dry_run=True)
+
+    assert entries == []
+    assert (sandbox.release_dir / "windows" / "DRY-RUN.txt").is_file()

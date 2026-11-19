@@ -950,7 +950,8 @@ def _blender_hook_only(state: dict[str, Any]) -> None:
     ]
     assert commands == list(HOOK_COMMANDS)
     assert sorted(path.name for path in (consumer / "scripts").iterdir()) == [
-        "start-blender-mcp.sh"
+        "nmg_secret_scan.py",
+        "start-blender-mcp.sh",
     ]
 
 

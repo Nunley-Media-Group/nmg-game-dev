@@ -20,6 +20,7 @@ from nmg_game_dev.onboard.report import StepResult
 from tests.onboard_fakes import (
     APPLE_SILICON,
     GODOT_ADDON_FILES,
+    REPO_ROOT,
     FakeRunner,
     all_tools_present,
     gib_free,
@@ -51,6 +52,8 @@ STEP_ORDER = [
     "gitignore_env",
     "gitattributes_lfs",
     "git_lfs_hooks",
+    "secret_scanner",
+    "precommit_hook",
 ]
 DESIGN_CONTRACT_TEXT = "# Design contract\n\nFixture copy for the onboarding tests.\n"
 
@@ -107,8 +110,12 @@ def test_fresh_install_installs_framework_files(
     assert installed.read_bytes() == (framework / "scripts" / "start-blender-mcp.sh").read_bytes()
     assert os.access(installed, os.X_OK)
     assert sorted(path.name for path in (consumer / "scripts").iterdir()) == [
-        "start-blender-mcp.sh"
+        "nmg_secret_scan.py",
+        "start-blender-mcp.sh",
     ]
+    secret_scan = consumer / "scripts" / "nmg_secret_scan.py"
+    scanner_src = REPO_ROOT / "src" / "nmg_game_dev" / "secrets" / "scan.py"
+    assert secret_scan.read_bytes() == scanner_src.read_bytes()
 
     settings = json.loads((consumer / ".claude" / "settings.json").read_text())
     assert settings["model"] == "opus"
@@ -585,10 +592,10 @@ def test_rerun_is_a_no_op(
     results = install(consumer, framework, models, env, runner=runner)
 
     assert runner.argv_starting("mflux-save") == []
-    # The fake consumer is not a git work tree, so git_lfs_hooks is the one step that is skipped.
+    # The fake consumer is not a git work tree, so the two git hook steps are skipped.
     assert all(
         result.status == "unchanged"
-        or (result.name == "git_lfs_hooks" and result.status == "skipped")
+        or (result.name in ("git_lfs_hooks", "precommit_hook") and result.status == "skipped")
         for result in results
     ), [r.as_json() for r in results]
     settings = json.loads((consumer / ".claude" / "settings.json").read_text())
@@ -746,9 +753,16 @@ def test_missing_git_lfs_fails_before_any_write(
 def test_lfs_steps_follow_gitignore_env(
     consumer: Path, framework: Path, models: Path, env: dict[str, str]
 ) -> None:
-    """FR7: gitattributes_lfs then git_lfs_hooks run directly after gitignore_env."""
+    """FR7: gitattributes_lfs then git_lfs_hooks run directly after gitignore_env, and the secret
+    scanner and pre-commit hook (#255) follow them."""
     names = [r.name for r in install(consumer, framework, models, env)]
-    assert names[-3:] == ["gitignore_env", "gitattributes_lfs", "git_lfs_hooks"]
+    assert names[-5:] == [
+        "gitignore_env",
+        "gitattributes_lfs",
+        "git_lfs_hooks",
+        "secret_scanner",
+        "precommit_hook",
+    ]
 
 
 def test_git_consumer_gets_lfs_hooks_once(

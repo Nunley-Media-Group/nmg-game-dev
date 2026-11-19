@@ -5,7 +5,7 @@ Preflight checks the game directory, the models directory, the framework sources
 before the first consumer write. The steps then run in this order: the Blender start script,
 settings hooks, asset contract, design contract, design dir, agent instructions, Godot project,
 Godot add-on, export presets, Godot and ffmpeg checks, Blender add-on, texture models, texture env,
-gitignore env, gitattributes LFS, git LFS hooks.
+gitignore env, gitattributes LFS, git LFS hooks, secret scanner, pre-commit hook.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from nmg_game_dev.onboard.godot import (
 from nmg_game_dev.onboard.instructions import upsert_block
 from nmg_game_dev.onboard.lfs import ensure_gitattributes_lfs, ensure_lfs_hooks
 from nmg_game_dev.onboard.report import StepResult
+from nmg_game_dev.onboard.secrets_hook import ensure_precommit_hook, ensure_secret_scanner
 from nmg_game_dev.onboard.settings import merge_env, merge_session_hooks
 from nmg_game_dev.onboard.textures import REQUIRED_FREE_BYTES, install_models, missing_models
 from nmg_game_dev.texture.paths import HF_HOME_NAME, MODELS_DIR_ENV
@@ -55,6 +56,7 @@ HOOK_TEMPLATE = Path("templates/consumer/.claude/settings.json")
 GODOT_ADDON_SRC = Path("plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev")
 GODOT_ADDON_IGNORE: tuple[str, ...] = ("tests",)
 BLENDER_ADDON_MANIFEST = Path("plugins/nmg-game-dev-blender-addon/blender_manifest.toml")
+SECRETS_SCANNER_SRC = Path("src/nmg_game_dev/secrets/scan.py")
 EXTENSIONS_DIR_ENV = "BLENDER_EXTENSIONS_DIR"
 DEFAULT_GAME_DIR = "game"
 REQUIRED_FRAMEWORK: tuple[Path, ...] = (
@@ -64,6 +66,7 @@ REQUIRED_FRAMEWORK: tuple[Path, ...] = (
     HOOK_TEMPLATE,
     GODOT_ADDON_SRC / "plugin.cfg",
     BLENDER_ADDON_MANIFEST,
+    SECRETS_SCANNER_SRC,
 )
 
 
@@ -283,4 +286,6 @@ def run_onboard(
         ensure_gitattributes_lfs("gitattributes_lfs", target / ".gitattributes", refresh=refresh)
     )
     results.append(ensure_lfs_hooks("git_lfs_hooks", target, run=run))
+    results.append(ensure_secret_scanner("secret_scanner", framework, target, refresh))
+    results.append(ensure_precommit_hook("precommit_hook", target, run=run))
     return results
