@@ -1,0 +1,43 @@
+**Issue**: #302
+**Date**: 2026-11-19
+**Status**: Approved
+**Author**: Claude (nmg-sdlc write-spec)
+
+# File: specs/302-match-sound-files-case-insensitively-report-duplicate-sound-names-and-document-refresh-errors/feature.gherkin
+
+Feature: Sound table names match every sound file once
+  As an NMG game developer using the Audio component
+  I want sound files found regardless of extension case and duplicate sound names reported
+  So that no sound is silently dropped or replaced
+
+  Background:
+    Given a Godot project with an Audio name table
+
+  # --- AC1 ---
+  Scenario: Extensions are matched case-insensitively
+    Given the sound file "game/assets/Audio/Click.WAV"
+    When the sound table is refreshed
+    Then the table maps "Click" to "res://assets/Audio/Click.WAV"
+
+  # --- AC2 ---
+  Scenario: Duplicate stems are reported, not silently collapsed
+    Given the sound files "game/assets/Audio/Theme.wav" and "game/assets/Audio/Theme.ogg"
+    When the sound table is refreshed
+    Then the refresh fails with error code "audio.duplicate_sound"
+    And the error message names "Theme.ogg" and "Theme.wav"
+    And the error remediation says to rename or delete the extra file
+    And the name table file is unchanged
+    And docs/mcp/finalize.md documents "audio.duplicate_sound" and its resolution
+
+  # --- AC3 ---
+  Scenario: The refresh tool description lists every error code
+    Given the refresh_audio_table description in mcp-servers/finalize/tools.json
+    When it is read
+    Then it names "audio.godot_project_missing", "audio.backlog_invalid", "audio.table_unreadable", "audio.table_unwritable", and "audio.duplicate_sound"
+
+  # --- AC4 ---
+  Scenario: The skill handles refresh_warning
+    Given the body of skills/generate-audio/SKILL.md
+    When its import step is read
+    Then it says to report "refresh_warning" with its remediation
+    And it says the sound is still imported
