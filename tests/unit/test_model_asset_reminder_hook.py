@@ -60,7 +60,7 @@ def test_matcher_covers_the_scoped_and_unscoped_execute_blender_code(tool_name: 
         "mcp__blender__get_scene_info",
         "mcp__blender__look",
         "mcp__blender__execute_blender_code_v2",
-        "mcp__unreal__execute_python_code",
+        "mcp__plugin_nmg-game-dev_finalize__finalize_asset",
     ],
 )
 def test_matcher_leaves_other_tools_alone(tool_name: str) -> None:

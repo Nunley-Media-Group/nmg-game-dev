@@ -1,11 +1,11 @@
 """Mobile budget gate for the ship flow (#6): each Mobile variant checked against asset-contract §6.
 
-A ``Content/<Category>/<Name>/Mobile/`` folder must hold ``nmg-asset.json``, the per-asset report
-finalize writes. ``check_mobile_budgets`` compares it with the mobile defaults, merged per metric
-with an optional project-root ``nmg-budgets.json``. It reads files and runs no tool, so the ship
-flow may call it in a dry run.
+A ``game/assets/<Category>/<Name>/Mobile/`` folder must hold ``nmg-asset.json``, the per-asset
+report finalize writes. ``check_mobile_budgets`` compares it with the mobile defaults, merged per
+metric with an optional consumer-root ``nmg-budgets.json``. It reads files and runs no tool, so the
+ship flow may call it in a dry run.
 
-See: specs/6-ship-skills-per-platform-build-sign-notarize-package/design.md
+See: specs/6-ship-skills-per-platform-build-sign-notarize-package/design.md and the #249 design.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ class BudgetFinding(BaseModel):
 
 
 class MobileBudgetAudit(BaseModel):
-    """Result of checking every Mobile variant under a project's ``Content/`` folder.
+    """Result of checking every Mobile variant under a project's ``game/assets/`` folder.
 
     Attributes:
         passed: ``True`` when no check failed.
@@ -130,18 +130,21 @@ class _AssetReport(BaseModel):
         return self
 
 
-def check_mobile_budgets(project_root: Path) -> MobileBudgetAudit:
-    """Check every ``Content/**/Mobile/`` folder under ``project_root`` against its budget.
+def check_mobile_budgets(
+    assets_root: Path, overrides_path: Path | None = None
+) -> MobileBudgetAudit:
+    """Check every ``**/Mobile/`` folder under ``assets_root`` against its budget.
 
-    A missing or malformed report, and an invalid ``nmg-budgets.json``, are findings too. Budgets
-    are the defaults with each valid override applied per metric. An invalid override file leaves
-    the defaults in place and fails the audit.
+    ``assets_root`` is the consumer's ``game/assets`` folder and ``overrides_path`` its
+    ``<consumer root>/nmg-budgets.json``; no overrides apply when it is ``None`` or absent. A
+    missing or malformed report, and an invalid override file, are findings too. Budgets are the
+    defaults with each valid override applied per metric. An invalid override file leaves the
+    defaults in place and fails the audit.
     """
-    budgets, findings = _effective_budgets(project_root)
-    content = project_root / "Content"
+    budgets, findings = _effective_budgets(overrides_path)
     assets: list[str] = []
-    for mobile_dir in _mobile_folders(content):
-        subject = mobile_dir.parent.relative_to(content).as_posix()
+    for mobile_dir in _mobile_folders(assets_root):
+        subject = mobile_dir.parent.relative_to(assets_root).as_posix()
         assets.append(subject)
         report_path = mobile_dir / REPORT_NAME
         if not report_path.is_file():
@@ -156,20 +159,21 @@ def check_mobile_budgets(project_root: Path) -> MobileBudgetAudit:
     return MobileBudgetAudit(passed=not findings, assets=assets, findings=findings)
 
 
-def _mobile_folders(content: Path) -> list[Path]:
-    if not content.is_dir():
+def _mobile_folders(assets_root: Path) -> list[Path]:
+    if not assets_root.is_dir():
         return []
     return sorted(
-        folder for folder in content.rglob("Mobile") if folder.is_dir() and folder.parent != content
+        folder
+        for folder in assets_root.rglob("Mobile")
+        if folder.is_dir() and folder.parent != assets_root
     )
 
 
 def _effective_budgets(
-    project_root: Path,
+    path: Path | None,
 ) -> tuple[dict[str, dict[str, int]], list[BudgetFinding]]:
     budgets = {cls: dict(metrics) for cls, metrics in DEFAULT_MOBILE_BUDGETS.items()}
-    path = project_root / OVERRIDES_NAME
-    if not path.is_file():
+    if path is None or not path.is_file():
         return budgets, []
     try:
         overrides = _read_overrides(path)

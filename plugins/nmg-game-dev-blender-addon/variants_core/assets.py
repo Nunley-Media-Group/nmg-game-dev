@@ -10,7 +10,7 @@ import bpy
 from .errors import VariantError
 from .textures import check_baked_material
 
-#: The armature's name inside every rigged FBX. Export renames SK_<Name> to this and restores it.
+#: The armature's name inside every rigged GLB. Export renames SK_<Name> to this and restores it.
 ARMATURE_EXPORT_NAME: Final = "Armature"
 
 
@@ -100,6 +100,6 @@ def require_export_root(export_root: str) -> None:
     if not export_root.strip():
         raise VariantError(
             "variants.export_root_missing",
-            "No export root was given, so the FBX and sidecar paths are undefined.",
+            "No export root was given, so the GLB and sidecar paths are undefined.",
             "Set export_root to the directory that holds <Category>/<Name>/ exports.",
         )

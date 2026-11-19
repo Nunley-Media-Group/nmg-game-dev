@@ -1,7 +1,7 @@
 # nmg-game-dev
 
-Blender-first, Unreal-shipped content pipeline for NMG games. Distributed as a Claude Code
-plugin, a Blender add-on, and a UE plugin. Install from the `nmg-plugins` marketplace
+Blender-first, Godot-shipped content pipeline for NMG games. Distributed as a Claude Code
+plugin, a Blender add-on, and a Godot add-on. Install from the `nmg-plugins` marketplace
 (`/plugin install nmg-game-dev@nmg-plugins`); consumer-side artifacts land via
 `/onboard-consumer` regardless of install scope. See AC11 in
 `specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md`.
@@ -19,15 +19,15 @@ plugin, a Blender add-on, and a UE plugin. Install from the `nmg-plugins` market
 
 A pointer to steering. Don't duplicate content from steering docs here.
 
-## Session-start hooks — consumer-only
+## Session-start hook — consumer-only
 
-`scripts/start-blender-mcp.sh` and `scripts/start-unreal-mcp.sh` are launcher
-scripts that consumer game projects run automatically via Claude Code `SessionStart`
-hooks in their `.claude/settings.json`.
+`scripts/start-blender-mcp.sh` is the launcher script that consumer game projects run
+automatically via a Claude Code `SessionStart` hook in their `.claude/settings.json`.
+Godot needs no hook: it only ever runs as `godot --headless`.
 
-Inside this repo (nmg-game-dev itself), contributors invoke the scripts
-manually when they need Blender or UE running for pipeline testing. There is no
-repo-root `.claude/settings.json` registering those hooks — this repo is a library,
+Inside this repo (nmg-game-dev itself), contributors invoke the script
+manually when they need Blender running for pipeline testing. There is no
+repo-root `.claude/settings.json` registering that hook — this repo is a library,
 not a game.
 
 The consumer template lives at `templates/consumer/.claude/settings.json` and is

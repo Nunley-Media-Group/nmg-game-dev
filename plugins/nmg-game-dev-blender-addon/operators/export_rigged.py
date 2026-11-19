@@ -13,7 +13,7 @@ class NMGGAMEDEV_OT_export_rigged(bpy.types.Operator):
     bl_idname = "nmggamedev.export_rigged"
     bl_label = "Export rigged character"
     bl_description = (
-        "Write SM_<Name>.fbx with the deform skeleton and baked clips, the material PNGs, and "
+        "Write <Name>.glb with the deform skeleton and its clips, the material PNGs, and "
         "nmg-animations.json"
     )
     bl_options = {"REGISTER", "UNDO"}
@@ -25,7 +25,7 @@ class NMGGAMEDEV_OT_export_rigged(bpy.types.Operator):
     )
     out_dir: bpy.props.StringProperty(  # type: ignore[valid-type]
         name="Output folder",
-        description="Folder that receives the FBX, PNGs, and nmg-animations.json",
+        description="Folder that receives the GLB, PNGs, and nmg-animations.json",
         subtype="DIR_PATH",
         default="",
     )
@@ -37,7 +37,7 @@ class NMGGAMEDEV_OT_export_rigged(bpy.types.Operator):
         result = write_rigged(self.collection_name, self.out_dir)
         store_rig_result(context, result)
         if result["status"] == "ok":
-            log_operator_result(_OP_NAME, f"{self.collection_name}: exported {result['fbx']}")
+            log_operator_result(_OP_NAME, f"{self.collection_name}: exported {result['glb']}")
             return {"FINISHED"}
         self.report(
             {"ERROR"},

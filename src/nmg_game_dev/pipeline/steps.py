@@ -1,12 +1,12 @@
 """Finalize step table: order, kinds, cache settings, blob layout, gates, and envelope handling.
 
 The steps run in ``STEP_ORDER``.  ``validate``, ``bake``, ``variants``, ``export``, ``reimport``,
-and ``export_anims`` run in Blender (``scripts/blender/finalize_entry.py``); ``import_ue`` and
-``import_anims`` run through the Unreal MCP.  ``export_anims`` and ``import_anims`` are per-clip
-steps (#138): ``pipeline/anims.py`` runs them, and each clip is cached on its own key.  Every
-Blender step returns a JSON envelope that this module checks and converts into either outputs or a
-``PipelineError``.  ``validate``, ``export``, and ``reimport`` also pass their contract reports
-through ``quality.contract.gate``.
+and ``export_anims`` run in Blender (``scripts/blender/finalize_entry.py``); ``import_godot`` and
+``import_anims`` run ``godot --headless`` through ``nmg_game_dev.godot`` (#249).  ``export_anims``
+and ``import_anims`` are per-clip steps (#138): ``pipeline/anims.py`` runs them, and each clip is
+cached on its own key.  Every Blender step returns a JSON envelope that this module checks and
+converts into either outputs or a ``PipelineError``.  ``validate``, ``export``, and ``reimport``
+also pass their contract reports through ``quality.contract.gate``.
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ StepName = Literal[
     "export",
     "export_anims",
     "reimport",
-    "import_ue",
+    "import_godot",
     "import_anims",
 ]
-StepKind = Literal["blender", "unreal"]
+StepKind = Literal["blender", "godot"]
 
 STEP_ORDER: Final[tuple[StepName, ...]] = (
     "validate",
@@ -42,15 +42,15 @@ STEP_ORDER: Final[tuple[StepName, ...]] = (
     "export",
     "export_anims",
     "reimport",
-    "import_ue",
+    "import_godot",
     "import_anims",
 )
 VARIANTS: Final[tuple[str, ...]] = ("Desktop", "Mobile")
 ENVELOPE_SCHEMA_VERSION: Final = 1
 
-_STEP_VERSION: Final = (
-    "4"  # bumped for #148 (material-variants keys) and #138 (per-clip anim steps)
-)
+# Bumped to "5" for #249: the Godot import replaced the earlier engine import, so no cache entry
+# written before it can satisfy import_godot.
+_STEP_VERSION: Final = "5"
 # Mirrors BAKE_VERSION in the add-on's bake_core/cache.py, which imports bpy.  Only the bake key
 # carries it, so a bake change (#240) misses cached bake outputs without moving _STEP_VERSION.
 _BAKE_VERSION: Final = "2"
@@ -66,7 +66,7 @@ class StepSpec:
 
     Attributes:
         name: Step name.
-        kind: ``blender`` runs headless Blender; ``unreal`` calls the Unreal MCP.
+        kind: ``blender`` runs headless Blender; ``godot`` runs ``godot --headless``.
         mutates_scene: ``True`` when the step writes a new ``.blend`` that feeds the next step.
         per_clip: ``True`` when the step is cached per clip and runs through ``pipeline/anims.py``
             instead of the whole-step cache.  Per-clip steps never change the input hash of the
@@ -86,12 +86,13 @@ STEPS: Final[dict[StepName, StepSpec]] = {
     "export": StepSpec("export", "blender", mutates_scene=False),
     "export_anims": StepSpec("export_anims", "blender", mutates_scene=False, per_clip=True),
     "reimport": StepSpec("reimport", "blender", mutates_scene=False),
-    "import_ue": StepSpec("import_ue", "unreal", mutates_scene=False),
-    "import_anims": StepSpec("import_anims", "unreal", mutates_scene=False, per_clip=True),
+    "import_godot": StepSpec("import_godot", "godot", mutates_scene=False),
+    "import_anims": StepSpec("import_anims", "godot", mutates_scene=False, per_clip=True),
 }
 
 # The steps each step needs.  ``import_anims`` needs every other step: the sidecar it checks
-# against comes from ``export_anims``, and the skeleton it imports onto comes from ``import_ue``.
+# against comes from ``export_anims``, and the Desktop skeleton it reads comes from
+# ``import_godot``.
 DEPENDS: Final[dict[StepName, tuple[StepName, ...]]] = {
     "validate": (),
     "bake": ("validate",),
@@ -99,7 +100,7 @@ DEPENDS: Final[dict[StepName, tuple[StepName, ...]]] = {
     "export": ("validate", "bake", "variants"),
     "export_anims": ("validate", "bake", "variants"),
     "reimport": ("validate", "bake", "variants", "export"),
-    "import_ue": ("validate", "bake", "variants", "export", "reimport"),
+    "import_godot": ("validate", "bake", "variants", "export", "reimport"),
     "import_anims": tuple(step for step in STEP_ORDER if step != "import_anims"),
 }
 
@@ -119,9 +120,8 @@ def parse_step(step: str) -> StepSpec:
 def ordered_steps(steps: tuple[str, ...] | list[str]) -> tuple[StepName, ...]:
     """Return the dependency closure of ``steps`` in canonical execution order, de-duplicated.
 
-    Requesting a step also runs every step it depends on (see ``DEPENDS``).  ``import_ue`` gives the
-    six-step chain it has always had, and ``export_anims`` leaves out ``reimport`` and
-    ``import_ue``.
+    Requesting a step also runs every step it depends on (see ``DEPENDS``).  ``import_godot`` gives
+    the six-step mesh chain, and ``export_anims`` leaves out ``reimport`` and ``import_godot``.
     """
     pending = [parse_step(step).name for step in steps]
     needed: set[StepName] = set()
@@ -220,7 +220,7 @@ def settings_hash(step: StepName, request: FinalizeRequest, budgets: str) -> str
         )
     elif step == "reimport":
         settings["collection"] = request.collection
-    elif step == "import_ue":
+    elif step == "import_godot":
         settings |= {
             "collection": request.collection,
             "category": request.category,
@@ -248,20 +248,25 @@ def clip_settings_hash(step: StepName, request: FinalizeRequest, *, options: str
     if step == "export_anims":
         settings["options"] = options
     elif step == "import_anims":
-        settings["skeleton"] = desktop_skeleton_path(request)
+        settings["skeleton"] = desktop_skeleton_key(request)
     else:
         raise ValueError(f"{step} has no per-clip settings hash")
     return hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
 
 
-def ue_destination(request: FinalizeRequest, variant: str) -> str:
-    """Return the UE folder for ``variant``: ``/Game/<Category>/<Name>/<Variant>``."""
-    return f"/Game/{request.category}/{request.collection}/{variant}"
+def variant_dir(request: FinalizeRequest, variant: str) -> Path:
+    """Return the variant folder: ``<export_root>/<Category>/<Name>/<Variant>``."""
+    return request.export_root / request.category / request.collection / variant
 
 
-def desktop_skeleton_path(request: FinalizeRequest) -> str:
-    """Return the Desktop skeleton asset: ``/Game/<Category>/<Name>/Desktop/SM_<Name>_Skeleton``."""
-    return f"{ue_destination(request, 'Desktop')}/SM_{request.collection}_Skeleton"
+def glb_path(request: FinalizeRequest, variant: str) -> Path:
+    """Return the variant scene: ``<export_root>/<Category>/<Name>/<Variant>/<Name>.glb``."""
+    return variant_dir(request, variant) / f"{request.collection}.glb"
+
+
+def desktop_skeleton_key(request: FinalizeRequest) -> str:
+    """Return the asset-relative Desktop scene the clips play on: ``<C>/<N>/Desktop/<N>.glb``."""
+    return f"{request.category}/{request.collection}/Desktop/{request.collection}.glb"
 
 
 def envelope_outputs(step: StepName, envelope: Mapping[str, Any]) -> dict[str, Any]:

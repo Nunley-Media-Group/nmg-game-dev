@@ -1,4 +1,4 @@
-"""Unit tests for the three ``finalize`` MCP tools (AC3, #69).
+"""Unit tests for the ``finalize`` MCP tools (AC3, #69, #249).
 
 The tool functions are tested directly, so the MCP SDK is not needed.  The server module only
 registers them.
@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 
@@ -27,8 +27,9 @@ from nmg_game_dev.finalize.__main__ import build_parser
 from nmg_game_dev.finalize.service import clamp_wait
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, jobs
 from nmg_game_dev.pipeline.request import AssetClass
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
-from tests.unit.fake_unreal_audio import FakeEditor, FakeUnrealPythonClient
+from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot
+from tests.godot_fakes import FakeGodotRunner
+from tests.unit.audio.conftest import FakeFfmpeg, fake_godot
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "audio"
 
@@ -92,13 +93,18 @@ def test_get_finalize_job_reports_the_status_and_then_the_result(tmp_path: Path)
     )
     jobs.run_job(
         cache / "jobs" / job_id,
-        clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+        clients=FinalizeClients(blender=FakeBlenderSession(), godot=FinalizeGodot(tmp_path)),
         runner=FakeStepRunner(request),
     )
 
     finished = get_finalize_job(job_id, service=service)
     assert finished["state"] == "succeeded"
-    assert finished["result"]["desktop_content_path"] == "/Game/Props/Crate/Desktop"
+    assert finished["result"]["desktop_resource_path"] == (
+        "res://export/Props/Crate/Desktop/Crate.glb"
+    )
+    assert finished["result"]["mobile_resource_path"] == (
+        "res://export/Props/Crate/Mobile/Crate.glb"
+    )
 
 
 def test_run_finalize_step_names_the_step_it_ran(tmp_path: Path) -> None:
@@ -227,20 +233,38 @@ def test_an_invalid_compatible_with_item_is_a_structured_error(tmp_path: Path) -
 # --- import_audio (#155, AC7) ------------------------------------------------------------------
 
 
+class _AudioEnv:
+    """The fake Godot and ffmpeg runners the audio import builds when none is injected."""
+
+    def __init__(self, godot: FakeGodotRunner, ffmpeg: FakeFfmpeg) -> None:
+        self.godot = godot
+        self.ffmpeg = ffmpeg
+
+
+def _game_project(root: Path) -> Path:
+    (root / "game").mkdir(parents=True, exist_ok=True)
+    (root / "game" / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return root
+
+
 @pytest.fixture
-def audio_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeUnrealPythonClient:
-    """A project root and one fake editor, wired in wherever the audio import builds a client."""
-    root = tmp_path / "project"
-    root.mkdir()
+def audio_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _AudioEnv:
+    """A Godot consumer root, and fake runners wired in wherever the audio import builds them."""
+    root = _game_project(tmp_path / "project")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root))
-    fake = FakeUnrealPythonClient(FakeEditor())
+    env = _AudioEnv(fake_godot(), FakeFfmpeg())
 
-    def _factory(*_args: object, **_kwargs: object) -> FakeUnrealPythonClient:
-        return fake
+    def _godot(_binary: object) -> FakeGodotRunner:
+        return env.godot
 
-    monkeypatch.setattr("nmg_game_dev.audio.core.UnrealMcpClient", _factory)
-    monkeypatch.setattr("nmg_game_dev.audio.__main__.UnrealMcpClient", _factory)
-    return fake
+    def _ffmpeg(_binary: object) -> FakeFfmpeg:
+        return env.ffmpeg
+
+    monkeypatch.setattr("nmg_game_dev.audio.core.resolve_godot", lambda: Path("/fake/godot"))
+    monkeypatch.setattr("nmg_game_dev.audio.core.SubprocessGodotRunner", _godot)
+    monkeypatch.setattr("nmg_game_dev.audio.core.resolve_ffmpeg", lambda: Path("/fake/ffmpeg"))
+    monkeypatch.setattr("nmg_game_dev.audio.core.SubprocessFfmpegRunner", _ffmpeg)
+    return env
 
 
 def _saved(tmp_path: Path, name: str, folder: str) -> Path:
@@ -250,21 +274,34 @@ def _saved(tmp_path: Path, name: str, folder: str) -> Path:
     return target
 
 
-def test_import_audio_tool_returns_the_result(
-    tmp_path: Path, audio_env: FakeUnrealPythonClient
-) -> None:
+def test_import_audio_tool_returns_the_result(tmp_path: Path, audio_env: _AudioEnv) -> None:
     src = _saved(tmp_path, "tone.wav", "saved")
 
     response = import_audio(file=str(src), name="DoorCreak", kind="sfx", loop=True)
 
-    assert response["imported_to_unreal"] is True
-    assert response["unreal_asset"] == "/Game/Audio/SFX/SW_DoorCreak"
+    assert response["imported_to_godot"] is True
+    assert response["godot_asset"] == "res://assets/Audio/DoorCreak.wav"
     assert response["looping"] is True
     assert "error" not in response
+    assert audio_env.godot.count("--import") == 1
+
+
+def test_import_audio_tool_takes_an_injected_runner_and_project(tmp_path: Path) -> None:
+    root = _game_project(tmp_path / "elsewhere")
+    godot = fake_godot()
+    src = _saved(tmp_path, "tone.wav", "saved")
+
+    response = import_audio(
+        file=str(src), name="DoorCreak", kind="sfx", project_root=str(root), godot=godot
+    )
+
+    assert response["imported_to_godot"] is True
+    assert (root / "game" / "assets" / "Audio" / "DoorCreak.wav").is_file()
+    assert godot.projects[0] == root / "game"
 
 
 def test_import_audio_tool_returns_errors_as_an_error_object(
-    tmp_path: Path, audio_env: FakeUnrealPythonClient
+    tmp_path: Path, audio_env: _AudioEnv
 ) -> None:
     response = import_audio(file=str(tmp_path / "gone.wav"), name="DoorCreak", kind="sfx")
 
@@ -272,19 +309,18 @@ def test_import_audio_tool_returns_errors_as_an_error_object(
     assert response["error"]["code"] == "audio.invalid_request"
     assert response["error"]["stage"] == "audio"
     assert response["error"]["remediation"]
-    assert audio_env.codes == []
+    assert audio_env.godot.calls == []
 
 
 def test_import_audio_tool_and_cli_return_the_same_json(
     tmp_path: Path,
-    audio_env: FakeUnrealPythonClient,
+    audio_env: _AudioEnv,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     cli_src = _saved(tmp_path, "tone.mp3", "cli")
     tool_src = _saved(tmp_path, "tone.mp3", "tool")
-    cli_root = tmp_path / "cli-project"
-    cli_root.mkdir()
+    cli_root = _game_project(tmp_path / "cli-project")
 
     assert (
         audio_main(
@@ -302,10 +338,8 @@ def test_import_audio_tool_and_cli_return_the_same_json(
         )
         == 0
     )
-    cli_json = json.loads(capsys.readouterr().out)
+    cli_json: dict[str, Any] = json.loads(capsys.readouterr().out)
 
-    # The CLI already imported this name, so the tool runs against an editor that has not seen it.
-    audio_env.editor.assets.clear()
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "project"))
     tool_json = import_audio(file=str(tool_src), name="ForestTheme", kind="music")
 
@@ -315,3 +349,4 @@ def test_import_audio_tool_and_cli_return_the_same_json(
         tmp_path / "project" / "SourceArt/Audio/Music/ForestTheme.wav"
     )
     assert cli_json == tool_json
+    assert tool_json["godot_asset"] == "res://assets/Audio/ForestTheme.ogg"

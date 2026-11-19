@@ -1,4 +1,4 @@
-"""Finalize orchestration: checkpoint, the cached step chain, gates, load-back, and UE import (#69).
+"""Finalize orchestration: checkpoint, the cached step chain, gates, load-back, and Godot import.
 
 ``execute`` runs one request end to end:
 
@@ -12,12 +12,14 @@
    Per-clip steps (``export_anims``, ``import_anims``, #138) skip this whole-step cache.  They run
    through ``pipeline/anims.py``, which caches each clip on its own key, and they do not move the
    input hash, so a clip-only change leaves the mesh steps' keys valid.
-3. Load-back.  For a session run that reaches ``import_ue``, the result replaces the session's
-   collections, unless the session changed since the checkpoint.  A refusal lets ``import_ue`` run
-   and then fails the run with ``finalize.session_changed``.
-4. UE import.  ``import_ue`` runs only after every earlier step passed.  A terrain request
-   imports each variant with ``import_terrain_variant``, Desktop first.  ``import_anims`` runs
-   after it, against the Desktop skeleton it created.
+3. Load-back.  For a session run that reaches ``import_godot``, the result replaces the session's
+   collections, unless the session changed since the checkpoint.  A refusal lets ``import_godot``
+   run and then fails the run with ``finalize.session_changed``.
+4. Godot import (#249).  ``import_godot`` runs only after every earlier step passed.  It resolves
+   the Godot binary (``godot.not_found``) unless a runner was injected, finds the
+   ``project.godot`` above the export root, and runs ``godot.import_asset.import_variants`` (a
+   mesh) or ``godot.terrain.import_terrain`` (a terrain): one headless ``--import`` plus a probe
+   per variant.  ``import_anims`` runs after it, against the Desktop ``.glb`` it verified.
 
 Errors are ``PipelineError`` with a stable code.  A failing step stops the chain before any later
 step runs.
@@ -30,17 +32,12 @@ import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
-
-from nmg_game_dev.unreal.import_asset import import_variant
-from nmg_game_dev.unreal.preflight import ensure_not_in_pie
-from nmg_game_dev.unreal.terrain import import_terrain_variant
+from typing import TYPE_CHECKING, Any, Protocol
 
 from . import anims
 from .blender_proc import ProgressCallback, StepRunner
 from .cache import ArtifactCache, CacheEntry
 from .clients.blender_session import BlenderSessionClient
-from .clients.unreal_mcp import UnrealMcpClient
 from .errors import PipelineError
 from .request import FinalizeRequest
 from .result import FinalizeResult, StepResult
@@ -57,8 +54,13 @@ from .steps import (
     ordered_steps,
     output_hash,
     settings_hash,
-    ue_destination,
 )
+
+if TYPE_CHECKING:
+    from nmg_game_dev.godot.runner import GodotRunner
+
+# The nmg_game_dev.godot modules are imported where they are used: they import
+# nmg_game_dev.pipeline.errors, so importing them while this package initializes would be circular.
 
 ProgressSink = Callable[[dict[str, Any]], None]
 StepSink = Callable[[StepResult], None]
@@ -87,19 +89,11 @@ class BlenderSession(Protocol):
         ...
 
 
-class UnrealPythonRunner(Protocol):
-    """The Unreal MCP surface the import uses.  ``UnrealMcpClient`` implements it."""
-
-    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-        """Run UE Python and return the tool's text output."""
-        ...
-
-
 class FinalizeSessionChangedError(PipelineError):
     """``finalize.session_changed``: the session changed during the run, so nothing was loaded.
 
-    The run still imported into UE.  ``result`` carries the full ``FinalizeResult``, and the result
-    ``.blend`` is named in the message.
+    The run still imported into Godot.  ``result`` carries the full ``FinalizeResult``, and the
+    result ``.blend`` is named in the message.
     """
 
     def __init__(self, message: str, remediation: str, result: FinalizeResult) -> None:
@@ -114,10 +108,15 @@ class FinalizeSessionChangedError(PipelineError):
 
 @dataclass
 class FinalizeClients:
-    """Optional client overrides.  Real clients are created on first use when left unset."""
+    """Optional client overrides.  Real clients are created on first use when left unset.
+
+    ``godot`` runs ``godot --headless``.  When it is unset, the first Godot step resolves the binary
+    (``GODOT_BIN``, then ``godot`` on PATH, then the macOS app) and raises ``godot.not_found`` when
+    there is none.
+    """
 
     blender: BlenderSession | None = None
-    unreal: UnrealPythonRunner | None = None
+    godot: GodotRunner | None = None
 
 
 @dataclass
@@ -173,7 +172,9 @@ def execute(
         for step in whole_steps
     )
     session_holds_result = bool(alias_mode and alias is not None and alias.get("loaded_back"))
-    load_back_needed = request.blend is None and "import_ue" in chain and not session_holds_result
+    load_back_needed = (
+        request.blend is None and "import_godot" in chain and not session_holds_result
+    )
 
     input_hash = asset_hash
     keys: dict[str, str] = {}
@@ -187,7 +188,7 @@ def execute(
     for index, step in enumerate(chain):
         spec = STEPS[step]
         _emit(run, state="running", step=step, progress=index / len(chain), message="starting")
-        if step == "import_ue" and load_back_needed:
+        if step == "import_godot" and load_back_needed:
             load = _load_back(run, asset_hash=asset_hash, result_blend=last_blend)
             if load.get("loaded") is True:
                 loaded_back = True
@@ -259,11 +260,11 @@ def execute(
             on_step(result)
 
     result_blend = str(last_blend) if "variants" in chain else None
-    desktop, mobile = _content_paths(outputs_by_step)
+    desktop, mobile = _resource_paths(outputs_by_step)
     final = FinalizeResult(
         steps=results,
-        desktop_content_path=desktop,
-        mobile_content_path=mobile,
+        desktop_resource_path=desktop,
+        mobile_resource_path=mobile,
         loaded_back=loaded_back,
         result_blend=result_blend,
         animations=_animations_result(outputs_by_step),
@@ -274,7 +275,7 @@ def execute(
             "steps": keys,
             "settings": current_settings,
             "result_blend": result_blend,
-            "content_paths": {"desktop": desktop, "mobile": mobile},
+            "resource_paths": {"desktop": desktop, "mobile": mobile},
             "loaded_back": False,
         }
         cache.put_alias(asset_hash, record, job_dir=job_dir)
@@ -345,7 +346,7 @@ def _run_step(
     outputs_by_step: dict[str, dict[str, Any]],
     last_blend: Path,
 ) -> dict[str, Any]:
-    if step == "import_ue":
+    if step == "import_godot":
         return _run_import(run, outputs_by_step)
 
     in_blend: Path | None
@@ -390,7 +391,7 @@ def _run_per_clip(
     force: bool,
 ) -> dict[str, Any]:
     if run.request.asset_class == "terrain":
-        # A terrain has no rig, so both clip steps are no-ops: no Blender probe, no Unreal call.
+        # A terrain has no rig, so both clip steps are no-ops: no Blender probe, no Godot call.
         if step == "export_anims":
             return {"clips": [], "content_dir": None, "sidecar": None}
         return {"clips": [], "content_dir": None, "stale": [], "compatible": []}
@@ -404,28 +405,25 @@ def _run_per_clip(
             force=force,
             on_progress=_progress_callback(run, step),
         )
-    owned: UnrealMcpClient | None = None
+    return anims.run_import_anims(
+        run.request,
+        cache=run.cache,
+        job_dir=run.job_dir,
+        exported=outputs_by_step["export_anims"]["clips"],
+        client=lambda: _godot(run),
+        force=force,
+    )
 
-    def client() -> UnrealPythonRunner:
-        nonlocal owned
-        if run.clients.unreal is not None:
-            return run.clients.unreal
-        if owned is None:
-            owned = UnrealMcpClient()
-        return owned
 
-    try:
-        return anims.run_import_anims(
-            run.request,
-            cache=run.cache,
-            job_dir=run.job_dir,
-            exported=outputs_by_step["export_anims"]["clips"],
-            client=client,
-            force=force,
-        )
-    finally:
-        if owned is not None:
-            owned.close()
+def _godot(run: _Run) -> GodotRunner:
+    """Return the injected Godot runner, or resolve the binary on first use."""
+    from nmg_game_dev.godot import binary as godot_binary
+    from nmg_game_dev.godot.runner import SubprocessGodotRunner
+
+    if run.clients.godot is None:
+        binary = godot_binary.resolve_godot(default_app=godot_binary.DEFAULT_GODOT_APP_BINARY)
+        run.clients.godot = SubprocessGodotRunner(binary)
+    return run.clients.godot
 
 
 def _animations_result(outputs_by_step: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
@@ -457,131 +455,51 @@ def _animations_result(outputs_by_step: dict[str, dict[str, Any]]) -> dict[str, 
 
 
 def _run_import(run: _Run, outputs_by_step: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    from nmg_game_dev.godot.import_asset import import_variants
+    from nmg_game_dev.godot.project import find_project
+    from nmg_game_dev.godot.terrain import import_terrain
+
     request = run.request
-    export = outputs_by_step["export"]["variants"]
-    client: UnrealPythonRunner
-    owned: UnrealMcpClient | None = None
-    if run.clients.unreal is not None:
-        client = run.clients.unreal
+    runner = _godot(run)
+    project = find_project(request.export_root)
+    export = outputs_by_step["export"]
+    folders = {variant: Path(str(export["variants"][variant]["dir"])) for variant in VARIANTS}
+    sidecar = _read_sidecar(Path(str(export["sidecar"])))
+    imports: dict[str, dict[str, Any]]
+    if request.asset_class == "terrain":
+        imports = import_terrain(
+            runner, project, name=request.collection, variant_dirs=folders, sidecar=sidecar
+        )
     else:
-        owned = UnrealMcpClient()
-        client = owned
-    try:
-        if request.asset_class == "terrain":
-            imports, paths = _import_terrain_variants(
-                client, request, outputs_by_step["export"]["sidecar"], export
-            )
-        else:
-            imports, paths = _import_mesh_variants(
-                client, request, str(outputs_by_step["export"]["sidecar"]), export
-            )
-    finally:
-        if owned is not None:
-            owned.close()
+        imports = import_variants(
+            runner, project, name=request.collection, variant_dirs=folders, sidecar=sidecar
+        )
     return {
-        "desktop_content_path": paths["Desktop"],
-        "mobile_content_path": paths["Mobile"],
+        "desktop_resource_path": imports["Desktop"]["resource_path"],
+        "mobile_resource_path": imports["Mobile"]["resource_path"],
         "imports": imports,
     }
 
 
-def _import_mesh_variants(
-    client: UnrealPythonRunner,
-    request: FinalizeRequest,
-    sidecar: str,
-    export: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, str]]:
-    imports: dict[str, Any] = {}
-    paths: dict[str, str] = {}
-    # Each variant imports its own material variants, which the export sidecar lists (#148).
-    material_variants = _sidecar_material_variants(sidecar)
-    # A rigged Mobile reuses the Desktop skeleton and physics asset, so both variants name the
-    # Desktop folder, and Desktop is imported first (VARIANTS orders it).
-    skeleton_dest = ue_destination(request, "Desktop")
-    for variant in VARIANTS:
-        entry = export[variant]
-        report: dict[str, Any] = json.loads(
-            Path(str(entry["pre_report"])).read_text(encoding="utf-8")
-        )
-        destination = ue_destination(request, variant)
-        # No import request is sent while the editor is in Play In Editor (#149, FR9).
-        ensure_not_in_pie(client, mode=request.pie_mode, wait_s=request.pie_wait_seconds)
-        imports[variant] = import_variant(
-            client,
-            variant_dir=str(entry["dir"]),
-            dest=destination,
-            name=request.collection,
-            report=report,
-            skeleton_dest=skeleton_dest,
-            material_variants=material_variants.get(variant.lower(), []),
-        )
-        paths[variant] = destination
-    return imports, paths
-
-
-def _import_terrain_variants(
-    client: UnrealPythonRunner,
-    request: FinalizeRequest,
-    sidecar: str,
-    export: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, str]]:
-    """Build one Landscape level per terrain variant, Desktop first, from the sidecar's fields.
-
-    Both sidecar entries are read before the first Unreal call, so a sidecar that lacks the Mobile
-    entry fails before the Desktop level is touched.
-    """
-    sidecar_data: dict[str, Any] = json.loads(Path(sidecar).read_text(encoding="utf-8"))
-    entries: dict[str, dict[str, Any]] = {}
-    for variant in VARIANTS:
-        entry = sidecar_data.get(variant.lower())
-        if not isinstance(entry, dict):
-            raise PipelineError(
-                code="import_ue.failed",
-                message=f"nmg-variants.json has no {variant.lower()} terrain entry",
-                remediation="Rerun the export step so the terrain sidecar holds both variants.",
-                stage="import_ue",
-            )
-        entries[variant] = entry
-    imports: dict[str, Any] = {}
-    paths: dict[str, str] = {}
-    for variant in VARIANTS:
-        destination = ue_destination(request, variant)
-        # No import request is sent while the editor is in Play In Editor (#149, FR9).
-        ensure_not_in_pie(client, mode=request.pie_mode, wait_s=request.pie_wait_seconds)
-        imports[variant] = import_terrain_variant(
-            client,
-            variant_dir=str(export[variant]["dir"]),
-            dest=destination,
-            name=request.collection,
-            sidecar_variant=entries[variant],
-        )
-        paths[variant] = destination
-    return imports, paths
-
-
-def _sidecar_material_variants(sidecar: str) -> dict[str, list[dict[str, Any]]]:
-    """Return the sidecar's material-variant lists keyed by variant ("desktop" or "mobile").
-
-    A sidecar with no material_variants key, or no sidecar file, declares none (#148, AC4).
-    """
-    path = Path(sidecar)
-    if not path.is_file():
-        return {}
-    payload: Any = json.loads(path.read_text(encoding="utf-8"))
-    declared = payload.get("material_variants") if isinstance(payload, dict) else None
-    if not isinstance(declared, dict):
-        return {}
-    return {
-        str(key): [dict(item) for item in value if isinstance(item, dict)]
-        for key, value in declared.items()
-        if isinstance(value, list)
-    }
+def _read_sidecar(path: Path) -> dict[str, Any]:
+    """Return the export's ``nmg-variants.json``; a missing or unreadable one fails the import."""
+    try:
+        payload: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise PipelineError(
+            code="import_godot.mismatch",
+            message=f"The export sidecar {path} cannot be read: {error}",
+            remediation="Rerun the export step so nmg-variants.json is written, then rerun "
+            "import_godot.",
+            stage="import_godot",
+        ) from error
+    return payload if isinstance(payload, dict) else {}
 
 
 def _load_back(run: _Run, *, asset_hash: str, result_blend: Path) -> dict[str, Any]:
     if run.clients.blender is None:
         run.clients.blender = BlenderSessionClient()
-    _emit(run, state="running", step="import_ue", progress=None, message="loading back")
+    _emit(run, state="running", step="import_godot", progress=None, message="loading back")
     return run.clients.blender.load_back(
         result_blend=result_blend,
         collection=run.request.collection,
@@ -597,11 +515,11 @@ def _restore_missing(run: _Run, key: str, step: StepName, entry: CacheEntry) -> 
             run.cache.restore(key, name, target)
 
 
-def _content_paths(outputs_by_step: dict[str, dict[str, Any]]) -> tuple[str | None, str | None]:
-    imported = outputs_by_step.get("import_ue")
+def _resource_paths(outputs_by_step: dict[str, dict[str, Any]]) -> tuple[str | None, str | None]:
+    imported = outputs_by_step.get("import_godot")
     if imported is None:
         return None, None
-    return str(imported["desktop_content_path"]), str(imported["mobile_content_path"])
+    return str(imported["desktop_resource_path"]), str(imported["mobile_resource_path"])
 
 
 def _summary(step: StepName, outputs: dict[str, Any], cache_hit: bool) -> str:

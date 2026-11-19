@@ -43,6 +43,6 @@ def test_step_order_is_the_eight_finalize_steps() -> None:
         "export",
         "export_anims",
         "reimport",
-        "import_ue",
+        "import_godot",
         "import_anims",
     )

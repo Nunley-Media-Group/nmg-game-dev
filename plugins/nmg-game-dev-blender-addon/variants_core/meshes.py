@@ -116,7 +116,7 @@ def _delete_repeated_faces(bm: bmesh.types.BMesh) -> None:
     """Delete faces whose vertex set repeats an earlier face's set, keeping the first by index.
 
     Collapse decimation can leave two coincident faces with opposite winding (a zero-volume sliver,
-    seen on a 12-triangle cube's LOD2). An FBX export and re-import keeps only one of them, so the
+    seen on a 12-triangle cube's LOD2). A GLB export and re-import keeps only one of them, so the
     re-import count would differ from the budget count (#69: finalize re-imports every variant).
     """
     bm.faces.index_update()

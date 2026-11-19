@@ -17,10 +17,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 
-from ..utils.master_material import MASTER_PARAMETERS
 from .report import ContractError, finding
 
 SCHEMA_VERSION: Final = 1
+#: Parameters a material variant may set, by value kind. A ``vector`` takes [r, g, b] or
+#: [r, g, b, a]; alpha defaults to 1. Tint multiplies the base colour and defaults to white.
+VARIANT_PARAMETERS: Final[dict[str, str]] = {"Tint": "vector"}
 _PNG_SIGNATURE: Final = b"\x89PNG\r\n\x1a\n"
 _NAME: Final = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 _TOP_KEYS: Final = frozenset({"schema", "material_variants"})
@@ -204,7 +206,7 @@ def check_declaration(
         parameters = entry["parameters"]
         valid: dict[str, list[float]] = {}
         for parameter, value in parameters.items():
-            kind = MASTER_PARAMETERS.get(parameter)
+            kind = VARIANT_PARAMETERS.get(parameter)
             if kind is None:
                 _fail(
                     findings,
@@ -212,8 +214,8 @@ def check_declaration(
                     name,
                     material,
                     "material_variant.parameter",
-                    f"{parameter} is not a parameter of M_NmgORM "
-                    f"(declared: {', '.join(sorted(MASTER_PARAMETERS))})",
+                    f"{parameter} is not a material variant parameter "
+                    f"(declared: {', '.join(sorted(VARIANT_PARAMETERS))})",
                 )
             elif kind == "vector":
                 vector = _vector(value)

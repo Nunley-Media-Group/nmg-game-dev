@@ -57,13 +57,13 @@ def _summary_lines(raw: str) -> list[str]:
     if "poly_count_desktop" in data:
         return [
             f"Desktop: {data['poly_count_desktop']} triangles",
-            f"Mobile: {data['poly_count_mobile']} triangles, {data['mobile']['lod_levels']} LOD(s)",
+            f"Mobile: {data['poly_count_mobile']} triangles",
             f"Exported: {data['desktop_path']}",
         ]
     if "tris_after" in data:
         return [f"Cleanup: {data['tris_before']} -> {data['tris_after']} triangles"]
-    if "lod_tris" in data:
-        return [f"Mobile LOD0: {data['tris']} triangles, {data['lod_levels']} LOD(s)"]
+    if data.get("kind") == "mobile":
+        return [f"Mobile: {data['tris']} triangles"]
     if data.get("kind") in {"contract", "reimport", "inspect"}:
         verdict = "PASS" if data["passed"] else "FAIL"
         return [

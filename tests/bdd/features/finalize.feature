@@ -1,14 +1,14 @@
 Feature: Finalize an authored asset
   As an NMG game developer
   I want one command, plus each of its steps as an agent tool, that makes an authored asset shippable
-  So that freeform authoring ends in a contract-compliant asset in UE
+  So that freeform authoring ends in a contract-compliant asset in the Godot project
 
   @SCN001
   Scenario: Finalize runs the eight steps from an authored collection
     Given an authored collection "Crate" of class "standard_prop" in category "Props"
     When finalize runs
-    Then the steps validate, bake, variants, export, export_anims, reimport, import_ue, and import_anims run in that order
-    And the result lists each step and the UE content paths under /Game/Props/Crate/
+    Then the steps validate, bake, variants, export, export_anims, reimport, import_godot, and import_anims run in that order
+    And the result lists each step and the Godot resource paths under res://export/Props/Crate/
 
   @SCN003
   Scenario: A single step runs through the same implementation
@@ -20,12 +20,12 @@ Feature: Finalize an authored asset
   Scenario: An unchanged finalized asset is served from cache
     Given "Crate" was finalized and loaded back
     When finalize runs again without changes
-    Then every step reports cache_hit true and nothing is reimported into UE
+    Then every step reports cache_hit true and nothing is imported into Godot again
     And after a material change the bake step and every later step run again
 
   @SCN006
-  Scenario: A failing step stops the run before UE import
+  Scenario: A failing step stops the run before the Godot import
     Given "Crate" fails contract validation
     When finalize runs
     Then it raises PipelineError "quality.contract_failed" with a remediation
-    And no later step runs and nothing is imported into UE
+    And no later step runs and nothing is imported into Godot

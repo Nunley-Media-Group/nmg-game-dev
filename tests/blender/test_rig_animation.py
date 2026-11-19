@@ -22,11 +22,11 @@ import sys
 
 import bpy
 
-fbx_path, bvh_path = sys.argv[sys.argv.index("--") + 1 :][:2]
+glb_path, bvh_path = sys.argv[sys.argv.index("--") + 1 :][:2]
 for obj in list(bpy.data.objects):
     bpy.data.objects.remove(obj, do_unlink=True)
 
-bpy.ops.import_scene.fbx(filepath=fbx_path)
+bpy.ops.import_scene.gltf(filepath=glb_path, disable_bone_shape=True)
 rig = next(obj for obj in bpy.data.objects if obj.type == "ARMATURE")
 bones = list(rig.data.bones)
 rig_objects = sorted((obj.name, obj.type) for obj in bpy.data.objects)
@@ -114,12 +114,12 @@ def test_ac2_library_clips_bake_and_export_with_provenance(
     exported = rig_core.export_rigged("Hero", str(out_dir))
 
     assert exported["status"] == "ok", exported
-    assert (out_dir / "SM_Hero.fbx").is_file()
+    assert (out_dir / "Hero.glb").is_file()
     sidecar = json.loads((out_dir / "nmg-animations.json").read_text(encoding="utf-8"))
     assert sidecar["asset"] == "Hero"
     assert sidecar["armature"] == "SK_Hero"
-    assert sidecar["skeleton"] == "ue5_manny"
-    assert sidecar["fbx"] == "SM_Hero.fbx"
+    assert sidecar["skeleton"] == "humanoid"
+    assert sidecar["glb"] == "Hero.glb"
     assert sidecar["bones"] == list(MANNY_BONE_NAMES)
     assert [clip["name"] for clip in sidecar["clips"]] == ["Idle", "Walk"]
     idle_source = sidecar["clips"][0]["source"]
@@ -151,7 +151,7 @@ def test_ac2_fresh_blender_reimport_has_mannequin_bones_and_matching_thigh(
             "--python",
             str(script),
             "--",
-            str(out_dir / "SM_Hero.fbx"),
+            str(out_dir / "Hero.glb"),
             str(library / "walk.bvh"),
         ],
         capture_output=True,

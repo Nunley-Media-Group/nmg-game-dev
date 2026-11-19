@@ -128,7 +128,7 @@ RULES: Final[dict[str, str]] = {
         "colour of its material (contract section 4)."
     ),
     "material_variant.parameter": (
-        "Use a parameter M_NmgORM declares (Tint), with [r, g, b] or [r, g, b, a] finite numbers "
+        "Use a material variant parameter (Tint), with [r, g, b] or [r, g, b, a] finite numbers "
         "of at least 0 (contract section 4)."
     ),
     "material_variant.empty": (
@@ -138,8 +138,8 @@ RULES: Final[dict[str, str]] = {
         "Fix <Name>.material-variants.json to the format in contract section 4 (raised as an "
         "error, not a finding)."
     ),
-    "reimport.texture_missing": "Re-export so each BC and N PNG sits beside the FBX (section 7).",
-    "reimport.orm_missing": "Re-export so the ORM PNG sits beside the FBX (section 7).",
+    "reimport.texture_missing": "Re-export so each BC and N PNG sits beside the GLB (section 7).",
+    "reimport.orm_missing": "Re-export so the ORM PNG sits beside the GLB (section 7).",
     "reimport.uv_missing": "Re-export with UVMap present on every mesh (contract section 4).",
     "reimport.name_mismatch": "Re-export so object and material names match the pre-export report.",
     "reimport.dimensions": "Re-export without changing scale or geometry, then validate again.",

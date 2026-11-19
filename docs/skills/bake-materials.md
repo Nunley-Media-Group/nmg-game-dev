@@ -2,7 +2,7 @@
 
 Bakes whatever materials the agent authored on an asset into the contract texture sets
 (`docs/asset-contract.md` §4, §6, §8). Procedural nodes, triplanar or position-driven coordinates,
-and image textures all bake the same way, so the exported asset looks the same in Unreal as it did
+and image textures all bake the same way, so the exported asset looks the same in Godot as it did
 in Blender.
 
 ## Entry points

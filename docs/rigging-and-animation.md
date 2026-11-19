@@ -2,8 +2,9 @@
 
 The agent rigs a humanoid it modeled and bakes clips from a local animation
 library onto it, all inside Blender. No paid or rate-limited service is
-involved. The rig uses UE5 Mannequin bone names, so the exported FBX imports
-into Unreal as a skeletal mesh that works with Manny-based animation.
+involved. The rig uses the 26 Mannequin-style bone names of the `manny` skeleton, so
+every finalized character shares one bone layout. The exported `.glb` imports into Godot
+as a scene with a `Skeleton3D`, and its clips import as animation libraries.
 
 ## Agent flow
 
@@ -21,9 +22,9 @@ into Unreal as a skeletal mesh that works with Manny-based animation.
 5. **Import animations.** Call `import_animations(collection, library_dir)`.
    Omit `clips` to bake every clip the library lists.
 6. **Export.** Call `export_rigged(collection, out_dir)`.
-7. **Finalize.** `finalize_asset` exports every clip on `SK_<Name>` as its own FBX under
-   `Animations/`, and `import_anims` imports each one into Unreal as an AnimSequence on the
-   character's Desktop skeleton. Pass `compatible_with` to let the clips play on another
+7. **Finalize.** `finalize_asset` exports every clip on `SK_<Name>` as its own `.glb` under
+   `Animations/`, and `import_anims` imports each one into Godot, headless, as an
+   `AnimationLibrary` beside the character's Desktop and Mobile variants. Pass `compatible_with` to let the clips play on another
    character's skeleton. The clip steps are cached per clip, so changing one clip re-imports only
    that clip. See `docs/mcp/finalize.md`, "Animation clips".
 
@@ -244,7 +245,7 @@ Codes:
 An `ok` rig result carries `asset`, `armature`, `body_type`, `bones`, and
 `bone_count`. An `ok` import result carries `asset`, `armature`, and `clips`,
 where each clip has its provenance. An `ok` export result carries `asset`,
-`armature`, `fbx`, `sidecar`, `textures`, and `clips`.
+`armature`, `glb`, `sidecar`, `textures`, and `clips`.
 
 Every `fallback required` remediation ends with an optional note: Mixamo can be
 used by hand as a manual fallback. Nothing in nmg-game-dev contacts Mixamo or

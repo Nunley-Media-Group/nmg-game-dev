@@ -6,6 +6,32 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-19
+
+### Changed
+
+- **BREAKING CHANGE:** The engine target is now Godot 4 (latest stable, never pinned) instead of Unreal Engine, driven only by `godot --headless` with no live-editor bridge. Consumers keep their Godot project in `game/`, and `/convert-to-godot` migrates an existing Unreal consumer project. (#249)
+- Finalize ends in `import_godot` instead of `import_ue`: each variant exports as `<Name>.glb` into `game/assets/<Category>/<Name>/{Desktop,Mobile}/` with `nmg-asset.json` in both folders, `godot --headless --import` runs, and a headless probe checks mesh names, triangle counts, material slots and bounds (`import_godot.*` error codes). Animation clips import as animation libraries, terrain becomes LOD'd `.glb` chunks plus a `.tscn` with `HeightMapShape3D` collision, and material variants are listed from finalize-written files without starting an engine. (#249)
+- `import_audio` imports sound effects as `AudioStreamWAV` and music as Ogg Vorbis `AudioStreamOggVorbis` (encoded with ffmpeg), and `/design` scaffolds regions as `.tscn` scenes, missions as `NmgMissionDefinition` resources and systems as component scripts. (#249)
+- `/ship` exports every target (`macos`, `ios`, `android`, `windows`, `web`) through Godot export presets after `godot --import` (so a fresh clone has its class cache), a script check, the project tests and the mobile budget gate; Windows exports locally and the web build warns above 38 MB. (#249)
+- `/onboard-consumer` creates `game/project.godot`, installs the `addons/nmg_game_dev` add-on and `export_presets.cfg` with per-variant export filters, installs only the Blender SessionStart hook, and reports the Godot and ffmpeg binaries. (#249)
+
+### Added
+
+- The `addons/nmg_game_dev` Godot runtime add-on (`NmgAssets.resolve_variant_path`, `NmgMissionDefinition`, the terrain splat shader) with a headless test runner, and the `gate-godot-headless` validation. (#249)
+- `/convert-to-godot` (`python -m nmg_game_dev.convert`) re-finalizes every asset from its Blender source, imports audio, re-scaffolds the design backlog, replaces the Unreal hooks, writes `godot-conversion-report.md`, resumes after a partial failure, and deletes the Unreal project only after every item converts. (#249)
+- `NmgVariantScene` in the add-on loads a split asset's Desktop or Mobile scene at run time and previews the Desktop variant in the editor without saving it; `/design` uses it for a region's terrain, so mobile and web builds keep their terrain. `/convert-to-godot` takes `--models-dir`, and every headless Godot run is bounded by `NMG_GODOT_TIMEOUT_S` (default 900 s) so a stalled Godot fails with a remediation instead of hanging. (#249)
+
+### Removed
+
+- The UE plugin, the `unreal` MCP server entry, VibeUE installation, the Unreal launcher, build and smoke scripts, the dogfood UE fixture, the `gate-ue-compile` validation and its extension. A repository test keeps Unreal references out. (#249)
+
+### Migration Notes
+
+- Run `/convert-to-godot` in a clean git working tree of an existing consumer project; use `--dry-run` first to see every planned conversion and deletion. C++ under `Source/`, `.umap` levels and `.uasset` files finalize did not produce are listed in `godot-conversion-report.md` for a manual port. (#249)
+- Install Godot 4 (or set `GODOT_BIN`) and ffmpeg (or set `FFMPEG_BIN`); `UE_ROOT`, `UE_PROJECT`, `UE_MCP_PORT` and the `WINDOWS_BUILD_*` variables are no longer read. (#249)
+- `FinalizeResult.desktop_content_path` and `mobile_content_path` become `desktop_resource_path` and `mobile_resource_path` (`res://` paths), `pie_mode` and `pie_wait_seconds` are gone, and the audio result keys `unreal_asset` and `imported_to_unreal` become `godot_asset` and `imported_to_godot`. Cached `import_ue` entries are not reused. (#249)
+
 ## [0.25.5] - 2026-11-19
 
 ### Fixed

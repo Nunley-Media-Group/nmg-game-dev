@@ -20,6 +20,7 @@ from ..bake_core import BakeError, bake_asset
 from ..contract_core import ContractError, reimport_check, validate_asset
 from ..contract_core.terrain import TERRAIN_CLASS
 from ..terrain_core.export import export_terrain
+from ..terrain_core.heightfield import CHUNK_QUADS
 from ..terrain_core.reimport import terrain_reimport_check, write_height_samples
 from ..terrain_core.variants import DESKTOP, MOBILE, TerrainVariant, terrain_variants
 from ..utils.budgets import BudgetOverrideError, resolve_budget
@@ -35,7 +36,7 @@ from ..variants_core.errors import VariantError
 from ..variants_core.export import export_variants
 from ..variants_core.material_variants import export_material_variants
 from ..variants_core.mobile import build_mobile
-from ..variants_core.sidecars import write_sidecars
+from ..variants_core.sidecars import mesh_payload, write_sidecars
 from ..variants_core.textures import check_baked_material, max_texture_px, source_images
 from . import anims
 from .anims import AnimError
@@ -172,19 +173,13 @@ def _variants(
         },
         "mobile": {
             "tris": mobile["tris"],
-            "lod_tris": mobile["lod_tris"],
-            "lod_levels": mobile["lod_levels"],
             "max_texture_px": mobile["max_texture_px"],
             "materials": mobile["materials"],
         },
     }
     tris = {
         "Desktop": {"tris": cleanup["tris_after"], "objects": cleanup["objects"]},
-        "Mobile": {
-            "tris": mobile["tris"],
-            "lod_tris": mobile["lod_tris"],
-            "lod_levels": mobile["lod_levels"],
-        },
+        "Mobile": {"tris": mobile["tris"]},
     }
     summary = f"{collection}: Desktop {cleanup['tris_after']} tris, Mobile {mobile['tris']} tris"
     return summary, {"blend": str(blend), "tris": tris, "metrics": metrics}
@@ -238,14 +233,21 @@ def _export(
         material_variants = export_material_variants(
             collection, variant_root, report["material_variants"]
         )
-    payload = _sidecar_payload(
-        collection, category, asset_class, budget, metrics, exported, material_variants
+    payload = mesh_payload(
+        collection=collection,
+        category=category,
+        asset_class=asset_class,
+        budget=budget,
+        metrics=metrics,
+        exported=exported,
+        material_variants=material_variants,
     )
-    write_sidecars(variant_root, payload)
+    assets = write_sidecars(variant_root, payload)
     outputs.update(
         {
             "exported": True,
-            "fbx": {"Desktop": str(exported["desktop_fbx"]), "Mobile": str(exported["mobile_fbx"])},
+            "glb": {"Desktop": str(exported["desktop_glb"]), "Mobile": str(exported["mobile_glb"])},
+            "asset_sidecars": {variant: str(path) for variant, path in assets.items()},
             "texture_bytes": {
                 "Desktop": exported["desktop_texture_bytes"],
                 "Mobile": exported["mobile_texture_bytes"],
@@ -261,7 +263,7 @@ def _export_anims(
     """Probe the rig's clips, or export the named ones (#138).
 
     ``inputs.mode`` is ``probe`` (the default, which writes nothing) or ``export``, which writes one
-    FBX per name in ``inputs.clips`` into ``<export_root>/<Category>/<Name>/Animations``.
+    GLB per name in ``inputs.clips`` into ``<export_root>/<Category>/<Name>/Animations``.
     """
     collection = str(request["collection"])
     mode = str((inputs or {}).get("mode", "probe"))
@@ -355,7 +357,7 @@ def _export_terrain(
     budgets_path: str | None,
     job: Path,
 ) -> tuple[str, dict[str, Any]]:
-    """Validate, then write the terrain PNGs and sidecars (#154, AC2, AC6).
+    """Validate, then write the terrain chunk GLBs, PNGs, and sidecars (#154, AC2, AC6).
 
     A failing pre-export contract exports nothing. On a pass, each pre-export report also names the
     evaluated height samples that the re-import check compares the decoded PNGs against.
@@ -395,7 +397,7 @@ def _export_terrain(
 
     exported = export_terrain(collection, category, export_root, variants)
     payload = _terrain_sidecar_payload(collection, category, budget, variants, exported)
-    write_sidecars(variant_root, payload)
+    assets = write_sidecars(variant_root, payload)
     outputs.update(
         {
             "exported": True,
@@ -403,6 +405,15 @@ def _export_terrain(
                 DESKTOP: str(exported["desktop_heightmap"]),
                 MOBILE: str(exported["mobile_heightmap"]),
             },
+            "splat": {
+                DESKTOP: str(exported["desktop_splat"]),
+                MOBILE: str(exported["mobile_splat"]),
+            },
+            "chunks": {
+                DESKTOP: [str(path) for path in exported["desktop_chunks"]],
+                MOBILE: [str(path) for path in exported["mobile_chunks"]],
+            },
+            "asset_sidecars": {variant: str(path) for variant, path in assets.items()},
             "texture_bytes": {
                 DESKTOP: exported["desktop_texture_bytes"],
                 MOBILE: exported["mobile_texture_bytes"],
@@ -419,13 +430,22 @@ def _terrain_sidecar_payload(
     variants: Mapping[str, TerrainVariant],
     exported: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """nmg-variants.json for terrain: "terrain": true and each variant's fields and samples."""
+    """nmg-variants.json for terrain: "terrain": true and each variant's files and fields.
+
+    Each variant block holds ``heightmap`` and ``splat`` (paths under the asset folder), ``chunks``
+    (the chunk GLB file names in the variant folder), ``chunk_quads``, the TerrainVariant metrics,
+    and ``texture_bytes``.
+    """
 
     def block(variant: str) -> dict[str, Any]:
+        key = variant.lower()
         return {
             "heightmap": f"{variant}/T_{collection}_Height.png",
+            "splat": f"{variant}/T_{collection}_Splat.png",
+            "chunks": [path.name for path in exported[f"{key}_chunks"]],
+            "chunk_quads": CHUNK_QUADS,
             **variants[variant].metrics(),
-            "texture_bytes": exported[f"{variant.lower()}_texture_bytes"],
+            "texture_bytes": exported[f"{key}_texture_bytes"],
         }
 
     return {
@@ -437,45 +457,6 @@ def _terrain_sidecar_payload(
         "desktop": block(DESKTOP),
         "mobile": block(MOBILE),
     }
-
-
-def _sidecar_payload(
-    collection: str,
-    category: str,
-    asset_class: str,
-    budget: Mapping[str, int],
-    metrics: Mapping[str, Any],
-    exported: Mapping[str, Any],
-    material_variants: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    desktop = metrics["desktop"]
-    mobile = metrics["mobile"]
-    payload: dict[str, Any] = {
-        "name": collection,
-        "category": category,
-        "class": asset_class,
-        "budget": dict(budget),
-        "desktop": {
-            "fbx": f"Desktop/SM_{collection}.fbx",
-            "tris": desktop["tris"],
-            "texture_bytes": exported["desktop_texture_bytes"],
-            "max_texture_px": desktop["max_texture_px"],
-            "materials": desktop["materials"],
-        },
-        "mobile": {
-            "fbx": f"Mobile/SM_{collection}.fbx",
-            "tris": mobile["tris"],
-            "lod_tris": mobile["lod_tris"],
-            "lod_levels": mobile["lod_levels"],
-            "texture_bytes": exported["mobile_texture_bytes"],
-            "max_texture_px": mobile["max_texture_px"],
-            "materials": mobile["materials"],
-        },
-    }
-    # The key exists only when the asset declares material variants (#148, AC4 and AC7).
-    if material_variants is not None:
-        payload["material_variants"] = dict(material_variants)
-    return payload
 
 
 def _material_variants_path(request: Mapping[str, Any]) -> str | None:

@@ -25,8 +25,6 @@ LFS_PATTERNS: tuple[str, ...] = (
     "*.abc",
     "*.usd",
     "*.usdz",
-    "*.uasset",
-    "*.umap",
     "*.png",
     "*.jpg",
     "*.jpeg",

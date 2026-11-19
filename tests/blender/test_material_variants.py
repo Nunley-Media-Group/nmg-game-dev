@@ -30,13 +30,7 @@ BLUE_TINT = {"name": "Blue", "material": "M_Crate_Body", "parameters": {"Tint": 
 BLUE_TEXTURE = {"name": "Blue", "material": "M_Crate_Body", "base_color": "Blue.png"}
 METRICS: dict[str, Any] = {
     "desktop": {"tris": 12, "max_texture_px": 512, "materials": 1},
-    "mobile": {
-        "tris": 12,
-        "lod_tris": {},
-        "lod_levels": 0,
-        "max_texture_px": 512,
-        "materials": 1,
-    },
+    "mobile": {"tris": 12, "max_texture_px": 512, "materials": 1},
 }
 
 
@@ -340,7 +334,7 @@ def test_scn003_a_parameter_variant_writes_no_texture_and_lists_its_tint(
             "material": "M_Crate_Body",
             "base_color": None,
             "parameters": {"Tint": [0.5, 0.25, 1.0, 1.0]},
-            "material_instance": "MI_Crate_Body_Blue",
+            "material_resource": "M_Crate_Body_Blue.tres",
         }
     ]
     assert variants["mobile"] == variants["desktop"]
@@ -358,7 +352,7 @@ def test_scn007_the_sidecar_lists_each_texture_variant_for_both_folders(
         "material": "M_Crate_Body",
         "base_color": "T_Crate_Body_BC_Red.png",
         "parameters": {},
-        "material_instance": "MI_Crate_Body_Red",
+        "material_resource": "M_Crate_Body_Red.tres",
     }
     assert variants == {"desktop": [expected], "mobile": [expected]}
 
@@ -371,13 +365,14 @@ def test_scn004_without_a_declaration_the_export_matches_the_unfeatured_export(
 
     assert "material_variants" not in _sidecar(root)
     assert {path.name for path in (root / "Desktop").iterdir()} == {
-        "SM_Crate.fbx",
+        "Crate.glb",
         "T_Crate_Body_BC.png",
         "T_Crate_Body_N.png",
         "T_Crate_Body_ORM.png",
+        "nmg-asset.json",
     }
     assert {path.name for path in (root / "Mobile").iterdir()} == {
-        "SM_Crate.fbx",
+        "Crate.glb",
         "T_Crate_Body_BC.png",
         "T_Crate_Body_N.png",
         "T_Crate_Body_ORM.png",

@@ -33,7 +33,7 @@ def write_release_notes(
     ]
     if dry_run:
         lines += [
-            "> **DRY RUN.** No build, signing, notarization, or packaging ran, and no artifact "
+            "> **DRY RUN.** No export, signing, notarization, or packaging ran, and no artifact "
             "was produced. Each platform's `DRY-RUN.txt` lists the planned commands.",
             "",
         ]

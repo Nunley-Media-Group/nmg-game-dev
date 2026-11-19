@@ -1,5 +1,5 @@
-"""End-to-end onboarding of a fixture consumer: AC1–AC9, the CLI, and the preflight guarantees
-(#7)."""
+"""End-to-end onboarding of a fixture consumer: #7 AC1–AC9, #249 AC10, the CLI, and the preflight
+guarantees."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from nmg_game_dev.godot.presets import render_export_presets
+from nmg_game_dev.godot.project import read_config
 from nmg_game_dev.onboard import OnboardError, run_onboard
 from nmg_game_dev.onboard.__main__ import main as onboard_main
 from nmg_game_dev.onboard.commands import HostFacts
@@ -17,20 +19,39 @@ from nmg_game_dev.onboard.paths import framework_root
 from nmg_game_dev.onboard.report import StepResult
 from tests.onboard_fakes import (
     APPLE_SILICON,
+    GODOT_ADDON_FILES,
     FakeRunner,
     all_tools_present,
     gib_free,
     make_consumer,
+    make_executable,
     make_framework,
     mflux_missing,
+    no_godot_tools,
     small_disk,
     snapshot,
 )
 
-HOOK_COMMANDS = (
-    'bash "$CLAUDE_PROJECT_DIR/scripts/start-blender-mcp.sh"',
-    'bash "$CLAUDE_PROJECT_DIR/scripts/start-unreal-mcp.sh"',
-)
+HOOK_COMMANDS = ('bash "$CLAUDE_PROJECT_DIR/scripts/start-blender-mcp.sh"',)
+STEP_ORDER = [
+    "scripts/start-blender-mcp.sh",
+    "settings_hooks",
+    "asset_contract",
+    "design_contract",
+    "design_dir",
+    "agent_instructions:CLAUDE.md",
+    "godot_project",
+    "godot_addon",
+    "export_presets",
+    "godot_binary",
+    "ffmpeg_binary",
+    "blender_addon",
+    "texture_models",
+    "texture_env",
+    "gitignore_env",
+    "gitattributes_lfs",
+    "git_lfs_hooks",
+]
 DESIGN_CONTRACT_TEXT = "# Design contract\n\nFixture copy for the onboarding tests.\n"
 
 
@@ -57,10 +78,13 @@ def install(
     free: Callable[[Path], int] = gib_free,
     which: Callable[[str], str | None] = all_tools_present,
     host: HostFacts = APPLE_SILICON,
+    game_dir: str = "game",
+    godot_app: Path | None = None,
 ) -> list[StepResult]:
     return run_onboard(
         consumer,
         framework=framework,
+        game_dir=game_dir,
         models_dir=models,
         refresh=refresh,
         env=env,
@@ -68,6 +92,7 @@ def install(
         which=which,
         host=host,
         free_bytes=free,
+        godot_app=godot_app or consumer.parent / "no-godot-app",
     )
 
 
@@ -78,10 +103,12 @@ def test_fresh_install_installs_framework_files(
     API keys."""
     results = install(consumer, framework, models, env)
 
-    for script in ("start-blender-mcp.sh", "start-unreal-mcp.sh"):
-        installed = consumer / "scripts" / script
-        assert installed.read_bytes() == (framework / "scripts" / script).read_bytes()
-        assert os.access(installed, os.X_OK)
+    installed = consumer / "scripts" / "start-blender-mcp.sh"
+    assert installed.read_bytes() == (framework / "scripts" / "start-blender-mcp.sh").read_bytes()
+    assert os.access(installed, os.X_OK)
+    assert sorted(path.name for path in (consumer / "scripts").iterdir()) == [
+        "start-blender-mcp.sh"
+    ]
 
     settings = json.loads((consumer / ".claude" / "settings.json").read_text())
     assert settings["model"] == "opus"
@@ -100,7 +127,7 @@ def test_fresh_install_installs_framework_files(
 
     assert not (consumer / ".mcp.json").exists()
     assert not (consumer / "fixtures").exists()
-    assert not (consumer / "Plugins" / "nmg-game-dev" / "Binaries").exists()
+    assert not (consumer / "Plugins").exists()
     local = json.loads((consumer / ".claude" / "settings.local.json").read_text())
     assert not [key for key in local["env"] if key.endswith("_API_KEY")]
     assert {r.name for r in results} >= {
@@ -115,53 +142,230 @@ def test_fresh_install_installs_framework_files(
     }
     ignore = (consumer / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ignore.count(".env") == 1
+    assert ignore.count("game/.godot/") == 1
     assert not (consumer / ".env").exists(), "onboarding must never create the project .env"
 
 
-def test_unreal_plugins_installed_and_enabled(
+def test_steps_run_in_design_order(
     consumer: Path, framework: Path, models: Path, env: dict[str, str]
 ) -> None:
-    """AC2: the UE plugin copy, the VibeUE clone on branch 5-8, the four .uproject plugins, and
-    the MCP ini."""
-    runner = FakeRunner()
-    install(consumer, framework, models, env, runner=runner)
+    """#249 design: the Godot steps sit between the agent instructions and the Blender add-on."""
+    assert [r.name for r in install(consumer, framework, models, env)] == STEP_ORDER
 
-    plugin = consumer / "Plugins" / "nmg-game-dev"
-    assert (plugin / "nmg-game-dev.uplugin").is_file()
-    assert (plugin / "Source" / "NmgGameDevRuntime" / "Public" / "NmgAssetResolver.h").is_file()
-    assert not (plugin / "Binaries").exists()
-    assert not (plugin / "Intermediate").exists()
 
-    clone = runner.argv_starting("git", "clone")
-    assert clone == [
-        [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "--branch",
-            "5-8",
-            "https://github.com/kevinpbuckley/VibeUE.git",
-            str(consumer / "Plugins" / "VibeUE"),
-        ]
-    ]
+def test_godot_project_is_created_with_compatibility_renderer(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC10: game/project.godot gets the name, renderer keys, editor plugin, and autoload."""
+    results = {r.name: r for r in install(consumer, framework, models, env)}
+    assert results["godot_project"].status == "installed"
+    config = read_config(consumer / "game" / "project.godot")
+    assert config[("", "config_version")] == "5"
+    assert config[("application", "config/name")] == '"Game"'
+    assert config[("rendering", "renderer/rendering_method.mobile")] == '"gl_compatibility"'
+    assert config[("rendering", "renderer/rendering_method.web")] == '"gl_compatibility"'
+    assert config[("editor_plugins", "enabled")] == (
+        'PackedStringArray("res://addons/nmg_game_dev/plugin.cfg")'
+    )
+    assert config[("autoload", "NmgAssets")] == '"*res://addons/nmg_game_dev/nmg_assets.gd"'
 
-    uproject = json.loads((consumer / "Game.uproject").read_text())
-    enabled = {entry["Name"]: entry["Enabled"] for entry in uproject["Plugins"]}
-    assert enabled == {
-        "Other": True,
-        "ModelContextProtocol": True,
-        "EditorToolset": True,
-        "VibeUE": True,
-        "nmg-game-dev": True,
+
+def test_godot_addon_is_copied_without_its_tests(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC10: the add-on lands in game/addons/nmg_game_dev; its tests/ folder stays behind."""
+    results = {r.name: r for r in install(consumer, framework, models, env)}
+    assert results["godot_addon"].status == "installed"
+    addon = consumer / "game" / "addons" / "nmg_game_dev"
+    expected = sorted(rel for rel in GODOT_ADDON_FILES if not rel.startswith("tests/"))
+    assert sorted(str(p.relative_to(addon)) for p in addon.rglob("*") if p.is_file()) == expected
+    assert not (addon / "tests").exists()
+
+
+def test_export_presets_carry_variant_filters(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC10: desktop presets exclude Mobile/ folders; mobile and web presets exclude Desktop/."""
+    install(consumer, framework, models, env)
+    presets = consumer / "game" / "export_presets.cfg"
+    assert presets.read_text(encoding="utf-8") == render_export_presets("Game")
+    config = read_config(presets)
+    filters = {
+        config[(section, "name")]: config[(section, "exclude_filter")]
+        for (section, key) in config
+        if key == "name"
     }
-    assert uproject["Description"] == "keep me"
-    assert uproject["Modules"] == [{"Name": "Game", "Type": "Runtime"}]
+    assert filters == {
+        '"macOS"': '"assets/*/Mobile/*"',
+        '"Windows Desktop"': '"assets/*/Mobile/*"',
+        '"iOS"': '"assets/*/Desktop/*"',
+        '"Android"': '"assets/*/Desktop/*"',
+        '"Web"': '"assets/*/Desktop/*"',
+    }
 
-    ini = (consumer / "Config" / "DefaultEditorPerProjectUserSettings.ini").read_text()
-    assert "[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]" in ini
-    assert "bAutoStartServer=True" in ini
-    assert "ServerPortNumber=8000" in ini
+
+def test_existing_project_gets_missing_keys_and_keeps_its_own(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """FR10: an existing project.godot keeps its name and keys; missing keys are refreshed."""
+    project = consumer / "game" / "project.godot"
+    project.parent.mkdir()
+    original = 'config_version=5\n\n[application]\n\nconfig/name="Hollow Peak"\nrun/x=1\n'
+    project.write_text(original, encoding="utf-8")
+
+    results = {r.name: r for r in install(consumer, framework, models, env)}
+
+    assert results["godot_project"].status == "refreshed"
+    text = project.read_text(encoding="utf-8")
+    assert text.startswith(original)
+    config = read_config(project)
+    assert config[("application", "config/name")] == '"Hollow Peak"'
+    assert config[("application", "run/x")] == "1"
+    assert config[("autoload", "NmgAssets")] == '"*res://addons/nmg_game_dev/nmg_assets.gd"'
+    presets = (consumer / "game" / "export_presets.cfg").read_text(encoding="utf-8")
+    assert presets == render_export_presets("Hollow Peak")
+
+
+def test_renderer_drift_is_reported_then_refreshed(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC10: a changed renderer key is drift and stays; --refresh restores it."""
+    install(consumer, framework, models, env)
+    project = consumer / "game" / "project.godot"
+    edited = project.read_text(encoding="utf-8").replace(
+        'rendering_method.mobile="gl_compatibility"', 'rendering_method.mobile="mobile"'
+    )
+    project.write_text(edited, encoding="utf-8")
+
+    drifted = {r.name: r for r in install(consumer, framework, models, env)}
+    assert drifted["godot_project"].status == "drift"
+    assert "renderer/rendering_method.mobile" in drifted["godot_project"].detail
+    assert drifted["godot_project"].remediation == "re-run with --refresh"
+    assert project.read_text(encoding="utf-8") == edited
+
+    refreshed = {r.name: r for r in install(consumer, framework, models, env, refresh=True)}
+    assert refreshed["godot_project"].status == "refreshed"
+    config = read_config(project)
+    assert config[("rendering", "renderer/rendering_method.mobile")] == '"gl_compatibility"'
+    again = {r.name: r for r in install(consumer, framework, models, env)}
+    assert again["godot_project"].status == "unchanged"
+
+
+def test_other_editor_plugins_are_not_drift_and_survive_refresh(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """Review F8: [editor_plugins] enabled is checked by membership, and refresh merges."""
+    install(consumer, framework, models, env)
+    project = consumer / "game" / "project.godot"
+    ours = '"res://addons/nmg_game_dev/plugin.cfg"'
+    other = '"res://addons/dialogue/plugin.cfg"'
+    text = project.read_text(encoding="utf-8")
+    with_other = text.replace(
+        f"enabled=PackedStringArray({ours})", f"enabled=PackedStringArray({other}, {ours})"
+    )
+    assert with_other != text
+    project.write_text(with_other, encoding="utf-8")
+
+    again = {r.name: r for r in install(consumer, framework, models, env)}
+    assert again["godot_project"].status == "unchanged"
+    assert project.read_text(encoding="utf-8") == with_other
+
+    # Without nmg_game_dev it is drift; refresh adds it and keeps the other plugin enabled.
+    project.write_text(
+        text.replace(f"enabled=PackedStringArray({ours})", f"enabled=PackedStringArray({other})"),
+        encoding="utf-8",
+    )
+    drifted = {r.name: r for r in install(consumer, framework, models, env)}
+    assert drifted["godot_project"].status == "drift"
+    assert "[editor_plugins] enabled" in drifted["godot_project"].detail
+    refreshed = {r.name: r for r in install(consumer, framework, models, env, refresh=True)}
+    assert refreshed["godot_project"].status == "refreshed"
+    assert read_config(project)[("editor_plugins", "enabled")] == (
+        f"PackedStringArray({other}, {ours})"
+    )
+
+
+def test_preset_drift_is_reported_then_refreshed(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC10: a changed export preset is drift and stays; --refresh rewrites the framework copy."""
+    install(consumer, framework, models, env)
+    presets = consumer / "game" / "export_presets.cfg"
+    presets.write_text(presets.read_text(encoding="utf-8") + "\n; local\n", encoding="utf-8")
+    edited = presets.read_bytes()
+
+    drifted = {r.name: r for r in install(consumer, framework, models, env)}
+    assert drifted["export_presets"].status == "drift"
+    assert presets.read_bytes() == edited
+
+    refreshed = {r.name: r for r in install(consumer, framework, models, env, refresh=True)}
+    assert refreshed["export_presets"].status == "refreshed"
+    assert presets.read_text(encoding="utf-8") == render_export_presets("Game")
+
+
+def test_godot_and_ffmpeg_are_reported_found(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC10: a tool on PATH is unchanged with "found at <path>"."""
+    results = {r.name: r for r in install(consumer, framework, models, env)}
+    assert (results["godot_binary"].status, results["godot_binary"].detail) == (
+        "unchanged",
+        "found at /usr/bin/godot",
+    )
+    assert (results["ffmpeg_binary"].status, results["ffmpeg_binary"].detail) == (
+        "unchanged",
+        "found at /usr/bin/ffmpeg",
+    )
+
+
+def test_missing_godot_and_ffmpeg_are_skipped_with_remediation(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC10: missing tools are skipped with their remediation; the rest of the install runs."""
+    results = {r.name: r for r in install(consumer, framework, models, env, which=no_godot_tools)}
+    assert results["godot_binary"].status == "skipped"
+    assert results["godot_binary"].remediation == "Install Godot 4 or set GODOT_BIN"
+    assert results["ffmpeg_binary"].status == "skipped"
+    assert results["ffmpeg_binary"].remediation == (
+        "Install ffmpeg or set FFMPEG_BIN (needed to import music)"
+    )
+    assert results["git_lfs_hooks"].status == "skipped"
+
+
+def test_tool_overrides_win_over_path(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str], tmp_path: Path
+) -> None:
+    """FR2/FR5: GODOT_BIN and FFMPEG_BIN, when executable, are what the report names."""
+    godot = make_executable(tmp_path / "bin" / "Godot")
+    ffmpeg = make_executable(tmp_path / "bin" / "ffmpeg")
+    tool_env = {**env, "GODOT_BIN": str(godot), "FFMPEG_BIN": str(ffmpeg)}
+    results = {
+        r.name: r for r in install(consumer, framework, models, tool_env, which=no_godot_tools)
+    }
+    assert results["godot_binary"].detail == f"found at {godot}"
+    assert results["ffmpeg_binary"].detail == f"found at {ffmpeg}"
+
+
+def test_game_dir_option_moves_the_godot_project(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """--game-dir puts the project, add-on, presets, and cache ignore under that folder."""
+    install(consumer, framework, models, env, game_dir="client")
+    assert (consumer / "client" / "project.godot").is_file()
+    assert (consumer / "client" / "addons" / "nmg_game_dev" / "plugin.cfg").is_file()
+    assert (consumer / "client" / "export_presets.cfg").is_file()
+    assert not (consumer / "game").exists()
+    assert "client/.godot/" in (consumer / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_game_dir_outside_the_consumer_fails_before_any_write(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    before = snapshot(consumer)
+    with pytest.raises(OnboardError) as caught:
+        install(consumer, framework, models, env, game_dir="../elsewhere")
+    assert caught.value.code == "onboard.game_dir_invalid"
+    assert snapshot(consumer) == before
 
 
 def test_blender_addon_is_linked(
@@ -328,13 +532,13 @@ def test_framework_root_prefers_plugin_root_env(tmp_path: Path) -> None:
 def test_rerun_is_a_no_op(
     consumer: Path, framework: Path, models: Path, env: dict[str, str]
 ) -> None:
-    """AC8: a second run adds no duplicates, runs no clone or mflux-save, and exits cleanly."""
+    """AC8, #249 AC10: a second run duplicates nothing, runs no mflux-save, and leaves every
+    file byte-identical."""
     install(consumer, framework, models, env)
     before = snapshot(consumer)
     runner = FakeRunner()
     results = install(consumer, framework, models, env, runner=runner)
 
-    assert runner.argv_starting("git", "clone") == []
     assert runner.argv_starting("mflux-save") == []
     # The fake consumer is not a git work tree, so git_lfs_hooks is the one step that is skipped.
     assert all(
@@ -344,8 +548,6 @@ def test_rerun_is_a_no_op(
     ), [r.as_json() for r in results]
     settings = json.loads((consumer / ".claude" / "settings.json").read_text())
     assert len(settings["hooks"]["SessionStart"]) == 1
-    uproject = json.loads((consumer / "Game.uproject").read_text())
-    assert [e["Name"] for e in uproject["Plugins"]].count("VibeUE") == 1
     assert (consumer / "CLAUDE.md").read_text().count("<!-- nmg-game-dev:begin -->") == 1
     assert snapshot(consumer) == before
 
@@ -373,24 +575,6 @@ def test_drift_is_reported_then_repaired_by_refresh(
     assert fixed["scripts/start-blender-mcp.sh"] == "refreshed"
     assert script.read_bytes() == (framework / "scripts" / "start-blender-mcp.sh").read_bytes()
     assert budgets.read_text() == '{"Hero": {"tris": 60000}}\n'
-
-
-def test_vibeue_branch_drift_is_repaired_with_refresh(
-    consumer: Path, framework: Path, models: Path, env: dict[str, str]
-) -> None:
-    """AC9: a VibeUE HEAD other than the 5-8 branch head is drift; --refresh moves it there."""
-    install(consumer, framework, models, env)
-    drifted_runner = FakeRunner(head="0" * 40)
-    results = install(consumer, framework, models, env, runner=drifted_runner)
-    assert {r.name: r.status for r in results}["vibeue"] == "drift"
-    assert drifted_runner.argv_starting("git", "clone") == []
-
-    refresh_runner = FakeRunner(head="0" * 40)
-    results = install(consumer, framework, models, env, runner=refresh_runner, refresh=True)
-    assert {r.name: r.status for r in results}["vibeue"] == "refreshed"
-    git_c = refresh_runner.argv_starting("git", "-C")
-    assert any(call[3:] == ["fetch", "--depth", "1", "origin", "5-8"] for call in git_c)
-    assert any(call[3:] == ["checkout", "--force", "FETCH_HEAD"] for call in git_c)
 
 
 def test_design_contract_is_installed_and_unchanged_on_rerun(
@@ -487,12 +671,10 @@ def test_cli_install_error_exits_one_with_remediation(
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(framework))
     empty = tmp_path / "empty-project"
     empty.mkdir()
-    assert (
-        onboard_main(["install", "--consumer", str(empty), "--models-dir", str(tmp_path / "m")])
-        == 1
-    )
+    argv = ["install", "--consumer", str(empty), "--models-dir", str(tmp_path / "m")]
+    assert onboard_main([*argv, "--game-dir", "/abs/game"]) == 1
     err = capsys.readouterr().err
-    assert "ERROR [onboard.uproject_not_found]" in err
+    assert "ERROR [onboard.game_dir_invalid]" in err
     assert "Remediation:" in err
     assert not (empty / "scripts").exists()
 

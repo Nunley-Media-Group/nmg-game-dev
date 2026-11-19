@@ -22,7 +22,7 @@ from nmg_game_dev.pipeline.steps import (
     ordered_steps,
     parse_step,
     settings_hash,
-    ue_destination,
+    variant_dir,
 )
 
 _BAKE_CACHE = (
@@ -48,13 +48,13 @@ def _request(tmp_path: Path) -> FinalizeRequest:
 
 def test_ordered_steps_runs_every_prerequisite_of_the_requested_step() -> None:
     assert ordered_steps(("variants",)) == ("validate", "bake", "variants")
-    assert ordered_steps(("import_ue",)) == (
+    assert ordered_steps(("import_godot",)) == (
         "validate",
         "bake",
         "variants",
         "export",
         "reimport",
-        "import_ue",
+        "import_godot",
     )
     assert ordered_steps(("export_anims",)) == ("validate", "bake", "variants", "export_anims")
     assert ordered_steps(("import_anims",)) == STEP_ORDER
@@ -68,8 +68,14 @@ def test_parse_step_refuses_an_unknown_name() -> None:
     assert info.value.code == "finalize.unknown_step"
 
 
-def test_ue_destination_is_the_content_folder_per_variant(tmp_path: Path) -> None:
-    assert ue_destination(_request(tmp_path), "Mobile") == "/Game/Props/Crate/Mobile"
+def test_variant_dir_and_glb_path_follow_the_export_root(tmp_path: Path) -> None:
+    from nmg_game_dev.pipeline.steps import glb_path
+
+    request = _request(tmp_path)
+    assert variant_dir(request, "Mobile") == tmp_path / "export" / "Props" / "Crate" / "Mobile"
+    assert glb_path(request, "Desktop") == (
+        tmp_path / "export" / "Props" / "Crate" / "Desktop" / "Crate.glb"
+    )
 
 
 def test_chain_input_depends_on_the_asset_hash_as_well_as_the_output() -> None:
@@ -172,8 +178,8 @@ def test_clip_settings_hash_does_not_include_compatible_with(tmp_path: Path) -> 
     )
 
 
-def test_the_desktop_skeleton_path_names_the_character() -> None:
-    from nmg_game_dev.pipeline.steps import desktop_skeleton_path
+def test_the_desktop_skeleton_key_names_the_character_glb() -> None:
+    from nmg_game_dev.pipeline.steps import desktop_skeleton_key
 
     request = FinalizeRequest(
         collection="Hero",
@@ -181,19 +187,38 @@ def test_the_desktop_skeleton_path_names_the_character() -> None:
         asset_class="character",
         export_root=Path("/tmp/x"),
     )
-    assert desktop_skeleton_path(request) == "/Game/Characters/Hero/Desktop/SM_Hero_Skeleton"
+    assert desktop_skeleton_key(request) == "Characters/Hero/Desktop/Hero.glb"
 
 
-def test_import_ue_chain_is_unchanged_by_the_new_steps() -> None:
-    # AC9 and the spec test: ordered_steps(("import_ue",)) equals today's six-step chain.
-    assert ordered_steps(("import_ue",)) == (
+def test_import_godot_chain_is_the_six_step_mesh_chain() -> None:
+    assert ordered_steps(("import_godot",)) == (
         "validate",
         "bake",
         "variants",
         "export",
         "reimport",
-        "import_ue",
+        "import_godot",
     )
+
+
+def test_import_godot_is_a_godot_step_and_the_salt_is_five() -> None:
+    from nmg_game_dev.pipeline.steps import _STEP_VERSION, STEPS
+
+    assert STEPS["import_godot"].kind == "godot"
+    assert STEPS["import_anims"].kind == "godot"
+    assert "import_ue" not in STEPS
+    assert _STEP_VERSION == "5"
+
+
+def test_the_import_godot_settings_cover_collection_category_and_export_root(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    base = settings_hash("import_godot", request, "budgets")
+    moved = request.model_copy(update={"export_root": tmp_path / "elsewhere"})
+    renamed = request.model_copy(update={"category": "Crates"})
+    assert settings_hash("import_godot", moved, "budgets") != base
+    assert settings_hash("import_godot", renamed, "budgets") != base
 
 
 def test_a_bake_key_from_before_the_bake_version_bump_misses(tmp_path: Path) -> None:

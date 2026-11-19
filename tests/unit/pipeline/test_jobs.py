@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, PipelineError, jobs
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot
 
 
 def _request(tmp_path: Path) -> FinalizeRequest:
@@ -37,7 +37,9 @@ def _dead_pid() -> int:
 def _run_now(job_dir: Path, request: FinalizeRequest) -> None:
     jobs.run_job(
         job_dir,
-        clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+        clients=FinalizeClients(
+            blender=FakeBlenderSession(), godot=FinalizeGodot(request.export_root.parent)
+        ),
         runner=FakeStepRunner(request),
     )
 
@@ -58,10 +60,12 @@ def test_start_then_run_writes_a_succeeded_status_with_each_step(tmp_path: Path)
         "export",
         "export_anims",
         "reimport",
-        "import_ue",
+        "import_godot",
         "import_anims",
     }
-    assert status["result"]["desktop_content_path"] == "/Game/Props/Crate/Desktop"
+    assert status["result"]["desktop_resource_path"] == (
+        "res://export/Props/Crate/Desktop/Crate.glb"
+    )
 
 
 def _run_and_return_dead(job_dir: Path, request: FinalizeRequest) -> int:
@@ -145,7 +149,9 @@ def test_a_failing_step_writes_a_failed_status_with_the_error(tmp_path: Path) ->
     def launch(job_dir: Path) -> int:
         jobs.run_job(
             job_dir,
-            clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+            clients=FinalizeClients(
+                blender=FakeBlenderSession(), godot=FinalizeGodot(request.export_root.parent)
+            ),
             runner=FakeStepRunner(request, failures={"bake": ("texture.bake_failed", "no", "fix")}),
         )
         return _dead_pid()
@@ -189,7 +195,9 @@ def _run_waiting(
 ) -> None:
     jobs.run_job(
         cache / "jobs" / job_id,
-        clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+        clients=FinalizeClients(
+            blender=FakeBlenderSession(), godot=FinalizeGodot(request.export_root.parent)
+        ),
         runner=FakeStepRunner(request),
         sleep=sleep,
         clock=clock,
@@ -362,7 +370,9 @@ def test_a_validate_progress_event_is_in_the_job_status_mid_step(tmp_path: Path)
     def launch(job_dir: Path) -> int:
         jobs.run_job(
             job_dir,
-            clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+            clients=FinalizeClients(
+                blender=FakeBlenderSession(), godot=FinalizeGodot(request.export_root.parent)
+            ),
             runner=ValidateProgressRunner(request),
         )
         return _dead_pid()

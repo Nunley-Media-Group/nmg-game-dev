@@ -2,8 +2,8 @@
 
 ## Project Context
 
-nmg-game-dev is a Blender-first content-generation framework for Unreal Engine
-games. It ships as a Claude Code plugin, Blender add-on, and Unreal Engine plugin,
+nmg-game-dev is a Blender-first content-generation framework for Godot 4
+games. It ships as a Claude Code plugin, Blender add-on, and Godot add-on,
 with consumer-side onboarding handled by framework skills and templates.
 
 Before changing behavior, read:
@@ -36,7 +36,7 @@ Align changes with the steering docs before editing code or specs:
 - Product work should preserve the Blender-first authoring model,
   variant-aware asset flow, consumer onboarding path, and automated quality
   gates.
-- Technical work should keep the Claude Code plugin, Blender add-on, Unreal plugin,
+- Technical work should keep the Claude Code plugin, Blender add-on, Godot add-on,
   MCP launchers, and version-managed artifacts in sync.
 - Structural changes should respect the repo layout and the boundary between
   framework-owned artifacts and consumer-project templates.
@@ -50,9 +50,9 @@ Keep edits scoped to the issue and spec. Update code, specs, tests,
 version-managed metadata, and docs together when the contract requires it.
 
 Use the project gates described in `steering/snippets/project-tech.md`, including Python checks,
-BDD scenarios, Blender or Unreal automation where relevant, and version
+BDD scenarios, headless Blender or Godot tests where relevant, and version
 consistency across `VERSION`, `.claude-plugin/plugin.json`, Blender metadata,
-Unreal metadata, and `pyproject.toml`.
+the Godot add-on's `plugin.cfg`, and `pyproject.toml`.
 
 Consumer-facing behavior should include onboarding or template updates when
 needed, especially for `.claude` consumer artifacts installed by future
@@ -83,8 +83,8 @@ PRs should be review-ready before `/sdlc-open-pr` or manual submission:
 - Link the issue and affected spec package.
 - Summarize steering alignment and any intentional steering changes.
 - List implementation scope and known out-of-scope work.
-- Include verification evidence from tests, `/sdlc-verify-code`, Blender or
-  Unreal automation, or `verification-report.md`.
+- Include verification evidence from tests, `/sdlc-verify-code`, headless Blender
+  or Godot tests, or `verification-report.md`.
 - Note known gaps, follow-up issues, or reviewer context needed to evaluate the
   branch.
 

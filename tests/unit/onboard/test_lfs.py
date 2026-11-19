@@ -22,8 +22,9 @@ RULE = "{} filter=lfs diff=lfs merge=lfs -text"
 
 
 def test_block_has_one_rule_per_pattern_in_fr2_order_between_markers() -> None:
-    assert len(LFS_PATTERNS) == 22
+    assert len(LFS_PATTERNS) == 20
     assert LFS_PATTERNS[0] == "*.blend" and LFS_PATTERNS[-1] == "*.mp4"
+    assert "*.glb" in LFS_PATTERNS
     lines = block_text().split("\n")
     assert lines[0] == BEGIN and lines[-1] == END
     assert lines[1:-1] == [RULE.format(pattern) for pattern in LFS_PATTERNS]

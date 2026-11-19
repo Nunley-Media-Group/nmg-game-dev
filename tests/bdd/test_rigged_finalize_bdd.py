@@ -1,10 +1,11 @@
-"""pytest-bdd bindings for rigged_finalize.feature: SCN001-SCN005 of #102.
+"""pytest-bdd bindings for rigged_finalize.feature: SCN001-SCN005 of #102, on Godot (#249).
 
-The UE steps build the import code with ``build_import_code`` and check its text and parameters,
-which needs no editor. The Blender steps each run one headless case that asserts the same
-statement (tests/blender/test_variants_rigged.py or tests/blender/test_contract_reimport.py),
-through scripts/run-blender-tests.sh. They skip when no Blender resolves, as the release-tooling
-bindings do, so a plain CPython run reports them as skipped rather than passed.
+The Godot steps finalize the asset with ``FakeStepRunner`` and ``FinalizeGodot`` from
+tests/finalize_fakes.py: ``import_godot`` runs one headless import and probes each variant's
+``.glb`` against its ``nmg-asset.json``. The Blender steps each run one headless case that asserts
+the same statement (tests/blender/test_variants_rigged.py or
+tests/blender/test_contract_reimport.py) through scripts/run-blender-tests.sh. They skip when no
+Blender resolves, so a plain CPython run reports them as skipped rather than passed.
 """
 
 from __future__ import annotations
@@ -17,94 +18,58 @@ from typing import Any
 import pytest
 from pytest_bdd import given, scenario, then, when
 
-import nmg_game_dev.pipeline  # noqa: F401 - load the pipeline first; unreal imports it back
-from nmg_game_dev.unreal import build_import_code
+from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, finalize
+from tests.finalize_fakes import FakeStepRunner, FinalizeGodot, asset_meshes
 from tests.release_fakes import resolved_blender
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _VARIANTS = "tests/blender/test_variants_rigged.py"
 _REIMPORT = "tests/blender/test_contract_reimport.py"
-_HERO_DESKTOP = "/Game/Characters/Hero/Desktop"
-_HERO_MOBILE = "/Game/Characters/Hero/Mobile"
-_CRATE_DESKTOP = "/Game/Props/Crate/Desktop"
-_CRATE_MOBILE = "/Game/Props/Crate/Mobile"
-_BOUNDS = {"min": [-0.5, 0.1, 0.0], "max": [0.5, 0.4, 1.0]}
 
 
 @pytest.fixture()
-def state() -> dict[str, Any]:
-    return {}
+def state(tmp_path: Path) -> dict[str, Any]:
+    return {"tmp": tmp_path}
 
 
-def _report(asset: str, *, rigged: bool) -> dict[str, Any]:
-    """A pre-export contract snapshot for one asset, with the rig's armature when rigged."""
-    snapshot: dict[str, Any] = {
-        f"SM_{asset}": {"variant": "desktop", "type": "MESH", "local_bounds": _BOUNDS},
-        f"SM_{asset}_Mobile": {"variant": "mobile", "type": "MESH", "local_bounds": _BOUNDS},
-    }
-    if rigged:
-        snapshot[f"SK_{asset}"] = {"variant": "desktop", "type": "ARMATURE", "local_bounds": None}
-        for level in (1, 2):
-            snapshot[f"SM_{asset}_Mobile_LOD{level}"] = {
-                "variant": "mobile",
-                "type": "MESH",
-                "local_bounds": _BOUNDS,
-            }
-    return {
-        "kind": "contract",
-        "asset": asset,
-        "class": "character" if rigged else "standard_prop",
-        "passed": True,
-        "findings": [],
-        "snapshot": snapshot,
-    }
+def _finalize(state: dict[str, Any], name: str, category: str, asset_class: str) -> None:
+    """Finalize ``name`` through import_godot and keep the result and the Godot fake.
 
-
-def _params(code: str) -> dict[str, Any]:
-    """The PARAMS literal build_import_code embeds, decoded."""
-    import ast  # noqa: PLC0415
-    import json  # noqa: PLC0415
-
-    line = next(line for line in code.splitlines() if line.startswith("PARAMS = json.loads("))
-    decoded = ast.literal_eval(line[len("PARAMS = json.loads(") : -1])
-    params: dict[str, Any] = json.loads(decoded)
-    return params
-
-
-def _finalize_hero(state: dict[str, Any]) -> None:
-    """Build the UE import code for both variants and check it against the Hero contract.
-
-    The UE facts are checked here rather than in the Then steps: the Blender steps skip when no
-    Blender resolves, and a skip would stop the scenario before its UE steps ran.
+    The Godot facts are checked here rather than only in the Then steps: the Blender steps skip
+    when no Blender resolves, and a skip would stop the scenario before its Godot steps ran.
     """
-    report = state["report"]
-    state["desktop_code"] = build_import_code("/work/Hero/Desktop", _HERO_DESKTOP, "Hero", report)
-    state["mobile_code"] = build_import_code(
-        "/work/Hero/Mobile", _HERO_MOBILE, "Hero", report, skeleton_dest=_HERO_DESKTOP
+    tmp: Path = state["tmp"]
+    blend = tmp / f"{name.lower()}.blend"
+    blend.write_bytes(b"authored")
+    request = FinalizeRequest(
+        collection=name,
+        category=category,
+        asset_class=asset_class,  # type: ignore[arg-type]
+        export_root=tmp / "export",
+        blend=blend,
     )
-    _assert_desktop_skeletal(state["desktop_code"])
-    _assert_mobile_onto_desktop(state["mobile_code"])
+    godot = FinalizeGodot(tmp)
+    result = finalize(
+        request,
+        steps=("import_godot",),
+        cache_dir=tmp / "cache",
+        runner=FakeStepRunner(request),
+        job_dir=tmp / "job",
+        clients=FinalizeClients(godot=godot),
+    )
+    state.update(request=request, godot=godot, result=result, name=name, category=category)
+    assert godot.count("--import") == 1
+    for variant in ("Desktop", "Mobile"):
+        _assert_imported(state, variant)
 
 
-def _assert_desktop_skeletal(code: str) -> None:
-    params = _params(code)
-    assert params["rigged"] is True
-    assert params["dest"] == _HERO_DESKTOP
-    assert params["skeleton_dest"] == _HERO_DESKTOP
-    assert "options.import_as_skeletal = True" in code
-    assert "options.import_animations = False" in code
-    assert "options.create_physics_asset = True" in code
-    assert "MI_" in code
-
-
-def _assert_mobile_onto_desktop(code: str) -> None:
-    params = _params(code)
-    assert params["rigged"] is True
-    assert params["dest"] == _HERO_MOBILE
-    assert params["skeleton_dest"] == _HERO_DESKTOP
-    assert "options.create_physics_asset = False" in code
-    assert "import_lod(mesh, level, lod_fbx)" in code
-    assert "for level in (1, 2):" in code
+def _assert_imported(state: dict[str, Any], variant: str) -> None:
+    name, category = state["name"], state["category"]
+    resource = f"res://export/{category}/{name}/{variant}/{name}.glb"
+    assert {"glb": resource} in state["godot"].params
+    imported = next(step for step in state["result"].steps if step.step == "import_godot")
+    assert imported.outputs["imports"][variant]["resource_path"] == resource
+    assert imported.outputs["imports"][variant]["meshes"] == asset_meshes(name, variant)
 
 
 def _blender_case(node: str) -> None:
@@ -123,78 +88,70 @@ def _blender_case(node: str) -> None:
     assert completed.returncode == 0, (completed.stdout + completed.stderr)[-3000:]
 
 
-# --- SCN001: Desktop exports skinned and imports as a Skeletal Mesh --------------------------
+# --- SCN001: Desktop exports skinned and imports as a skinned scene ------------------------
 
 
-@scenario("rigged_finalize.feature", "Desktop exports skinned and imports as a Skeletal Mesh")
-def test_scn001_desktop_exports_skinned_and_imports_as_skeletal() -> None:
+@scenario("rigged_finalize.feature", "Desktop exports skinned and imports as a skinned scene")
+def test_scn001_desktop_exports_skinned_and_imports_as_skinned() -> None:
     """SCN001 (AC1, FR2, FR4)."""
 
 
 @given('a character collection "Hero" whose SK_Hero skins SM_Hero through an Armature modifier')
-def _hero_collection(state: dict[str, Any]) -> None:
-    # The Blender cases build this collection themselves; the UE steps need its pre-export report.
-    state["report"] = _report("Hero", rigged=True)
+def _hero_collection() -> None:
+    """The Blender cases build this collection themselves."""
 
 
 @given("the same rigged Hero collection")
-def _same_hero(state: dict[str, Any]) -> None:
-    state["report"] = _report("Hero", rigged=True)
+def _same_hero() -> None:
+    """The Blender cases build this collection themselves."""
 
 
 @when("the Hero asset is finalized")
 def _finalize_hero_step(state: dict[str, Any]) -> None:
-    _finalize_hero(state)
+    _finalize(state, "Hero", "Characters", "character")
 
 
 @then(
-    "Desktop/SM_Hero.fbx holds an armature named Armature with 26 deform bones "
+    "Desktop/Hero.glb holds an armature named Armature with 26 deform bones "
     "and SM_Hero skinned to it"
 )
-def _desktop_fbx_skinned() -> None:
-    _blender_case(f"{_VARIANTS}::test_scn001_desktop_fbx_holds_the_skinned_armature")
+def _desktop_glb_skinned() -> None:
+    _blender_case(f"{_VARIANTS}::test_scn001_desktop_glb_holds_the_skinned_armature")
 
 
 @then(
-    "/Game/Characters/Hero/Desktop/SM_Hero is a Skeletal Mesh with SM_Hero_Skeleton, "
-    "SM_Hero_PhysicsAsset, and MI_Hero_<Part> on every slot"
+    "res://export/Characters/Hero/Desktop/Hero.glb is imported and its probed meshes match "
+    "Desktop/nmg-asset.json"
 )
-def _desktop_imports_skeletal(state: dict[str, Any]) -> None:
-    _assert_desktop_skeletal(state["desktop_code"])
+def _desktop_imported(state: dict[str, Any]) -> None:
+    _assert_imported(state, "Desktop")
 
 
-# --- SCN002: Mobile exports three skinned LODs and imports onto the Desktop skeleton ---------
+# --- SCN002: Mobile exports one skinned scene ---------------------------------------------
 
 
 @scenario(
     "rigged_finalize.feature",
-    "Mobile exports three skinned LODs and imports onto the Desktop skeleton",
+    "Mobile exports one skinned scene and imports beside the Desktop variant",
 )
-def test_scn002_mobile_exports_three_skinned_lods() -> None:
+def test_scn002_mobile_exports_one_skinned_scene() -> None:
     """SCN002 (AC2, FR3, FR4)."""
 
 
-@then(
-    "Mobile holds SM_Hero.fbx, SM_Hero_LOD1.fbx, and SM_Hero_LOD2.fbx, "
-    "each with the armature and one skinned mesh"
-)
-def _mobile_fbx_per_lod() -> None:
-    _blender_case(
-        f"{_VARIANTS}::test_scn002_mobile_fbx_per_lod_each_holds_the_armature_and_a_skinned_mesh"
-    )
-
-
-@then("LOD1 and LOD2 are at most 50% and 25% of LOD0's triangles")
-def _lod_ratios() -> None:
-    _blender_case(f"{_VARIANTS}::test_scn002_lod_ratios_stay_within_the_mobile_budget")
+@then("Mobile holds Hero.glb with the armature and one skinned mesh and no _LOD files")
+def _mobile_glb() -> None:
+    _blender_case(f"{_VARIANTS}::test_scn002_mobile_glb_holds_the_armature_and_one_skinned_mesh")
+    _blender_case(f"{_VARIANTS}::test_scn002_mobile_is_one_skinned_mesh_parented_to_the_rig")
 
 
 @then(
-    "/Game/Characters/Hero/Mobile/SM_Hero is a Skeletal Mesh with 3 LODs "
-    "using the Desktop skeleton and physics asset"
+    "res://export/Characters/Hero/Mobile/Hero.glb is imported and its probed meshes match "
+    "Mobile/nmg-asset.json"
 )
-def _mobile_imports_onto_desktop_skeleton(state: dict[str, Any]) -> None:
-    _assert_mobile_onto_desktop(state["mobile_code"])
+def _mobile_imported(state: dict[str, Any]) -> None:
+    _assert_imported(state, "Mobile")
+    mobile = state["request"].export_root / "Characters" / "Hero" / "Mobile"
+    assert not list(mobile.glob("*_LOD*"))
 
 
 # --- SCN003: Cleanup keeps the Armature modifier and vertex groups -------------------------
@@ -234,24 +191,19 @@ def test_scn004_unrigged_assets_keep_the_static_path() -> None:
 
 
 @given('a collection "Crate" with no SK_Crate')
-def _unrigged_crate(state: dict[str, Any]) -> None:
-    state["report"] = _report("Crate", rigged=False)
+def _unrigged_crate() -> None:
+    """The fake export writes an unrigged Crate."""
 
 
 @when("the Crate asset is finalized")
 def _finalize_crate(state: dict[str, Any]) -> None:
-    report = state["report"]
-    state["desktop_code"] = build_import_code(
-        "/work/Crate/Desktop", _CRATE_DESKTOP, "Crate", report
-    )
-    state["mobile_code"] = build_import_code("/work/Crate/Mobile", _CRATE_MOBILE, "Crate", report)
-    for code in (state["desktop_code"], state["mobile_code"]):
-        assert _params(code)["rigged"] is False
-        assert "import_as_skeletal = False" in code
+    _finalize(state, "Crate", "Props", "standard_prop")
 
 
-@then("Desktop and Mobile import as Static Meshes and Mobile keeps its single-FBX LodGroup layout")
-def _unrigged_static() -> None:
+@then("Desktop and Mobile each hold one static Crate.glb and both import into Godot")
+def _unrigged_static(state: dict[str, Any]) -> None:
+    for variant in ("Desktop", "Mobile"):
+        _assert_imported(state, variant)
     _blender_case(f"{_VARIANTS}::test_scn004_unrigged_asset_keeps_the_static_layout")
 
 
@@ -273,9 +225,9 @@ def _reimport_runs() -> None:
     """The Blender cases run the re-import check in a fresh Blender process."""
 
 
-@then("it imports all three LOD files and passes")
+@then("it imports the skinned .glb and passes")
 def _reimport_passes() -> None:
-    _blender_case(f"{_REIMPORT}::test_scn005_reimport_imports_every_lod_file_and_passes")
+    _blender_case(f"{_REIMPORT}::test_scn005_reimport_imports_the_skinned_glb_and_passes")
 
 
 @then("a mesh exported without its skin is reported as reimport.skin_missing")

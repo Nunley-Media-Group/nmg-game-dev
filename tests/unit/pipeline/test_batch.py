@@ -1,7 +1,7 @@
 """Batch finalize: one job, one lock, items in order (#149, AC2-AC5, FR2-FR4, FR10).
 
 Every test runs the batch in-process through ``BatchRouter`` with fake steps, a fake session, and a
-fake Unreal client.  No Blender or Unreal editor is started.
+fake ``godot --headless`` runner.  No Blender or Godot editor is started.
 """
 
 from __future__ import annotations
@@ -240,16 +240,15 @@ def test_build_batch_fills_missing_keys_from_the_defaults(tmp_path: Path) -> Non
             "category": "Props",
             "asset_class": "standard_prop",
             "export_root": str(tmp_path / "export"),
-            "pie_mode": "refuse",
-            "pie_wait_seconds": 30,
+            "device": "CPU",
         },
     )
     assert request.category == "Props"
-    assert request.pie_mode == "refuse"
-    assert request.pie_wait_seconds == 30
+    assert request.export_root == tmp_path / "export"
+    assert request.device == "CPU"
 
 
-def test_an_entry_value_of_zero_is_kept_not_replaced_by_the_default(tmp_path: Path) -> None:
+def test_an_entry_value_is_kept_not_replaced_by_the_default(tmp_path: Path) -> None:
     (request,) = build_batch(
         [
             {
@@ -257,11 +256,38 @@ def test_an_entry_value_of_zero_is_kept_not_replaced_by_the_default(tmp_path: Pa
                 "category": "Props",
                 "asset_class": "standard_prop",
                 "export_root": str(tmp_path / "export"),
-                "pie_wait_seconds": 0,
+                "device": "GPU",
             }
         ],
+        defaults={"device": "CPU"},
     )
-    assert request.pie_wait_seconds == 0
+    assert request.device == "GPU"
+
+
+def test_an_entry_without_an_export_root_uses_the_game_assets_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    (request,) = build_batch(
+        [{"collection": "Alpha", "category": "Props", "asset_class": "standard_prop"}]
+    )
+    assert request.export_root == tmp_path / "game" / "assets"
+
+
+def test_the_removed_editor_wait_options_are_unknown_batch_keys(tmp_path: Path) -> None:
+    with pytest.raises(PipelineError) as info:
+        build_batch(
+            [
+                {
+                    "collection": "Alpha",
+                    "category": "Props",
+                    "asset_class": "standard_prop",
+                    "export_root": str(tmp_path),
+                    "pie_mode": "refuse",
+                }
+            ]
+        )
+    assert "unknown key(s): pie_mode" in info.value.message
 
 
 def test_an_entry_with_an_unknown_key_names_the_key(tmp_path: Path) -> None:

@@ -1,13 +1,14 @@
 # File: tests/bdd/features/audio_import.feature
-# Generated from: specs/155-add-optional-elevenlabs-sound-effect-and-music-generation-that-imports-into-unreal/requirements.md
-Feature: Import generated audio into Unreal
+# Generated from: the #155 requirements (ElevenLabs audio import)
+# Updated for: the #249 requirements (AC5, audio imports into Godot)
+Feature: Import generated audio into Godot
 
   @SCN001
   Scenario: A WAV sound effect is stored and imported
-    Given a saved WAV file and a reachable Unreal MCP
+    Given a saved WAV file and an installed Godot
     When import_audio runs with name "DoorCreak" and kind "sfx"
     Then SourceArt/Audio/SFX/DoorCreak.wav holds the file
-    And /Game/Audio/SFX/SW_DoorCreak is imported with looping off
+    And res://assets/Audio/DoorCreak.wav is imported as an AudioStreamWAV with looping off
 
   @SCN002
   Scenario Outline: Compressed audio is converted to WAV
@@ -26,13 +27,27 @@ Feature: Import generated audio into Unreal
   Scenario: Looping is set on request
     Given a saved audio file
     When it is imported with loop true
-    Then the SoundWave loops
+    Then the AudioStreamWAV loops forward
+
+  @SCN009
+  Scenario: Music imports as a looping AudioStreamOggVorbis
+    Given a saved WAV file
+    When it is imported with name "Theme" and kind "music" and loop true
+    Then SourceArt/Audio/Music/Theme.wav and game/assets/Audio/Theme.ogg exist
+    And res://assets/Audio/Theme.ogg is imported as an AudioStreamOggVorbis with loop enabled
+
+  @SCN010
+  Scenario: Music import fails without ffmpeg
+    Given a saved WAV file and no ffmpeg
+    When it is imported with name "Theme" and kind "music"
+    Then it fails with audio.ffmpeg_not_found and a remediation line
+    And game/assets/Audio/Theme.ogg does not exist
 
   @SCN004
-  Scenario: An unreachable Unreal MCP keeps the file
-    Given a saved audio file and an unreachable Unreal MCP
+  Scenario: A missing Godot keeps the files
+    Given a saved audio file and no Godot
     When it is imported
-    Then the result has imported_to_unreal false and warning mcp.unreal.unreachable
+    Then the result has imported_to_godot false and warning godot.not_found
     And the WAV stays under SourceArt/Audio
 
   @SCN005
@@ -40,7 +55,7 @@ Feature: Import generated audio into Unreal
     Given an import request with a bad name, kind, path, format, or an existing target
     When it is submitted
     Then it fails with audio.invalid_request, audio.unsupported_format, or audio.asset_exists
-    And nothing is written and Unreal is not called
+    And nothing is written and Godot is not run
 
   @SCN006
   Scenario: Undecodable audio fails cleanly

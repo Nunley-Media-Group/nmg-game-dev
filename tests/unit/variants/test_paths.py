@@ -11,10 +11,10 @@ from nmg_game_dev.variants import assert_no_cross_reference, desktop_path, mobil
 
 
 class TestDesktopPath:
-    def test_path_is_content_category_name_desktop(self) -> None:
+    def test_path_is_game_assets_category_name_desktop(self) -> None:
         root = Path("/project")
         assert desktop_path(root, "Props", "TestCrate") == (
-            root / "Content" / "Props" / "TestCrate" / "Desktop"
+            root / "game" / "assets" / "Props" / "TestCrate" / "Desktop"
         )
 
     def test_path_ends_with_desktop(self) -> None:
@@ -27,10 +27,10 @@ class TestDesktopPath:
 
 
 class TestMobilePath:
-    def test_path_is_content_category_name_mobile(self) -> None:
+    def test_path_is_game_assets_category_name_mobile(self) -> None:
         root = Path("/project")
         assert mobile_path(root, "Props", "TestCrate") == (
-            root / "Content" / "Props" / "TestCrate" / "Mobile"
+            root / "game" / "assets" / "Props" / "TestCrate" / "Mobile"
         )
 
     def test_desktop_and_mobile_are_siblings(self) -> None:
@@ -46,13 +46,13 @@ class TestCrossReferenceGuard:
         assert_no_cross_reference(None)
 
     def test_non_string_variant_is_not_checked(self) -> None:
-        assert_no_cross_reference({"variant": 3, "path": "/Mobile/x.fbx"})
+        assert_no_cross_reference({"variant": 3, "path": "/Mobile/x.glb"})
 
     def test_desktop_sidecar_with_desktop_path_passes(self) -> None:
         assert_no_cross_reference(
             {
                 "variant": "desktop",
-                "desktop_path": "/Content/Props/TestCrate/Desktop/SM_TestCrate.fbx",
+                "desktop_path": "res://assets/Props/TestCrate/Desktop/TestCrate.glb",
             }
         )
 
@@ -60,7 +60,7 @@ class TestCrossReferenceGuard:
         assert_no_cross_reference(
             {
                 "variant": "mobile",
-                "mobile_path": "/Content/Props/TestCrate/Mobile/SM_TestCrate.fbx",
+                "mobile_path": "res://assets/Props/TestCrate/Mobile/TestCrate.glb",
             }
         )
 
@@ -69,7 +69,7 @@ class TestCrossReferenceGuard:
             assert_no_cross_reference(
                 {
                     "variant": "mobile",
-                    "desktop_path": "/Content/Props/TestCrate/Desktop/SM_TestCrate.fbx",
+                    "desktop_path": "res://assets/Props/TestCrate/Desktop/TestCrate.glb",
                 }
             )
         assert info.value.code == "variants.cross_reference"
@@ -80,7 +80,7 @@ class TestCrossReferenceGuard:
             assert_no_cross_reference(
                 {
                     "variant": "desktop",
-                    "mobile_path": "/Content/Props/TestCrate/Mobile/SM_TestCrate.fbx",
+                    "mobile_path": "res://assets/Props/TestCrate/Mobile/TestCrate.glb",
                 }
             )
         assert info.value.code == "variants.cross_reference"

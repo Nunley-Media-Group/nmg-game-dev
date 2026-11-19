@@ -1,19 +1,20 @@
-"""Unit tests for the finalize orchestrator: chain, cache, gates, load-back, and UE import (#69).
+"""Unit tests for the finalize orchestrator: chain, cache, gates, load-back, and Godot import.
 
 These run the real orchestrator, cache, gates, and envelope handling, with in-process fakes for
-Blender and Unreal.  They cover AC1 (order and result shape), AC2 (checkpoint, load-back order and
-refusal), AC4 (cache hits, changes, and ``--force``), and AC6 (failures stop the run).
+Blender and ``godot --headless`` (#69, #249).  They cover the step order and result shape, the
+checkpoint, load-back order and refusal, cache hits, changes, and ``--force``, failures that stop
+the run, and the ``import_godot`` failures (``godot.not_found``, ``import_godot.import_failed``,
+``import_godot.mismatch``), each of which stops the run before ``import_anims``.
 """
 
 from __future__ import annotations
 
-import ast
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from nmg_game_dev.godot import binary as godot_binary
 from nmg_game_dev.pipeline import (
     STEP_ORDER,
     FinalizeClients,
@@ -24,18 +25,16 @@ from nmg_game_dev.pipeline import (
     finalize,
     run_step,
 )
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from nmg_game_dev.pipeline import cache as cache_module
+from nmg_game_dev.pipeline import steps as steps_module
+from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot
 
 # export_anims runs its probe in Blender on every run, so it is a Blender step even with no clips.
 BLENDER_STEPS = ("validate", "bake", "variants", "export", "export_anims", "reimport")
 
 
-def _ue_params(code: str) -> dict[str, Any]:
-    """The PARAMS literal that build_import_code embeds in the UE code, decoded."""
-    line = next(line for line in code.splitlines() if line.startswith("PARAMS = json.loads("))
-    decoded = ast.literal_eval(line[len("PARAMS = json.loads(") : -1])
-    params: dict[str, Any] = json.loads(decoded)
-    return params
+DESKTOP_RES = "res://export/Props/Crate/Desktop/Crate.glb"
+MOBILE_RES = "res://export/Props/Crate/Mobile/Crate.glb"
 
 
 @pytest.fixture()
@@ -79,7 +78,7 @@ def _run(
     jobs: _Counter,
     runner: FakeStepRunner,
     *,
-    unreal: FakeUnrealRunner | None = None,
+    godot: FinalizeGodot | None = None,
     blender: FakeBlenderSession | None = None,
     force: bool = False,
     steps: tuple[str, ...] = STEP_ORDER,
@@ -91,7 +90,9 @@ def _run(
         cache_dir=tmp_path / "cache",
         runner=runner,
         job_dir=jobs.next(),
-        clients=FinalizeClients(blender=blender, unreal=unreal),
+        clients=FinalizeClients(
+            blender=blender, godot=godot if godot is not None else FinalizeGodot(tmp_path)
+        ),
     )
 
 
@@ -100,29 +101,29 @@ class TestChain:
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         runner = FakeStepRunner(blend_request)
-        unreal = FakeUnrealRunner()
-        result = _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
+        godot = FinalizeGodot(tmp_path)
+        result = _run(blend_request, tmp_path, jobs, runner, godot=godot)
 
         assert runner.steps_run() == list(BLENDER_STEPS)
         assert [step.step for step in result.steps] == list(STEP_ORDER)
-        assert result.desktop_content_path == "/Game/Props/Crate/Desktop"
-        assert result.mobile_content_path == "/Game/Props/Crate/Mobile"
-        assert len(unreal.codes) == 2
+        assert result.desktop_resource_path == DESKTOP_RES
+        assert result.mobile_resource_path == MOBILE_RES
+        assert godot.count("--import") == 1
+        assert len(godot.probe_calls("probe_asset.gd")) == 2
 
-    def test_both_variants_read_the_skeleton_from_the_desktop_folder(
+    def test_import_runs_once_then_probes_each_variant_glb(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
-        runner = FakeStepRunner(blend_request)
-        unreal = FakeUnrealRunner()
+        godot = FinalizeGodot(tmp_path)
 
-        _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
+        result = _run(blend_request, tmp_path, jobs, FakeStepRunner(blend_request), godot=godot)
 
-        params = [_ue_params(code) for code in unreal.codes]
-        assert [item["dest"] for item in params] == [
-            "/Game/Props/Crate/Desktop",
-            "/Game/Props/Crate/Mobile",
-        ]
-        assert [item["skeleton_dest"] for item in params] == ["/Game/Props/Crate/Desktop"] * 2
+        assert godot.calls[0] == ["--import"]
+        assert [params["glb"] for params in godot.params] == [DESKTOP_RES, MOBILE_RES]
+        assert set(godot.projects) == {tmp_path}
+        imported = next(step for step in result.steps if step.step == "import_godot")
+        assert imported.outputs["desktop_resource_path"] == DESKTOP_RES
+        assert imported.outputs["imports"]["Mobile"]["meshes"][0]["tris"] == 800
 
     def test_result_blend_is_the_variants_output(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
@@ -132,7 +133,7 @@ class TestChain:
             tmp_path,
             jobs,
             FakeStepRunner(blend_request),
-            unreal=FakeUnrealRunner(),
+            godot=FinalizeGodot(tmp_path),
         )
         assert result.result_blend is not None
         assert result.result_blend.endswith("variants.blend")
@@ -145,7 +146,7 @@ class TestChain:
             tmp_path,
             jobs,
             FakeStepRunner(blend_request),
-            unreal=FakeUnrealRunner(),
+            godot=FinalizeGodot(tmp_path),
         )
         assert result.loaded_back is False
 
@@ -153,7 +154,7 @@ class TestChain:
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         runner = FakeStepRunner(blend_request)
-        _run(blend_request, tmp_path, jobs, runner, unreal=FakeUnrealRunner())
+        _run(blend_request, tmp_path, jobs, runner, godot=FinalizeGodot(tmp_path))
         reimport = next(call for call in runner.calls if call["step"] == "reimport")
         variants = reimport["inputs"]["variants"]
         assert set(variants) == {"Desktop", "Mobile"}
@@ -165,27 +166,35 @@ class TestCache:
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         _run(
-            blend_request, tmp_path, jobs, FakeStepRunner(blend_request), unreal=FakeUnrealRunner()
+            blend_request,
+            tmp_path,
+            jobs,
+            FakeStepRunner(blend_request),
+            godot=FinalizeGodot(tmp_path),
         )
 
         runner = FakeStepRunner(blend_request)
-        unreal = FakeUnrealRunner()
-        result = _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
+        godot = FinalizeGodot(tmp_path)
+        result = _run(blend_request, tmp_path, jobs, runner, godot=godot)
 
         # Only the export_anims probe runs.  It is never cached, because it lists the clips.
         assert runner.steps_run() == ["export_anims"]
         assert all(step.cache_hit for step in result.steps)
-        assert unreal.codes == []
+        assert godot.calls == []
 
     def test_changed_asset_misses_every_step_from_the_first(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         _run(
-            blend_request, tmp_path, jobs, FakeStepRunner(blend_request), unreal=FakeUnrealRunner()
+            blend_request,
+            tmp_path,
+            jobs,
+            FakeStepRunner(blend_request),
+            godot=FinalizeGodot(tmp_path),
         )
 
         runner = FakeStepRunner(blend_request, hash_value="asset-hash-changed")
-        result = _run(blend_request, tmp_path, jobs, runner, unreal=FakeUnrealRunner())
+        result = _run(blend_request, tmp_path, jobs, runner, godot=FinalizeGodot(tmp_path))
 
         assert runner.steps_run() == list(BLENDER_STEPS)
         assert not any(step.cache_hit for step in result.steps)
@@ -194,29 +203,37 @@ class TestCache:
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         _run(
-            blend_request, tmp_path, jobs, FakeStepRunner(blend_request), unreal=FakeUnrealRunner()
+            blend_request,
+            tmp_path,
+            jobs,
+            FakeStepRunner(blend_request),
+            godot=FinalizeGodot(tmp_path),
         )
 
         runner = FakeStepRunner(blend_request)
-        unreal = FakeUnrealRunner()
-        result = _run(blend_request, tmp_path, jobs, runner, unreal=unreal, force=True)
+        godot = FinalizeGodot(tmp_path)
+        result = _run(blend_request, tmp_path, jobs, runner, godot=godot, force=True)
 
         assert runner.steps_run() == list(BLENDER_STEPS)
-        assert len(unreal.codes) == 2
+        assert godot.count("--import") == 1
         assert not any(step.cache_hit for step in result.steps)
 
     def test_a_changed_budget_file_changes_the_budget_dependent_keys(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         _run(
-            blend_request, tmp_path, jobs, FakeStepRunner(blend_request), unreal=FakeUnrealRunner()
+            blend_request,
+            tmp_path,
+            jobs,
+            FakeStepRunner(blend_request),
+            godot=FinalizeGodot(tmp_path),
         )
         budgets = tmp_path / "nmg-budgets.json"
         budgets.write_text('{"Props": {"poly_budget": 5000}}', encoding="utf-8")
         request = blend_request.model_copy(update={"budgets_path": budgets})
 
         runner = FakeStepRunner(request)
-        _run(request, tmp_path, jobs, runner, unreal=FakeUnrealRunner())
+        _run(request, tmp_path, jobs, runner, godot=FinalizeGodot(tmp_path))
 
         # The budget keys change for the three budget-dependent steps.  Export and reimport read the
         # variants output, which is byte-identical here, so their cached results stay valid.  The
@@ -229,26 +246,26 @@ class TestGates:
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         runner = FakeStepRunner(blend_request, failing_reports=frozenset({"validate"}))
-        unreal = FakeUnrealRunner()
+        godot = FinalizeGodot(tmp_path)
         with pytest.raises(PipelineError) as info:
-            _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
+            _run(blend_request, tmp_path, jobs, runner, godot=godot)
 
         assert info.value.code == "quality.contract_failed"
         assert "transform.root_applied" in info.value.message
         assert info.value.remediation
         assert runner.steps_run() == ["validate"]
-        assert unreal.codes == []
+        assert godot.calls == []
 
     def test_failing_reimport_report_blocks_import(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
     ) -> None:
         runner = FakeStepRunner(blend_request, failing_reports=frozenset({"reimport"}))
-        unreal = FakeUnrealRunner()
+        godot = FinalizeGodot(tmp_path)
         with pytest.raises(PipelineError) as info:
-            _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
+            _run(blend_request, tmp_path, jobs, runner, godot=godot)
 
         assert info.value.code == "quality.reimport_mismatch"
-        assert unreal.codes == []
+        assert godot.calls == []
 
     def test_bake_failure_stops_the_run_and_nothing_is_imported(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
@@ -257,23 +274,14 @@ class TestGates:
             blend_request,
             failures={"bake": ("texture.bake_failed", "refused", "Set Alpha to 1.")},
         )
-        unreal = FakeUnrealRunner()
+        godot = FinalizeGodot(tmp_path)
         with pytest.raises(PipelineError) as info:
-            _run(blend_request, tmp_path, jobs, runner, unreal=unreal)
+            _run(blend_request, tmp_path, jobs, runner, godot=godot)
 
         assert info.value.code == "bake.texture.bake_failed"
         assert info.value.stage == "bake"
         assert "variants" not in runner.steps_run()
-        assert unreal.codes == []
-
-    def test_failed_ue_import_is_import_ue_failed(
-        self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
-    ) -> None:
-        unreal = FakeUnrealRunner(result={"ok": False, "error": "Asset save failed"})
-        with pytest.raises(PipelineError) as info:
-            _run(blend_request, tmp_path, jobs, FakeStepRunner(blend_request), unreal=unreal)
-        assert info.value.code == "import_ue.failed"
-        assert info.value.stage == "import_ue"
+        assert godot.calls == []
 
     def test_missing_blend_is_refused_before_any_step(
         self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
@@ -331,15 +339,21 @@ class TestSession:
         events: list[str] = []
         runner = FakeStepRunner(session_request, events=events)
         blender = FakeBlenderSession(events=events)
-        unreal = FakeUnrealRunner(events=events)
+        godot = FinalizeGodot(tmp_path, events=events)
 
-        result = _run(session_request, tmp_path, jobs, runner, unreal=unreal, blender=blender)
+        result = _run(session_request, tmp_path, jobs, runner, godot=godot, blender=blender)
 
         assert blender.checkpoints == ["Crate"]
         assert blender.load_backs[0]["expected_hash"] == "asset-hash-0"
         assert blender.load_backs[0]["result_blend"].endswith("variants.blend")
         assert result.loaded_back is True
-        assert events == [*BLENDER_STEPS, "load_back", "import_ue", "import_ue"]
+        assert events == [
+            *BLENDER_STEPS,
+            "load_back",
+            "import",
+            "probe_asset.gd",
+            "probe_asset.gd",
+        ]
 
     def test_refused_load_back_still_imports_then_fails_with_session_changed(
         self, session_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
@@ -347,21 +361,21 @@ class TestSession:
         blender = FakeBlenderSession(
             load_result={"ok": True, "loaded": False, "reason": "session_changed"}
         )
-        unreal = FakeUnrealRunner()
+        godot = FinalizeGodot(tmp_path)
         with pytest.raises(FinalizeSessionChangedError) as info:
             _run(
                 session_request,
                 tmp_path,
                 jobs,
                 FakeStepRunner(session_request),
-                unreal=unreal,
+                godot=godot,
                 blender=blender,
             )
 
         assert info.value.code == "finalize.session_changed"
         assert "variants.blend" in info.value.message
         assert info.value.result.loaded_back is False
-        assert len(unreal.codes) == 2
+        assert godot.count("--import") == 1
 
     def test_session_that_already_holds_the_result_is_served_from_cache(
         self, session_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
@@ -371,20 +385,20 @@ class TestSession:
             tmp_path,
             jobs,
             FakeStepRunner(session_request),
-            unreal=FakeUnrealRunner(),
+            godot=FinalizeGodot(tmp_path),
             blender=FakeBlenderSession(),
         )
 
         runner = FakeStepRunner(session_request, hash_value="post-load-hash")
         blender = FakeBlenderSession(hash_value="post-load-hash")
-        unreal = FakeUnrealRunner()
-        result = _run(session_request, tmp_path, jobs, runner, unreal=unreal, blender=blender)
+        godot = FinalizeGodot(tmp_path)
+        result = _run(session_request, tmp_path, jobs, runner, godot=godot, blender=blender)
 
         # Only the export_anims probe runs.  It is never cached, because it lists the clips.
         assert runner.steps_run() == ["export_anims"]
         assert all(step.cache_hit for step in result.steps)
         assert blender.load_backs == []
-        assert unreal.codes == []
+        assert godot.calls == []
         assert result.loaded_back is False
 
     def test_restored_original_session_reuses_the_chain_and_still_loads_back(
@@ -395,14 +409,14 @@ class TestSession:
             tmp_path,
             jobs,
             FakeStepRunner(session_request),
-            unreal=FakeUnrealRunner(),
+            godot=FinalizeGodot(tmp_path),
             blender=FakeBlenderSession(),
         )
 
         runner = FakeStepRunner(session_request)
         blender = FakeBlenderSession()
         result = _run(
-            session_request, tmp_path, jobs, runner, unreal=FakeUnrealRunner(), blender=blender
+            session_request, tmp_path, jobs, runner, godot=FinalizeGodot(tmp_path), blender=blender
         )
 
         # Only the export_anims probe runs.  It is never cached, because it lists the clips.
@@ -410,3 +424,191 @@ class TestSession:
         assert all(step.cache_hit for step in result.steps)
         assert len(blender.load_backs) == 1
         assert result.loaded_back is True
+
+
+def _scale_tris(variant_meshes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**mesh, "tris": mesh["tris"] + 2} for mesh in variant_meshes]
+
+
+def _rename(variant_meshes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**mesh, "name": "Lid"} for mesh in variant_meshes]
+
+
+def _slots(variant_meshes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**mesh, "material_slots": 2} for mesh in variant_meshes]
+
+
+def _bounds(variant_meshes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {**mesh, "bounds": {"min": mesh["bounds"]["min"], "max": [0.5, 1.01, 0.5]}}
+        for mesh in variant_meshes
+    ]
+
+
+def _within_tolerance(variant_meshes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {**mesh, "bounds": {"min": mesh["bounds"]["min"], "max": [0.5, 1.0005, 0.5]}}
+        for mesh in variant_meshes
+    ]
+
+
+class TestGodotImport:
+    """``import_godot`` failures carry a code and remediation, and import_anims never runs."""
+
+    def _fails(
+        self, request: FinalizeRequest, tmp_path: Path, jobs: _Counter, godot: FinalizeGodot
+    ) -> PipelineError:
+        with pytest.raises(PipelineError) as info:
+            _run(request, tmp_path, jobs, FakeStepRunner(request), godot=godot)
+        assert info.value.remediation
+        # import_anims would probe probe_anims.gd; it never ran.
+        assert godot.probe_calls("probe_anims.gd") == []
+        return info.value
+
+    def test_unresolvable_binary_is_godot_not_found(
+        self,
+        blend_request: FinalizeRequest,
+        tmp_path: Path,
+        jobs: _Counter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        FinalizeGodot(tmp_path)  # the project exists; only the binary is missing
+        monkeypatch.delenv("GODOT_BIN", raising=False)
+        monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+        monkeypatch.setattr(godot_binary, "DEFAULT_GODOT_APP_BINARY", tmp_path / "no-godot")
+        runner = FakeStepRunner(blend_request)
+        with pytest.raises(PipelineError) as info:
+            finalize(
+                blend_request,
+                cache_dir=tmp_path / "cache",
+                runner=runner,
+                job_dir=jobs.next(),
+                clients=FinalizeClients(),
+            )
+
+        assert info.value.code == "godot.not_found"
+        assert "GODOT_BIN" in info.value.remediation
+        assert runner.steps_run() == list(BLENDER_STEPS)
+
+    def test_an_error_line_from_the_import_is_import_failed(
+        self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
+    ) -> None:
+        godot = FinalizeGodot(tmp_path, import_errors=True)
+
+        error = self._fails(blend_request, tmp_path, jobs, godot)
+
+        assert error.code == "import_godot.import_failed"
+        assert "ERROR: Failed loading resource" in error.message
+        assert godot.probe_calls() == []
+
+    def test_a_non_zero_import_exit_is_import_failed(
+        self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
+    ) -> None:
+        from nmg_game_dev.godot.runner import CommandResult
+
+        class _Crashing(FinalizeGodot):
+            def run(self, args: Any, **kwargs: Any) -> CommandResult:
+                if list(args)[:1] == ["--import"]:
+                    self.calls.append(list(args))
+                    return CommandResult(139, stderr="Segmentation fault")
+                return super().run(args, **kwargs)
+
+        godot = _Crashing(tmp_path)
+
+        error = self._fails(blend_request, tmp_path, jobs, godot)
+
+        assert error.code == "import_godot.import_failed"
+        assert "exited 139" in error.message
+
+    @pytest.mark.parametrize(
+        ("edit", "field"),
+        [
+            (_scale_tris, "tris"),
+            (_rename, "name"),
+            (_slots, "material_slots"),
+            (_bounds, "bounds.max"),
+        ],
+    )
+    def test_a_probe_difference_is_mismatch_naming_the_mesh_and_field(
+        self,
+        blend_request: FinalizeRequest,
+        tmp_path: Path,
+        jobs: _Counter,
+        edit: Any,
+        field: str,
+    ) -> None:
+        godot = FinalizeGodot(tmp_path, mesh_edits={"Mobile": edit})
+
+        error = self._fails(blend_request, tmp_path, jobs, godot)
+
+        assert error.code == "import_godot.mismatch"
+        assert error.message.startswith("Mobile mesh ")
+        assert f" {field}:" in error.message
+        assert "Crate" in error.message or "Lid" in error.message
+
+    def test_bounds_within_a_millimetre_match(
+        self, blend_request: FinalizeRequest, tmp_path: Path, jobs: _Counter
+    ) -> None:
+        godot = FinalizeGodot(tmp_path, mesh_edits={"Desktop": _within_tolerance})
+
+        result = _run(blend_request, tmp_path, jobs, FakeStepRunner(blend_request), godot=godot)
+
+        assert result.desktop_resource_path == DESKTOP_RES
+
+    def test_no_project_above_the_export_root_is_project_missing(
+        self, tmp_path: Path, jobs: _Counter
+    ) -> None:
+        outside = tmp_path / "outside"
+        blend = outside / "crate.blend"
+        blend.parent.mkdir(parents=True)
+        blend.write_bytes(b"authored")
+        request = FinalizeRequest(
+            collection="Crate",
+            category="Props",
+            asset_class="standard_prop",
+            export_root=outside / "export",
+            blend=blend,
+        )
+        godot = FinalizeGodot(tmp_path / "game")
+
+        error = self._fails(request, tmp_path, jobs, godot)
+
+        assert error.code == "import_godot.project_missing"
+        assert godot.calls == []
+
+
+class TestStepVersion:
+    def test_a_cache_written_under_the_old_step_name_misses_import_godot(
+        self,
+        blend_request: FinalizeRequest,
+        tmp_path: Path,
+        jobs: _Counter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Populate the cache the way the previous release did: version "4" settings, and the
+        # import entry stored under the old step name.
+        monkeypatch.setattr(steps_module, "_STEP_VERSION", "4")
+        old = FakeStepRunner(blend_request)
+        _run(blend_request, tmp_path, jobs, old)
+        cache = cache_module.ArtifactCache(tmp_path / "cache")
+        input_hash = "asset-hash-0"
+        old_key = cache.key("import_ue", input_hash, "settings")
+        cache.put(
+            old_key,
+            step="import_ue",
+            output_hash="old",
+            outputs={"desktop_content_path": "/old"},
+            blobs={},
+            job_dir=jobs.next(),
+        )
+        monkeypatch.setattr(steps_module, "_STEP_VERSION", "5")
+
+        godot = FinalizeGodot(tmp_path)
+        runner = FakeStepRunner(blend_request)
+        result = _run(blend_request, tmp_path, jobs, runner, godot=godot)
+
+        imported = next(step for step in result.steps if step.step == "import_godot")
+        assert imported.cache_hit is False
+        assert godot.count("--import") == 1
+        assert runner.steps_run() == list(BLENDER_STEPS)
+        assert steps_module._STEP_VERSION == "5"

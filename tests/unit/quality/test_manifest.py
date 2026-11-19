@@ -7,8 +7,8 @@ from nmg_game_dev.quality import ManifestReport, check_manifest
 
 def _full_sidecar() -> dict[str, object]:
     return {
-        "desktop_path": "/Content/Props/TestCrate/Desktop/SM_TestCrate.fbx",
-        "mobile_path": "/Content/Props/TestCrate/Mobile/SM_TestCrate.fbx",
+        "desktop_path": "res://assets/Props/TestCrate/Desktop/TestCrate.glb",
+        "mobile_path": "res://assets/Props/TestCrate/Mobile/TestCrate.glb",
         "poly_count_desktop": 20_000,
         "poly_count_mobile": 5_000,
         "texture_bytes_desktop": 4_000_000,

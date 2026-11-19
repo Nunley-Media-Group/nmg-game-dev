@@ -3,6 +3,7 @@ AC10, AC11)."""
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -37,7 +38,8 @@ def test_guides_cover_the_required_topics() -> None:
         "contract",
         "texture",
         "nmg-budgets.json",
-        "Content/<Category>/<Name>/{Desktop,Mobile}/",
+        "game/assets/<Category>/<Name>/{Desktop,Mobile}/",
+        "NmgAssets.resolve_variant_path",
     ):
         assert topic in asset, topic
     models = (ONBOARDING / "texture-models.md").read_text(encoding="utf-8")
@@ -59,6 +61,37 @@ def test_guides_cover_the_required_topics() -> None:
     upgrading = (ONBOARDING / "upgrading.md").read_text(encoding="utf-8")
     for topic in ("BREAKING CHANGE", "/plugin install nmg-game-dev@nmg-plugins", "--refresh"):
         assert topic in upgrading, topic
+
+
+def test_index_links_the_conversion_guide() -> None:
+    """#249: the onboarding index links the /convert-to-godot guide, and the guide exists."""
+    index = (ONBOARDING / "index.md").read_text(encoding="utf-8")
+    assert "(../skills/convert-to-godot.md)" in index
+    assert (REPO / "docs" / "skills" / "convert-to-godot.md").is_file()
+
+
+def test_docs_and_skill_describe_the_godot_setup() -> None:
+    """#249 AC10: the skill, install steps, and index name the Godot steps and tool checks."""
+    steps = (SKILL.parent / "references" / "install-steps.md").read_text(encoding="utf-8")
+    for topic in (
+        "godot_project",
+        "godot_addon",
+        "export_presets",
+        "godot_binary",
+        "ffmpeg_binary",
+        "gl_compatibility",
+        "game/.godot/",
+        "--game-dir",
+    ):
+        assert topic in steps, topic
+    skill = SKILL.read_text(encoding="utf-8")
+    for topic in ("game/project.godot", "GODOT_BIN", "FFMPEG_BIN", "--game-dir"):
+        assert topic in skill, topic
+    template = json.loads(
+        (REPO / "templates" / "consumer" / ".claude" / "settings.json").read_text()
+    )
+    commands = [h["command"] for g in template["hooks"]["SessionStart"] for h in g["hooks"]]
+    assert commands == ['bash "$CLAUDE_PROJECT_DIR/scripts/start-blender-mcp.sh"']
 
 
 def test_claude_readme_and_template_readme_link_the_index() -> None:

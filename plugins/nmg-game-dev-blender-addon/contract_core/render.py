@@ -105,15 +105,15 @@ def render_texture_proof(
 ) -> dict[str, Any]:
     """Write <out>/<variant>/<Name>_proof.png: pre-bake, baked, and re-imported side by side."""
     variant = Path(variant_dir)
-    fbx_files = sorted(variant.glob("SM_*.fbx"))
-    if not fbx_files:
+    glb_files = sorted(variant.glob("*.glb"))
+    if not glb_files:
         raise ContractError(
-            "render.proof_fbx_missing",
-            f"No SM_<Name>.fbx is in {variant}.",
+            "render.proof_glb_missing",
+            f"No <Name>.glb is in {variant}.",
             "Export the variant before rendering the texture proof.",
         )
-    fbx = fbx_files[0]
-    asset = fbx.stem.removeprefix("SM_")
+    glb = glb_files[0]
+    asset = glb.stem
     baked = bpy.data.collections.get(collection or asset)
     if baked is None:
         raise ContractError(
@@ -137,7 +137,7 @@ def render_texture_proof(
         baked_png = workdir / "baked.png"
         reimported_png = workdir / "re-imported.png"
         frame = _render_views([baked], {"three_quarter": baked_png}, resolution)
-        reimported = _import_reimported(fbx, variant)
+        reimported = _import_reimported(glb, variant)
         _render_views([reimported], {"three_quarter": reimported_png}, resolution, frame)
         panels: list[tuple[str, Path]] = []
         if pre_bake is not None:
@@ -284,12 +284,12 @@ def _teardown(
         bpy.data.worlds.remove(world)
 
 
-def _import_reimported(fbx: Path, variant: Path) -> bpy.types.Collection:
-    """Import the FBX into a scratch scene, wire ORM as the Unreal import does, and return it."""
+def _import_reimported(glb: Path, variant: Path) -> bpy.types.Collection:
+    """Import the GLB into a scratch scene, wire ORM from the exported PNG, and return it."""
     scratch = bpy.data.scenes.new("__nmg_proof_import")
     try:
         with bpy.context.temp_override(scene=scratch, view_layer=scratch.view_layers[0]):
-            bpy.ops.import_scene.fbx(filepath=str(fbx))
+            bpy.ops.import_scene.gltf(filepath=str(glb), disable_bone_shape=True)
         target = bpy.data.collections.new("__nmg_reimported")
         for obj in list(scratch.objects):
             for owner in list(obj.users_collection):
@@ -322,7 +322,7 @@ def _wire_orm(material: bpy.types.Material, variant: Path) -> None:
         raise ContractError(
             "render.proof_orm_missing",
             f"{orm.name} is missing from {variant}.",
-            "Export the variant so its ORM texture sits beside the FBX, then rerun the proof.",
+            "Export the variant so its ORM texture sits beside the GLB, then rerun the proof.",
         )
     for link in list(tree.links):
         if link.to_node == bsdf and link.to_socket.name in {"Roughness", "Metallic"}:

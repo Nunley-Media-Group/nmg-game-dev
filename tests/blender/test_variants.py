@@ -70,13 +70,15 @@ def test_ac1_variants_export_with_identical_names(build_crate, reset_scene, tmp_
 
     for variant in ("Desktop", "Mobile"):
         folder = _variant_root(tmp_path) / variant
-        assert (folder / "SM_Crate.fbx").is_file()
+        assert (folder / "Crate.glb").is_file()
         for suffix in ("BC", "N", "ORM"):
             assert (folder / f"T_Crate_Body_{suffix}.png").is_file()
+    assert list(tmp_path.rglob("*.fbx")) == []
+    assert [path for path in tmp_path.rglob("*") if "_LOD" in path.name] == []
 
     for variant in ("Desktop", "Mobile"):
         reset_scene()
-        bpy.ops.import_scene.fbx(filepath=str(_variant_root(tmp_path) / variant / "SM_Crate.fbx"))
+        bpy.ops.import_scene.gltf(filepath=str(_variant_root(tmp_path) / variant / "Crate.glb"))
         object_names = {obj.name for obj in bpy.data.objects}
         material_names = {material.name for material in bpy.data.materials}
         image_names = {image.name for image in bpy.data.images}
@@ -116,26 +118,26 @@ def test_ac2_cleanup_removes_only_degenerate_geometry(build_crate) -> None:  # n
 
 
 # ---------------------------------------------------------------------------
-# AC3 / SCN003: Mobile decimated to budget with two LODs
+# AC3 / SCN003: Mobile decimated to budget as one mesh (the engine generates LODs on import)
 # ---------------------------------------------------------------------------
 
 
-def test_ac3_mobile_is_decimated_with_two_lods(build_crate) -> None:  # noqa: ANN001
+def test_ac3_mobile_is_decimated_to_budget_without_lod_meshes(build_crate) -> None:  # noqa: ANN001
     build_crate()
     assert bpy.ops.nmggamedev.cleanup_desktop(collection_name="Crate") == {"FINISHED"}
     assert bpy.ops.nmggamedev.optimize_mobile(
         collection_name="Crate", asset_class="standard_prop"
     ) == {"FINISHED"}
 
-    group = bpy.data.objects["SM_Crate_Mobile"]
-    assert group.type == "EMPTY"
-    assert group["fbx_type"] == "LodGroup"
-    lod0, lod1, lod2 = (
-        _triangles(bpy.data.objects[f"SM_Crate_Mobile_LOD{level}"].data) for level in range(3)
-    )
-    assert lod0 <= 3000
-    assert lod1 <= 0.5 * lod0
-    assert lod2 <= 0.25 * lod0
+    mobile = bpy.data.objects["SM_Crate_Mobile"]
+    assert mobile.type == "MESH"
+    assert [obj.name for obj in bpy.data.collections["Crate_Mobile"].all_objects] == [
+        "SM_Crate_Mobile"
+    ]
+    assert not [obj for obj in bpy.data.objects if "_LOD" in obj.name]
+    tris = _triangles(mobile.data)
+    assert 0 < tris <= 3000
+    assert _last_result()["tris"] == tris
     assert _mobile_material_image_sizes() and max(_mobile_material_image_sizes()) == 1024
 
 
@@ -152,21 +154,27 @@ def test_ac4_sidecars_and_result_keys(build_crate, tmp_path: Path) -> None:  # n
     variants = json.loads((root / "nmg-variants.json").read_text(encoding="utf-8"))
     assert variants["class"] == "standard_prop"
     assert variants["budget"] == {"tris": 3000, "max_texture_px": 1024, "materials": 1}
-    assert variants["desktop"]["fbx"] == "Desktop/SM_Crate.fbx"
+    assert variants["desktop"]["glb"] == "Desktop/Crate.glb"
     assert variants["desktop"]["max_texture_px"] == 2048
-    assert variants["mobile"]["fbx"] == "Mobile/SM_Crate.fbx"
-    assert variants["mobile"]["lod_levels"] == 3
-    assert len(variants["mobile"]["lod_tris"]) == 3
+    assert variants["mobile"]["glb"] == "Mobile/Crate.glb"
+    assert "lod_tris" not in variants["mobile"]
+    assert "meshes" not in variants["mobile"]
     assert variants["mobile"]["texture_bytes"] > 0
     assert variants["desktop"]["texture_bytes"] > 0
 
-    asset = json.loads((root / "Mobile" / "nmg-asset.json").read_text(encoding="utf-8"))
-    assert asset == {
-        "class": "standard_prop",
-        "tris": variants["mobile"]["lod_tris"][0],
-        "max_texture_px": 1024,
-        "materials": 1,
-    }
+    for variant, max_px in (("Desktop", 2048), ("Mobile", 1024)):
+        asset = json.loads((root / variant / "nmg-asset.json").read_text(encoding="utf-8"))
+        tris = variants[variant.lower()]["tris"]
+        assert set(asset) == {"class", "tris", "max_texture_px", "materials", "meshes"}
+        assert asset["class"] == "standard_prop"
+        assert asset["tris"] == tris
+        assert asset["max_texture_px"] == max_px
+        assert asset["materials"] == 1
+        (mesh,) = asset["meshes"]
+        assert mesh["name"] == "SM_Crate"
+        assert mesh["tris"] == tris
+        assert mesh["material_slots"] == 1
+        assert set(mesh["bounds"]) == {"min", "max"}
 
     result = _last_result()
     for key in (
@@ -178,7 +186,7 @@ def test_ac4_sidecars_and_result_keys(build_crate, tmp_path: Path) -> None:  # n
         "texture_bytes_mobile",
     ):
         assert key in result, key
-    assert result["poly_count_mobile"] == asset["tris"]
+    assert result["poly_count_mobile"] == variants["mobile"]["tris"]
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +213,7 @@ def test_ac5_two_runs_produce_identical_sidecars(build_crate, tmp_path: Path) ->
 # ---------------------------------------------------------------------------
 
 
-def test_ac6_budget_override_raises_lod0_limit(build_crate, tmp_path: Path) -> None:  # noqa: ANN001
+def test_ac6_budget_override_raises_the_mobile_limit(build_crate, tmp_path: Path) -> None:  # noqa: ANN001
     build_crate()
     assert bpy.ops.nmggamedev.cleanup_desktop(collection_name="Crate") == {"FINISHED"}
 
@@ -217,8 +225,8 @@ def test_ac6_budget_override_raises_lod0_limit(build_crate, tmp_path: Path) -> N
 
     result = _last_result()
     assert result["budget"]["tris"] == 5000
-    lod0 = result["lod_tris"][0]
-    assert 3000 < lod0 <= 5000, f"LOD0 should use the 5000 budget, got {lod0}"
+    tris = result["tris"]
+    assert 3000 < tris <= 5000, f"Mobile should use the 5000 budget, got {tris}"
 
 
 # ---------------------------------------------------------------------------
@@ -234,13 +242,13 @@ def test_ac7_unbaked_material_fails_before_any_write(build_crate, core, tmp_path
     assert info.value.code == "variants.unbaked_material"
     assert "M_Crate_Body" in info.value.message
     assert info.value.remediation
-    assert list(tmp_path.rglob("*.fbx")) == []
+    assert list(tmp_path.rglob("*.glb")) == []
     assert list(tmp_path.rglob("*.json")) == []
     assert _triangles(bpy.data.objects["SM_Crate"].data) == CRATE_TRIS + 1, "cleanup must not run"
 
     with pytest.raises(RuntimeError, match="variants.unbaked_material"):
         _generate(tmp_path)
-    assert list(tmp_path.rglob("*.fbx")) == []
+    assert list(tmp_path.rglob("*.glb")) == []
 
 
 def test_ac7_too_many_materials_for_the_class(build_crate, core, tmp_path: Path) -> None:  # noqa: ANN001
@@ -248,7 +256,7 @@ def test_ac7_too_many_materials_for_the_class(build_crate, core, tmp_path: Path)
     with pytest.raises(core.VariantError) as info:
         core.generate_variants("Crate", _CATEGORY, "standard_prop", str(tmp_path))
     assert info.value.code == "variants.mobile_material_limit"
-    assert list(tmp_path.rglob("*.fbx")) == []
+    assert list(tmp_path.rglob("*.glb")) == []
 
 
 def test_ac7_missing_asset_is_reported(reset_scene, core, tmp_path: Path) -> None:  # noqa: ANN001
@@ -277,11 +285,11 @@ def test_ac8_generate_completes_with_sockets_blocked(
 
 
 # ---------------------------------------------------------------------------
-# Child parts keep one LOD level (FR3: LOD0 only for assets with child parts)
+# Child parts are fitted together and keep their names
 # ---------------------------------------------------------------------------
 
 
-def test_child_parts_export_as_single_lod_level(build_crate) -> None:  # noqa: ANN001
+def test_child_parts_are_fitted_together_under_their_names(build_crate) -> None:  # noqa: ANN001
     build_crate(parts=True)
     assert bpy.ops.nmggamedev.cleanup_desktop(collection_name="Crate") == {"FINISHED"}
     assert bpy.ops.nmggamedev.optimize_mobile(
@@ -289,7 +297,7 @@ def test_child_parts_export_as_single_lod_level(build_crate) -> None:  # noqa: A
     ) == {"FINISHED"}
 
     result = _last_result()
-    assert result["lod_levels"] == 1
+    assert result["tris"] <= result["budget"]["tris"]
     assert bpy.data.objects["SM_Crate_Mobile"].type == "MESH"
     assert "SM_Crate_Trim_Mobile" in bpy.data.objects
     assert "SM_Crate_Mobile" in bpy.data.objects
@@ -310,8 +318,54 @@ def test_issue142_mesh_datablocks_export_under_their_object_names(
     assert session_after == session_before
     for variant in ("Desktop", "Mobile"):
         reset_scene()
-        bpy.ops.import_scene.fbx(filepath=str(_variant_root(tmp_path) / variant / "SM_Crate.fbx"))
+        bpy.ops.import_scene.gltf(filepath=str(_variant_root(tmp_path) / variant / "Crate.glb"))
         meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
         assert "SM_Crate_Trim" in {obj.name for obj in meshes}, f"{variant}: {meshes}"
         for obj in meshes:
             assert obj.data.name == obj.name, f"{variant}: {obj.name} carries {obj.data.name}"
+
+
+# ---------------------------------------------------------------------------
+# #249: nmg-asset.json meshes match the written GLB (names, triangles, surfaces, engine bounds)
+# ---------------------------------------------------------------------------
+
+
+def test_asset_sidecar_meshes_match_the_written_glb(
+    build_crate, reset_scene, tmp_path: Path
+) -> None:  # noqa: ANN001
+    build_crate(parts=True)
+    assert _generate(tmp_path) == {"FINISHED"}
+
+    for variant in ("Desktop", "Mobile"):
+        folder = _variant_root(tmp_path) / variant
+        asset = json.loads((folder / "nmg-asset.json").read_text(encoding="utf-8"))
+        recorded = {mesh["name"]: mesh for mesh in asset["meshes"]}
+        assert sorted(recorded) == ["SM_Crate", "SM_Crate_Trim"], variant
+        assert sum(mesh["tris"] for mesh in recorded.values()) == asset["tris"]
+
+        reset_scene()
+        bpy.ops.import_scene.gltf(filepath=str(folder / "Crate.glb"))
+        imported = {obj.name: obj for obj in bpy.data.objects if obj.type == "MESH"}
+        assert sorted(imported) == sorted(recorded), variant
+        for name, obj in imported.items():
+            entry = recorded[name]
+            assert entry["tris"] == _triangles(obj.data), name
+            used = {polygon.material_index for polygon in obj.data.polygons}
+            assert entry["material_slots"] == len(used), name
+            corners = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+            # Blender (x, y, z) is engine (x, z, -y).
+            low = [
+                min(c.x for c in corners),
+                min(c.z for c in corners),
+                -max(c.y for c in corners),
+            ]
+            high = [
+                max(c.x for c in corners),
+                max(c.z for c in corners),
+                -min(c.y for c in corners),
+            ]
+            assert entry["bounds"]["min"] == pytest.approx(low, abs=1e-4), name
+            assert entry["bounds"]["max"] == pytest.approx(high, abs=1e-4), name
+        lowest = min(mesh["bounds"]["min"][1] for mesh in recorded.values())
+        if variant == "Mobile":
+            assert lowest == pytest.approx(0.0, abs=1e-4), "the Mobile bottom sits on the origin"

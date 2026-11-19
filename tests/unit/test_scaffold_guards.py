@@ -1,13 +1,13 @@
-"""Scaffold guard unit tests for issue #1.
+"""Scaffold guard unit tests for issue #1, updated for the Godot engine (#249).
 
 Each test function's name encodes the T015* sub-task and covering AC:
   plugin_json_schema           — T015a / AC1
   directory_exists             — T015b / AC2
-  mcp_json_*                   — T015c / AC8; #64 AC4 (no Meshy server)
-  steering_snippets_*          — #64 AC5 (no Meshy source in steering)
-  no_leak_* / no_dogfood_*     — T015d / AC10, AC11
+  mcp_json_*                   — T015c / AC8; #64 AC4 (no Meshy server); #249 (no engine server)
+  steering_snippets_*          — #64 AC5 (no Meshy source in steering); #249 gate and version rows
+  no_leak_* / no_fixture_*     — T015d / AC10, AC11
   no_repo_root_settings_json   — T015e / AC5b
-  version_* / nmg_*_version    — T015f / AC7
+  version_* / nmg_*_version    — T015f / AC7; #249 plugin.cfg in the triangulation
   changelog_*                  — T015g / AC7
   claude_md_*                  — T015h / AC9
 """
@@ -21,15 +21,17 @@ from typing import Any
 
 import pytest
 from _scaffold_contract import (
-    BANNED_DOGFOOD_ARTIFACTS,
     BANNED_SUBSTRINGS,
     BLENDER_MCP_PACKAGE,
     CONSUMER_FACING,
     EXPECTED_VERSION,
+    GODOT_PLUGIN_CFG,
+    REPO_FIXTURE_REFERENCES,
     REPO_ROOT,
     REQUIRED_DIRS,
     REQUIRED_SERVERS,
-    UNREAL_MCP_URL,
+    SESSION_START_SCRIPTS,
+    godot_plugin_cfg_version,
 )
 
 
@@ -58,7 +60,9 @@ def test_consumer_claude_settings_template(consumer_hooks_data: dict[str, Any]) 
         for h in entry["hooks"]
     ]
     assert any("start-blender-mcp.sh" in c for c in commands)
-    assert any("start-unreal-mcp.sh" in c for c in commands)
+    # Blender is the only session-start launcher; Godot only ever runs headless on demand.
+    for command in commands:
+        assert any(script in command for script in SESSION_START_SCRIPTS), command
 
 
 @pytest.mark.parametrize("rel_dir", REQUIRED_DIRS)
@@ -75,10 +79,10 @@ def test_mcp_json_all_servers_declared(mcp_data: dict[str, Any]) -> None:
         assert server in mcp_data["mcpServers"], f".mcp.json missing server: {server!r}"
 
 
-def test_mcp_json_unreal_is_native_http(mcp_data: dict[str, Any]) -> None:
-    unreal = mcp_data["mcpServers"]["unreal"]
-    assert unreal.get("type") == "http", "unreal entry must use the native HTTP transport"
-    assert unreal.get("url") == UNREAL_MCP_URL, f"unreal url is {unreal.get('url')!r}"
+def test_mcp_json_declares_no_engine_server(mcp_data: dict[str, Any]) -> None:
+    # The plugin's servers are exactly these; Godot is driven headless, with no MCP server.
+    assert set(mcp_data["mcpServers"]) == set(REQUIRED_SERVERS)
+    assert not any(entry.get("type") == "http" for entry in mcp_data["mcpServers"].values())
 
 
 @pytest.mark.parametrize("banned", ("mcp-remote", "8088", "bridge"))
@@ -93,7 +97,7 @@ def test_mcp_json_blender_tracks_latest(mcp_data: dict[str, Any]) -> None:
     assert blender["env"]["BLENDER_MCP_DISABLE_TELEMETRY"] == "1"
 
 
-@pytest.mark.parametrize("server", ("blender", "unreal"))
+@pytest.mark.parametrize("server", REQUIRED_SERVERS)
 def test_mcp_json_carries_no_version_constraint(mcp_data: dict[str, Any], server: str) -> None:
     entry = mcp_data["mcpServers"][server]
     refs = [entry.get("command", ""), *entry.get("args", []), entry.get("url", "")]
@@ -123,7 +127,6 @@ _EXPECTED_WIRING: dict[str, dict[str, Any]] = {
         "args": ["mcp-for-blender@latest"],
         "env": {"BLENDER_MCP_DISABLE_TELEMETRY": "1"},
     },
-    "unreal": {"type": "http", "url": "http://127.0.0.1:${UE_MCP_PORT:-8000}/mcp"},
     "finalize": {
         "command": "uv",
         "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT}/mcp-servers/finalize", "finalize-mcp"],
@@ -184,10 +187,13 @@ def test_no_leak_consumer_artifacts(artifact_text: Any, artifact: str, banned: s
     assert banned not in artifact_text(artifact), f"Banned substring {banned!r} found in {artifact}"
 
 
-@pytest.mark.parametrize("artifact", BANNED_DOGFOOD_ARTIFACTS)
-def test_no_dogfood_reference_in_non_launcher_artifacts(artifact_text: Any, artifact: str) -> None:
-    assert "fixtures/dogfood.uproject" not in artifact_text(artifact), (
-        f"Dogfood fixture reference found in {artifact} (AC10 leak)"
+@pytest.mark.parametrize("artifact", CONSUMER_FACING)
+@pytest.mark.parametrize("fixture_ref", REPO_FIXTURE_REFERENCES)
+def test_no_fixture_reference_in_consumer_artifacts(
+    artifact_text: Any, artifact: str, fixture_ref: str
+) -> None:
+    assert fixture_ref not in artifact_text(artifact), (
+        f"In-repo fixture reference {fixture_ref!r} found in {artifact} (AC10 leak)"
     )
 
 
@@ -234,6 +240,10 @@ def test_version_triangulation(
     assert file_version == plugin_version, (
         f"Version mismatch: VERSION={file_version!r}, plugin.json={plugin_version!r}"
     )
+    addon_version = godot_plugin_cfg_version()
+    assert file_version == addon_version, (
+        f"Version mismatch: VERSION={file_version!r}, plugin.cfg={addon_version!r}"
+    )
 
 
 def test_stack_manifest_versions(repo_root: pathlib.Path, version_text: str) -> None:
@@ -246,12 +256,98 @@ def test_stack_manifest_versions(repo_root: pathlib.Path, version_text: str) -> 
         blender_manifest = tomllib.load(fh)
     assert blender_manifest["version"] == expected
 
-    import json
+    assert GODOT_PLUGIN_CFG.is_file(), f"Godot add-on manifest missing: {GODOT_PLUGIN_CFG}"
+    assert godot_plugin_cfg_version() == expected
 
-    ue_manifest_path = repo_root / "plugins" / "nmg-game-dev-ue-plugin" / "nmg-game-dev.uplugin"
-    with ue_manifest_path.open() as fh:
-        ue_manifest = json.load(fh)
-    assert ue_manifest["VersionName"] == expected
+
+def test_godot_plugin_cfg_names_the_addon_and_its_script() -> None:
+    text = GODOT_PLUGIN_CFG.read_text(encoding="utf-8")
+    assert text.lstrip().startswith("[plugin]")
+    assert 'name="nmg-game-dev"' in text
+    assert 'script="plugin.gd"' in text
+
+
+def test_plugin_cfg_version_parser_reads_only_the_plugin_section(tmp_path: pathlib.Path) -> None:
+    cfg = tmp_path / "plugin.cfg"
+    cfg.write_text('[other]\nversion="9.9.9"\n\n[plugin]\nname="x"\nversion="1.2.3"\n')
+    assert godot_plugin_cfg_version(cfg) == "1.2.3"
+
+
+# --- #249: the steering snippets describe the Godot gates and version files -------------------
+
+
+def _tech_snippet() -> str:
+    text: str = (REPO_ROOT / "steering" / "snippets" / "project-tech.md").read_text(
+        encoding="utf-8"
+    )
+    return text
+
+
+def test_tech_versioning_table_lists_the_godot_plugin_cfg() -> None:
+    versioning = _tech_snippet().split("## Versioning", 1)[1].split("\n## ", 1)[0]
+    rows = [line for line in versioning.splitlines() if line.startswith("| `")]
+    files = [row.split("|")[1].strip() for row in rows]
+    assert files[:4] == [
+        "`VERSION`",
+        "`.claude-plugin/plugin.json`",
+        "`plugins/nmg-game-dev-blender-addon/blender_manifest.toml`",
+        "`plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/plugin.cfg`",
+    ]
+    plugin_cfg_row = rows[3]
+    assert "`version`" in plugin_cfg_row
+
+
+def _gate_rows() -> dict[str, str]:
+    gates = _tech_snippet().split("## Verification Gates", 1)[1].split("\n## ", 1)[0]
+    rows: dict[str, str] = {}
+    for line in gates.splitlines():
+        match = re.match(r"\| `([^`]+)` \|", line)
+        if match:
+            rows[match.group(1)] = line
+    return rows
+
+
+def test_tech_gate_table_registers_gate_godot_headless() -> None:
+    row = _gate_rows()["gate-godot-headless"]
+    for path in (
+        "plugins/nmg-game-dev-godot-addon/**",
+        "src/nmg_game_dev/godot/**",
+        "tests/godot/**",
+        "scripts/run-godot-tests.sh",
+    ):
+        assert f"`{path}`" in row, path
+    assert "GODOT_BIN" in row
+    assert ".cache/godot" in row
+
+
+def test_tech_gate_table_ship_smoke_paths_match_the_manifest() -> None:
+    row = _gate_rows()["gate-ship-smoke"]
+    applies = row.split("|")[2]
+    assert re.findall(r"`([^`]+)`", applies) == [
+        "skills/ship/**",
+        "src/nmg_game_dev/ship/**",
+        "scripts/sign-macos.sh",
+        "scripts/notarize-macos.sh",
+        "scripts/ship-smoke.sh",
+        "src/nmg_game_dev/godot/presets.py",
+        "tests/godot/**",
+    ]
+
+
+def test_tech_gate_table_has_only_engine_neutral_gates() -> None:
+    assert set(_gate_rows()) == {
+        "repository.tests",
+        "repository.lint",
+        "repository.format",
+        "repository.types",
+        "gate-blender-headless",
+        "gate-godot-headless",
+        "gate-mcp-schema",
+        "gate-shellcheck",
+        "gate-ship-smoke",
+        "plugin.validate",
+        "plugin.session-smoke",
+    }
 
 
 def test_changelog_exists(repo_root: pathlib.Path) -> None:
