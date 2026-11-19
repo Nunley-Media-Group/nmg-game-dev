@@ -23,6 +23,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Add a `CHANGELOG.md` at the consumer root with a `## X.Y.Z` section for the version you ship, and pass `--version X.Y.Z` on the first ship of a project that declares no version. (#254)
 
+## [0.33.0] - 2026-11-19
+
+### Changed
+
+- Remove the stale Unreal plugin comment and wrap long GDScript lines (#286)
+
+## [0.32.0] - 2026-11-19
+
+### Fixed
+
+- The ElevenLabs audio guard denies a multi-take `creative_generate_in_flow` call for every audio node type, not only `sfx`, `music`, and `tts`. `dubbing-audio`, `voice-changer`, `voice-isolator`, `audio-effects`, `video-to-music`, and `composition` now get the same one-take rule. The guarded set is derived from a recorded ElevenLabs node-type list in the tests, and `/generate-audio` and `docs/mcp/elevenlabs.md` name each one. (#285)
+
 ## [0.31.0] - 2026-11-19
 
 ### Added

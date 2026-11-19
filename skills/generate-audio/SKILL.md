@@ -10,8 +10,9 @@ unattended_safe: true
 
 Generates one sound effect, music track, or speech clip through the official ElevenLabs MCP and
 imports the saved file into the game with `import_audio`. Every ElevenLabs audio generation runs
-through this skill. The `generate_audio_guard` PreToolUse hook denies any audio call whose
-`generations_count` is not the integer 1, and it points the agent here once per session. The
+through this skill. The `generate_audio_guard` PreToolUse hook covers `creative_generate_speech` and
+every audio node type of `creative_generate_in_flow` (step 5 lists them). It denies any such call
+whose `generations_count` is not the integer 1, and it points the agent here once per session. The
 consumer reference is `docs/mcp/elevenlabs.md`.
 
 ## Flow
@@ -35,7 +36,11 @@ Run these steps in order. Do not generate until steps 1 to 4 are settled.
    requested, pass only the developer's lyrics, unchanged, and add no lyric of your own.
 5. **One take.** Pass `generations_count: 1` on every audio generation call. Never generate several
    takes to choose from. The generation tools default to several takes per call, and the hook
-   denies every other value.
+   denies every other value. The `creative_generate_in_flow` node types that produce audio are
+   `tts`, `sfx`, `music`, `dubbing-audio`, `voice-changer`, `voice-isolator`, `audio-effects`,
+   `video-to-music`, and `composition`. Pass `generations_count: 1` on the call for each of them,
+   the same as on `creative_generate_speech`. Each take is a paid generation, so a call left at the
+   default take count spends several takes' credits.
 6. **Generate and wait.** Call the generation tool, then poll `creative_get_flow_run_status` with
    the returned `flow_id` and session ids. Wait the `poll_after_seconds` the call returns between
    polls, until the run reports `all_completed` or `has_failures`.
@@ -66,4 +71,6 @@ Run these steps in order. Do not generate until steps 1 to 4 are settled.
 
 The contract tests are `tests/unit/test_generate_audio_skill.py`, which checks the frontmatter and
 the Flow rules, and `tests/bdd/test_generate_audio_bdd.py`, which runs the hook and skill scenarios
-in `tests/bdd/features/generate_audio.feature`. The hook is `hooks/generate_audio_guard.py`.
+in `tests/bdd/features/generate_audio.feature`. The guarded node types are covered by
+`tests/bdd/features/generate_audio_node_types.feature`, run by
+`tests/bdd/test_generate_audio_node_types_bdd.py`. The hook is `hooks/generate_audio_guard.py`.

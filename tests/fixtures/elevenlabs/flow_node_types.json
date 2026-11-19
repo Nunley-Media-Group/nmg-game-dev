@@ -1,0 +1,24 @@
+{
+  "captured": "2026-11-19",
+  "source": "creative_get_flow_node_types",
+  "node_types": [
+    {"type": "image-generation", "output_modality": "image"},
+    {"type": "video-generation", "output_modality": "video"},
+    {"type": "tts", "output_modality": "audio"},
+    {"type": "sfx", "output_modality": "audio"},
+    {"type": "music", "output_modality": "audio"},
+    {"type": "llm", "output_modality": "text"},
+    {"type": "composition", "output_modality": "video"},
+    {"type": "image-transform", "output_modality": "image"},
+    {"type": "avatar", "output_modality": "image"},
+    {"type": "dubbing-audio", "output_modality": "audio"},
+    {"type": "voice-changer", "output_modality": "audio"},
+    {"type": "voice-isolator", "output_modality": "audio"},
+    {"type": "voice-creation", "output_modality": "voice"},
+    {"type": "audio-effects", "output_modality": "audio"},
+    {"type": "video-to-music", "output_modality": "audio"},
+    {"type": "speech-to-text", "output_modality": "text"},
+    {"type": "random", "output_modality": "text"},
+    {"type": "dubbing-video", "output_modality": "video"}
+  ]
+}
