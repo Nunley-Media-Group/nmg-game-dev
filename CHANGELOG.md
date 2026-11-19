@@ -6,6 +6,10 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- The ElevenLabs audio guard denies a multi-take `creative_generate_in_flow` call for every audio node type, not only `sfx`, `music`, and `tts`. `dubbing-audio`, `voice-changer`, `voice-isolator`, `audio-effects`, `video-to-music`, and `composition` now get the same one-take rule. The guarded set is derived from a recorded ElevenLabs node-type list in the tests, and `/generate-audio` and `docs/mcp/elevenlabs.md` name each one. (#285)
+
 ## [0.30.0] - 2026-11-19
 
 ### Added

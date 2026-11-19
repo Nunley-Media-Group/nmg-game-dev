@@ -7,9 +7,17 @@ covered by tests/unit/test_generate_audio_guard_hook.py.
 
 from __future__ import annotations
 
+import runpy
+
+import pytest
+
 from tests.ship_fakes import REPO_ROOT, parse_frontmatter
 
 SKILL = REPO_ROOT / "skills" / "generate-audio" / "SKILL.md"
+DOCS = REPO_ROOT / "docs" / "mcp" / "elevenlabs.md"
+HOOK = REPO_ROOT / "hooks" / "generate_audio_guard.py"
+# Every identifier the hook guards (#285 FR4). Read from the hook source so the skill cannot drift.
+GUARDED_NODE_TYPES: tuple[str, ...] = tuple(runpy.run_path(str(HOOK))["AUDIO_NODE_TYPES"])
 
 # Body phrases the contract requires. Each must appear in the SKILL.md body.
 REQUIRED_PHRASES = [
@@ -110,3 +118,43 @@ def test_failure_modes_cover_the_denial_and_the_missing_brief() -> None:
     assert "retry it once" in failures
     assert "design docs have no entry" in failures
     assert "add nothing" in failures
+
+
+# --- AC4 / FR4 (#285): the skill and the docs name every guarded node type, one take each ---
+
+
+def _one_take_step(text: str) -> str:
+    start = text.index("5. **One take.**")
+    end = text.index("6. **Generate and wait.**")
+    return text[start:end]
+
+
+def _guarded_docs_section() -> str:
+    text = DOCS.read_text(encoding="utf-8")
+    start = text.index("### Guarded node types")
+    end = text.index("## Parameters")
+    return text[start:end]
+
+
+def test_intro_says_the_hook_covers_speech_and_every_audio_in_flow_node() -> None:
+    """AC4: the intro names the hook's coverage: speech and every audio in-flow node type."""
+    text = _text()
+    intro = text[: text.index("## Flow")]
+    assert "creative_generate_speech" in intro
+    assert "creative_generate_in_flow" in intro
+
+
+@pytest.mark.parametrize("node_type", GUARDED_NODE_TYPES)
+def test_one_take_step_names_each_guarded_type_with_generations_count_1(node_type: str) -> None:
+    """AC4 / FR4: step 5 names the identifier and says generations_count: 1 applies to it."""
+    step = _one_take_step(_text())
+    assert f"`{node_type}`" in step
+    assert "generations_count: 1" in step
+
+
+@pytest.mark.parametrize("node_type", GUARDED_NODE_TYPES)
+def test_docs_guarded_section_names_each_type_with_generations_count_1(node_type: str) -> None:
+    """AC4 / FR3: the docs' guarded section names the identifier and states generations_count: 1."""
+    section = _guarded_docs_section()
+    assert f"`{node_type}`" in section
+    assert "generations_count: 1" in section
