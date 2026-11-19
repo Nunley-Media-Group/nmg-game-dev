@@ -109,13 +109,17 @@ python3 "$(git rev-parse --show-toplevel)/scripts/nmg_secret_scan.py" --staged |
 Add that line to your hook, then re-run onboarding. A repository with no git work tree gets no hook
 and reports the step as `skipped`.
 
-**The build.** `/ship` runs the scan over the consumer's tracked files as its first gate, also in a
-dry run. A match stops the ship with `ship.secret_found`, listing each masked match, before any Godot
-command runs. Outside a git work tree the gate scans every regular file under the consumer root
-instead, except where keys are meant to live and folders that are never committed: `.env` and
-`.env.*` files, `.claude/settings.local.json`, and the `.git/`, `release/`, `game/.godot/`, `.venv/`,
-and `node_modules/` folders. A key pasted anywhere else stops the ship in that layout too. If git
-itself fails while listing the tracked files, the ship stops with `ship.secret_scan_failed`.
+**The build.** `/ship` runs the scan as its first gate, also in a dry run. In a git work tree it
+scans the tracked files plus the untracked files under `game/` that `.gitignore` does not cover,
+because Godot exports those files whether or not git tracks them. Files that `.gitignore` covers,
+files outside `game/`, and the `game/.godot/` editor cache are not scanned, so a local, ignored key
+does not block the build. A match stops the ship with `ship.secret_found`, listing each masked match,
+before any Godot command runs. Outside a git work tree the gate scans every regular file under the
+consumer root instead, except where keys are meant to live and folders that are never committed:
+`.env` and `.env.*` files, `.claude/settings.local.json`, and the `.git/`, `release/`,
+`game/.godot/`, `.venv/`, and `node_modules/` folders. A key pasted anywhere else stops the ship in
+that layout too. If git itself fails while listing the files, the ship stops with
+`ship.secret_scan_failed`.
 
 ## Optional: Meshy generation
 

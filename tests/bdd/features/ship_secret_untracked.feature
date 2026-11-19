@@ -1,0 +1,38 @@
+# File: tests/bdd/features/ship_secret_untracked.feature
+# Generated from: specs/296-scan-untracked-exportable-files-in-the-ship-secret-gate-and-align-255-ac4/requirements.md
+Feature: Scan every exportable file in the /ship secret gate
+
+  @SCN001
+  Scenario: An untracked key under game/ stops the ship
+    Given a consumer git repository with an untracked, unignored file under game/ containing a Meshy key
+    When "/ship macos --dry-run" runs
+    Then it stops with "ship.secret_found" listing the masked match for that file
+    And no Godot command ran
+    And the unmasked key does not appear in the error
+
+  @SCN002
+  Scenario Outline: Ignored and non-exported untracked files do not fail the gate
+    Given a consumer git repository whose only key is in <location>
+    When "/ship macos --dry-run" runs
+    Then the secret gate passes
+
+    Examples:
+      | location                                      |
+      | an untracked file under game/ that is ignored |
+      | an untracked file outside game/               |
+      | an untracked file under game/.godot/          |
+
+  @SCN003
+  Scenario Outline: Outside git, local secret stores are skipped and other files are scanned
+    Given a consumer that is not a git work tree with a key in "<path>"
+    When "/ship macos --dry-run" runs
+    Then the secret gate <outcome>
+
+    Examples:
+      | path                        | outcome                        |
+      | .env                        | passes                         |
+      | .env.local                  | passes                         |
+      | .claude/settings.local.json | passes                         |
+      | .venv/lib/config.py         | passes                         |
+      | node_modules/pkg/index.js   | passes                         |
+      | notes/keys.txt              | stops with "ship.secret_found" |
