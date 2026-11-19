@@ -120,6 +120,17 @@ def test_failure_modes_cover_the_denial_and_the_missing_brief() -> None:
     assert "add nothing" in failures
 
 
+def test_import_step_reports_refresh_warning_and_says_the_sound_is_still_imported() -> None:
+    """#302 AC4 / FR6: step 7 reports refresh_warning, and the sound stays imported."""
+    text = _text()
+    flow = _flow(text)
+    step = flow[flow.index("7. **Download and import.**") :]
+    assert "refresh_warning" in step
+    assert "remediation" in step
+    assert "still imported" in step
+    assert "refresh_warning" in _failure_modes(text)
+
+
 # --- AC4 / FR4 (#285): the skill and the docs name every guarded node type, one take each ---
 
 

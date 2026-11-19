@@ -47,7 +47,9 @@ Run these steps in order. Do not generate until steps 1 to 4 are settled.
 7. **Download and import.** Save the output locally, then call `import_audio` with a PascalCase
    `name`, `kind` set to `sfx` for sound effects or `music` for music, and `loop: true` when the
    brief asks for a looping sound or track. `import_audio` has no speech kind, so import a speech
-   clip as `sfx`. Report the returned `godot_asset` path.
+   clip as `sfx`. Report the returned `godot_asset` path. If the result also has a
+   `refresh_warning`, report its `message` and `remediation` to the developer, and say the sound is
+   still imported: only the Audio name tables were not refreshed.
 
 ## Failure modes and remediation
 
@@ -66,6 +68,11 @@ Run these steps in order. Do not generate until steps 1 to 4 are settled.
   it. Report the warning. Once Godot is installed, call `import_audio` again with the same file,
   name, and kind: the bytes match the stored WAV, so the call re-finishes the sound with its stored
   settings and imports it. A different file under that name stops at `audio.asset_exists`.
+- `import_audio` returns a `refresh_warning` (`audio.backlog_invalid`, `audio.table_unreadable`,
+  `audio.table_unwritable`, or `audio.duplicate_sound`): the sound was imported, but the Audio name
+  tables were not refreshed. Report the `refresh_warning` remediation to the developer and say the
+  sound is still imported. After they fix the cause, call `refresh_audio_table`. Do not import the
+  sound again.
 
 ## Test fixtures
 

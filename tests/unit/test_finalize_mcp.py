@@ -390,6 +390,44 @@ def test_refresh_audio_table_defaults_to_the_claude_project_dir(
     assert refresh_audio_table() == {"refreshed_tables": ["game/systems/Audio/audio_table.tres"]}
 
 
+def test_refresh_audio_table_returns_the_duplicate_sound_error(tmp_path: Path) -> None:
+    """#302 AC2 via the MCP tool: a shared sound name returns an error object and writes nothing."""
+    project = _audio_project(tmp_path / "project")
+    audio = project / "game" / "assets" / "Audio"
+    (audio / "Theme.wav").write_bytes(b"sound")
+    (audio / "Theme.ogg").write_bytes(b"sound")
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+
+    result = refresh_audio_table(str(project))
+
+    assert result["error"]["code"] == "audio.duplicate_sound"
+    assert result["error"]["stage"] == "audio"
+    assert "Theme.ogg" in result["error"]["message"]
+    assert "Theme.wav" in result["error"]["message"]
+    assert table.read_text(encoding="utf-8") == _AUDIO_TABLE_HEADER
+
+
+def test_refresh_audio_table_descriptions_name_every_refresh_error_code() -> None:
+    """#302 AC3: tools.json and the live server docstring both name all five refresh codes."""
+    manifest = json.loads(TOOLS_JSON.read_text(encoding="utf-8"))
+    tool = next(entry for entry in manifest["tools"] if entry["name"] == "refresh_audio_table")
+    server_path = REPO_ROOT / "mcp-servers" / "finalize" / "src" / "finalize_mcp" / "server.py"
+    server = server_path.read_text(encoding="utf-8")
+    codes = (
+        "audio.godot_project_missing",
+        "audio.backlog_invalid",
+        "audio.table_unreadable",
+        "audio.table_unwritable",
+        "audio.duplicate_sound",
+    )
+
+    for code in codes:
+        assert code in tool["description"]
+    server_docstring = server.split("def refresh_audio_table(", 1)[1].split("@mcp.tool", 1)[0]
+    for code in codes:
+        assert code in server_docstring
+
+
 def test_refresh_audio_table_without_a_godot_project_returns_the_error(tmp_path: Path) -> None:
     result = refresh_audio_table(str(tmp_path))
 

@@ -60,8 +60,10 @@ def import_audio(
     encoded with ffmpeg and becomes an ``AudioStreamOggVorbis`` at
     ``res://assets/Audio/<name>.ogg``. A successful import then refreshes each Audio component's
     name table, and the result's ``refreshed_tables`` lists the tables whose text changed (#237).
-    When the tables cannot be refreshed (an unreadable design backlog), the import still succeeds:
-    ``refreshed_tables`` is empty and ``refresh_warning`` carries the error's code and remediation.
+    When the tables cannot be refreshed (an unreadable design backlog, a table that cannot be read
+    or written, or two sound files that share a name, ``audio.duplicate_sound``), the import still
+    succeeds: ``refreshed_tables`` is empty and ``refresh_warning`` carries the error's code and
+    remediation.
     ``loop`` and the four finishing arguments (``max_seconds``, ``loudness_lufs``,
     ``loop_crossfade_ms``, ``finish``) override the sound's stored settings; a value not passed
     comes from ``audio.json`` or the default (``loop`` false). ``godot`` defaults to the binary

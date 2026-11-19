@@ -236,6 +236,47 @@ def test_a_table_that_cannot_be_written_raises_table_unwritable(
     assert table.read_text(encoding="utf-8") == HEADER
 
 
+def test_uppercase_extensions_map_by_stem_to_the_real_file_name(root: Path) -> None:
+    """#302 AC1: Click.WAV and Door.OGG are sounds, keyed by stem with their real file names."""
+    _sound(root, "Click.WAV")
+    _sound(root, "Door.OGG")
+    table = _table(root)
+
+    refresh_tables(root)
+
+    assert (
+        'sounds = {"Click": "res://assets/Audio/Click.WAV", "Door": "res://assets/Audio/Door.OGG"}'
+    ) in table.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ("Theme.wav", "Theme.ogg"),
+        ("Theme.wav", "Theme.ogg", "Door.wav", "Door.ogg"),
+    ],
+    ids=["one-group", "two-groups"],
+)
+def test_files_sharing_a_stem_raise_duplicate_sound_and_write_nothing(
+    root: Path, names: tuple[str, ...]
+) -> None:
+    """#302 AC2: every file that shares a sound name is named, and no table is rewritten."""
+    for name in names:
+        _sound(root, name)
+    table = _table(root)
+
+    with pytest.raises(AudioError) as caught:
+        refresh_tables(root)
+
+    assert caught.value.code == "audio.duplicate_sound"
+    assert caught.value.stage == "audio"
+    for name in names:
+        assert name in caught.value.message
+    assert "rename or delete the extra file" in caught.value.remediation
+    assert "refresh the audio tables again" in caught.value.remediation
+    assert table.read_text(encoding="utf-8") == HEADER
+
+
 def test_docs_describe_the_audio_component_flow_fields_and_tool() -> None:
     elevenlabs = (REPO_ROOT / "docs" / "mcp" / "elevenlabs.md").read_text(encoding="utf-8")
     contract = (REPO_ROOT / "docs" / "design-contract.md").read_text(encoding="utf-8")

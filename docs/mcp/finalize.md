@@ -522,9 +522,10 @@ and `finish` (default `true`). A parameter you leave out, `loop` included, comes
 A successful import also refreshes each Audio component's name table (#237), so the sound is in the
 table without a separate call. `refreshed_tables` lists the project-relative tables whose text
 changed. When the tables cannot be refreshed, because `docs/design/backlog.json` or a table file
-cannot be read, or a table cannot be written, the import still succeeds: `refreshed_tables` is
-empty and a `refresh_warning` carries the refresh error's code (`audio.backlog_invalid`,
-`audio.table_unreadable`, or `audio.table_unwritable`) with its remediation. See [refresh_audio_table](#refresh_audio_table-237).
+cannot be read, a table cannot be written, or two sound files share a name, the import still
+succeeds: `refreshed_tables` is empty and a `refresh_warning` carries the refresh error's code
+(`audio.backlog_invalid`, `audio.table_unreadable`, `audio.table_unwritable`, or
+`audio.duplicate_sound`) with its remediation. See [refresh_audio_table](#refresh_audio_table-237).
 
 ## refresh_audio_table (#237)
 
@@ -534,8 +535,12 @@ design backlog. It returns `{"refreshed_tables": [...]}`, and writes nothing whe
 already current. Its errors, with the `audio` stage, are `audio.godot_project_missing` when
 `game/project.godot` is missing, and `audio.backlog_invalid` when `docs/design/backlog.json` is not
 a backlog `/design` wrote (rerun `python -m nmg_game_dev.design sync`), `audio.table_unreadable`
-when a table file cannot be read, and `audio.table_unwritable` when a table cannot be replaced. A
-project with no `NmgAudioTable` returns `{"refreshed_tables": []}` without reading the backlog, and
+when a table file cannot be read, and `audio.table_unwritable` when a table cannot be replaced.
+`audio.duplicate_sound` is returned when two files under `game/assets/Audio/` share a sound name,
+such as `Theme.wav` and `Theme.ogg`. Its error names both files and writes no table, so every table
+keeps its text; rename or delete one of the files, then call `refresh_audio_table` again.
+Extensions match in any letter case, so `Click.WAV` is the sound `Click`. A project with no
+`NmgAudioTable` returns `{"refreshed_tables": []}` without reading the backlog, and
 an `audio_table.tres` whose first line does not declare `NmgAudioTable` (a binary file included)
 is left alone. The CLI, `python -m nmg_game_dev.audio refresh [--project DIR]`,
 runs the same function. The flow is in [elevenlabs.md](elevenlabs.md#the-audio-component).

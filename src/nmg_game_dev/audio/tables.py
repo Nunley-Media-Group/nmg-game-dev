@@ -1,12 +1,14 @@
 """The Audio component's name table: render it and refresh it after imports (#237).
 
 ``render_table`` writes the ``NmgAudioTable`` Godot text resource. ``sounds`` maps each sound under
-``game/assets/Audio/`` by its file stem to its ``res://`` path, and ``themes`` maps each region's
-asset name to the ``music`` field the design backlog gives it. ``refresh_tables`` rewrites every
-``game/systems/*/audio_table.tres`` whose header declares ``script_class="NmgAudioTable"``, so
-``import_audio`` and ``python -m nmg_game_dev.audio refresh`` keep the name table current. The
-output depends only on the files present and the backlog, so a second refresh writes the same bytes.
-Nothing here runs Godot.
+``game/assets/Audio/`` by its file stem to its ``res://`` path, matching ``.wav`` and ``.ogg``
+in any letter case. Two files that share a stem raise ``audio.duplicate_sound`` rather than one
+silently replacing the other. ``themes`` maps each region's asset name to the ``music`` field the
+design backlog gives it. ``refresh_tables`` rewrites every ``game/systems/*/audio_table.tres``
+whose header declares ``script_class="NmgAudioTable"``, so ``import_audio`` and
+``python -m nmg_game_dev.audio refresh`` keep the name table current. The output depends only on
+the files present and the backlog, so a second refresh writes the same bytes. Nothing here runs
+Godot.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ MISSING_PROJECT: Final = "audio.godot_project_missing"
 BACKLOG_INVALID: Final = "audio.backlog_invalid"
 TABLE_UNREADABLE: Final = "audio.table_unreadable"
 TABLE_UNWRITABLE: Final = "audio.table_unwritable"
+DUPLICATE_SOUND: Final = "audio.duplicate_sound"
 SOUND_SUFFIXES: Final = (".wav", ".ogg")
 
 
@@ -53,8 +56,9 @@ def refresh_tables(root: Path) -> list[str]:
     left alone, and a project with no name table returns ``[]`` without reading the backlog. Every
     failure is an ``AudioError``: ``audio.godot_project_missing`` without ``game/project.godot``,
     ``audio.backlog_invalid`` when ``docs/design/backlog.json`` is not a backlog ``/design`` wrote,
-    and ``audio.table_unreadable`` or ``audio.table_unwritable`` when a table file cannot be read
-    or replaced.
+    ``audio.table_unreadable`` or ``audio.table_unwritable`` when a table file cannot be read or
+    replaced, and ``audio.duplicate_sound`` when two sound files share a name. A duplicate raises
+    before the first table is written, so every table keeps its text.
     """
     game = paths.game_project(root)
     if not (game / PROJECT_FILE).is_file():
@@ -90,15 +94,42 @@ def refresh_tables(root: Path) -> list[str]:
 
 
 def _sounds(root: Path) -> dict[str, str]:
-    """Map each imported sound's file stem to its ``res://`` path, from ``game/assets/Audio/``."""
+    """Map each imported sound's file stem to its ``res://`` path, from ``game/assets/Audio/``.
+
+    The suffix matches in any letter case, so ``Click.WAV`` is the sound ``Click``. Two or more
+    files that share a stem raise ``audio.duplicate_sound``: the table holds one path per name, so
+    the second file would silently replace the first.
+    """
     audio_dir = paths.game_project(root) / paths.AUDIO_DIR
-    sounds: dict[str, str] = {}
     if not audio_dir.is_dir():
-        return sounds
+        return {}
+    files_by_stem: dict[str, list[str]] = {}
     for path in sorted(audio_dir.iterdir()):
-        if path.is_file() and path.suffix in SOUND_SUFFIXES:
-            sounds[path.stem] = f"res://{(paths.AUDIO_DIR / path.name).as_posix()}"
-    return sounds
+        if path.is_file() and path.suffix.lower() in SOUND_SUFFIXES:
+            files_by_stem.setdefault(path.stem, []).append(path.name)
+    duplicates = {stem: names for stem, names in files_by_stem.items() if len(names) > 1}
+    if duplicates:
+        raise _duplicate_sound(duplicates)
+    return {
+        stem: f"res://{(paths.AUDIO_DIR / names[0]).as_posix()}"
+        for stem, names in files_by_stem.items()
+    }
+
+
+def _duplicate_sound(duplicates: dict[str, list[str]]) -> AudioError:
+    """Return the ``audio.duplicate_sound`` error that names every file sharing a sound name."""
+    folder = f"{paths.GAME_DIR}/{paths.AUDIO_DIR.as_posix()}/"
+    described = " ".join(
+        f"Sound name {stem} has more than one file under {folder}: {', '.join(names)}."
+        for stem, names in sorted(duplicates.items())
+    )
+    choices = "; ".join(" or ".join(names) for _, names in sorted(duplicates.items()))
+    return AudioError(
+        code=DUPLICATE_SOUND,
+        message=described,
+        remediation=f"Keep one file per sound name: rename or delete the extra file ({choices}), "
+        "then refresh the audio tables again.",
+    )
 
 
 def _themes(root: Path) -> dict[str, str]:
