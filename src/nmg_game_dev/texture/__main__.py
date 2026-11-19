@@ -2,9 +2,11 @@
 
 ``generate`` runs synchronously and prints the JSON result. ``generate --batch FILE`` runs a JSON
 array of requests in one run and prints ``{"results": [...]}`` (#143 FR7). ``status`` prints the
-availability of each backend. ``seamless`` makes an existing PNG tile (#147): it writes the
-``make_seamless``
-result in place or to ``--out`` and prints ``{"path", "seamless"}``. ``sheet`` rebuilds the root
+availability of each backend. ``seamless`` makes an existing PNG tile (#147, #238): a PNG that
+already passes the seam rule is written unchanged, a narrowly failing one gets an edge-band repair,
+and a non-tiling one is cross-faded with ``make_seamless`` and then edge-banded (``fix_seam``). The
+result always passes and its wrap never gets worse. It is written in place or to ``--out``, and the
+command prints ``{"path", "seamless"}``. ``sheet`` rebuilds the root
 contact sheet from the texture sets and prints ``{"pages", "cells", "skipped"}`` (#152). ``run-job``
 runs one job without the queue, and ``run-queue`` is the internal entry the queue runner runs. On
 ``TextureGenError`` the CLI prints
@@ -27,7 +29,7 @@ from PIL import Image as PILImage
 from nmg_game_dev.texture import contact_sheet, generate, jobs
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.paths import output_root
-from nmg_game_dev.texture.seamless import is_seamless, make_seamless
+from nmg_game_dev.texture.seamless import fix_seam, is_seamless
 
 _SEAMLESS_MODES = ("L", "RGB", "RGBA")
 
@@ -52,7 +54,8 @@ def _maps_from_args(args: argparse.Namespace) -> str | tuple[float, float] | Non
 
 
 def _make_seamless_file(source: Path, out: Path | None) -> dict[str, Any]:
-    """Apply make_seamless to a PNG, write it in place or to ``out``, and report the seam check."""
+    """Repair a PNG's wrap seams with ``fix_seam``, write it in place or to ``out``, and report the
+    seam check."""
     try:
         with PILImage.open(source) as opened:
             mode = opened.mode if opened.mode in _SEAMLESS_MODES else "RGB"
@@ -63,7 +66,7 @@ def _make_seamless_file(source: Path, out: Path | None) -> dict[str, Any]:
             f"Cannot read the texture at {source}: {error.strerror or error}.",
             "Pass the path of an existing PNG texture.",
         ) from error
-    result = make_seamless(image)
+    result = fix_seam(image)
     target = out if out is not None else source
     target.parent.mkdir(parents=True, exist_ok=True)
     PILImage.fromarray(result).save(target)
@@ -139,7 +142,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     tile = sub.add_parser(
         "seamless",
-        help="Make an existing PNG tile: apply make_seamless in place or to --out.",
+        help=(
+            "Make an existing PNG tile: leave a passing PNG unchanged, otherwise repair its wrap "
+            "seams so it passes. Writes in place or to --out."
+        ),
     )
     tile.add_argument("png", type=Path, help="The PNG texture to make seamless.")
     tile.add_argument(
