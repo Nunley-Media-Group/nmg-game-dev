@@ -59,7 +59,7 @@ from nmg_game_dev.quality.mobile_budgets import (
     MobileBudgetAudit,
     check_mobile_budgets,
 )
-from nmg_game_dev.secrets.scan import scan_tracked
+from nmg_game_dev.secrets.scan import GitError, scan_tracked
 from nmg_game_dev.ship.artifacts import (
     ReleaseEntry,
     artifact_sha256,
@@ -245,9 +245,21 @@ def _scan_secrets(consumer: Path) -> None:
     """Block the build when a tracked file holds an API key (#255 FR3, AC4).
 
     Runs before any Godot command and in a dry run too. Matches are masked in the error. A consumer
-    that is not a git work tree is scanned by a walk of every regular file under it.
+    that is not a git work tree is scanned by a walk of its regular files, skipping local-only
+    secret stores such as ``.env``. A git failure inside a work tree is ``ship.secret_scan_failed``.
     """
-    matches = scan_tracked(consumer)
+    try:
+        matches = scan_tracked(consumer)
+    except GitError as error:
+        raise ShipError(
+            code="ship.secret_scan_failed",
+            message=f"The secret scan could not list the tracked files: {error}",
+            remediation=(
+                f"Run `git -C {consumer} ls-files` to see the git error, fix the repository, "
+                "then rerun the ship."
+            ),
+            stage="secrets",
+        ) from error
     if not matches:
         return
     raise ShipError(

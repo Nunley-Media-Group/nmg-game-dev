@@ -42,8 +42,11 @@ names only.
    and exits 1. Show both lines as printed, then stop. Do not retry an export, skip a gate, or
    publish a platform that failed.
 
-Before any export the ship runs, in order: `godot --import` (a fresh clone has no `.godot/` class
-cache until it runs), `godot --check-only` on every `.gd` file (skipping `.godot/`),
+Before any export the ship runs, in order: the secret scan, before any Godot command and also in a
+dry run (the consumer's tracked files, or outside a git work tree every regular file under the
+consumer root except `.env` and `.env.*` files, `.claude/settings.local.json`, and the `.git/`,
+`release/`, `game/.godot/`, `.venv/`, and `node_modules/` folders), then `godot --import` (a fresh
+clone has no `.godot/` class cache until it runs), `godot --check-only` on every `.gd` file (skipping `.godot/`),
 `game/tests/run_tests.gd` when it exists, the headless autoplay smoke run, and the mobile budget gate
 for `ios`, `android`, and `web`. The smoke run starts the game headless for 600 frames with
 `--nmg-autoplay --nmg-test-saves` and fails on any `SCRIPT ERROR`, `Parse Error`, or `ERROR:` line,
@@ -76,6 +79,13 @@ consumer-root `nmg-budgets.json` may override the defaults per metric. Both form
 
 ## Failure modes and remediation
 
+- `ship.secret_found`: a scanned file holds an API key (or a tracked file is named `.env`). The
+  message lists each match masked as `path:line: pattern xxxx… (sha256:…)`; the full value is never
+  shown, so never try to print it. Ask the developer to remove the key (keep keys in `.env`) or, for
+  a reviewed false positive, add its `sha256:` fingerprint or `<path>:<pattern>` to
+  `.nmg/secret-scan-allow`, then rerun.
+- `ship.secret_scan_failed`: `git ls-files` failed inside the consumer's work tree. Show the git
+  error, fix the repository, and rerun.
 - `ship.env_missing`: a required variable is unset. The remediation names it. Ask the developer to
   set it in the environment or in `.claude/settings.local.json`, then rerun.
 - `ship.unknown_target`, `ship.project_missing`: the target or `--project` path is wrong. Fix the

@@ -12,8 +12,10 @@ python -m nmg_game_dev.ship <target> --project game/project.godot [--release-dir
                              [--bump major|minor|patch | --version X.Y.Z]
 
 1. Secret scan: the consumer's tracked files for API keys, before any Godot command and also in a
-   dry run. Outside a git work tree every regular file under the consumer root is scanned
-   (ship.secret_found). Then preflight: the target, game/project.godot, game/export_presets.cfg with
+   dry run. Outside a git work tree every regular file under the consumer root is scanned, except
+   .env and .env.* files, .claude/settings.local.json, and the .git/, release/, game/.godot/,
+   .venv/, and node_modules/ folders (ship.secret_found, ship.secret_scan_failed). Then
+   preflight: the target, game/project.godot, game/export_presets.cfg with
    each platform's preset, every required variable (ship.env_missing), the build version
    (ship.version_*), the version's CHANGELOG.md section (ship.changelog_missing), and the macOS
    signing identity
@@ -230,7 +232,8 @@ runtime error. See [run-and-capture.md](../onboarding/run-and-capture.md) for th
 | Code | Meaning | Remediation |
 |---|---|---|
 | `ship.env_missing` | A required variable is unset | Set the named variable |
-| `ship.secret_found` | A tracked file (or, outside a git work tree, any file under the consumer root) holds an API key or a `.env` file. The message lists each masked match as `path:line: pattern xxxx… (fingerprint)` | Remove the key and keep it in `.env`, or allow a reviewed false positive in `.nmg/secret-scan-allow`; then rerun |
+| `ship.secret_found` | A tracked file (or, outside a git work tree, a walked file under the consumer root) holds an API key or a `.env` file. The message lists each masked match as `path:line: pattern xxxx… (fingerprint)` | Remove the key and keep it in `.env`, or allow a reviewed false positive in `.nmg/secret-scan-allow`; then rerun |
+| `ship.secret_scan_failed` | `git ls-files` failed inside the consumer's git work tree, so the tracked files could not be scanned | Run `git -C <consumer> ls-files` to see the error, fix the repository, then rerun |
 | `ship.unknown_target`, `ship.project_missing` | Bad target or `--project` path | Fix the argument |
 | `ship.version_invalid` | `--version` is not `X.Y.Z`, both version flags were given, or the project's version is not `X.Y.Z` | Fix the value |
 | `ship.version_not_increased` | `--version` is not above the current version | Pick a higher version, or use `--bump`; when it equals the current version, an earlier ship wrote it, so rerun with no version flag |

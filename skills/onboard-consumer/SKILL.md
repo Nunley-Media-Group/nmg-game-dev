@@ -38,10 +38,15 @@ from the previous engine target to Godot, use `/convert-to-godot`, which runs th
    `references/install-steps.md`.
 
 3. **Relay the report.** Each step prints one line: `<status> <step>: <detail>`. Statuses are
-   `installed`, `unchanged`, `drift`, `refreshed`, and `skipped`. Show every line. For each `drift`, the
-   report gives the remediation `re-run with --refresh`. `skipped` means the step does not apply here
-   or a tool is missing. It is not an error:
-   - `git_lfs_hooks` is skipped in a folder that is not a git work tree.
+   `installed`, `unchanged`, `drift`, `refreshed`, `conflict`, and `skipped`. Show every line. For each
+   `drift`, the report gives the remediation `re-run with --refresh`. `conflict` means onboarding left
+   a file of the developer's alone instead of overwriting it: for `precommit_hook`
+   (`onboard.precommit_hook_conflict`) a foreign `pre-commit` hook already exists, and the report's
+   remediation is the secret-scan line to add to that hook. Relay that line exactly; the developer
+   adds it and re-runs. `skipped` means the step does not apply here or a tool is missing. It is not
+   an error:
+   - `git_lfs_hooks` and `precommit_hook` are skipped in a folder that is not a git work tree, so
+     that consumer has no commit-time secret scan (`/ship` still scans before every build).
    - `godot_binary` is skipped when Godot 4 is not found (`GODOT_BIN`, then `godot` on PATH, then
      `/Applications/Godot.app`). Relay its remediation: install Godot 4 or set `GODOT_BIN`. Finalize,
      audio import, and ship need it.
@@ -72,6 +77,8 @@ from the previous engine target to Godot, use `/convert-to-godot`, which runs th
 - `onboard.git_missing` → install git, then re-run.
 - `onboard.git_lfs_missing` → install Git LFS (`brew install git-lfs`), then re-run. Nothing in the consumer has changed.
 - `onboard.git_lfs_hooks_failed` → `git lfs install --local` refused to run, usually because the repository already has a custom `pre-push` hook. Resolve that hook, then re-run. The steps before it have already written their files.
+- `onboard.precommit_hook_failed` → git could not report the repository's hooks directory
+  (`git rev-parse --git-path hooks`). Fix the repository so that command works, then re-run.
 - `onboard.model_install_failed` or `onboard.mflux_install_failed` → check disk space and network
   access. The remediation names the `mflux-save` command to re-run.
 

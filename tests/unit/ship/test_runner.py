@@ -18,6 +18,7 @@ import pytest
 from nmg_game_dev.godot.project import parse_config
 from nmg_game_dev.godot.runner import CommandResult
 from nmg_game_dev.pipeline.errors import PipelineError
+from nmg_game_dev.secrets.scan import GitError
 from nmg_game_dev.ship import runner as ship_runner
 from nmg_game_dev.ship.__main__ import main as ship_main
 from nmg_game_dev.ship.artifacts import artifact_sha256
@@ -926,6 +927,36 @@ def test_a_git_consumer_scans_tracked_files_only(sandbox: ShipSandbox) -> None:
         sandbox.ship("windows", dry_run=True)
     assert caught.value.code == "ship.secret_found"
     assert sandbox.godot.calls == []
+
+
+def test_a_git_failure_in_the_scan_is_a_structured_ship_error(
+    sandbox: ShipSandbox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F5: a failing ``git ls-files`` stops the ship with a code, not a traceback."""
+
+    def failing_scan(consumer: Path) -> list[object]:
+        raise GitError(f"git ls-files failed in {consumer}: index file corrupt")
+
+    monkeypatch.setattr(ship_runner, "scan_tracked", failing_scan)
+
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("windows", dry_run=True)
+
+    assert caught.value.code == "ship.secret_scan_failed"
+    assert "index file corrupt" in caught.value.message
+    assert "git -C" in caught.value.remediation
+    assert sandbox.godot.calls == []
+
+
+def test_a_non_git_consumer_with_keys_in_dotenv_ships(sandbox: ShipSandbox) -> None:
+    """Review F1: keys kept in ``.env`` (as the remediation asks) never block a non-git ship."""
+    consumer = sandbox.game.parent
+    (consumer / ".env").write_text(f"MESHY_API_KEY={_LEAKED_KEY}\n", encoding="utf-8")
+    local = consumer / ".claude" / "settings.local.json"
+    local.parent.mkdir(exist_ok=True)
+    local.write_text(f'{{"env": {{"MESHY_API_KEY": "{_LEAKED_KEY}"}}}}\n', encoding="utf-8")
+
+    assert sandbox.ship("windows", dry_run=True) == []
 
 
 def test_the_allow_file_suppresses_a_reviewed_false_positive(sandbox: ShipSandbox) -> None:

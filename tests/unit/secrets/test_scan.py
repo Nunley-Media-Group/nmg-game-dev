@@ -279,6 +279,93 @@ def test_outside_a_work_tree_tracked_walks_every_file_under_the_root(tmp_path: P
     assert [(match.path, match.line) for match in matches] == [("notes.txt", 1)]
 
 
+def test_the_walk_skips_local_only_secret_stores(tmp_path: Path) -> None:
+    """A non-git consumer keeps its keys in ``.env`` as the remediation says; the walk must not
+    block every ship on them (#255 review F1)."""
+    root = tmp_path / "consumer"
+    root.mkdir()
+    (root / "notes.txt").write_text(f"key {MESHY}\n", encoding="utf-8")
+    for skipped in (
+        ".env",
+        ".env.local",
+        "tools/.env",
+        ".claude/settings.local.json",
+        ".venv/lib/site.py",
+        "web/node_modules/pkg/index.js",
+    ):
+        path = root / skipped
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"MESHY_API_KEY={MESHY}\n", encoding="utf-8")
+    (root / ".claude" / "settings.json").write_text(f'"{MESHY}"\n', encoding="utf-8")
+
+    matches = scan_tracked(root)
+
+    assert [(match.path, match.line) for match in matches] == [
+        (".claude/settings.json", 1),
+        ("notes.txt", 1),
+    ]
+
+
+def test_the_walk_reads_only_the_probe_bytes_of_a_binary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Files stream one at a time, and a binary asset is never read past its probe (review F6)."""
+    root = tmp_path / "consumer"
+    root.mkdir()
+    (root / "asset.glb").write_bytes(b"glTF\0" + b"x" * (scan.BINARY_PROBE_BYTES * 4))
+    (root / "notes.txt").write_text(f"key {MESHY}\n", encoding="utf-8")
+    reads: list[int] = []
+    real_open = Path.open
+
+    def recording_open(self: Path, *args: object, **kwargs: object) -> object:
+        handle = real_open(self, *args, **kwargs)  # type: ignore[call-overload]
+        real_read = handle.read
+
+        def read(size: int = -1) -> bytes:
+            data: bytes = real_read(size)
+            if self.name == "asset.glb":
+                reads.append(len(data))
+            return data
+
+        handle.read = read
+        return handle
+
+    monkeypatch.setattr(Path, "open", recording_open)
+
+    files = scan.tracked_files(root)
+    assert not isinstance(files, list)
+    assert dict(files)["asset.glb"] == b""
+    assert reads == [scan.BINARY_PROBE_BYTES]
+    assert [(m.path, m.line) for m in scan_tracked(root)] == [("notes.txt", 1)]
+
+
+def test_a_staged_submodule_is_skipped_and_the_rest_is_scanned(repo: Path) -> None:
+    """A gitlink has no blob to read; it must not fail the commit with exit 2 (review F4)."""
+    inner = repo / "inner"
+    inner.mkdir()
+    _git(inner, "init", "-q")
+    (inner / "README.md").write_text("inner\n", encoding="utf-8")
+    _git(inner, "add", "README.md")
+    _git(inner, "commit", "-q", "-m", "inner")
+    _git(repo, "add", "inner")
+    _stage(repo, "clean.gd", b"extends Node\n")
+
+    assert scan_staged(repo) == []
+    assert main(["--staged", "--root", str(repo)]) == 0
+
+    _stage(repo, "leak.gd", f'var k = "{MESHY}"\n'.encode())
+    assert [(m.path, m.pattern) for m in scan_staged(repo)] == [("leak.gd", "meshy")]
+
+
+def test_a_staged_rename_is_scanned_under_its_new_path(repo: Path) -> None:
+    _stage(repo, "old.gd", f'var k = "{MESHY}"\n'.encode())
+    _allow(repo, "old.gd:meshy\n")
+    _git(repo, "commit", "-q", "-m", "allowed under the old name")
+    _git(repo, "mv", "old.gd", "new.gd")
+
+    assert [(m.path, m.pattern) for m in scan_staged(repo)] == [("new.gd", "meshy")]
+
+
 def test_staged_outside_a_work_tree_exits_2(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

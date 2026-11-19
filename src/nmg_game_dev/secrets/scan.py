@@ -19,7 +19,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
@@ -44,6 +44,13 @@ BINARY_PROBE_BYTES: Final = 8000
 LFS_POINTER_PREFIX: Final = b"version https://git-lfs.github.com/spec/v1"
 WALK_SKIP_TOP: Final = (".git", "release")
 WALK_SKIP_GODOT_CACHE: Final = ("game", ".godot")
+WALK_SKIP_DIRS: Final = (".venv", "node_modules")
+"""Skipped at any depth by the walk: local environments that are never committed."""
+WALK_SKIP_FILES: Final = (".claude/settings.local.json",)
+"""Root-relative local-only secret stores the walk skips, along with every ``.env`` and
+``.env.*`` file: outside git, the scan cannot tell them from committed files, and they are where
+keys are meant to live."""
+GITLINK_MODE: Final = "160000"
 REMEDIATION: Final = (
     "Remove the key (keep keys in .env), or allow a false positive in .nmg/secret-scan-allow"
 )
@@ -163,41 +170,74 @@ def _in_work_tree(root: Path, run: Runner) -> bool:
 
 
 def _walk_skipped(path: Path, root: Path) -> bool:
-    parts = path.relative_to(root).parts
-    return parts[0] in WALK_SKIP_TOP or parts[:2] == WALK_SKIP_GODOT_CACHE
+    relative = path.relative_to(root)
+    parts = relative.parts
+    name = parts[-1]
+    return (
+        parts[0] in WALK_SKIP_TOP
+        or parts[:2] == WALK_SKIP_GODOT_CACHE
+        or any(part in WALK_SKIP_DIRS for part in parts)
+        or name == ENV_FILE_NAME
+        or name.startswith(ENV_FILE_NAME + ".")
+        or relative.as_posix() in WALK_SKIP_FILES
+    )
 
 
-def _walk_files(root: Path) -> list[tuple[str, bytes]]:
-    """Every regular file under ``root`` that is not in ``.git/``, ``release/``, or
-    ``game/.godot/``. Symbolic links are not followed."""
-    found: list[tuple[str, bytes]] = []
+def _read_text_file(path: Path) -> bytes:
+    """The file's bytes, or ``b""`` when its first ``BINARY_PROBE_BYTES`` mark it binary or an LFS
+    pointer, so a large asset is never read whole."""
+    with path.open("rb") as handle:
+        head = handle.read(BINARY_PROBE_BYTES)
+        if b"\0" in head or head.startswith(LFS_POINTER_PREFIX):
+            return b""
+        return head + handle.read()
+
+
+def _walk_files(root: Path) -> Iterator[tuple[str, bytes]]:
+    """Every regular file under ``root``, one at a time, except ``.git/``, ``release/``,
+    ``game/.godot/``, ``.venv/`` and ``node_modules/`` folders, ``.env`` and ``.env.*`` files, and
+    ``.claude/settings.local.json``. Symbolic links are not followed."""
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [name for name in dirnames if not _walk_skipped(Path(dirpath, name), root)]
         for name in filenames:
             path = Path(dirpath, name)
             if _walk_skipped(path, root) or path.is_symlink() or not path.is_file():
                 continue
-            found.append((path.relative_to(root).as_posix(), path.read_bytes()))
-    return found
+            yield path.relative_to(root).as_posix(), _read_text_file(path)
 
 
-def staged_files(root: Path, run: Runner = subprocess.run) -> list[tuple[str, bytes]]:
+def _staged_paths(root: Path, run: Runner) -> list[str]:
+    """Staged added, copied, modified, or renamed paths, except gitlinks (submodules), which have
+    no blob to read."""
+    raw = _git(root, run, "diff", "--cached", "--raw", "-z", "--no-renames", "--diff-filter=ACMR")
+    fields = _split_z(raw)
+    # Each record is ":<old mode> <new mode> <old id> <new id> <status>" then its path.
+    return [
+        path
+        for header, path in zip(fields[0::2], fields[1::2], strict=True)
+        if header.split(" ")[1] != GITLINK_MODE
+    ]
+
+
+def staged_files(root: Path, run: Runner = subprocess.run) -> Iterator[tuple[str, bytes]]:
     """Each staged added, copied, modified, or renamed path with its index blob bytes."""
-    listing = _git(root, run, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR")
-    return [(name, _git(root, run, "cat-file", "blob", f":{name}")) for name in _split_z(listing)]
+    names = _staged_paths(root, run)
+    return ((name, _git(root, run, "cat-file", "blob", f":{name}")) for name in names)
 
 
-def tracked_files(root: Path, run: Runner = subprocess.run) -> list[tuple[str, bytes]]:
-    """Each tracked path with its working-tree bytes. Outside a git work tree, every regular file
-    under ``root`` is used instead."""
-    if not _in_work_tree(root, run):
-        return _walk_files(root)
-    out: list[tuple[str, bytes]] = []
-    for name in _split_z(_git(root, run, "ls-files", "-z")):
+def _tracked_from_index(root: Path, names: list[str]) -> Iterator[tuple[str, bytes]]:
+    for name in names:
         path = root / name
         if path.is_file() and not path.is_symlink():
-            out.append((name, path.read_bytes()))
-    return out
+            yield name, _read_text_file(path)
+
+
+def tracked_files(root: Path, run: Runner = subprocess.run) -> Iterator[tuple[str, bytes]]:
+    """Each tracked path with its working-tree bytes, read one file at a time. Outside a git work
+    tree, the regular files under ``root`` are walked instead (see ``_walk_files``)."""
+    if not _in_work_tree(root, run):
+        return _walk_files(root)
+    return _tracked_from_index(root, _split_z(_git(root, run, "ls-files", "-z")))
 
 
 def scan_staged(root: Path, run: Runner = subprocess.run) -> list[Match]:
