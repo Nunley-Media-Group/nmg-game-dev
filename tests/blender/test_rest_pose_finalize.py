@@ -5,9 +5,9 @@ no action assigned (rig_fixtures.pose_hero). tests/bdd/test_rest_pose_finalize_b
 scenarios with pytest-bdd and runs these node ids through scripts/run-blender-tests.sh, the
 arrangement tests/bdd/test_shared_clip_names_bdd.py uses.
 
-SCN003 covers the export clause only. Its reduce_asset clause is not proven here, because reduce
-refuses any collection with an armature (reduce.rigged, #139 AC13), so the posed rig never reaches
-the reduce copy. test_fr3_make_copy_evaluates_the_rest_pose covers the copy step on its own.
+SCN003 has two proofs: test_scn003_export_variants_does_not_bake_the_pose for the export clause and
+test_scn003_make_copy_evaluates_the_rest_pose for the reduce copy step. reduce_asset itself refuses
+any collection with an armature (reduce.rigged, #139 AC13); SCN004 checks that refusal.
 
 Under plain CPython the module is skipped.
 """
@@ -238,7 +238,7 @@ def test_scn002_the_mesh_checks_measure_the_rest_pose(hero: Any, core: Any) -> N
 def test_scn003_export_variants_does_not_bake_the_pose(
     hero: Any, rig_core: Any, cleanup: Any, variants: Any, tmp_path: Path
 ) -> None:
-    """The export clause of SCN003 only; the reduce_asset clause is not proven here (see module)."""
+    """The export clause of SCN003; test_scn003_make_copy_evaluates_the_rest_pose has the copy."""
     rest_root = tmp_path / "rest"
     posed_root = tmp_path / "posed"
     pose_hero(0.0)
@@ -275,7 +275,10 @@ def test_scn004_the_scene_is_left_unchanged(
     tmp_path: Path,
 ) -> None:
     pose_hero(_POSE)
+    # Pin the starting pose_position to POSE, so a step that leaves the rig at REST is caught.
+    bpy.data.objects[_RIG].data.pose_position = "POSE"
     before = _pose_state()
+    assert before["pose_position"] == "POSE"
 
     core.validate_asset(_COLLECTION, "character")
     assert _pose_state() == before
@@ -301,6 +304,7 @@ def test_scn004_the_scene_is_left_unchanged(
 
     variants.generate_variants(_COLLECTION, _CATEGORY, "character", str(tmp_path / "export"))
     before = _pose_state()
+    assert before["pose_position"] == "POSE"
     export_module = importlib.import_module(f"{enabled_addon}.variants_core.export")
     export_module.export_variants(_COLLECTION, _CATEGORY, str(tmp_path / "export"))
     assert _pose_state() == before
@@ -328,8 +332,8 @@ def test_scn005_exporting_clips_leaves_every_pose_bone_at_identity(
     assert _every_bone_at_identity()
 
 
-def test_fr3_make_copy_evaluates_the_rest_pose(hero: Any, enabled_addon: str) -> None:
-    """FR3 on the copy step: make_copy stores the rest geometry even while the rig is posed."""
+def test_scn003_make_copy_evaluates_the_rest_pose(hero: Any, enabled_addon: str) -> None:
+    """The copy clause of SCN003: make_copy stores the rest geometry even while the rig is posed."""
     decimate = importlib.import_module(f"{enabled_addon}.reduce_core.decimate")
     pose_hero(0.0)
     rest = _world_bounds(_mesh())

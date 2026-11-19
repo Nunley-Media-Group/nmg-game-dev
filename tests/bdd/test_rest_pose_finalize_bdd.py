@@ -6,9 +6,8 @@ rigged hero, pose it with no action assigned, and check the rest-pose geometry, 
 run has no Blender to exercise. A binding skips when no Blender resolves. The Given, When, and
 Then steps are narrative and carry no assertions of their own.
 
-SCN003 is bound to its export clause only. Its reduce_asset clause is not bound: reduce refuses
-any collection with an armature (reduce.rigged, #139 AC13), so the posed rig never reaches the
-reduce copy. That clause needs a decision on #139 before it can be proven.
+SCN003 runs two proofs: the export clause and the make_copy clause. reduce_asset itself refuses
+any collection with an armature (reduce.rigged, #139 AC13), which SCN004 covers.
 """
 
 from __future__ import annotations
@@ -68,10 +67,10 @@ def test_scn002_the_mesh_checks_measure_the_rest_pose() -> None:
     _blender("test_scn002_the_mesh_checks_measure_the_rest_pose")
 
 
-@scenario("rest_pose_finalize.feature", "Export and reduction do not bake the pose")
-def test_scn003_export_variants_does_not_bake_the_pose() -> None:
-    """Covers the export clause only; the reduce_asset clause is pending a #139 decision."""
+@scenario("rest_pose_finalize.feature", "Export and the reduce copy step do not bake the pose")
+def test_scn003_export_and_the_reduce_copy_step_do_not_bake_the_pose() -> None:
     _blender("test_scn003_export_variants_does_not_bake_the_pose")
+    _blender("test_scn003_make_copy_evaluates_the_rest_pose")
 
 
 @scenario("rest_pose_finalize.feature", "The scene is left unchanged")

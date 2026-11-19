@@ -17,17 +17,17 @@ Feature: Rigged assets are evaluated in their rest pose during finalize
     Then both reports have the same findings and measured values
 
   @SCN003 @regression
-  Scenario: Export and reduction do not bake the pose
+  Scenario: Export and the reduce copy step do not bake the pose
     Given the posed rigged hero
-    When export_variants writes its Desktop and Mobile .glb files and reduce_asset reduces it
+    When export_variants writes its Desktop and Mobile .glb files and make_copy copies its skinned mesh
     Then each re-imported skinned mesh has the rest-pose bounds within 1e-3 m
     And each re-imported armature's rest heads match the source rest heads within 1e-3 m
-    And each reduced copy has the rest-pose bounds within 1e-3 m
+    And the copy has the rest-pose bounds within 1e-3 m
 
   @SCN004 @regression
   Scenario: The scene is left unchanged
     Given the posed rigged hero
-    When validate_asset, reduce_asset, or export_variants finishes or raises
+    When validate_asset or export_variants finishes or raises, or reduce_asset refuses it with "reduce.rigged"
     Then every pose bone's transforms, the armature's pose_position, and the rig's action are what they were before
 
   @SCN005 @regression
