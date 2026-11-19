@@ -8,6 +8,7 @@ from collections.abc import Sequence
 import bmesh
 import bpy
 
+from ..contract_core.geometry import normal_violations, recalc_island_normals
 from .errors import VariantError
 
 # Each pass lowers the collapse ratio by this factor until the triangle target is met.
@@ -43,8 +44,9 @@ def clean_mesh(mesh: bpy.types.Mesh) -> None:
 
     Desktop cleanup and every fitted Mobile mesh run this routine. It runs, in order: merge
     doubles, dissolve degenerate edges, delete zero-area faces, delete the faces past the two
-    largest on each non-manifold edge, delete repeated faces, delete loose geometry, and
-    recalculate normals. Every step is deterministic, so identical input gives identical output.
+    largest on each non-manifold edge, delete repeated faces, delete loose geometry, and settle
+    normals (see _settle_normals). Every step is deterministic, so identical input gives
+    identical output.
     """
     bm = bmesh.new()
     try:
@@ -56,11 +58,37 @@ def clean_mesh(mesh: bpy.types.Mesh) -> None:
         _drop_non_manifold_faces(bm)
         _delete_repeated_faces(bm)
         _delete_loose(bm)
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
-        bm.to_mesh(mesh)
+        _settle_normals(bm, mesh)
         mesh.update()
     finally:
         bm.free()
+
+
+def _settle_normals(bm: bmesh.types.BMesh, mesh: bpy.types.Mesh) -> None:
+    """Recalculate normals the way geometry.normals judges them, then write bm to mesh.
+
+    Each pass recalculates normals per island with the contract's own routine and writes the
+    mesh. It then reads the mesh back as the contract does and collects the faces the rule still
+    flags. A closed island with no consistent orientation (a Klein bottle, say) keeps flagged
+    faces however often it is recalculated, so those faces and any geometry left loose are
+    deleted and the pass repeats (#232). Each repeat deletes at least one face, so the loop ends.
+    to_mesh and from_mesh keep face order, so the probe's face indices are bm's.
+    """
+    while True:
+        recalc_island_normals(bm)
+        bm.to_mesh(mesh)
+        probe = bmesh.new()
+        try:
+            probe.from_mesh(mesh)
+            probe.normal_update()
+            flagged = [face.index for face in normal_violations(probe)]
+        finally:
+            probe.free()
+        if not flagged:
+            return
+        bm.faces.ensure_lookup_table()
+        bmesh.ops.delete(bm, geom=[bm.faces[index] for index in flagged], context="FACES_ONLY")
+        _delete_loose(bm)
 
 
 def _drop_non_manifold_faces(bm: bmesh.types.BMesh) -> None:

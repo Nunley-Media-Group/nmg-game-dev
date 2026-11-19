@@ -163,7 +163,11 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
   mobile material limit. Silhouette must still read.
 - The `variants` step cleans every Mobile mesh it produces with the same routine Desktop cleanup
   uses: degenerate, zero-area, non-manifold-edge, duplicate, and loose geometry are removed, and
-  normals are recalculated. It then re-seats the Mobile variant so its bottom centre is at the
+  normals are recalculated per connected island, the way the `geometry.normals` check judges
+  them. Any face that check still flags is then deleted, with the geometry that leaves loose, and
+  the recalculation repeats until no face is flagged. Only an island with no consistent
+  orientation (a Klein-bottle-like surface) keeps flagged faces, so a well-formed mesh loses none;
+  this deletion applies to Desktop cleanup too. It then re-seats the Mobile variant so its bottom centre is at the
   world origin, because decimation can move it. The root's origin and the rig are not changed.
 - Blender makes no LOD meshes. Godot generates LODs for both variants when it imports the
   `.glb` (the `meshes/generate_lods` import option), so the exported Mobile mesh is LOD 0 and must

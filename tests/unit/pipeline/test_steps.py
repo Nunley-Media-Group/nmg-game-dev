@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,8 @@ import pytest
 from nmg_game_dev.pipeline import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import (
+    _BAKE_VERSION,
+    _STEP_VERSION,
     STEP_ORDER,
     blobs_for,
     chain_input,
@@ -17,7 +21,16 @@ from nmg_game_dev.pipeline.steps import (
     gate_outputs,
     ordered_steps,
     parse_step,
+    settings_hash,
     variant_dir,
+)
+
+_BAKE_CACHE = (
+    Path(__file__).resolve().parents[3]
+    / "plugins"
+    / "nmg-game-dev-blender-addon"
+    / "bake_core"
+    / "cache.py"
 )
 
 
@@ -200,11 +213,30 @@ def test_import_godot_is_a_godot_step_and_the_salt_is_five() -> None:
 def test_the_import_godot_settings_cover_collection_category_and_export_root(
     tmp_path: Path,
 ) -> None:
-    from nmg_game_dev.pipeline.steps import settings_hash
-
     request = _request(tmp_path)
     base = settings_hash("import_godot", request, "budgets")
     moved = request.model_copy(update={"export_root": tmp_path / "elsewhere"})
     renamed = request.model_copy(update={"category": "Crates"})
     assert settings_hash("import_godot", moved, "budgets") != base
     assert settings_hash("import_godot", renamed, "budgets") != base
+
+
+def test_a_bake_key_from_before_the_bake_version_bump_misses(tmp_path: Path) -> None:
+    # #240: the tiling bake changed its output, so a bake cached before it must not be restored.
+    request = _request(tmp_path)
+    pre_bump = {
+        "step": "bake",
+        "version": _STEP_VERSION,
+        "collection": request.collection,
+        "asset_class": request.asset_class,
+        "device": request.device,
+        "budgets": "budgets",
+    }
+    pre_bump_key = hashlib.sha256(json.dumps(pre_bump, sort_keys=True).encode()).hexdigest()
+    assert settings_hash("bake", request, "budgets") != pre_bump_key
+
+
+def test_the_bake_key_version_mirrors_the_add_on_bake_version() -> None:
+    match = re.search(r'^BAKE_VERSION = "([^"]+)"$', _BAKE_CACHE.read_text(), re.MULTILINE)
+    assert match is not None
+    assert match.group(1) == _BAKE_VERSION

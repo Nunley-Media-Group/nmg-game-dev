@@ -17,7 +17,7 @@ from typing import Any
 import bpy
 import numpy as np
 
-BAKE_VERSION = "1"
+BAKE_VERSION = "2"
 MANIFEST = "bake.json"
 _NODE_PROPERTY_TYPES = frozenset({"ENUM", "BOOLEAN", "INT", "FLOAT", "STRING"})
 _NODE_PROPERTY_IGNORE = frozenset(

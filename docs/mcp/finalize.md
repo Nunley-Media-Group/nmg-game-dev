@@ -331,10 +331,10 @@ Each step has a content-addressed cache key:
 - `input_hash` is the asset's content hash for the first step, and the previous step's output hash
   after that. The asset hash covers the mesh, materials, images, and transforms of `<Name>` and its
   Mobile collection.
-- `settings_hash` covers the asset class, the resolved budget, the device (bake only), the export
-  root (export and import only), the category, and the step version. `validate` and `export` also cover
-  the material-variants declaration and the bytes of each base-colour texture it names, so editing a
-  variant reruns those two steps and leaves `bake` and `variants` cached.
+- `settings_hash` covers the asset class, the resolved budget, the device and the bake version (bake
+  only), the export root (export and import only), the category, and the step version. `validate` and
+  `export` also cover the material-variants declaration and the bytes of each base-colour texture it
+  names, so editing a variant reruns those two steps and leaves `bake` and `variants` cached.
 
 An alias index under `runs/` maps the asset hash to each step's key. A rerun with no change finds
 every step in the cache, reports `cache_hit: true` for each, and skips `import_godot`. Load-back is

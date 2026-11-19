@@ -30,6 +30,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 - Install Godot 4 (or set `GODOT_BIN`) and ffmpeg (or set `FFMPEG_BIN`); `UE_ROOT`, `UE_PROJECT`, `UE_MCP_PORT` and the `WINDOWS_BUILD_*` variables are no longer read. (#249)
 - `FinalizeResult.desktop_content_path` and `mobile_content_path` become `desktop_resource_path` and `mobile_resource_path` (`res://` paths), `pie_mode` and `pie_wait_seconds` are gone, and the audio result keys `unreal_asset` and `imported_to_unreal` become `godot_asset` and `imported_to_godot`. Cached `import_ue` entries are not reused. (#249)
 
+## [0.25.5] - 2026-11-19
+
+### Fixed
+
+- Bake each tiling material alone on its tile, so the asset no longer darkens the tile's AO and fails the seam check (#240)
+
+## [0.25.4] - 2026-11-19
+
+### Fixed
+
+- Make mesh cleanup recalculate normals the way the geometry.normals check judges them (#232)
+
 ## [0.25.3] - 2026-11-12
 
 ### Fixed

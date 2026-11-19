@@ -301,19 +301,23 @@ def _bake_unique(
 def _bake_tiling(
     sources: list[bpy.types.Material], names: list[str], asset: str, size: int
 ) -> list[_TextureSet]:
-    """Bake each tiling material on its own 1 m tile, so the image is one UV period."""
+    """Bake each tiling material on its own 1 m tile, with every other object hidden from the bake.
+
+    The image is one UV period, and the asset cannot occlude the tile's ambient occlusion.
+    """
     sets: list[_TextureSet] = []
     for part, source in zip(names, sources, strict=True):
         tile = tiling.make_tile()
         mesh = tile.data
         mesh.materials.append(source)
         try:
-            images = {
-                channel: bake.new_channel_image(f"__nmg_{asset}_{part}_{channel}", size)
-                for channel in bake.CHANNELS
-            }
-            for channel in bake.CHANNELS:
-                bake.bake_channel([tile], [source], [images[channel]], channel, size)
+            with tiling.isolated(tile):
+                images = {
+                    channel: bake.new_channel_image(f"__nmg_{asset}_{part}_{channel}", size)
+                    for channel in bake.CHANNELS
+                }
+                for channel in bake.CHANNELS:
+                    bake.bake_channel([tile], [source], [images[channel]], channel, size)
         finally:
             bpy.data.objects.remove(tile, do_unlink=True)
             bpy.data.meshes.remove(mesh)
