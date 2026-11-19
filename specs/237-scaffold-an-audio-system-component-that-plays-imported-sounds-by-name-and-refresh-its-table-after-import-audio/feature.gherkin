@@ -1,0 +1,68 @@
+**Issue**: #237
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: tests/bdd/features/audio_component.feature
+# Generated from: specs/237-scaffold-an-audio-system-component-that-plays-imported-sounds-by-name-and-refresh-its-table-after-import-audio/requirements.md
+Feature: Audio system component with a refreshed sound table
+
+  @SCN001
+  Scenario: Scaffold creates an Audio component
+    Given a system entry "Audio" with template "audio" in the backlog
+    When design scaffold runs
+    Then "game/systems/Audio/audio.gd" declares "extends NmgAudio" and loads "res://systems/Audio/audio_table.tres"
+    And "game/systems/Audio/audio_table.tres" is an NmgAudioTable resource
+
+  @SCN002
+  Scenario: Existing systems are unchanged
+    Given a system entry "Inventory" without template and an existing "game/systems/Audio/audio.gd"
+    When design scaffold runs
+    Then "game/systems/Inventory/inventory.gd" extends Node
+    And the existing Audio script is reported unchanged and not rewritten
+
+  @SCN003
+  Scenario: Refresh fills the name table
+    Given "game/assets/Audio/PunchLight.wav", "game/assets/Audio/ForestTheme.ogg", and region "Forest" with music "ForestTheme"
+    When python -m nmg_game_dev.audio refresh runs twice
+    Then the table maps "PunchLight" and "ForestTheme" to their res:// paths and theme "Forest" to "ForestTheme"
+    And the second run leaves the table byte-identical
+
+  @SCN004
+  Scenario: import_audio refreshes automatically
+    Given a project with an Audio component table
+    When import_audio imports sound effect "DoorCreak"
+    Then the table maps "DoorCreak" to "res://assets/Audio/DoorCreak.wav"
+    And the result's refreshed_tables lists the table
+
+  @SCN005
+  Scenario: Calling a missing sound is safe
+    Given an NmgAudio whose table has no sound "NotYetImported"
+    When sfx("NotYetImported", Vector3(1, 0, 0)) is called twice
+    Then nothing plays and exactly one warning names "NotYetImported"
+
+  @SCN006
+  Scenario: Music crossfades, loops, and ducks for stingers
+    Given an NmgAudio playing music "A"
+    When music("A") is called again, then music("B"), then stinger("S")
+    Then "A" keeps its player on the repeat call
+    And "A" stops while "B" plays and replays when it finishes
+    And the music is lowered by duck_db until "S" finishes
+
+  @SCN007
+  Scenario: Volumes persist
+    Given set_volumes(0.8, 0.5, 1.0) was called
+    When a new NmgAudio with the same settings path enters the tree
+    Then its volumes are 0.8, 0.5, and 1.0
+
+  @SCN008
+  Scenario: The flow and fields are documented
+    Given the ElevenLabs, design contract, and finalize MCP docs
+    When a reader looks up the audio component
+    Then they describe scaffold, import, refresh, and gameplay calls, the template and music fields, and refresh_audio_table
+
+  @SCN009
+  Scenario: Sync validates the new fields
+    Given a system entry with template "lights" and a region entry with an empty music value
+    When design sync runs
+    Then it reports design.invalid_field for "template" and for "music"
