@@ -293,6 +293,19 @@ def test_an_untracked_file_that_gitignore_covers_is_not_scanned(repo: Path) -> N
     assert scan_shippable(repo, "game") == []
 
 
+def test_the_allow_file_covers_an_untracked_match_under_the_project(repo: Path) -> None:
+    """FR1: `.nmg/secret-scan-allow` suppresses a reviewed untracked match, by fingerprint or by
+    path and pattern, and leaves every other match reported."""
+    other = "msy_" + "Zz8Yy7Xx6Ww5Vv4Uu3Tt2"
+    _write(repo, "game/scripts/fixture.gd", f'var k = "{MESHY}"\n')
+    _write(repo, "game/scripts/docs.gd", f'var k = "{other}"\nvar a = "{AWS}"\n')
+    _allow(repo, f"{fingerprint(MESHY)}\ngame/scripts/docs.gd:meshy\n")
+
+    assert [(m.path, m.line, m.pattern) for m in scan_shippable(repo, "game")] == [
+        ("game/scripts/docs.gd", 2, "aws")
+    ]
+
+
 def test_an_untracked_file_outside_the_project_is_not_scanned(repo: Path) -> None:
     """AC2: Godot exports only the project folder, so a key beside it does not block."""
     _write(repo, "notes/keys.gd", f'var k = "{MESHY}"\n')

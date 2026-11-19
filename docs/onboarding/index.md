@@ -75,7 +75,7 @@ has been pasted anywhere else from reaching a commit or a build. It recognizes t
 | `github` | A GitHub token, `ghp_…` or `github_pat_…` |
 | `aws` | An AWS access key ID, `AKIA…` |
 | `private-key` | A PEM private-key header |
-| `env-file` | A staged or tracked file named exactly `.env` (reported on line 0) |
+| `env-file` | A file named exactly `.env` that is staged or tracked, or, for `/ship`, untracked and unignored under `game/` outside `game/.godot/` (reported on line 0) |
 
 **The hook.** Onboarding copies the scanner to `scripts/nmg_secret_scan.py` and writes
 `.git/hooks/pre-commit`, which runs the scanner with `--staged`. It reads the content you are about

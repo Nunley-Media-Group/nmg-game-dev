@@ -43,7 +43,8 @@ names only.
    publish a platform that failed.
 
 Before any export the ship runs, in order: the secret scan, before any Godot command and also in a
-dry run (the consumer's tracked files, or outside a git work tree every regular file under the
+dry run (the consumer's tracked files plus the untracked, unignored files under `game/` except
+`game/.godot/`, since Godot can export them; or outside a git work tree every regular file under the
 consumer root except `.env` and `.env.*` files, `.claude/settings.local.json`, and the `.git/`,
 `release/`, `game/.godot/`, `.venv/`, and `node_modules/` folders), then `godot --import` (a fresh
 clone has no `.godot/` class cache until it runs), `godot --check-only` on every `.gd` file (skipping `.godot/`),
@@ -79,7 +80,8 @@ consumer-root `nmg-budgets.json` may override the defaults per metric. Both form
 
 ## Failure modes and remediation
 
-- `ship.secret_found`: a scanned file holds an API key (or a tracked file is named `.env`). The
+- `ship.secret_found`: a scanned file holds an API key (or a tracked file, or an untracked, unignored file
+  under `game/` outside `game/.godot/`, is named `.env`). The
   message lists each match masked as `path:line: pattern xxxx… (sha256:…)`; the full value is never
   shown, so never try to print it. Ask the developer to remove the key (keep keys in `.env`) or, for
   a reviewed false positive, add its `sha256:` fingerprint or `<path>:<pattern>` to
