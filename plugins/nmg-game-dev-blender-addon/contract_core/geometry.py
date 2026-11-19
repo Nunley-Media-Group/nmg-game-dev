@@ -85,7 +85,7 @@ def geometry_findings(
                     samples,
                 )
             )
-        flagged = _normal_violations(bm)
+        flagged = normal_violations(bm)
         if flagged:
             samples = [_face_sample(face, world, deform, names) for face in flagged[:SAMPLE_LIMIT]]
             findings.append(
@@ -102,7 +102,17 @@ def geometry_findings(
     return findings
 
 
-def _normal_violations(bm: bmesh.types.BMesh) -> list[bmesh.types.BMFace]:
+def recalc_island_normals(bm: bmesh.types.BMesh) -> None:
+    """Recalculate normals once per edge-connected island, in the order ``_islands`` gives.
+
+    The clean in variants_core/meshes.py calls this, so it recalculates normals with the same
+    island grouping and face order as the ``geometry.normals`` rule (#232).
+    """
+    for island in _islands(bm):
+        bmesh.ops.recalc_face_normals(bm, faces=island)
+
+
+def normal_violations(bm: bmesh.types.BMesh) -> list[bmesh.types.BMFace]:
     """Return, in index order, the faces that break the normals rule for their island.
 
     An open island has an edge with one linked face, so it is a sheet: only its winding is checked,

@@ -10,6 +10,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Bake each tiling material alone on its tile, so the asset no longer darkens the tile's AO and fails the seam check (#240)
 
+## [0.25.4] - 2026-11-19
+
+### Fixed
+
+- Make mesh cleanup recalculate normals the way the geometry.normals check judges them (#232)
+
 ## [0.25.3] - 2026-11-12
 
 ### Fixed
