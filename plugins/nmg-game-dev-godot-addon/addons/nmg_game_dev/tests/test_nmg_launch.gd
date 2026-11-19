@@ -4,7 +4,9 @@ extends "res://addons/nmg_game_dev/tests/nmg_test_case.gd"
 ## test save folder (#251 AC1, AC2, AC7).
 
 const NmgLaunchScript: GDScript = preload("res://addons/nmg_game_dev/nmg_launch.gd")
-const AutoplaySceneScript: GDScript = preload("res://addons/nmg_game_dev/tests/nmg_autoplay_scene.gd")
+const AutoplaySceneScript: GDScript = preload(
+	"res://addons/nmg_game_dev/tests/nmg_autoplay_scene.gd"
+)
 const AUTOPLAY_TEST_FRAMES: int = 5
 
 var emissions: int = 0

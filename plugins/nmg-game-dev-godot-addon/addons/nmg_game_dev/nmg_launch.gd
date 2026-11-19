@@ -10,8 +10,9 @@ extends Node
 ## A bare flag such as --nmg-autoplay or #nmg-autoplay reads "true".
 ##
 ## The framework reads these flags: --nmg-autoplay emits autoplay_requested once the main scene's
-## _ready has run, so a main scene that connects in its own _ready receives it; --nmg-test-saves makes save_dir() return a test folder; --nmg-shot=<path> with
-## --nmg-shot-after=<seconds> saves the root viewport as a PNG and quits.
+## _ready has run, so a main scene that connects in its own _ready receives it; --nmg-test-saves
+## makes save_dir() return a test folder; --nmg-shot=<path> with --nmg-shot-after=<seconds> saves
+## the root viewport as a PNG and quits.
 
 signal autoplay_requested
 

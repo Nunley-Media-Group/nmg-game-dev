@@ -985,7 +985,7 @@ def _guard_runs(state: dict[str, Any]) -> None:
     "no file outside specs/, CHANGELOG.md, and the exempt conversion files references the retired engine"
 )
 def _no_engine_references(state: dict[str, Any]) -> None:
-    engine_guard.test_exemptions_are_exactly_the_conversion_files_and_exist()
+    engine_guard.test_exemptions_are_exactly_the_listed_files_and_exist()
     engine_guard.test_no_tracked_file_references_the_retired_engine()
     # This binding and its feature are not exempt, so they are checked even before they are tracked.
     for path in (Path(__file__), REPO_ROOT / "tests" / "bdd" / "features" / FEATURE):
