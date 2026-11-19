@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-11-19
+
+### Changed
+
+- Require #254's Godot build tests in the headless Godot gate (#297)
+
 ## [0.38.0] - 2026-11-19
 
 ### Added
