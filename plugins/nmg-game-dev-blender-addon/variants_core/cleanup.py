@@ -5,11 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
+from ..contract_core.geometry import SAMPLE_LIMIT
 from ..contract_core.validate import bottom_center, pivot_meshes
 from .assets import asset_armature, asset_meshes, require_asset
-from .meshes import clean_mesh, evaluated_mesh, replace_mesh, triangle_count
+from .meshes import TwistRepair, clean_mesh, evaluated_mesh, replace_mesh, triangle_count
+from .rest_pose import rest_pose
+
+_POSITION_DECIMALS = 6
 
 
 def cleanup_desktop(collection_name: str) -> dict[str, Any]:
@@ -20,9 +24,14 @@ def cleanup_desktop(collection_name: str) -> dict[str, Any]:
     for obj in asset_meshes(collection):
         tris_before = triangle_count(obj.data)
         _apply_modifiers(obj, rig)
-        clean_mesh(obj.data)
+        repair = clean_mesh(obj.data)
         objects.append(
-            {"name": obj.name, "tris_before": tris_before, "tris_after": triangle_count(obj.data)}
+            {
+                "name": obj.name,
+                "tris_before": tris_before,
+                "tris_after": triangle_count(obj.data),
+                "twist_repair": _twist_report(obj, repair),
+            }
         )
     return {
         "collection": collection_name,
@@ -31,6 +40,15 @@ def cleanup_desktop(collection_name: str) -> dict[str, Any]:
         "tris_after": sum(item["tris_after"] for item in objects),
         "pivot": reseat_desktop(collection_name),
     }
+
+
+def _twist_report(obj: bpy.types.Object, repair: TwistRepair) -> dict[str, Any]:
+    """The twist repair clean_mesh made, with up to SAMPLE_LIMIT seam midpoints in world space."""
+    samples = [
+        [round(float(coord), _POSITION_DECIMALS) for coord in obj.matrix_world @ Vector(point)]
+        for point in repair["midpoints"][:SAMPLE_LIMIT]
+    ]
+    return {"faces": repair["faces"], "edges": repair["edges"], "samples": samples}
 
 
 def reseat_desktop(collection_name: str) -> dict[str, Any]:
@@ -50,7 +68,9 @@ def reseat_desktop(collection_name: str) -> dict[str, Any]:
     collection, _root = require_asset(collection_name)
     meshes = asset_meshes(collection)
     bpy.context.view_layer.update()
-    offset = bottom_center(pivot_meshes(meshes))
+    # The offset is measured at rest: a leftover pose must not move the rest geometry (#236).
+    with rest_pose(meshes):
+        offset = bottom_center(pivot_meshes(meshes))
     if all(round(component, 6) == 0.0 for component in offset):
         return {"reseated": False, "offset": [0.0, 0.0, 0.0]}
     for obj in meshes:

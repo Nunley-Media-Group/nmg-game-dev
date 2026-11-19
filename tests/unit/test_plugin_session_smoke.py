@@ -138,8 +138,12 @@ if args[:2] == ["pane", "list"]:
 if args[:2] == ["agent", "start"]:
     emit({})
 if args[:2] == ["agent", "prompt"]:
+    # A session not yet taking input drops the prompt: the first `drop_prompts` prompts are lost.
     state = load()
-    state.update(json.loads((HOME / "config.json").read_text(encoding="utf-8")))
+    config = json.loads((HOME / "config.json").read_text(encoding="utf-8"))
+    state["prompts"] = state.get("prompts", 0) + 1
+    if state["prompts"] > config.get("drop_prompts", 0):
+        state.update(config)
     save(state)
     emit({})
 if args[:2] == ["pane", "read"]:
@@ -163,10 +167,11 @@ sys.stderr.write(f"fake herdr: unhandled {args}\n")
 sys.exit(2)
 """
 
-# Runs the provider with near-zero timings. argv: module URL, project root.
+# Runs the provider with near-zero timings. argv: module URL, project root, timing overrides (JSON).
 _DRIVER = """
 const { createSmoke } = await import(process.argv[1]);
-const smoke = createSmoke({ pollMs: 1, keySettleMs: 1, mcpPolls: 2 });
+const timings = JSON.parse(process.argv[3]);
+const smoke = createSmoke({ pollMs: 1, keySettleMs: 1, mcpPolls: 2, ...timings });
 const result = await smoke({
   projectRoot: process.argv[2],
   config: { expectConnected: ["blender"] },
@@ -190,6 +195,7 @@ def _smoke(
     height: int,
     top: int = 0,
     selected: int = 0,
+    timings: dict[str, int] | None = None,
     **screen: Any,
 ) -> tuple[dict[str, Any], list[str]]:
     home = tmp_path / "herdr"
@@ -213,7 +219,15 @@ def _smoke(
     }
 
     completed = subprocess.run(
-        ["node", "--input-type=module", "-e", _DRIVER, SMOKE_MODULE.as_uri(), str(tmp_path)],
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            _DRIVER,
+            SMOKE_MODULE.as_uri(),
+            str(tmp_path),
+            json.dumps(timings or {}),
+        ],
         env=env,
         capture_output=True,
         text=True,
@@ -338,3 +352,56 @@ def test_refused_keys_are_recorded_as_paging_stopped_early(tmp_path: Path) -> No
     refused = [entry for entry in result["evidence"] if "paging stopped early" in entry["summary"]]
     assert refused, result["evidence"]
     assert "not accepting keys" in refused[0]["stderr"]
+
+
+def _prompts(result: dict[str, Any]) -> list[str]:
+    return [
+        entry["summary"] for entry in result["evidence"] if "agent prompt /mcp" in entry["summary"]
+    ]
+
+
+def test_a_dropped_mcp_prompt_is_sent_again_and_the_server_is_found(tmp_path: Path) -> None:
+    # The session reported idle right after the trust dialog but dropped the first `/mcp`, so the
+    # screen never showed the list; the smoke asks again and then reads blender as connected.
+    result, _ = _smoke(
+        tmp_path,
+        _mcp_rows(blender_at=12),
+        height=6,
+        drop_prompts=1,
+        timings={"mcpPolls": 4, "repromptPolls": 2},
+    )
+
+    assert result["status"] == "passed", result
+    assert "nmg-game-dev:blender connected" in result["summary"]
+    prompts = _prompts(result)
+    assert len(prompts) == 2, prompts
+    assert "the /mcp list had not opened" in prompts[1]
+
+
+def test_an_open_mcp_list_is_not_prompted_again(tmp_path: Path) -> None:
+    # A list that opened on the first prompt is never sent `/mcp` again, even while a server is
+    # still missing from it.
+    result, _ = _smoke(
+        tmp_path,
+        _mcp_rows(blender_at=None),
+        height=20,
+        timings={"mcpPolls": 4, "repromptPolls": 1},
+    )
+
+    assert result["status"] == "failed", result
+    assert len(_prompts(result)) == 1
+
+
+def test_a_list_that_never_opens_fails_and_says_so(tmp_path: Path) -> None:
+    # Every prompt is dropped: the failure names the unopened list rather than only `missing`.
+    result, _ = _smoke(
+        tmp_path,
+        _mcp_rows(blender_at=12),
+        height=6,
+        drop_prompts=100,
+        timings={"mcpPolls": 4, "repromptPolls": 2},
+    )
+
+    assert result["status"] == "failed", result
+    assert "the /mcp list never opened after 3 prompt(s)" in result["summary"]
+    assert "nmg-game-dev:blender missing" in result["summary"]

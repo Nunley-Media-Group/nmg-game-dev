@@ -38,6 +38,8 @@ viewport or renderer is not done.
   variants step moves its Desktop mesh data onto the origin, so both exported variants sit
   there. The root origin, static assets, and export-time validation keep the 1 mm tolerance.
   A bottom center more than 5 mm off fails validation: move the mesh data closer (#244).
+  Validation, the Desktop re-seat, the reduce copy, and export measure a rigged asset in its rest
+  pose, so a pose left on the pose bones does not affect its pivot, bounds, or mesh checks (#236).
 - Root object transforms applied: location (0,0,0), rotation (0,0,0), scale (1,1,1).
 - Child parts: rotation (0,0,0) and scale (1,1,1), with the origin at the hinge or
   axle and the location wherever that pivot sits relative to the root.
@@ -54,6 +56,11 @@ viewport or renderer is not done.
   will see underneath. Wind every face of a sheet consistently and make it face the viewer:
   `geometry.normals` checks consistent winding between neighbouring faces, and it never compares
   a sheet with an outside direction, so a sheet passes wherever it sits.
+- A closed part must not join itself back with reversed winding through a narrow seam, as a
+  Klein-bottle-like surface does. Such a part has no consistent outward direction, so
+  `geometry.twist_seam` reports the seam itself, with the number of seam edges and their
+  midpoints, instead of `geometry.normals` faces. Finalize cleanup deletes only the faces at
+  those seam edges.
 - Touching primitives, such as an environment piece built from many boxes, either merge by
   distance so they share vertices, or stay about 0.6 mm apart. Vertices that coincide without
   merging raise `geometry.duplicates`.
@@ -169,9 +176,11 @@ Desktop and Mobile are separate physical assets, both produced in the same sessi
 - The `variants` step cleans every Mobile mesh it produces with the same routine Desktop cleanup
   uses: degenerate, zero-area, non-manifold-edge, duplicate, and loose geometry are removed, and
   normals are recalculated per connected island, the way the `geometry.normals` check judges
-  them. Any face that check still flags is then deleted, with the geometry that leaves loose, and
-  the recalculation repeats until no face is flagged. Only an island with no consistent
-  orientation (a Klein-bottle-like surface) keeps flagged faces, so a well-formed mesh loses none;
+  them. The faces at a `geometry.twist_seam` (an island that joins itself with reversed winding)
+  are deleted first, then any face that check still flags, each time with the geometry that
+  leaves loose, and the recalculation repeats until no seam or flagged face remains. Only an
+  island with no consistent orientation (a Klein-bottle-like surface) loses faces, so a
+  well-formed mesh loses none;
   this deletion applies to Desktop cleanup too. It then re-seats the Mobile variant so its bottom centre is at the
   world origin, because decimation can move it. The root's origin and the rig are not changed.
 - Blender makes no LOD meshes. Godot generates LODs for both variants when it imports the

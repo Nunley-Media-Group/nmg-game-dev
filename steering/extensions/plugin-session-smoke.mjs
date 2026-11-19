@@ -12,6 +12,8 @@ const PLUGIN = "nmg-game-dev";
 const START_TIMEOUT_MS = 180000;
 const POLL_MS = 2000;
 const MCP_POLLS = 60;
+// Polls without the /mcp list on screen before `/mcp` is sent again (see `openMcp` in smoke()).
+const REPROMPT_POLLS = 5;
 const TRUST_DIALOG = /Do you trust the files in this folder\?|Yes, I trust this folder|Quick safety check/i;
 const TRUST_ACCEPT_KEYS = Object.freeze(["down", "enter"]);
 const SERVER_FAILED = /✘|\bfailed\b|disconnected|needs authentication/i;
@@ -22,6 +24,8 @@ const KEY_SETTLE_MS = 250;
 const MAX_SCROLL_KEYS = 200;
 const PLUGIN_PREFIX = `plugin:${PLUGIN}:`;
 const SERVER_COUNT = /\b(\d+)\s+servers?\b/;
+// Any line only the /mcp list or a server detail view draws.
+const MCP_SCREEN = /\bMCP servers\b|\bto navigate\b|^\s*Status:/;
 
 function bounded(value, size = 8000) {
   const text = String(value ?? "");
@@ -140,7 +144,7 @@ async function inspectTruncatedRows(pane, { signal, press, count, onRead, done }
   }
 }
 
-async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
+async function smoke(request, { pollMs, keySettleMs, mcpPolls, repromptPolls }) {
   const { projectRoot, config, identity, signal } = request;
   const expected = Array.isArray(config?.expectConnected) ? config.expectConnected : [];
   const evidence = [];
@@ -189,13 +193,21 @@ async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
     }
     if (started.status !== 0) return finish("failed", "Claude Code session with --plugin-dir did not become ready");
 
-    evidence.push(commandEvidence("herdr agent prompt /mcp", await run("herdr", ["agent", "prompt", label, "/mcp"], { signal })));
+    // A session that only just left the trust dialog can report idle before its prompt takes
+    // input, and then drops the typed `/mcp`. The list is therefore asked for again whenever
+    // `repromptPolls` polls pass without any line of it on screen.
+    const openMcp = async (attempt) => evidence.push(commandEvidence(
+      attempt ? `herdr agent prompt /mcp (again: the /mcp list had not opened, attempt ${attempt + 1})` : "herdr agent prompt /mcp",
+      await run("herdr", ["agent", "prompt", label, "/mcp"], { signal })));
+    let prompts = 0;
+    await openMcp(prompts++);
     // Every distinct line from every read, in first-seen order, and the latest row naming each server.
     const lines = new Set();
     const latest = new Map();
     // Truncated rows seen in the current poll (selection mark removed), and the /mcp server count.
     let truncated = new Set();
     let serverCount = MAX_SCROLL_KEYS;
+    let listOpened = false;
     const record = (screen) => {
       for (const line of screen.split("\n")) {
         if (!line.trim()) continue;
@@ -203,6 +215,7 @@ async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
         if (truncatedPluginRow(line)) truncated.add(line.replace("❯", " ").trim());
         const count = SERVER_COUNT.exec(line);
         if (count) serverCount = Number(count[1]);
+        if (count || MCP_SCREEN.test(line)) listOpened = true;
         for (const server of expected) {
           if (line.includes(PLUGIN) && line.includes(server)) latest.set(server, line);
         }
@@ -220,13 +233,18 @@ async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
       return true;
     };
     const settled = (server) => ["connected", "failed"].includes(serverStatus(latest.get(server)));
-    let statuses = {};
     let inspected = null; // the truncated rows the last detail walk ran for
+    let unopenedPolls = 0;
     for (let poll = 0; poll < mcpPolls; poll += 1) {
       if (signal?.aborted) return finish("incomplete", "plugin session smoke cancelled");
       await sleep(pollMs);
       truncated = new Set();
       await pageMcpList(pane, { signal, press, onRead: record });
+      if (!listOpened && (unopenedPolls += 1) >= repromptPolls) {
+        unopenedPolls = 0;
+        await openMcp(prompts++);
+        continue;
+      }
       // Walk the detail views only when an expected server is unresolved and the truncated rows
       // changed since the last walk, so a genuinely missing server does not repeat it every poll.
       const key = [...truncated].sort().join("\n");
@@ -236,14 +254,16 @@ async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
           signal, press, count: serverCount, onRead: record, done: () => expected.every(settled),
         });
       }
-      statuses = Object.fromEntries(expected.map((server) => [server, serverStatus(latest.get(server))]));
       if (expected.every(settled)) break;
     }
+    const statuses = Object.fromEntries(expected.map((server) => [server, serverStatus(latest.get(server))]));
     evidence.push({ kind: "artifact", summary: "/mcp list rows read in the plugin session", artifact: bounded([...lines].join("\n")) });
     const summary = expected.map((server) => `${PLUGIN}:${server} ${statuses[server]}`).join(", ");
     return Object.values(statuses).every((status) => status === "connected")
       ? finish("passed", `plugin loaded via --plugin-dir; ${summary}`)
-      : finish("failed", `plugin MCP servers not all connected: ${summary}`);
+      : finish("failed", listOpened
+        ? `plugin MCP servers not all connected: ${summary}`
+        : `the /mcp list never opened after ${prompts} prompt(s); plugin MCP servers not all connected: ${summary}`);
   } finally {
     if (tabId) evidence.push(commandEvidence(`herdr tab close ${tabId}`, await run("herdr", ["tab", "close", tabId])));
     rmSync(project, { recursive: true, force: true });
@@ -251,8 +271,10 @@ async function smoke(request, { pollMs, keySettleMs, mcpPolls }) {
 }
 
 // The factory is the testability seam: the provider is createSmoke() with the production timings.
-export function createSmoke({ pollMs = POLL_MS, keySettleMs = KEY_SETTLE_MS, mcpPolls = MCP_POLLS } = {}) {
-  return (request) => smoke(request, { pollMs, keySettleMs, mcpPolls });
+export function createSmoke({
+  pollMs = POLL_MS, keySettleMs = KEY_SETTLE_MS, mcpPolls = MCP_POLLS, repromptPolls = REPROMPT_POLLS,
+} = {}) {
+  return (request) => smoke(request, { pollMs, keySettleMs, mcpPolls, repromptPolls });
 }
 
 export const extension = Object.freeze({

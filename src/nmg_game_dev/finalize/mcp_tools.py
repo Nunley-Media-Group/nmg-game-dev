@@ -19,8 +19,11 @@ from typing import Any, Final
 from pydantic import ValidationError
 
 from nmg_game_dev.audio import import_audio as _import_audio
+from nmg_game_dev.design.paths import project_root as _project_root
 from nmg_game_dev.godot.material_variants import list_material_variants as list_variants
+from nmg_game_dev.godot.project import require_project
 from nmg_game_dev.godot.runner import GodotRunner
+from nmg_game_dev.godot.shot import take_shot
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER, parse_step
@@ -38,6 +41,7 @@ from .service import (
 
 _JOB_FIELDS = ("job_id", "state", "step", "progress", "message", "result", "error", "batch")
 _PASCAL: Final = re.compile(r"^[A-Z][A-Za-z0-9]*$")
+MAX_SHOT_AFTER_S: Final = 60.0
 
 
 def finalize_asset(
@@ -247,6 +251,41 @@ def import_audio(
             project_root=Path(project_root) if project_root else None,
             godot=godot,
         )
+    except PipelineError as error:
+        return {"error": error_dict(error)}
+
+
+def game_screenshot(
+    path: str,
+    after: float = 3,
+    options: list[str] | None = None,
+    *,
+    project_root: str | Path | None = None,
+    godot: GodotRunner | None = None,
+) -> dict[str, Any]:
+    """Save a PNG of the running consumer game after ``after`` seconds (#251 FR4, AC5, AC6).
+
+    Runs ``game/project.godot`` windowed with the launch ``options`` and ``--nmg-shot``, so
+    NmgLaunch writes the root viewport to ``path`` and quits. A relative ``path`` resolves against
+    the consumer root (``CLAUDE_PROJECT_DIR``, else the working directory). Returns
+    ``{"path", "width", "height"}``, or ``{"error": {code, message, remediation, stage}}``:
+    ``shot.invalid_after`` for ``after`` outside 0 to 60, ``shot.invalid_path``,
+    ``godot.project_missing``, ``godot.not_found``, or ``shot.no_image``.
+    """
+    try:
+        if not 0 <= after <= MAX_SHOT_AFTER_S:
+            raise PipelineError(
+                code="shot.invalid_after",
+                message=f"after must be between 0 and {MAX_SHOT_AFTER_S:g} seconds, got {after:g}.",
+                remediation="Pass an after between 0 and 60 seconds.",
+                stage="shot",
+            )
+        root = Path(project_root) if project_root else _project_root()
+        game = require_project(root / "game" / "project.godot")
+        target = Path(path)
+        if not target.is_absolute():
+            target = root / target
+        return take_shot(game, target, after, options or [], runner=godot)
     except PipelineError as error:
         return {"error": error_dict(error)}
 
