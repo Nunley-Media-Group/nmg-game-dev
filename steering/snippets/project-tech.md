@@ -51,8 +51,9 @@ Developer in Claude Code
 │   • Godot add-on game/addons/nmg_game_dev (runtime: the    │
 │     NmgAssets variant resolver, the NmgLaunch launch       │
 │     options + autoplay, the NmgVariantScene variant        │
-│     loader, the NmgAudio player + NmgAudioTable name       │
-│     table, NmgMissionDefinition, terrain shader)           │
+│     loader, NmgBuild + NmgVersionLabel build version,      │
+│     the NmgAudio player + NmgAudioTable name table,        │
+│     NmgMissionDefinition, terrain shader)                  │
 │     in the Godot project under game/                       │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -269,6 +270,17 @@ Outputs: seamless albedo PNG paths (+ comparison sheet for "both"); derived norm
          written to SourceArt/Textures/Generated/<name>/ (override NMG_GAME_DEV_TEXTURE_DIR)
 Entry:   python -m nmg_game_dev.texture generate (blocking) or the texture-gen MCP tools generate_textures + get_texture_job (start + poll)
 Errors:  TextureGenError with .code and .remediation
+```
+
+The same models also generate 2D game art (#253): icons, UI art, and paintings. Art takes are not tiled and get no maps.
+
+```
+Inputs:  kind: "icon" | "ui" | "painting", name: str, prompt: str, seeds: list[int] | None, backend (one model, not "both"),
+         aspect: "1:1" (icon, ui) | "16:9" | "3:2" | "1:1" (painting), resolution: int; SourceArt/Art/style.json adds the project style
+Outputs: raw takes SourceArt/Art/raw/<kind>/<Name>-<seed>.png + <Name>.json manifest + contact sheet;
+         finishing writes game/assets/UI/{Icons,Panels,Paintings}/<Name>.png
+Entry:   python -m nmg_game_dev.texture art / art-finish, or the texture-gen MCP tools generate_art (start; poll get_texture_job) + finish_art
+Errors:  TextureGenError with .code and .remediation (texture.*, art.*)
 ```
 
 Whatever the agent authors, the bake step (#67) turns it into the contract's texture sets, proofed in Blender before export.

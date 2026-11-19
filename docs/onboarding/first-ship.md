@@ -12,6 +12,12 @@ what each step prints. To see a full dry run before your own project is ready, r
   platform you ship (Editor > Manage Export Templates).
 - Have the target platform's signing secrets in place. Windows and web need none. The ship names any
   missing variable and stops before it exports. It never prints a secret value.
+- Add a `CHANGELOG.md` at the project root, the folder above `game/`. Give it a `## X.Y.Z` section
+  for the version you will ship, with at least one line that tells players what changed. The ship
+  refuses to run without that section, and it copies the section into the release notes.
+- Choose the first version. The project has no `application/config/version` until you ship one, so
+  the first ship takes `--version X.Y.Z` (for example `--version 1.0.0`); later ships can take
+  `--bump` instead. The version appears in the game through `NmgVersionLabel`.
 
 ## 1. Dry run
 
@@ -22,7 +28,10 @@ mobile budget gate still runs, so an over-budget Mobile asset shows up here.
 
 ## 2. Ship
 
-Ask the agent to ship the target. The ship runs the gates first: `godot --import` (so a fresh
+Ask the agent to ship the target, and name the version when you have one to set: `--version X.Y.Z`
+on the first ship, or `--bump major|minor|patch` after that. Without either flag, the current version
+ships. The ship checks the version and the `CHANGELOG.md` section before it runs any Godot command,
+then runs the gates: `godot --import` (so a fresh
 clone has its class cache), `godot --check-only` on every script, your `game/tests/run_tests.gd`
 when it exists, and a headless smoke run: the game starts with autoplay for 600 frames and the ship
 stops with `ship.smoke_failed` if it prints a script error or does not finish. Then the mobile budget

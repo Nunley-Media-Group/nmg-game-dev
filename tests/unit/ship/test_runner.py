@@ -28,7 +28,15 @@ from nmg_game_dev.ship.runner import (
     project_scripts,
     run_ship,
 )
-from tests.ship_fakes import APP, ShipSandbox, write_mobile_report
+from nmg_game_dev.ship.version import patch_preset_literals
+from tests.ship_fakes import (
+    APP,
+    VERSION_KEYS,
+    ShipSandbox,
+    changed_keys,
+    consumer_bytes,
+    write_mobile_report,
+)
 
 _KEYSTORE_PASSWORD = "placeholder-keystore-password"
 _APP_PASSWORD = "placeholder-app-password"
@@ -671,4 +679,186 @@ def test_cli_dry_run_defaults_the_release_folder_to_the_consumer_root(
 def test_cli_rejects_an_unknown_target_with_argparse_exit_2(sandbox: ShipSandbox) -> None:
     with pytest.raises(SystemExit) as caught:
         ship_main(["linux", "--project", str(sandbox.project)])
+    assert caught.value.code == 2
+
+
+# Build version, changelog, and release notes (#254) -----------------------------------------------
+
+_ANDROID_INDEX = 2
+"""The Android preset's ``[preset.N]`` index in ``render_export_presets``."""
+
+
+def _add_changelog_section(
+    sandbox: ShipSandbox, heading: str, text: str = "- Faster loading."
+) -> None:
+    """Append a ``## <heading>`` section with ``text`` to the consumer's CHANGELOG.md."""
+    path = sandbox.game.parent / "CHANGELOG.md"
+    path.write_text(
+        path.read_text(encoding="utf-8") + f"\n## {heading}\n\n{text}\n", encoding="utf-8"
+    )
+
+
+def _set_android_version_code(sandbox: ShipSandbox, code: str) -> None:
+    presets = sandbox.game / "export_presets.cfg"
+    text = presets.read_text(encoding="utf-8")
+    presets.write_text(patch_preset_literals(text, _ANDROID_INDEX, {"version/code": code}))
+
+
+def _add_project_tests(sandbox: ShipSandbox, summary: str = "42 passed, 0 failed") -> None:
+    """Give the sandbox a project test runner whose output ends with ``summary``."""
+    tests = sandbox.game / "tests"
+    tests.mkdir()
+    (tests / "run_tests.gd").write_text("extends SceneTree\n", encoding="utf-8")
+    sandbox.godot.responses["-s"] = lambda args, project: CommandResult(0, stdout=f"{summary}\n")
+
+
+def test_bump_minor_writes_the_version_to_the_project_and_every_preset(
+    sandbox: ShipSandbox,
+) -> None:
+    _add_changelog_section(sandbox, "1.3.0")
+    _set_android_version_code(sandbox, "4")
+    presets = sandbox.game / "export_presets.cfg"
+    project_before = sandbox.project.read_text(encoding="utf-8")
+    presets_before = presets.read_text(encoding="utf-8")
+
+    sandbox.ship("all", bump="minor")
+
+    project_after = sandbox.project.read_text(encoding="utf-8")
+    presets_after = presets.read_text(encoding="utf-8")
+    assert parse_config(project_after)[("application", "config/version")] == '"1.3.0"'
+    assert changed_keys(project_before, project_after) == {"config/version"}
+    assert changed_keys(presets_before, presets_after) <= VERSION_KEYS
+    options = parse_config(presets_after)
+    assert options[("preset.2.options", "version/name")] == '"1.3.0"'
+    assert options[("preset.2.options", "version/code")] == "5"
+    assert options[("preset.3.options", "application/file_version")] == '"1.3.0.0"'
+    seen = sandbox.presets_at_export
+    assert 'application/short_version="1.3.0"' in seen["macOS"]
+    assert 'application/version="1.3.0"' in seen["iOS"]
+    assert "version/code=5" in seen["Android"]
+    assert 'application/product_version="1.3.0.0"' in seen["Windows Desktop"]
+
+
+def test_no_version_flag_leaves_both_files_byte_identical(sandbox: ShipSandbox) -> None:
+    before = consumer_bytes(sandbox)
+    sandbox.ship("windows")
+    assert consumer_bytes(sandbox) == before
+
+
+@pytest.mark.parametrize(
+    ("flags", "code"),
+    [
+        ({"version": "1.2.3"}, "ship.version_not_increased"),
+        ({"version": "1.0.0"}, "ship.version_not_increased"),
+        ({"version": "1.3"}, "ship.version_invalid"),
+        ({"bump": "minor", "version": "1.3.0"}, "ship.version_invalid"),
+    ],
+)
+def test_a_refused_version_stops_before_any_godot_command_or_write(
+    sandbox: ShipSandbox, flags: dict[str, str], code: str
+) -> None:
+    _add_changelog_section(sandbox, "1.3.0")
+    before = consumer_bytes(sandbox)
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("all", bump=flags.get("bump"), version=flags.get("version"))
+    assert caught.value.code == code
+    assert sandbox.godot.calls == []
+    assert consumer_bytes(sandbox) == before
+    assert not sandbox.release_dir.exists()
+
+
+def test_a_project_with_no_version_stops_with_version_missing(sandbox: ShipSandbox) -> None:
+    sandbox.project.write_text(
+        sandbox.project.read_text(encoding="utf-8").replace('config/version="1.2.3"\n', ""),
+        encoding="utf-8",
+    )
+    before = consumer_bytes(sandbox)
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("windows")
+    assert caught.value.code == "ship.version_missing"
+    assert sandbox.godot.calls == []
+    assert consumer_bytes(sandbox) == before
+
+
+def test_a_missing_changelog_section_stops_before_any_godot_or_tool(sandbox: ShipSandbox) -> None:
+    before = consumer_bytes(sandbox)
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("macos", version="1.3.0")
+    assert caught.value.code == "ship.changelog_missing"
+    assert sandbox.godot.calls == []
+    assert sandbox.calls() == []
+    assert consumer_bytes(sandbox) == before
+
+
+@pytest.mark.parametrize("heading", ["1.3.0", "[1.3.0] - 2026-11-18"])
+def test_a_changelog_heading_may_carry_brackets_and_a_date(
+    sandbox: ShipSandbox, heading: str
+) -> None:
+    _add_changelog_section(sandbox, heading)
+    entries = sandbox.ship("windows", bump="minor")
+    assert [entry.platform for entry in entries] == ["windows"]
+
+
+def test_a_failing_gate_writes_no_version_and_exports_nothing(sandbox: ShipSandbox) -> None:
+    _add_changelog_section(sandbox, "1.3.0")
+    sandbox.godot.responses["--check-only"] = CommandResult(1, stderr="SCRIPT ERROR: Parse Error\n")
+    before = consumer_bytes(sandbox)
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("windows", version="1.3.0")
+    assert caught.value.code == "ship.script_check_failed"
+    assert consumer_bytes(sandbox) == before
+    assert sandbox.exports() == []
+
+
+def test_release_notes_carry_the_version_changes_and_gate_results(sandbox: ShipSandbox) -> None:
+    _add_changelog_section(sandbox, "1.3.0", "- Faster loading.")
+    _add_project_tests(sandbox, "42 passed, 0 failed")
+    sandbox.ship("macos", version="1.3.0")
+    notes = (sandbox.release_dir / "RELEASE-NOTES.md").read_text(encoding="utf-8")
+    assert notes.startswith("# Release notes — 1.3.0\n")
+    assert "## Changes\n\n- Faster loading.\n" in notes
+    assert "- version: 1.2.3 -> 1.3.0\n" in notes
+    assert "- changelog: ## 1.3.0 found\n" in notes
+    assert "- tests: 42 passed, 0 failed\n" in notes
+    assert "- smoke: passed\n" in notes
+    assert "- mobile budgets: not applicable\n" in notes
+    assert f"| macos | `macos/{APP}.app` | `" in notes
+    assert notes.index("## Changes") < notes.index("## Gates") < notes.index("## Artifacts")
+
+
+def test_a_project_without_tests_records_tests_not_present(sandbox: ShipSandbox) -> None:
+    sandbox.ship("windows")
+    notes = (sandbox.release_dir / "RELEASE-NOTES.md").read_text(encoding="utf-8")
+    assert "- tests: not present\n" in notes
+
+
+def test_a_dry_run_records_the_version_and_changelog_lines_in_each_dry_run_file(
+    sandbox: ShipSandbox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _add_changelog_section(sandbox, "1.2.4")
+    before = consumer_bytes(sandbox)
+    entries = sandbox.ship("all", bump="patch", dry_run=True)
+    assert entries == []
+    assert sandbox.godot.calls == []
+    assert consumer_bytes(sandbox) == before
+    output = _output(capsys)
+    assert "DRY-RUN: version 1.2.3 -> 1.2.4" in output
+    assert "DRY-RUN: changelog ## 1.2.4 found in " in output
+    for platform in ("macos", "windows", "ios", "android", "web"):
+        dry = (sandbox.release_dir / platform / "DRY-RUN.txt").read_text(encoding="utf-8")
+        assert dry.splitlines()[0].startswith("DRY-RUN: godot --headless")
+        assert "DRY-RUN: version 1.2.3 -> 1.2.4" in dry
+        assert "DRY-RUN: changelog ## 1.2.4 found in " in dry
+
+
+def test_cli_takes_bump_and_version_and_refuses_both(
+    sandbox: ShipSandbox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _add_changelog_section(sandbox, "1.3.0")
+    release = sandbox.game.parent / "release"
+    args = ["windows", "--project", str(sandbox.project), "--release-dir", str(release)]
+    assert ship_main([*args, "--dry-run", "--bump", "minor"]) == 0
+    assert "DRY-RUN: version 1.2.3 -> 1.3.0" in _output(capsys)
+    with pytest.raises(SystemExit) as caught:
+        ship_main([*args, "--bump", "minor", "--version", "1.3.0"])
     assert caught.value.code == 2

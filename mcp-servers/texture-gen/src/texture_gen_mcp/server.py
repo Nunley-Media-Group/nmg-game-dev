@@ -15,10 +15,10 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from nmg_game_dev.texture import contact_sheet, generate, jobs
+from nmg_game_dev.texture import art, art_finish, contact_sheet, generate, jobs
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.generate import TextureRequest, backend_status
-from nmg_game_dev.texture.paths import output_root
+from nmg_game_dev.texture.paths import output_root, project_root
 
 log = logging.getLogger("texture-gen")
 mcp = FastMCP("texture-gen")
@@ -112,6 +112,54 @@ def texture_contact_sheet() -> dict[str, Any]:
     except TextureGenError as error:
         return _error(error)
     return sheet.as_json()
+
+
+@mcp.tool()
+def generate_art(
+    kind: str,
+    name: str,
+    prompt: str,
+    seeds: list[int] | None = None,
+    backend: str = "flux2-klein-4b",
+    aspect: str | None = None,
+    resolution: int = 1024,
+) -> dict[str, Any]:
+    """Start a background art job and return its job_id at once. kind is icon, ui, or painting.
+    Each take is written to SourceArt/Art/raw/<kind>/<name>-<seed>.png with no tiling. The job runs
+    the seeds that have no take yet; poll get_texture_job(job_id) for progress. Icons and UI art are
+    square; a painting takes aspect 16:9 (the default), 3:2, or 1:1. The project style in
+    SourceArt/Art/style.json is added to the prompt when present."""
+    try:
+        kwargs: dict[str, Any] = {
+            "kind": kind,
+            "name": name,
+            "prompt": prompt,
+            "backend": backend,
+            "aspect": aspect,
+            "resolution": resolution,
+        }
+        if seeds is not None:
+            kwargs["seeds"] = list(seeds)
+        job_id = jobs.start(art.ArtRequest(**kwargs))
+    except TextureGenError as error:
+        log.warning("generate_art refused: %s", error.code)
+        return _error(error)
+    return {"job_id": job_id}
+
+
+@mcp.tool()
+def finish_art(kind: str, name: str, pick: int, width: int | None = None) -> dict[str, Any]:
+    """Finish the picked take of a generated art image into game files. icon writes
+    game/assets/UI/Icons/<name>.png (512 px) and <name>_small.png (64 px); ui writes
+    game/assets/UI/Panels/<name>.png (1024 px); painting writes game/assets/UI/Paintings/<name>.png
+    at width (default 1920). Returns the files written, or the error art.take_not_found,
+    art.background_not_flat, or art.subject_cropped with nothing written."""
+    try:
+        return art_finish.finish(
+            project_root(os.environ, Path.cwd()), kind, name, pick, width=width
+        )
+    except TextureGenError as error:
+        return _error(error)
 
 
 def main() -> None:

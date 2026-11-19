@@ -90,9 +90,11 @@ and a `PreToolUse` hook enforces the first one:
 
 - **One take.** Every audio generation call passes `generations_count: 1`. The official MCP defaults
   to several takes per call. The hook denies a `creative_generate_speech` call, or a
-  `creative_generate_in_flow` call whose `node_type` is `sfx`, `music`, or `tts`, when
-  `generations_count` is missing or is anything other than the integer 1. The denial names
-  `/generate-audio`. Set `generations_count: 1` and retry.
+  `creative_generate_in_flow` call whose `node_type` is `tts`, `sfx`, `music`, `dubbing-audio`,
+  `voice-changer`, `voice-isolator`, `audio-effects`, `video-to-music`, or `composition` (see
+  [Guarded node types](#guarded-node-types)), when `generations_count` is missing or is anything
+  other than the integer 1. The denial names `/generate-audio`. Set `generations_count: 1`
+  and retry.
 - **Instrumental by default.** For a music track, the skill reads the music model's schema with
   `creative_get_model_schema` and sets its instrumental option. Vocals come only when you ask for them
   and supply the lyrics. The skill then uses your lyrics unchanged.
@@ -103,6 +105,31 @@ and a `PreToolUse` hook enforces the first one:
 The hook reminds the agent once per session to generate through `/generate-audio`. It never blocks any
 other ElevenLabs call, such as an image generation, and it fails open on unreadable input. Its markers
 live under `NMG_GAME_DEV_HOOK_STATE_DIR/generate-audio-reminder` when that variable is set.
+
+### Guarded node types
+
+Every guarded audio generation runs with `generations_count: 1`. The hook guards these in-flow node
+types: every type that `creative_get_flow_node_types` lists with audio output, plus `composition`.
+
+| `node_type` | Produces |
+|-------------|----------|
+| `tts` | speech |
+| `sfx` | sound effect |
+| `music` | music |
+| `video-to-music` | music scored to a video |
+| `audio-effects` | processed audio |
+| `voice-changer` | converted voice |
+| `voice-isolator` | isolated voice |
+| `dubbing-audio` | dubbed audio |
+| `composition` | mixed audio, or video when a video source is connected |
+
+`composition` is guarded even though it declares video output. With only audio sources connected, it
+outputs a mixed audio file, and it spends credits per take like the other audio nodes.
+
+The hook leaves the other in-flow node types alone: `image-generation`, `video-generation`,
+`image-transform`, `avatar`, `llm`, `speech-to-text`, `random`, and `dubbing-video` produce images,
+video, or text, and `voice-creation` produces a designed voice rather than an audio file. Voices come
+from `creative_design_voice`, not from a generation node.
 
 ## Parameters
 

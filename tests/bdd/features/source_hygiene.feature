@@ -1,0 +1,20 @@
+# File: tests/bdd/features/source_hygiene.feature
+#
+# Generated from: specs/286-remove-the-stale-unreal-plugin-comment-and-wrap-long-gdscript-lines/feature.gherkin
+# Issue: #286
+
+Feature: Remove the stale Unreal plugin comment and wrap long GDScript lines
+
+  @SCN001
+  Scenario: The Blender test runner names no Unreal plugin
+    Given the text of tests/blender/_runner.py
+    When it is searched for "ue-plugin"
+    Then nothing matches
+    And its comment describes the plugins/ layout
+    And the retired-engine guard flags the text "nmg-game-dev-ue-plugin"
+
+  @SCN002
+  Scenario: The Godot add-on's GDScript fits 100 columns
+    Given every .gd file under plugins/nmg-game-dev-godot-addon/
+    When each line's length is measured in characters
+    Then no line is longer than 100 characters

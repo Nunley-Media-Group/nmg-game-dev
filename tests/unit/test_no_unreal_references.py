@@ -1,9 +1,10 @@
 """Guard: no tracked file outside the exemptions references the retired engine (#249 AC14).
 
 Every tracked path and text body is checked against case-insensitive ``unreal``, ``vibeue``,
-``.uproject`` and ``.uasset``, plus the case-sensitive whole word ``UE``. ``specs/`` and
-``CHANGELOG.md`` keep history; ``EXEMPT`` lists the conversion command's files, which must name
-what they convert from.
+``ue-plugin``, ``.uproject`` and ``.uasset``, plus the case-sensitive whole word ``UE``.
+``specs/`` and ``CHANGELOG.md`` keep history. ``EXEMPT`` lists the conversion command's files,
+which must name what they convert from, and the source-hygiene scenarios (#286), which must name
+the retired strings they search for.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Final
 
 from tests._scaffold_contract import REPO_ROOT
 
-INSENSITIVE: Final = re.compile(r"unreal|vibeue|\.uproject|\.uasset", re.IGNORECASE)
+INSENSITIVE: Final = re.compile(r"unreal|vibeue|ue-plugin|\.uproject|\.uasset", re.IGNORECASE)
 SENSITIVE: Final = re.compile(r"\bUE\b")
 
 HISTORY: Final = ("specs/", "CHANGELOG.md")
@@ -27,6 +28,8 @@ EXEMPT: Final = (
     "tests/bdd/features/convert_to_godot.feature",
     "tests/bdd/test_convert_to_godot_bdd.py",
     "tests/unit/test_no_unreal_references.py",
+    "tests/bdd/features/source_hygiene.feature",
+    "tests/bdd/test_source_hygiene_bdd.py",
 )
 
 
@@ -71,7 +74,7 @@ def test_no_tracked_file_references_the_retired_engine() -> None:
     assert offenders == [], "retired engine references:\n" + "\n".join(offenders)
 
 
-def test_exemptions_are_exactly_the_conversion_files_and_exist() -> None:
+def test_exemptions_are_exactly_the_listed_files_and_exist() -> None:
     assert EXEMPT == (
         "src/nmg_game_dev/convert/",
         "skills/convert-to-godot/",
@@ -81,6 +84,8 @@ def test_exemptions_are_exactly_the_conversion_files_and_exist() -> None:
         "tests/bdd/features/convert_to_godot.feature",
         "tests/bdd/test_convert_to_godot_bdd.py",
         "tests/unit/test_no_unreal_references.py",
+        "tests/bdd/features/source_hygiene.feature",
+        "tests/bdd/test_source_hygiene_bdd.py",
     )
     missing = [entry for entry in EXEMPT if not (REPO_ROOT / entry).exists()]
     assert missing == []
@@ -97,3 +102,5 @@ def test_matcher_whole_word_abbreviation_and_any_case_engine_name() -> None:
     assert references_engine("Game.uproject")
     assert references_engine("SM_Crate.uasset")
     assert references_engine("VibeUE")
+    assert references_engine("nmg-game-dev-ue-plugin")
+    assert references_engine("NMG-Game-Dev-UE-Plugin")

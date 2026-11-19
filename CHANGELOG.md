@@ -10,6 +10,46 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Audio component: `design scaffold` with `template: audio` on a `system` entry writes a component script that extends the new `NmgAudio` add-on class and its `audio_table.tres` name table. `NmgAudio` plays sounds by name (`sfx`, `ui`, `music` with crossfades and loops, `stinger` with ducking, `region_music` from a region's `music` field, and volumes saved by `set_volumes`), and a sound the table does not hold plays nothing and warns once. `python -m nmg_game_dev.audio refresh` and the `refresh_audio_table` MCP tool rebuild the tables; every successful `import_audio` refreshes them and returns `refreshed_tables`. An unreadable design backlog is `audio.backlog_invalid`, and a table file that cannot be read or written is `audio.table_unreadable` or `audio.table_unwritable`: an error from a refresh, and a `refresh_warning` on an import that otherwise succeeded. A project with no Audio name table skips the refresh without reading the backlog, and a stinger plays at its own pitch, without `pitch_jitter`. `design sync` reports `design.invalid_field` for a `template` other than `audio` or a region `music` that is not a non-empty string. (#237)
 
+## [0.34.0] - 2026-11-19
+
+### Added
+
+- `/ship --bump major|minor|patch` and `--version X.Y.Z` set the build version in `game/project.godot` and in every export preset: macOS and iOS `application/short_version` and `application/version`, Android `version/name` with `version/code` one higher, and Windows `application/file_version` and `application/product_version` as `X.Y.Z.0`. Only those lines change, and the version is written after the gates and before the first export. (#254)
+- `/ship` requires a `## X.Y.Z` section in the consumer's root `CHANGELOG.md` with at least one line of text for players, and stops with `ship.changelog_missing` before any Godot command when there is none. (#254)
+- `release/RELEASE-NOTES.md` is headed with the version, carries the changelog section under `## Changes`, lists each gate that ran with its result under `## Gates`, and keeps the artifact SHA-256 table under `## Artifacts`. (#254)
+- `NmgBuild.version()` and the `NmgVersionLabel` node in the `addons/nmg_game_dev` add-on show the running build's version, with `prefix` defaulting to `"v"`. (#254)
+- `/ship` stops with `ship.version_invalid`, `ship.version_not_increased`, or `ship.version_missing` before any gate or write when `--version` is malformed or not above the current version, both version flags are given, or the project declares no version and no flag names one. (#254)
+- When an export, signing, or notarization fails after the version is written, the rerun takes no version flag; rerunning with the same `--version` stops with `ship.version_not_increased` and says to rerun without one. (#254)
+
+### Changed
+
+- **BREAKING CHANGE:** `/ship` requires a `CHANGELOG.md` section for the version it ships, and a project that declares no `application/config/version` needs `--version X.Y.Z` on its first ship. (#254)
+
+### Migration Notes
+
+- Add a `CHANGELOG.md` at the consumer root with a `## X.Y.Z` section for the version you ship, and pass `--version X.Y.Z` on the first ship of a project that declares no version. (#254)
+
+## [0.33.0] - 2026-11-19
+
+### Changed
+
+- Remove the stale Unreal plugin comment and wrap long GDScript lines (#286)
+
+## [0.32.0] - 2026-11-19
+
+### Fixed
+
+- The ElevenLabs audio guard denies a multi-take `creative_generate_in_flow` call for every audio node type, not only `sfx`, `music`, and `tts`. `dubbing-audio`, `voice-changer`, `voice-isolator`, `audio-effects`, `video-to-music`, and `composition` now get the same one-take rule. The guarded set is derived from a recorded ElevenLabs node-type list in the tests, and `/generate-audio` and `docs/mcp/elevenlabs.md` name each one. (#285)
+
+## [0.31.0] - 2026-11-19
+
+### Added
+
+- `python -m nmg_game_dev.texture art` generates 2D game art (`icon`, `ui`, or `painting`) with the local texture models. Each take is written untiled to `SourceArt/Art/raw/<kind>/`, with a `<Name>.json` manifest and a `<Name>_sheet.png` contact sheet, and seeds that already have a take are skipped without loading a model. (#253)
+- `python -m nmg_game_dev.texture art-finish` cuts a picked take into game images: icons at `game/assets/UI/Icons/` (512 px and a 64 px copy), UI panels at `game/assets/UI/Panels/` (1024 px), and paintings at `game/assets/UI/Paintings/` (1920 px wide by default, RGB with no alpha). A take with a non-flat background or a subject touching the edge is refused with nothing written, and rerunning gives byte-identical files. (#253)
+- `SourceArt/Art/style.json` holds a project style sentence that every art prompt carries and that texture manifests record as `project_style`. Texture prompts do not change. (#253)
+- The `texture-gen` MCP server's `generate_art` (a queued job, polled with `get_texture_job`) and `finish_art` tools, documented in `docs/mcp/texture-gen.md`. (#253)
+
 ## [0.30.1] - 2026-11-19
 
 ### Fixed

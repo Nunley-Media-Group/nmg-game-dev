@@ -48,12 +48,15 @@ def run_batch(batch: dict[str, Any]) -> None:
     steps = int(batch["steps"])
     for item in batch["items"]:
         started = time.monotonic()
+        # Art items carry their own width and height (#253); texture items are square.
+        width = int(item.get("width") or item["resolution"])
+        height = int(item.get("height") or item["resolution"])
         image = model.generate_image(
             seed=int(item["seed"]),
             prompt=str(item["prompt"]),
             num_inference_steps=steps,
-            height=int(item["resolution"]),
-            width=int(item["resolution"]),
+            height=height,
+            width=width,
         )
         path = Path(str(item["path"]))
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -36,6 +36,21 @@ WRAPPED_TOOLS: Final[tuple[str, ...]] = ("codesign", "security", "xcrun", "ditto
 PROJECT_NAME: Final = "Dogfood Game!"
 APP: Final = "DogfoodGame"
 """``PROJECT_NAME`` with its non-alphanumerics removed: the exported artifact's name."""
+VERSION: Final = "1.2.3"
+"""The consumer's version. Its ``CHANGELOG.md`` has a ``## 1.2.3`` section."""
+
+VERSION_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "config/version",
+        "application/short_version",
+        "application/version",
+        "version/name",
+        "version/code",
+        "application/file_version",
+        "application/product_version",
+    }
+)
+"""The config keys a version ship sets; no other key may change (#254 AC1)."""
 
 
 @dataclass
@@ -70,8 +85,19 @@ class ShipSandbox:
     def release_dir(self) -> Path:
         return self.game.parent / "release"
 
-    def ship(self, target: str, *, dry_run: bool = False, **env: str) -> list[ReleaseEntry]:
-        """Run the real ship flow against this sandbox, with ``env`` layered over its env."""
+    def ship(
+        self,
+        target: str,
+        *,
+        dry_run: bool = False,
+        bump: str | None = None,
+        version: str | None = None,
+        **env: str,
+    ) -> list[ReleaseEntry]:
+        """Run the real ship flow against this sandbox, with ``env`` layered over its env.
+
+        ``bump`` and ``version`` are the ``--bump`` and ``--version`` flags (#254).
+        """
         from nmg_game_dev.ship.runner import run_ship  # noqa: PLC0415
 
         return run_ship(
@@ -81,6 +107,8 @@ class ShipSandbox:
             dry_run,
             {**self.env, **env},
             godot=self.godot,
+            bump=bump,
+            version=version,
         )
 
     def calls(self, tool: str | None = None) -> list[list[str]]:
@@ -139,7 +167,12 @@ def make_sandbox(root: Path) -> ShipSandbox:
     (game / "scripts").mkdir(parents=True)
     project = game / "project.godot"
     project.write_text(
-        f'config_version=5\n\n[application]\n\nconfig/name="{PROJECT_NAME}"\n', encoding="utf-8"
+        f'config_version=5\n\n[application]\n\nconfig/name="{PROJECT_NAME}"\n'
+        f'config/version="{VERSION}"\n',
+        encoding="utf-8",
+    )
+    (game.parent / "CHANGELOG.md").write_text(
+        f"# Changelog\n\n## {VERSION}\n\n- The first player build.\n", encoding="utf-8"
     )
     (game / "export_presets.cfg").write_text(render_export_presets(PROJECT_NAME), encoding="utf-8")
     (game / "scripts" / "player.gd").write_text("extends Node3D\n", encoding="utf-8")
@@ -223,3 +256,21 @@ def _write_wrapper(path: Path, tool: str) -> None:
         encoding="utf-8",
     )
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def changed_keys(before: str, after: str) -> set[str]:
+    """The key of every config line that differs between two texts (#254)."""
+    before_lines, after_lines = before.splitlines(), after.splitlines()
+    changed = [line for line in before_lines if line not in after_lines]
+    changed += [line for line in after_lines if line not in before_lines]
+    return {line.split("=", 1)[0].strip() for line in changed}
+
+
+def consumer_bytes(sandbox: ShipSandbox) -> dict[str, bytes]:
+    """The bytes of the project, its export presets, and the consumer's CHANGELOG.md (#254)."""
+    paths = {
+        "project": sandbox.project,
+        "presets": sandbox.game / "export_presets.cfg",
+        "changelog": sandbox.game.parent / "CHANGELOG.md",
+    }
+    return {name: path.read_bytes() for name, path in paths.items()}
