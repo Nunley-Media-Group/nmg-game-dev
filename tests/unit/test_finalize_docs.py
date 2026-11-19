@@ -185,3 +185,72 @@ def test_the_batch_summary_and_exit_code_are_documented() -> None:
     assert "Batch:" in text
     assert "finalize.batch_failed" in text
     assert "finalize.invalid_batch" in text
+
+
+# The per-asset records, the up-to-date check, and the batch skip option (#247 AC12, AC13).
+
+CHANGELOG_MD = REPO_ROOT / "CHANGELOG.md"
+RECORD_TERMS = (
+    "<consumer>/.nmg/finalize/<Category>/<Name>.json",
+    "check_finalized",
+    "skip_up_to_date",
+    "up_to_date",
+    "<Name>.logs/",
+)
+CHECK_REASONS = (
+    "up_to_date",
+    "project_missing",
+    "no_record",
+    "record_unreadable",
+    "last_run_failed",
+    "not_full_run",
+    "no_source_blend",
+    "source_missing",
+    "source_newer",
+    "import_missing",
+)
+
+
+@pytest.mark.parametrize("term", RECORD_TERMS)
+@pytest.mark.parametrize("surface", ("docs/mcp/finalize.md", "skills/finalize-asset/SKILL.md"))
+def test_the_document_names_the_record_term(surface: str, term: str) -> None:
+    assert term in _text(SURFACES[surface])
+
+
+@pytest.mark.parametrize("reason", CHECK_REASONS)
+def test_the_mcp_doc_names_every_check_reason(reason: str) -> None:
+    assert f"`{reason}`" in _text(FINALIZE_MD), reason
+
+
+def test_the_mcp_doc_names_the_check_cli_the_error_code_and_the_caveat() -> None:
+    text = _text(FINALIZE_MD)
+    for needle in (
+        "nmg_game_dev.finalize check --category Props --collection Crate",
+        "--skip-up-to-date",
+        "finalize.record_not_written",
+        "modification times",
+        "step cache",
+    ):
+        assert needle in text, needle
+
+
+def test_the_tool_descriptions_name_check_finalized_and_the_skip_option() -> None:
+    text = _tool_text()
+    assert "check_finalized" in text
+    assert "skip_up_to_date" in text
+
+
+def test_the_tool_table_lists_check_finalized() -> None:
+    assert re.search(r"^\| `check_finalized` \|", _text(FINALIZE_MD), re.MULTILINE)
+
+
+def test_the_error_table_lists_the_record_not_written_warning() -> None:
+    assert re.search(r"^\| `finalize\.record_not_written` \|", _text(FINALIZE_MD), re.MULTILINE)
+
+
+def test_the_changelog_unreleased_section_has_the_records_bullet() -> None:
+    text = _text(CHANGELOG_MD)
+    unreleased = text.split("## [Unreleased]", 1)[1].split("\n## ", 1)[0]
+    assert "### Added" in unreleased
+    bullets = [line for line in unreleased.splitlines() if line.startswith("- ")]
+    assert any("finalize records" in b.lower() and b.endswith("(#247)") for b in bullets)

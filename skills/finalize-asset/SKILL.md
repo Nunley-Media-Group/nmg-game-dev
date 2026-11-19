@@ -61,6 +61,19 @@ there is no editor to open and no live-editor bridge.
    collection from `result.batch.items` with its own code, message, stage, and remediation, and name the
    collections that were skipped. Collections that already succeeded stay imported.
 
+Before finalizing an asset again, call `check_finalized` with its `category` and `collection` (or with
+an `assets` list for several). Each finished run writes a record to
+`<consumer>/.nmg/finalize/<Category>/<Name>.json`, where `<consumer>` is the project that holds
+`game/project.godot`, and copies the run's logs to the `<Name>.logs/` directory beside it. The next run
+replaces both. `up_to_date: true` means the last run was a clean full run and the source `.blend` has
+not changed since, so an upfront rerun is unnecessary. Otherwise `reason` says why, such as `no_record`,
+`last_run_failed`, `source_newer`, or `import_missing`. The check reads only the record and file times,
+so it starts no Blender or Godot and takes no lock. It can say "not up to date" for a `.blend` that was
+saved without content changes; a rerun of that asset is then a cache hit on every step. For a batch,
+`skip_up_to_date: true` on `requests` skips each up-to-date entry, which is counted under
+`result.batch.up_to_date`. A single `collection` with `skip_up_to_date` fails with
+`finalize.invalid_request`.
+
 To run one step, call `run_finalize_step` with `step` set to `validate`, `bake`, `variants`, `export`,
 `export_anims`, `reimport`, `import_godot`, or `import_anims`. It takes the same inputs, including
 `wait_for_lock`, and returns a result with `step`, `cache_hit`, `outputs`, and

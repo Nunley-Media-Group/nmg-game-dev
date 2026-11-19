@@ -329,6 +329,7 @@ class FinalizeService:
         *,
         force: bool = False,
         fail_fast: bool = False,
+        skip_up_to_date: bool = False,
         wait_for_lock: bool = False,
         lock_wait_s: float | None = None,
     ) -> str:
@@ -338,6 +339,7 @@ class FinalizeService:
             tuple(steps),
             force=force,
             fail_fast=fail_fast,
+            skip_up_to_date=skip_up_to_date,
             cache_root=self._cache_root,
             launcher=self._launcher,
             wait_for_lock=wait_for_lock,
@@ -378,6 +380,7 @@ class FinalizeService:
         *,
         force: bool = False,
         fail_fast: bool = False,
+        skip_up_to_date: bool = False,
         wait_for_lock: bool = False,
         lock_wait_s: float | None = None,
     ) -> dict[str, Any]:
@@ -387,6 +390,7 @@ class FinalizeService:
             steps,
             force=force,
             fail_fast=fail_fast,
+            skip_up_to_date=skip_up_to_date,
             wait_for_lock=wait_for_lock,
             lock_wait_s=lock_wait_s,
         )
@@ -405,6 +409,17 @@ def error_dict(error: PipelineError) -> dict[str, str]:
         "message": error.message,
         "remediation": error.remediation,
         "stage": error.stage,
+    }
+
+
+def skip_needs_batch_error() -> dict[str, str]:
+    """Return the ``finalize.invalid_request`` for ``skip_up_to_date`` on one collection (#247)."""
+    return {
+        "code": "finalize.invalid_request",
+        "message": "skip_up_to_date applies to a batch, but one collection was given",
+        "remediation": "Pass requests (or --batch, or several --collection values) with "
+        "skip_up_to_date, or leave it out to finalize the one collection.",
+        "stage": "finalize",
     }
 
 

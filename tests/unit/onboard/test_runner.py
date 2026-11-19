@@ -143,6 +143,7 @@ def test_fresh_install_installs_framework_files(
     ignore = (consumer / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ignore.count(".env") == 1
     assert ignore.count("game/.godot/") == 1
+    assert ignore.count(".nmg/") == 1
     assert not (consumer / ".env").exists(), "onboarding must never create the project .env"
 
 

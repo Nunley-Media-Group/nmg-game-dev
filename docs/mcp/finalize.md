@@ -20,10 +20,11 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `finalize_asset` | Either `collection` and `export_root`, or `requests` (a batch, exclusive with `collection`). Optional: `category`, `asset_class`, `blend`, `budgets_path`, `material_variants_path`, `compatible_with`, `force`, `wait_seconds`, `fail_fast`, `wait_for_lock`, `lock_wait_seconds` | `{"job_id", "status"}`, plus `result` (a batch's result is `result.batch`) when the job finishes within `wait_seconds`, or `error` when it fails |
+| `finalize_asset` | Either `collection` and `export_root`, or `requests` (a batch, exclusive with `collection`). Optional: `category`, `asset_class`, `blend`, `budgets_path`, `material_variants_path`, `compatible_with`, `force`, `wait_seconds`, `fail_fast`, `skip_up_to_date` (batch only, see [Finalize records](#finalize-records-and-the-up-to-date-check-247)), `wait_for_lock`, `lock_wait_seconds` | `{"job_id", "status"}`, plus `result` (a batch's result is `result.batch`) when the job finishes within `wait_seconds`, or `error` when it fails |
 | `run_finalize_step` | `step` (one of the eight step names), then the same inputs as `finalize_asset` for one collection, plus `wait_for_lock`, `lock_wait_seconds` | The same shape as `finalize_asset`, for one step |
 | `reduce_asset` | `collection`, `asset_class`, optional `blend`, `budgets_path`, `device`, `cage_extrusion`, `max_ray_distance`, `miss_threshold`, `parts`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds`. See [reduce_asset](#reduce_asset-139). |
-| `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?}` |
+| `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?, "warnings"?}` |
+| `check_finalized` | One `category` and `collection`, or `assets` (a list of `{category, collection}`, exclusive with them), optional `export_root` | `{"assets": [...]}`, one `{category, collection, up_to_date, reason, record}` per asset, where `record` is `{state, ended_at, error_code}` or `null`. Reads the record only. See [Finalize records](#finalize-records-and-the-up-to-date-check-247) |
 | `list_material_variants` | `category`, `collection`, optional `export_root` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants |
 | `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop`, `max_seconds`, `loudness_lufs`, `loop_crossfade_ms`, `finish` | The audio import result, with `refreshed_tables`. See [elevenlabs.md](elevenlabs.md) |
 | `refresh_audio_table` | optional `project` (default `CLAUDE_PROJECT_DIR`, else the working directory) | `{"refreshed_tables": [...]}`, the project-relative Audio name tables whose text changed. See [refresh_audio_table](#refresh_audio_table-237) |
@@ -70,6 +71,9 @@ python -m nmg_game_dev.finalize {all,validate,bake,variants,export,export_anims,
 
 python -m nmg_game_dev.finalize material-variants --category Props --collection Crate \
   [--export-root <dir>] [--json]
+
+python -m nmg_game_dev.finalize check --category Props --collection Crate \
+  [--export-root <dir>] [--json]
 ```
 
 `--export-root` is required with `--collection`. A `--batch` entry may set its own.
@@ -83,8 +87,8 @@ JSON array with `--json`. It reads files only, so it needs neither Blender nor G
 | Exit | Meaning |
 |------|---------|
 | `0` | Success. With `--json`, stdout is the result |
-| `1` | A step or a collection failed. stderr shows `ERROR [code] message` and `Remediation: ...`. A batch prints one line per collection |
-| `2` | A prerequisite is missing (`finalize.blender_not_found`, `godot.not_found`, or `mcp.blender.unreachable`), or the arguments are wrong |
+| `1` | A step or a collection failed, or `check` found the asset not up to date. stderr shows `ERROR [code] message` and `Remediation: ...`. A batch prints one line per collection |
+| `2` | A prerequisite is missing (`finalize.blender_not_found`, `godot.not_found`, or `mcp.blender.unreachable`), or the arguments are wrong (for `check`, a name that is not PascalCase) |
 
 `python -m nmg_game_dev.finalize run-job <job_dir>` is the internal job runner. The MCP tools and the
 CLI start it for you, so you do not run it by hand.
@@ -130,6 +134,8 @@ and no job directory is written.
 set. With fail-fast, the remaining collections are reported as `skipped`. A batch whose items all succeed
 ends `succeeded`. Otherwise it ends `failed` with `finalize.batch_failed`, and the message gives the failed
 and skipped counts.
+
+**Skipping up-to-date items.** With `--skip-up-to-date` (CLI) or `skip_up_to_date: true` (MCP, with `requests`), an item that passes the [up-to-date check](#finalize-records-and-the-up-to-date-check-247) runs no step. Its state is `up_to_date`, its record is left as it was, and it is counted under `result.batch.up_to_date`. It does not count as a failure. Without the option every item runs. The option applies to a batch only: one `collection` with it fails with `finalize.invalid_request`.
 
 **Result.** The finished job's `result.batch` lists every item with its `collection`, `state`, and, for a
 failure, its `error` (`code`, `message`, `remediation`, `stage`). It also holds the `succeeded`, `failed`,
@@ -329,6 +335,68 @@ Job files live under `<cache_root>/jobs/<job_id>/`: `request.json`, `status.json
 time. A second start fails with `finalize.job_running` unless it waits for the lock (see
 [Waiting for the lock](#waiting-for-the-lock)). A batch is one job, so its items hold the lock together.
 
+## Finalize records and the up-to-date check (#247)
+
+Each finished run (`succeeded` or `failed`) writes a record of its result inside the consumer project, so a
+queue runner can find an asset's last run by name and skip the ones that are done.
+
+**Location.** `<consumer>/.nmg/finalize/<Category>/<Name>.json`, where `<consumer>` is the parent of the
+directory that holds `project.godot` (for a consumer project, the project root above `game/`). The record
+is written atomically, and it replaces the previous record for the same asset. The consumer's
+`.gitignore` ignores `.nmg/`, which `/onboard-consumer` adds.
+
+**Fields.** `schema_version` (1), `category`, `collection`, `job_id`, `state` (`succeeded` or `failed`),
+`started_at` and `ended_at` (UTC, ISO 8601), `nmg_game_dev_version`, `full_run` (true when the run was every
+step), `steps` (each with `step` and `cache_hit`), `source` (`{"blend", "mtime"}` for a saved `.blend`,
+`mtime` read when the run started, or `null` for the open session), `imported` (the `res://` paths of the
+Desktop and Mobile variants and of each animation clip the run imported), `content_hash` (the asset's
+content hash when the run recorded one, or `null`), `logs`, and `error` (`code`, `message`,
+`remediation`, `stage`, or `null`).
+
+**Logs.** `<consumer>/.nmg/finalize/<Category>/<Name>.logs/` holds a copy of the run's `job.log` and of each
+`blender-<step>.log`. `logs` in the record names them, relative to the record's folder. The copies stay after
+the job directory under the cache root is deleted. The next run of the asset replaces the whole `<Name>.logs/`
+folder, so it only ever holds the latest run's logs. In a batch, each item's record and logs are written
+before the next item starts, and an item skipped by fail-fast leaves its earlier record unchanged.
+
+**Check.** `python -m nmg_game_dev.finalize check --category Props --collection Crate` prints
+`Props/Crate: up to date`, or `Props/Crate: not up to date (<reason>)`. With `--json` it prints
+`{"category", "collection", "up_to_date", "reason", "record"}`. It exits `0` when the asset is up to date,
+`1` when it is not, and `2` for a name that is not PascalCase. The MCP tool `check_finalized` takes one
+`category` and `collection`, or an `assets` list, and returns `{"assets": [...]}`. Each entry has `category`,
+`collection`, `up_to_date`, `reason`, and `record` (`state`, `ended_at`, `error_code`, or `null` without a
+record). `export_root` defaults to `<project>/game/assets` in both forms.
+
+An asset is up to date when all of these hold, checked in this order:
+
+1. Its record exists and parses. The rule stops at the first failure below.
+2. The last run succeeded (`state: succeeded`).
+3. The last run was a full run (`full_run: true`).
+4. The record names a source `.blend` (`source` is not `null`).
+5. That `.blend` exists.
+6. The `.blend` was last modified no later than the run started.
+7. Every `res://` path in `imported` exists under the Godot project, and its `.import` file sits beside it.
+
+Each failure gives one reason: `project_missing` (no Godot project holds `export_root`), `no_record`,
+`record_unreadable` (the file is not valid JSON or does not match the record format), `last_run_failed`,
+`not_full_run`, `no_source_blend`, `source_missing`, `source_newer` (the `.blend` changed after the run began),
+or `import_missing`. A passing check gives `up_to_date` with the reason `up_to_date`.
+
+The check reads only the record and file metadata. It does not start Blender or Godot, does not take the cache
+lock, and writes nothing, so it answers while another finalize job runs.
+
+**Caveat.** The check compares modification times, not content. A `.blend` saved with no change to its
+content reports `source_newer` and is not up to date. A rerun of that asset is then a full cache hit, because
+the step cache keys on content, so it finishes quickly with every step served from cache.
+
+**How it differs from the step cache.** The step cache (see [Cache behavior](#cache-behavior)) decides what a run
+recomputes: each step is reused when its inputs are unchanged. The up-to-date check decides whether a run is
+needed at all, from the last record. The check is cheap and reads no cache, so it suits a queue runner that
+skips finished assets. The step cache still decides what a rerun costs.
+
+**Batch skip.** `skip_up_to_date` (CLI `--skip-up-to-date`, MCP `finalize_asset` with `requests`) runs the same
+check before each item, and skips the items that pass it. See [Batches](#batches).
+
 ## Cache behavior
 
 Each step has a content-addressed cache key:
@@ -402,6 +470,7 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `finalize.batch_failed` | One or more collections in the batch failed, and the rest may have been skipped. The message gives the counts. | Read each failed collection's `error` in `result.batch`, fix it, then rerun the batch. Collections that already passed are cache hits. |
 | `finalize.job_not_found` | No job has that id in this cache root. | Use the `job_id` that `finalize_asset` or `run_finalize_step` returned. |
 | `finalize.invalid_request` | `category` or `asset_class` is omitted, and no asset entry in `docs/design/backlog.json` supplies it. The message names the argument and the backlog path. | Pass the argument, or add the asset's design doc, run `python -m nmg_game_dev.design sync`, then rerun. |
+| `finalize.record_not_written` | The run finished, but its record or log copies under `<consumer>/.nmg/finalize/` could not be written, or no Godot project holds `export_root`. The run's `state`, `result`, and `error` are unchanged. The warning is in `result.warnings` on success, or in the job's `warnings` on failure. A failed write also removes an older record for the asset, so the check cannot report that older run as current. | Check that `<consumer>/.nmg/finalize` is writable and that `export_root` is inside the Godot project, then rerun the asset. |
 | `finalize.blender_not_found` | No Blender executable at `BLENDER_BIN`, `BLENDER_APP`, or `/Applications/Blender.app`. | Set `BLENDER_BIN` to the Blender executable, or `BLENDER_APP` to the app bundle, then rerun. |
 | `finalize.collection_not_found` | The session, or `--blend`, has no collection named `<Name>`. | Check that the collection name matches `--collection` and is PascalCase. |
 | `quality.contract_failed` | A contract report failed. Its findings name each rule and target. A `material_variant.*` finding names the variant and the rule. | Fix each finding in Blender, or in `<Name>.material-variants.json`, using `docs/asset-contract.md`, then rerun. |
