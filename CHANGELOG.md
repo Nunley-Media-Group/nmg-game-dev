@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-19
+
+### Changed
+
+- Remove the stale Unreal plugin comment and wrap long GDScript lines (#286)
+
 ## [0.32.0] - 2026-11-19
 
 ### Fixed
