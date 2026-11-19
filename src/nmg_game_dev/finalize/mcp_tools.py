@@ -5,24 +5,25 @@
 by the server.  Keeping the logic here lets the tests cover it without the MCP SDK.
 
 ``finalize_asset`` takes one ``collection`` or a ``requests`` batch, which finalizes its entries one
-at a time, in order, under one lock.  The wait and PIE options apply to the whole call.
+at a time, in order, under one lock.  The wait options apply to the whole call.  A missing
+``export_root`` is ``<project>/game/assets``.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, Final
 
 from pydantic import ValidationError
 
 from nmg_game_dev.audio import import_audio as _import_audio
-from nmg_game_dev.pipeline.clients.unreal_mcp import UnrealMcpClient
+from nmg_game_dev.godot.material_variants import list_material_variants as list_variants
+from nmg_game_dev.godot.runner import GodotRunner
 from nmg_game_dev.pipeline.errors import PipelineError
-from nmg_game_dev.pipeline.request import DEFAULT_PIE_WAIT_SECONDS, FinalizeRequest
+from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER, parse_step
-from nmg_game_dev.unreal import list_material_variants as list_variants
-from nmg_game_dev.unreal.import_asset import UnrealPythonClient
 
 from .service import (
     FinalizeService,
@@ -31,6 +32,7 @@ from .service import (
     build_reduce_request,
     build_request,
     clamp_wait,
+    default_export_root,
     error_dict,
 )
 
@@ -53,16 +55,14 @@ def finalize_asset(
     fail_fast: bool = False,
     wait_for_lock: bool = False,
     lock_wait_seconds: float | None = None,
-    pie_mode: str = "wait",
-    pie_wait_seconds: float = DEFAULT_PIE_WAIT_SECONDS,
     compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
     """Finalize one collection, or a batch of ``requests`` in order.
 
-    Pass exactly one of ``collection`` (with ``export_root``) or ``requests``.  The batch entries
-    take the finalize request keys.  The top-level category, asset class, export root, blend,
-    budgets, and PIE options fill in any key an entry omits.
+    Pass exactly one of ``collection`` or ``requests``.  The batch entries take the finalize
+    request keys.  The top-level category, asset class, export root, blend, and budgets fill in any
+    key an entry omits.  Without an export root anywhere, ``<project>/game/assets`` is used.
     """
     active = service or FinalizeService()
     if requests is not None:
@@ -78,8 +78,6 @@ def finalize_asset(
             "export_root": export_root,
             "blend": blend,
             "budgets_path": budgets_path,
-            "pie_mode": pie_mode,
-            "pie_wait_seconds": pie_wait_seconds,
         }
         try:
             batch = build_batch(requests, defaults=defaults)
@@ -100,8 +98,6 @@ def finalize_asset(
 
     if collection is None:
         return {"error": _invalid("Pass collection for one asset, or requests for a batch.")}
-    if export_root is None:
-        return {"error": _invalid("export_root is required for a single collection.")}
     try:
         request = _request(
             collection,
@@ -110,8 +106,6 @@ def finalize_asset(
             export_root,
             blend,
             budgets_path,
-            pie_mode,
-            pie_wait_seconds,
             material_variants_path,
             compatible_with,
         )
@@ -136,7 +130,7 @@ def run_finalize_step(
     collection: str,
     category: str | None = None,
     asset_class: str | None = None,
-    export_root: str,
+    export_root: str | None = None,
     blend: str | None = None,
     budgets_path: str | None = None,
     material_variants_path: str | None = None,
@@ -144,8 +138,6 @@ def run_finalize_step(
     wait_seconds: float = 0,
     wait_for_lock: bool = False,
     lock_wait_seconds: float | None = None,
-    pie_mode: str = "wait",
-    pie_wait_seconds: float = DEFAULT_PIE_WAIT_SECONDS,
     compatible_with: list[str] | None = None,
     service: FinalizeService | None = None,
 ) -> dict[str, Any]:
@@ -160,8 +152,6 @@ def run_finalize_step(
             export_root,
             blend,
             budgets_path,
-            pie_mode,
-            pie_wait_seconds,
             material_variants_path,
             compatible_with,
         )
@@ -195,13 +185,16 @@ def list_material_variants(
     *,
     category: str,
     collection: str,
-    client: UnrealPythonClient | None = None,
+    export_root: str | Path | None = None,
 ) -> list[dict[str, Any]] | dict[str, Any]:
-    """List the material variants Unreal holds for a finalized asset (#148, FR8).
+    """List a finalized asset's material variants from the files finalize wrote (#148, #249 FR6).
 
-    Returns rows of {name, material, desktop, mobile} sorted by material, then name. An asset with
-    no material variants, or one not in Content, returns []. A failure returns {"error": {...}},
-    such as mcp.unreal.unreachable when the Unreal MCP endpoint does not answer.
+    Reads only ``<export_root>/<Category>/<Name>/nmg-variants.json`` and checks which variant
+    ``.tres`` files exist; ``export_root`` defaults to ``$CLAUDE_PROJECT_DIR/game/assets``.  Returns
+    rows of ``{name, material, desktop, mobile}`` sorted by material, then name, where
+    ``desktop``/``mobile`` is the ``res://`` path of the ``.tres`` or ``None``.  An asset with no
+    material variants returns ``[]``.  A missing or invalid sidecar returns ``{"error": ...}`` with
+    ``finalize.material_variants_failed``.  The listing never starts Godot.
     """
     if not _PASCAL.fullmatch(category) or not _PASCAL.fullmatch(collection):
         return {
@@ -213,22 +206,37 @@ def list_material_variants(
                 "stage": "finalize",
             }
         }
+    root = Path(export_root) if export_root else default_export_root()
     try:
-        if client is not None:
-            return list_variants(client, category, collection)
-        with UnrealMcpClient() as owned:
-            return list_variants(owned, category, collection)
+        return list_variants(root, category, collection)
     except PipelineError as error:
         return {"error": error_dict(error)}
 
 
-def import_audio(file: str, name: str, kind: str, loop: bool = False) -> dict[str, Any]:
-    """Store a saved sound as a WAV and import it as a SoundWave (#155, AC7).
+def import_audio(
+    file: str,
+    name: str,
+    kind: str,
+    loop: bool = False,
+    *,
+    project_root: str | Path | None = None,
+    godot: GodotRunner | None = None,
+) -> dict[str, Any]:
+    """Store a saved sound as a WAV and import it into Godot (#155, #249 AC5).
 
-    Returns the same result JSON as ``python -m nmg_game_dev.audio import``, or ``{"error"}``.
+    A sound effect becomes an ``AudioStreamWAV`` and music an ``AudioStreamOggVorbis`` under
+    ``game/assets/Audio/``.  Returns the same result JSON as ``python -m nmg_game_dev.audio
+    import`` (``godot_asset``, ``imported_to_godot``), or ``{"error"}``.
     """
     try:
-        return _import_audio(file, name, kind, loop)
+        return _import_audio(
+            file,
+            name,
+            kind,
+            loop,
+            project_root=Path(project_root) if project_root else None,
+            godot=godot,
+        )
     except PipelineError as error:
         return {"error": error_dict(error)}
 
@@ -243,8 +251,7 @@ def _invalid(message: str) -> dict[str, str]:
     return {
         "code": "finalize.invalid_request",
         "message": message,
-        "remediation": "Pass exactly one of collection or requests, with export_root for a "
-        "single collection.",
+        "remediation": "Pass exactly one of collection or requests.",
         "stage": "finalize",
     }
 
@@ -253,11 +260,9 @@ def _request(
     collection: str,
     category: str | None,
     asset_class: str | None,
-    export_root: str,
+    export_root: str | None,
     blend: str | None,
     budgets_path: str | None,
-    pie_mode: str,
-    pie_wait_seconds: float,
     material_variants_path: str | None = None,
     compatible_with: list[str] | None = None,
 ) -> FinalizeRequest:
@@ -269,8 +274,6 @@ def _request(
             export_root=export_root,
             blend=blend,
             budgets_path=budgets_path,
-            pie_mode=pie_mode,
-            pie_wait_seconds=pie_wait_seconds,
             material_variants_path=material_variants_path,
             compatible_with=compatible_with or (),
         )

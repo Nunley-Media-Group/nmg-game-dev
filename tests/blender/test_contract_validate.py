@@ -40,7 +40,7 @@ DEFECT_RULES: dict[str, str] = {
     "uv_overlap": "uv.overlap",
     "noise_material": "material.node_types",
     "position_coords": "material.uv_coordinates",
-    "mobile_lod0_4000_tris": "budget.tris",
+    "mobile_4000_tris": "budget.tris",
     "mobile_name_mismatch": "variants.names_match",
 }
 
@@ -92,12 +92,12 @@ def test_ac1_compliant_crate_passes_with_snapshots(core: Any) -> None:
     assert report["kind"] == "contract"
     assert report["passed"], report["findings"]
     assert report["findings"] == []
-    assert {"SM_Crate", "SM_Crate_Mobile", "SM_Crate_Mobile_LOD0"} <= set(report["snapshot"])
+    assert {"SM_Crate", "SM_Crate_Mobile"} <= set(report["snapshot"])
     root = report["snapshot"]["SM_Crate"]
     assert root["uv_maps"] == ["UVMap"]
     assert root["variant"] == "desktop"
     assert root["tris"] == 12
-    assert report["snapshot"]["SM_Crate_Mobile_LOD0"]["variant"] == "mobile"
+    assert report["snapshot"]["SM_Crate_Mobile"]["variant"] == "mobile"
 
 
 def test_ac1_findings_carry_rule_target_message_and_remediation(core: Any) -> None:
@@ -129,13 +129,13 @@ def test_ac2_each_failure_class_fails_with_its_rule(core: Any, defect: str) -> N
     assert all(item["target"] and item["remediation"] for item in matches)
 
 
-def test_ac2_budget_finding_names_the_mobile_lod0(core: Any) -> None:
+def test_ac2_budget_finding_names_the_mobile_root(core: Any) -> None:
     build_crate()
-    apply_defect("mobile_lod0_4000_tris")
+    apply_defect("mobile_4000_tris")
     report = core.validate_asset("Crate", "standard_prop")
 
     budget = [item for item in report["findings"] if item["rule"] == "budget.tris"]
-    assert budget[0]["target"] == "SM_Crate_Mobile_LOD0"
+    assert budget[0]["target"] == "SM_Crate_Mobile"
     assert "4000" in budget[0]["message"]
 
 
@@ -156,7 +156,7 @@ def test_uv_overlap_defect_reports_the_lower_bound_form(core: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("defect", [None, "uv_overlap", "mobile_lod0_4000_tris"])
+@pytest.mark.parametrize("defect", [None, "uv_overlap", "mobile_4000_tris"])
 def test_validation_leaves_the_scene_unchanged(core: Any, defect: str | None) -> None:
     build_crate()
     if defect is not None:
@@ -327,13 +327,13 @@ def test_scn004_mobile_top_level_override_still_applies_to_mobile_only(
     core: Any, tmp_path: Path
 ) -> None:
     build_crate()
-    apply_defect("mobile_lod0_4000_tris")
+    apply_defect("mobile_4000_tris")
     path = _overrides_file(tmp_path, {"standard_prop": {"tris": 3000}})
 
     report = core.validate_asset("Crate", "standard_prop", path)
 
     findings = _budget_tris_findings(report, "mobile")
-    assert [item["target"] for item in findings] == ["SM_Crate_Mobile_LOD0"]
+    assert [item["target"] for item in findings] == ["SM_Crate_Mobile"]
     assert "3000" in findings[0]["message"]
     assert _budget_tris_findings(report, "desktop") == []
 

@@ -1,13 +1,13 @@
 # File: tests/bdd/features/scaffold-plugin-repo-session-start-hooks.feature
 #
 # Generated from: specs/feature-scaffold-plugin-repo-session-start-hooks/requirements.md
-# Issue: #1
+# Issue: #1 (updated for the Godot engine by #249)
 
 Feature: Scaffold plugin + repo + session-start hooks
   As an internal NMG game developer
   I want a fresh clone of nmg-game-dev to self-assemble into a working Claude Code plugin
-    whose two launcher scripts are ready for consumer-game adoption and whose
-    Python/MCP scaffolding is in place
+    whose Blender launcher script is ready for consumer-game adoption, whose Godot add-on
+    is versioned with the plugin, and whose Python/MCP scaffolding is in place
   So that every downstream v1 issue (#2–#7) can assume the skeleton is wired and
     so the same plugin installs correctly into consumer games at either user or project scope
 
@@ -31,11 +31,11 @@ Feature: Scaffold plugin + repo + session-start hooks
     When `ls` probes every top-level directory listed there
     Then every declared directory exists
     And empty directories carry a `.gitkeep`
-    And the Python package `src/nmg_game_dev/` is importable with submodule stubs for `pipeline/`, `variants/`, `quality/`, `ship/`
+    And the Python package `src/nmg_game_dev/` is importable with submodules `godot/`, `pipeline/`, `variants/`, `quality/`, `ship/`
 
-  # --- Launcher scripts — happy path ---
+  # --- Launcher script — happy path ---
 
-  Scenario: Launcher scripts detach Blender and UE when invoked manually (AC3)
+  Scenario: The Blender launcher detaches when invoked manually (AC3)
     Given a developer, working inside the nmg-game-dev repo, invokes `scripts/start-blender-mcp.sh` directly from the shell
     And `BLENDER_BIN` resolves to an installed Blender binary
     When the script runs
@@ -43,14 +43,6 @@ Feature: Scaffold plugin + repo + session-start hooks
     And the script exits 0 while the process it started is still running
     And the script returns control to the shell in under two seconds
     And the script does not block waiting for Blender to finish booting
-
-  Scenario: start-unreal-mcp.sh detaches the UE Editor on the expected port (AC3)
-    Given `UE_ROOT` resolves to an installed Unreal Engine 5.8 install
-    And a valid `.uproject` resolves via the env-var or auto-detect chain
-    When `scripts/start-unreal-mcp.sh` runs
-    Then UE Editor is detached opened against the target `.uproject`
-    And the script exits 0 while the process it started is still running
-    And the script returns control to the shell in under two seconds
 
   # --- Launcher detach judged by process state (#215) ---
 
@@ -70,15 +62,15 @@ Feature: Scaffold plugin + repo + session-start hooks
     Then the detach check fails because the launcher took longer than two seconds
     And the launcher finished its 2.5 second delay before detaching
 
-  # --- Launcher scripts — idempotency ---
+  # --- Launcher script — idempotency ---
 
-  Scenario: Launchers are idempotent when the port is already bound (AC4)
+  Scenario: The launcher is idempotent when the port is already bound (AC4)
     Given the Blender MCP port is already in `LISTEN` state (simulated by a bound socket in the test harness)
     When `scripts/start-blender-mcp.sh` is re-invoked
     Then the script exits 0 without launching a second Blender process
     And no duplicate process appears in the process table
 
-  # --- Launcher scripts — actionable failure ---
+  # --- Launcher script — actionable failure ---
 
   Scenario: Launcher fails with a one-line remediation when the binary is missing (AC5)
     Given `BLENDER_BIN` is unset
@@ -92,7 +84,8 @@ Feature: Scaffold plugin + repo + session-start hooks
   Scenario: Consumer SessionStart template ships under templates/consumer/ (AC5b)
     Given `templates/consumer/.claude/settings.json` exists in this repo
     When a reader inspects it
-    Then it declares `SessionStart` hook commands invoking `scripts/start-blender-mcp.sh` and `scripts/start-unreal-mcp.sh`
+    Then it declares a `SessionStart` hook command invoking `scripts/start-blender-mcp.sh`
+    And no other launcher runs at session start, because Godot only runs headless on demand
     And no `.claude/settings.json` exists at this repo's root
     And `templates/consumer/README.md` documents that `onboard-consumer` (future v1 issue) copies this template into downstream projects
 
@@ -115,12 +108,21 @@ Feature: Scaffold plugin + repo + session-start hooks
     And `.claude-plugin/plugin.json`'s `version` field equals `VERSION`
     And `pyproject.toml` declares `project.version` dynamic, sourced from `VERSION`
 
+  # --- Godot runtime add-on ---
+
+  Scenario: The Godot runtime add-on ships with a manifest at the plugin version (#249)
+    Given the add-on folder `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/`
+    When its `plugin.cfg` is read
+    Then the `[plugin]` section names `nmg-game-dev` with the script `plugin.gd`
+    And its `version` equals `VERSION`
+    And the add-on holds `nmg_assets.gd`, `nmg_mission_definition.gd`, and the headless runner `tests/run_tests.gd`
+
   # --- MCP config ---
 
   Scenario: MCP server config tracks latest and is dual-purpose (AC8)
     Given `.mcp.json` at the repo root
     When the file is parsed
-    Then it declares two MCP server entries: `blender` (mcp-for-blender) and `unreal` (Epic's native Unreal MCP with VibeUE)
+    Then it declares the `blender` (mcp-for-blender), `finalize`, `texture-gen`, and `meshy` server entries and no engine server
     And every server entry tracks the latest release with no version constraint other than `@latest`
     And the file contains no this-repo-specific absolute paths (usable verbatim by `onboard-consumer` in a consumer project)
 
@@ -136,10 +138,10 @@ Feature: Scaffold plugin + repo + session-start hooks
   # --- No-leak guard ---
 
   Scenario: Nothing this-repo-specific leaks into consumer-facing deliverables (AC10)
-    Given the consumer-facing artifacts: `.claude-plugin/plugin.json`, `scripts/start-*-mcp.sh`, `templates/consumer/.claude/settings.json`, `.mcp.json`, `pyproject.toml`
-    When these artifacts are grep-scanned for repo-specific absolute paths, `fixtures/dogfood.uproject` references, this-repo-only module imports, and credentials
+    Given the consumer-facing artifacts: `.claude-plugin/plugin.json`, `scripts/start-blender-mcp.sh`, `templates/consumer/.claude/settings.json`, `.mcp.json`, `pyproject.toml`
+    When these artifacts are grep-scanned for repo-specific absolute paths, in-repo fixture project references, this-repo-only module imports, and credentials
     Then no banned substring is found
-    And every path resolution in the launcher scripts uses either env-var overrides or documented defaults a consumer can override without editing the script
+    And every path resolution in the launcher script uses either env-var overrides or documented defaults a consumer can override without editing the script
 
   # --- Install-scope invariance ---
 

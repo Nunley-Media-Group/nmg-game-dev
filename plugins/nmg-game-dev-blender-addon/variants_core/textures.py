@@ -45,7 +45,7 @@ def check_baked_material(material: bpy.types.Material) -> None:
 def _unbaked(material_name: str, detail: str) -> VariantError:
     return VariantError(
         "variants.unbaked_material",
-        f"Material '{material_name}' {detail}. Mobile and FBX export need a Principled BSDF "
+        f"Material '{material_name}' {detail}. Mobile and GLB export need a Principled BSDF "
         "fed only by Image Texture, Normal Map, and Separate Color nodes.",
         f"Bake '{material_name}' to T_<Name>_<Part>_BC/_N/_ORM images and rewire it to those "
         "images (the bake step, #67), then rerun.",

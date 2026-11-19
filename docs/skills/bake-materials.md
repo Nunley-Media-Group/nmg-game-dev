@@ -2,7 +2,7 @@
 
 Bakes whatever materials the agent authored on an asset into the contract texture sets
 (`docs/asset-contract.md` §4, §6, §8). Procedural nodes, triplanar or position-driven coordinates,
-and image textures all bake the same way, so the exported asset looks the same in Unreal as it did
+and image textures all bake the same way, so the exported asset looks the same in Godot as it did
 in Blender.
 
 ## Entry points
@@ -53,7 +53,9 @@ The operator's fields are `collection_name`, `asset_class`, `out_dir` (a folder 
   `environment_piece`. Its atlas layout from reduce is kept, so a layout that is already valid is not
   unwrapped again, and the UV overlap check applies to it.
 - **Tiling** (`terrain`, and `environment_piece` not tagged `nmg_reduced`). Each tiling material bakes
-  onto a temporary 1 m tile whose UVs span 0 to 1. The asset's UVs stay as they are. The bake fails
+  alone onto a temporary 1 m tile whose UVs span 0 to 1. Every other object, the asset included, is
+  hidden from the bake, so the baked AO depends only on the material and not on the world AO
+  distance. The asset's UVs stay as they are. The bake fails
   unless the opposite edges of each texture match and each material slot of each mesh meets the texel
   density minimum (256 px/m Desktop, 128 px/m Mobile). Trim-atlas and flat-colour slots are exempt
   (`docs/asset-contract.md` §6), and the bake report lists every slot with its densities or its

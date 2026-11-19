@@ -31,7 +31,9 @@ def _build_parser() -> argparse.ArgumentParser:
     install = sub.add_parser("install", help="Install or re-verify the framework in a consumer.")
     install.add_argument("--consumer", type=Path, required=True, help="The consumer project root.")
     install.add_argument(
-        "--uproject", type=Path, default=None, help="The .uproject, if not unique."
+        "--game-dir",
+        default="game",
+        help="The Godot project folder, relative to the consumer root (default: game).",
     )
     install.add_argument(
         "--models-dir",
@@ -42,7 +44,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install.add_argument(
         "--refresh",
         action="store_true",
-        help="Restore drifted framework-owned copies and move VibeUE to its 5-8 branch head.",
+        help="Restore drifted framework-owned copies, project keys, and export presets.",
     )
     install.add_argument("--json", action="store_true", help="Print the report as JSON.")
 
@@ -61,7 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         results = run_onboard(
             args.consumer,
             framework=framework_root(env),
-            uproject=args.uproject,
+            game_dir=args.game_dir,
             models_dir=args.models_dir,
             refresh=args.refresh,
             env=env,

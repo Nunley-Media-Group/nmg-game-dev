@@ -1,6 +1,6 @@
 # Your first asset
 
-This guide takes one prop from a prompt to an imported Unreal asset with Desktop and Mobile variants.
+This guide takes one prop from a prompt to an imported Godot asset with Desktop and Mobile variants.
 Onboard the project first (see [index.md](index.md)).
 
 ## 1. Prompt for the asset
@@ -8,7 +8,7 @@ Onboard the project first (see [index.md](index.md)).
 Describe what you want in conversation. Name the category and the asset, for example "a wooden
 crate, Props, Crate." The agent drives the Blender MCP to model it in a collection named after the
 asset. Model the asset freeform. The framework has no per-asset recipes. Keep each asset in its own
-collection and export it on its own. Compose levels later, in Unreal.
+collection and export it on its own. Compose levels later, in Godot.
 
 ## 2. Review loop
 
@@ -45,12 +45,15 @@ as the same `<Name>` collection this guide builds. Set `pose` only for character
 
 Sound effects and music are optional and come from the official ElevenLabs MCP server, which you run
 with your own key. Onboarding asks for no key. Save the generated file, then call `import_audio` to
-store it under `SourceArt/Audio/` and import it into Unreal as a SoundWave. See
+store it under `SourceArt/Audio/` and import it into Godot: a sound effect as an `AudioStreamWAV`,
+a music track as an `AudioStreamOggVorbis` encoded with ffmpeg. See
 [docs/mcp/elevenlabs.md](../mcp/elevenlabs.md).
 
 ## 5. Import
 
-Finalize writes both variants into Unreal under `Content/<Category>/<Name>/{Desktop,Mobile}/`, with
-the ORM textures wired into the master material. Gameplay code references the asset through
-`UNmgAssetResolver`, not a hard path to either variant. Open the asset in the editor and place it to
-check it. Commit the `Content/` folder as you would any other change.
+Finalize exports both variants as `.glb` into `game/assets/<Category>/<Name>/{Desktop,Mobile}/`,
+each with its textures and `nmg-asset.json`, then runs a headless Godot import and checks the
+imported meshes against the export. Godot generates the LODs at import. Gameplay code loads the asset
+through `NmgAssets.resolve_variant_path(path)`, which picks the Mobile variant on mobile and web and
+the Desktop variant elsewhere, never a hard path to either variant. Open `game/` in the Godot editor
+and place the asset to check it. Commit the `game/assets/` folder as you would any other change.

@@ -2,21 +2,21 @@ Feature: Onboard a consumer game project
 
   @SCN001
   Scenario: Fresh onboarding installs the framework files
-    Given a consumer with Game.uproject, unrelated Claude settings, and a CLAUDE.md
+    Given a consumer with unrelated Claude settings and a CLAUDE.md
     When onboarding installs into the consumer
-    Then both start scripts are in the consumer scripts folder and executable
-    And the SessionStart hooks are merged and the unrelated settings are unchanged
+    Then the Blender start script is in the consumer scripts folder and executable
+    And only the Blender SessionStart hook is merged and the unrelated settings are unchanged
     And the asset contract is installed and CLAUDE.md references it once
     And no .mcp.json, fixtures file, or _API_KEY variable is written
 
   @SCN002
-  Scenario: Unreal plugins are installed and enabled
-    Given a consumer with Game.uproject and git available
+  Scenario: The Godot project is set up
+    Given a game project with no nmg-game-dev setup
     When onboarding installs into the consumer
-    Then the nmg-game-dev UE plugin is in Plugins/nmg-game-dev
-    And VibeUE is cloned from branch 5-8 into Plugins/VibeUE
-    And Game.uproject enables ModelContextProtocol, EditorToolset, VibeUE, and nmg-game-dev
-    And the MCP settings section has bAutoStartServer=True and ServerPortNumber=8000
+    Then game/project.godot uses the Compatibility renderer for mobile and web and enables the add-on
+    And the nmg_game_dev add-on is in game/addons/nmg_game_dev without its tests
+    And game/export_presets.cfg excludes Mobile folders from desktop presets and Desktop folders from mobile and web presets
+    And the Godot binary and ffmpeg are reported as found
 
   @SCN003
   Scenario: The Blender add-on is linked into Blender's extensions
@@ -56,8 +56,8 @@ Feature: Onboard a consumer game project
   Scenario: Re-running is idempotent
     Given a consumer that has already been onboarded
     When onboarding installs into the consumer again
-    Then no hook, plugin entry, ini key, or CLAUDE.md block is duplicated
-    And no git clone or mflux-save runs and the command exits 0
+    Then no hook or CLAUDE.md block is duplicated and every consumer file is byte-identical
+    And no mflux-save runs and the command exits 0
 
   @SCN009
   Scenario: Drift is reported and --refresh repairs it

@@ -1,8 +1,8 @@
-"""ship: build, gate, sign, notarize, and package an NMG game per platform (#6).
+"""ship: gate, export, sign, notarize, and package an NMG Godot game per platform (#6, #249).
 
 Public API::
 
-    run_ship(target, project, release_dir, dry_run, env) -> list[ReleaseEntry]
+    run_ship(target, project, release_dir, dry_run, env, *, godot=None) -> list[ReleaseEntry]
 
 Failures raise ``ShipError`` with ``code``, ``message``, ``remediation``, and ``stage``.
 """

@@ -3,7 +3,7 @@
 - validate with ``authored=True`` defers the material rules that only a bake satisfies, and the
   full contract still reports them (so the export gate enforces them after the bake).
 - A scaled mobile texture copy survives a save and reload at its scaled size with its pixels.
-- A mesh snapshot carries the object-local bounds that the UE pivot check compares against.
+- A mesh snapshot carries the object-local bounds that the import pivot check compares against.
 
 Run with scripts/run-blender-tests.sh.  Under plain CPython the module is skipped.
 """

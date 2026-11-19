@@ -1,14 +1,13 @@
-"""Host tests for material variants: the request, cache keys, UE import, listing, and CLI (#148).
+"""Host tests for material variants: the request, cache keys, Godot materials, listing, and CLI.
 
-The UE code never reaches an editor. The shared in-memory editor in ``tests/unit/fake_unreal.py``
-runs the import and listing templates in-process, so the stale-deletion and tag logic is exercised
-as written. It keeps assets by path with their tags, parameters, and bindings, and records
-creations and deletions. Tests that need no UE code stay plain.
+Material variants (#148) land in the Godot project as ``M_<Name>_<Part>_<Variant>.tres``
+``StandardMaterial3D`` files that ``import_godot`` writes into each variant folder (#249). The
+listing reads only ``nmg-variants.json`` and those files, so it never starts Godot: the listing
+tests make resolving or starting Godot (or any process) fail.
 """
 
 from __future__ import annotations
 
-import ast
 import io
 import json
 import struct
@@ -20,24 +19,43 @@ import pytest
 
 from nmg_game_dev.finalize import build_request, list_material_variants
 from nmg_game_dev.finalize.__main__ import EXIT_FAILED, EXIT_OK, main
-from nmg_game_dev.finalize.mcp_tools import list_material_variants as list_for_mcp
+from nmg_game_dev.godot.material_variants import (
+    list_material_variants as list_rows,
+)
+from nmg_game_dev.godot.material_variants import (
+    render_material,
+    resource_name,
+    write_variant_materials,
+)
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, PipelineError, finalize
 from nmg_game_dev.pipeline.steps import _STEP_VERSION, STEP_ORDER, settings_hash
-from nmg_game_dev.unreal import build_import_code, import_variant
-from nmg_game_dev.unreal import list_material_variants as list_rows
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
-from tests.unit.fake_unreal import FakeWorld, FbxNode, MaterialInstanceConstant
+from tests.finalize_fakes import FakeStepRunner, FinalizeGodot
+from tests.godot_fakes import forbid_godot
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DESKTOP = "/Game/Props/Crate/Desktop"
-MOBILE = "/Game/Props/Crate/Mobile"
-MASTER = "/nmg-game-dev/Materials/M_NmgORM"
 RED = {"name": "Red", "material": "M_Crate_Body", "base_color": "Red.png"}
 BLUE_TINT = {"name": "Blue", "material": "M_Crate_Body", "parameters": {"Tint": [0.5, 0.25, 1.0]}}
 BLUE_TEXTURE = {"name": "Blue", "material": "M_Crate_Body", "base_color": "Blue.png"}
-# The one part's local bounds in Blender metres (Z-up), as the report and the FBX carry them.
-_LOW = (-0.5, 0.1, 0.0)
-_HIGH = (0.5, 0.4, 1.0)
+# Sidecar entries, as the export step records them in nmg-variants.json.
+RED_ENTRY = {
+    "name": "Red",
+    "material": "M_Crate_Body",
+    "base_color": "T_Crate_Body_BC_Red.png",
+    "parameters": {},
+}
+BLUE_ENTRY = {
+    "name": "Blue",
+    "material": "M_Crate_Body",
+    "base_color": None,
+    "parameters": {"Tint": [0.5, 0.25, 1.0, 1.0]},
+}
+LID_ENTRY = {
+    "name": "Red",
+    "material": "M_Crate_Lid",
+    "base_color": None,
+    "parameters": {"Tint": [1.0, 0.0, 0.0, 1.0]},
+    "material_resource": "M_Crate_Lid_Red.tres",
+}
 
 
 # --- fixtures and small helpers ---------------------------------------------------------------
@@ -99,75 +117,38 @@ def _blend(directory: Path) -> Path:
     return blend
 
 
-def _ue_params(code: str) -> dict[str, Any]:
-    line = next(line for line in code.splitlines() if line.startswith("PARAMS = json.loads("))
-    decoded = ast.literal_eval(line[len("PARAMS = json.loads(") : -1])
-    params: dict[str, Any] = json.loads(decoded)
-    return params
+def _game(root: Path) -> Path:
+    """A Godot project at ``root`` (``project.godot``) with ``assets/`` as the export root."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return root / "assets"
 
 
-def _report(variant: str = "desktop") -> dict[str, Any]:
-    """A pre-export report with one mesh part, local bounds in Blender meters (Z-up)."""
-    return {
-        "kind": "contract",
+def _finalized(
+    export_root: Path,
+    desktop: list[dict[str, Any]],
+    mobile: list[dict[str, Any]] | None = None,
+    *,
+    tres: tuple[str, ...] = (),
+) -> Path:
+    """An ``<export_root>/Props/Crate`` tree with nmg-variants.json and the named ``.tres`` files.
+
+    ``tres`` names ``<Variant>/<file>`` paths to create.
+    """
+    asset = export_root / "Props" / "Crate"
+    for variant in ("Desktop", "Mobile"):
+        (asset / variant).mkdir(parents=True, exist_ok=True)
+    payload = {
         "asset": "Crate",
-        "class": "standard_prop",
-        "passed": True,
-        "findings": [],
-        "snapshot": {
-            "SM_Crate": {
-                "variant": variant,
-                "type": "MESH",
-                "local_bounds": {"min": [-0.5, 0.1, 0.0], "max": [0.5, 0.4, 1.0]},
-            },
-            "M_Crate_Body": {"variant": variant, "type": "MATERIAL"},
+        "material_variants": {
+            "desktop": desktop,
+            "mobile": desktop if mobile is None else mobile,
         },
     }
-
-
-def _world() -> FakeWorld:
-    """A fresh in-memory editor holding the master material the import binds to."""
-    world = FakeWorld()
-    world.seed_asset(MASTER)
-    return world
-
-
-def _variant_dir(world: FakeWorld, root: Path, variant: str, textures: list[str]) -> Path:
-    """A variant folder with the FBX, the main textures, and the named variant textures.
-
-    The FBX scene, one SM_Crate part with the M_Crate_Body slot, is registered with ``world``.
-    """
-    directory = root / variant
-    directory.mkdir(parents=True, exist_ok=True)
-    fbx = directory / "SM_Crate.fbx"
-    fbx.write_bytes(b"fbx")
-    for name in ("T_Crate_Body_BC", "T_Crate_Body_N", "T_Crate_Body_ORM", *textures):
-        (directory / f"{name}.png").write_bytes(b"png")
-    node = FbxNode("SM_Crate", "SM_Crate", _LOW, _HIGH, materials=("M_Crate_Body",))
-    world.add_fbx(str(fbx), [node])
-    return directory
-
-
-def _import(
-    world: FakeWorld,
-    variant_dir: Path,
-    dest: str,
-    entries: list[dict[str, Any]] | None,
-) -> dict[str, Any]:
-    """Run the import step's UE code against ``world`` (tests/unit/fake_unreal.py)."""
-    return import_variant(
-        world,
-        variant_dir=str(variant_dir),
-        dest=dest,
-        name="Crate",
-        report=_report("mobile" if dest.endswith("Mobile") else "desktop"),
-        material_variants=entries,
-    )
-
-
-def _bound(world: FakeWorld, mesh_path: str) -> list[str]:
-    """The material instance path bound to each slot of the static mesh at ``mesh_path``."""
-    return [slot.material_interface.path for slot in world.static_mesh(mesh_path).static_materials]
+    (asset / "nmg-variants.json").write_text(json.dumps(payload), encoding="utf-8")
+    for relative in tres:
+        (asset / relative).write_text("[gd_resource]\n", encoding="utf-8")
+    return asset
 
 
 # --- AC1 and FR1: the request finds the declaration -------------------------------------------
@@ -232,8 +213,8 @@ def _keys(request: FinalizeRequest) -> dict[str, str]:
     return {step: settings_hash(step, request, "budgets") for step in _WHOLE_STEPS}
 
 
-def test_step_version_is_four() -> None:
-    assert _STEP_VERSION == "4"
+def test_step_version_is_five() -> None:
+    assert _STEP_VERSION == "5"
 
 
 def test_a_declaration_change_moves_only_the_validate_and_export_keys(tmp_path: Path) -> None:
@@ -267,465 +248,397 @@ def test_no_declaration_keys_match_each_other_across_runs(tmp_path: Path) -> Non
     assert first == second
 
 
-# --- AC2, AC3, AC9: the UE import creates, tags, reuses, and deletes variant assets ----------
+# --- AC6 (#249): import_godot writes one StandardMaterial3D per declared variant -------------
 
 
-def test_a_texture_variant_is_created_beside_the_main_set_with_its_textures(tmp_path: Path) -> None:
-    world = _world()
-    desktop = _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
-
-    entry = {
-        "name": "Red",
-        "material": "M_Crate_Body",
-        "base_color": "T_Crate_Body_BC_Red.png",
-        "parameters": {},
-        "material_instance": "MI_Crate_Body_Red",
-    }
-
-    result = _import(world, desktop, DESKTOP, [entry])
-
-    instance = world.assets[f"{DESKTOP}/MI_Crate_Body_Red"]
-    assert isinstance(instance, MaterialInstanceConstant)
-    assert instance.parent.path == MASTER
-    assert instance.texture_params["BaseColor"] == f"{DESKTOP}/T_Crate_Body_BC_Red"
-    assert instance.texture_params["Normal"] == f"{DESKTOP}/T_Crate_Body_N"
-    assert instance.texture_params["ORM"] == f"{DESKTOP}/T_Crate_Body_ORM"
-    assert world.assets[f"{DESKTOP}/T_Crate_Body_BC_Red"].properties["srgb"] is True
-    assert result["material_variants"] == [
-        {
-            "name": "Red",
-            "material": "M_Crate_Body",
-            "instance": f"{DESKTOP}/MI_Crate_Body_Red",
-            "texture": f"{DESKTOP}/T_Crate_Body_BC_Red",
-        }
-    ]
-
-
-def test_one_variant_name_on_two_materials_lists_both_instances(tmp_path: Path) -> None:
-    world = _world()
-    desktop = _variant_dir(
-        world,
-        tmp_path,
-        "Desktop",
-        [
-            "T_Crate_Lid_BC",
-            "T_Crate_Lid_N",
-            "T_Crate_Lid_ORM",
-            "T_Crate_Body_BC_Red",
-            "T_Crate_Lid_BC_Red",
-        ],
-    )
-    entries = [
-        {
-            "name": "Red",
-            "material": material,
-            "base_color": f"T_Crate_{part}_BC_Red.png",
-            "parameters": {},
-            "material_instance": f"MI_Crate_{part}_Red",
-        }
-        for part, material in (("Body", "M_Crate_Body"), ("Lid", "M_Crate_Lid"))
-    ]
-
-    result = _import(world, desktop, DESKTOP, entries)
-
-    assert result["material_variants"] == [
-        {
-            "name": "Red",
-            "material": f"M_Crate_{part}",
-            "instance": f"{DESKTOP}/MI_Crate_{part}_Red",
-            "texture": f"{DESKTOP}/T_Crate_{part}_BC_Red",
-        }
-        for part in ("Body", "Lid")
-    ]
-    assert f"{DESKTOP}/MI_Crate_Body_Red" in world.assets
-    assert f"{DESKTOP}/MI_Crate_Lid_Red" in world.assets
-
-
-def test_variant_instances_are_tagged_and_never_bound_to_the_mesh_slot(tmp_path: Path) -> None:
-    world = _world()
-    desktop = _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
-    entry = {
-        "name": "Red",
-        "material": "M_Crate_Body",
-        "base_color": "T_Crate_Body_BC_Red.png",
-        "parameters": {},
-        "material_instance": "MI_Crate_Body_Red",
-    }
-
-    _import(world, desktop, DESKTOP, [entry])
-
-    instance = world.assets[f"{DESKTOP}/MI_Crate_Body_Red"]
-    assert instance.tags == {
-        "nmg.asset": "Crate",
-        "nmg.material_variant": "Red",
-        "nmg.material_slot": "M_Crate_Body",
-    }
-    assert _bound(world, f"{DESKTOP}/SM_Crate") == [f"{DESKTOP}/MI_Crate_Body"]
-
-
-def test_a_parameter_variant_sets_tint_and_keeps_the_main_textures(tmp_path: Path) -> None:
-    world = _world()
-    desktop = _variant_dir(world, tmp_path, "Desktop", [])
-    entry = {
-        "name": "Blue",
-        "material": "M_Crate_Body",
-        "base_color": None,
-        "parameters": {"Tint": [0.5, 0.25, 1.0, 1.0]},
-        "material_instance": "MI_Crate_Body_Blue",
-    }
-
-    result = _import(world, desktop, DESKTOP, [entry])
-
-    instance = world.assets[f"{DESKTOP}/MI_Crate_Body_Blue"]
-    assert isinstance(instance, MaterialInstanceConstant)
-    assert instance.vector_params["Tint"] == (0.5, 0.25, 1.0, 1.0)
-    assert instance.texture_params["BaseColor"] == f"{DESKTOP}/T_Crate_Body_BC"
-    assert not any(path.endswith("_BC_Blue") for path in world.assets)
-    assert [entry["texture"] for entry in result["material_variants"]] == [None]
-    assert result["warnings"] == []
-
-
-def test_a_parameter_the_master_lacks_is_reported_as_a_warning(tmp_path: Path) -> None:
-    world = _world()
-    world.missing_vectors.add("Tint")
-    desktop = _variant_dir(world, tmp_path, "Desktop", [])
-    entry = {
-        "name": "Blue",
-        "material": "M_Crate_Body",
-        "base_color": None,
-        "parameters": {"Tint": [0.5, 0.25, 1.0, 1.0]},
-        "material_instance": "MI_Crate_Body_Blue",
-    }
-
-    result = _import(world, desktop, DESKTOP, [entry])
-
-    assert result["ok"] is True
-    assert len(result["warnings"]) == 1
-    assert "MI_Crate_Body_Blue" in result["warnings"][0]
-    assert "Tint" in result["warnings"][0]
-    assert "build_master_material.py" in result["warnings"][0]
-
-
-def test_the_variant_texture_is_imported_in_both_folders_with_the_same_names(
+def test_a_texture_variant_uses_its_own_base_colour_and_the_part_normal_and_orm(
     tmp_path: Path,
 ) -> None:
-    world = _world()
-    entry = {
-        "name": "Red",
-        "material": "M_Crate_Body",
-        "base_color": "T_Crate_Body_BC_Red.png",
-        "parameters": {},
-        "material_instance": "MI_Crate_Body_Red",
-    }
-    _import(
-        world, _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"]), DESKTOP, [entry]
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
+    folder.mkdir(parents=True)
+
+    (path,) = write_variant_materials(tmp_path / "game", folder, "Crate", [RED_ENTRY])
+
+    assert path == folder / "M_Crate_Body_Red.tres"
+    text = path.read_text(encoding="utf-8")
+    base = "res://assets/Props/Crate/Desktop"
+    assert text.startswith('[gd_resource type="StandardMaterial3D"')
+    assert "format=3" in text.splitlines()[0]
+    assert f'path="{base}/T_Crate_Body_BC_Red.png" id="1_albedo"' in text
+    assert f'path="{base}/T_Crate_Body_N.png" id="2_normal"' in text
+    assert f'path="{base}/T_Crate_Body_ORM.png" id="3_orm"' in text
+    assert 'albedo_texture = ExtResource("1_albedo")' in text
+    assert 'normal_texture = ExtResource("2_normal")' in text
+    assert "normal_enabled = true" in text
+    # ORM: occlusion in red, roughness in green, metallic in blue.
+    assert 'ao_texture = ExtResource("3_orm")' in text
+    assert "ao_texture_channel = 0" in text
+    assert 'roughness_texture = ExtResource("3_orm")' in text
+    assert "roughness_texture_channel = 1" in text
+    assert 'metallic_texture = ExtResource("3_orm")' in text
+    assert "metallic_texture_channel = 2" in text
+    # No Tint declared: the albedo colour is white.
+    assert "albedo_color = Color(1, 1, 1, 1)" in text
+    assert 'resource_name = "M_Crate_Body_Red"' in text
+
+
+def test_a_parameter_variant_sets_the_tint_and_keeps_the_part_base_colour(
+    tmp_path: Path,
+) -> None:
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Mobile"
+    folder.mkdir(parents=True)
+
+    (path,) = write_variant_materials(tmp_path / "game", folder, "Crate", [BLUE_ENTRY])
+
+    text = path.read_text(encoding="utf-8")
+    assert 'path="res://assets/Props/Crate/Mobile/T_Crate_Body_BC.png" id="1_albedo"' in text
+    assert "albedo_color = Color(0.5, 0.25, 1, 1)" in text
+
+
+def test_a_three_component_tint_gets_full_alpha(tmp_path: Path) -> None:
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
+    folder.mkdir(parents=True)
+    entry = {**BLUE_ENTRY, "parameters": {"Tint": [0.5, 0.25, 1.0]}}
+
+    text = render_material(tmp_path / "game", folder, "Crate", entry)
+
+    assert "albedo_color = Color(0.5, 0.25, 1, 1)" in text
+
+
+def test_the_recorded_material_resource_names_the_file(tmp_path: Path) -> None:
+    assert resource_name(LID_ENTRY) == "M_Crate_Lid_Red.tres"
+    assert resource_name({**LID_ENTRY, "material_resource": "Desktop/M_Crate_Lid_Red.tres"}) == (
+        "M_Crate_Lid_Red.tres"
     )
-    _import(
-        world, _variant_dir(world, tmp_path, "Mobile", ["T_Crate_Body_BC_Red"]), MOBILE, [entry]
-    )
-
-    assert f"{DESKTOP}/MI_Crate_Body_Red" in world.assets
-    assert f"{MOBILE}/MI_Crate_Body_Red" in world.assets
-    assert world.assets[f"{MOBILE}/T_Crate_Body_BC_Red"].properties["srgb"] is True
+    assert resource_name(RED_ENTRY) == "M_Crate_Body_Red.tres"
 
 
-def test_removing_a_variant_deletes_its_tagged_assets_and_reports_them(tmp_path: Path) -> None:
-    world = _world()
-    red = {
-        "name": "Red",
-        "material": "M_Crate_Body",
-        "base_color": "T_Crate_Body_BC_Red.png",
-        "parameters": {},
-        "material_instance": "MI_Crate_Body_Red",
-    }
-    blue = {
-        "name": "Blue",
-        "material": "M_Crate_Body",
-        "base_color": "T_Crate_Body_BC_Blue.png",
-        "parameters": {},
-        "material_instance": "MI_Crate_Body_Blue",
-    }
-    _import(
-        world,
-        _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red", "T_Crate_Body_BC_Blue"]),
-        DESKTOP,
-        [red, blue],
-    )
-    red_created = world.created.count(f"{DESKTOP}/MI_Crate_Body_Red")
+def test_removing_a_variant_deletes_only_its_stale_material(tmp_path: Path) -> None:
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
+    folder.mkdir(parents=True)
+    write_variant_materials(tmp_path / "game", folder, "Crate", [RED_ENTRY, BLUE_ENTRY])
+    (folder / "Crate.glb").write_bytes(b"glb")
+    (folder / "M_Other_Body_Red.tres").write_text("other asset", encoding="utf-8")
 
-    # The author removed Blue, and the export deleted its texture from the folder.
-    (tmp_path / "Desktop" / "T_Crate_Body_BC_Blue.png").unlink()
-    result = _import(world, tmp_path / "Desktop", DESKTOP, [red])
+    written = write_variant_materials(tmp_path / "game", folder, "Crate", [RED_ENTRY])
 
-    assert result["removed"] == [
-        f"{DESKTOP}/MI_Crate_Body_Blue",
-        f"{DESKTOP}/T_Crate_Body_BC_Blue",
-    ]
-    assert f"{DESKTOP}/MI_Crate_Body_Blue" not in world.assets
-    assert f"{DESKTOP}/T_Crate_Body_BC_Blue" not in world.assets
-    assert f"{DESKTOP}/T_Crate_Body_BC_Red" in world.assets
-    assert world.created.count(f"{DESKTOP}/MI_Crate_Body_Red") == red_created == 1
+    assert written == [folder / "M_Crate_Body_Red.tres"]
+    assert not (folder / "M_Crate_Body_Blue.tres").exists()
+    assert (folder / "M_Crate_Body_Red.tres").is_file()
+    assert (folder / "Crate.glb").is_file()
+    assert (folder / "M_Other_Body_Red.tres").is_file()
 
 
-def test_reimporting_the_same_declaration_reuses_every_variant_asset(tmp_path: Path) -> None:
-    world = _world()
-    entry = {
-        "name": "Red",
-        "material": "M_Crate_Body",
-        "base_color": "T_Crate_Body_BC_Red.png",
-        "parameters": {},
-        "material_instance": "MI_Crate_Body_Red",
-    }
-    desktop = _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"])
-    _import(world, desktop, DESKTOP, [entry])
+def test_a_hand_made_material_in_the_folder_is_never_removed(tmp_path: Path) -> None:
+    """Review F20: only .tres files finalize wrote (its manifest) are stale candidates."""
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
+    folder.mkdir(parents=True)
+    hand_made = folder / "M_Crate_Body_Custom.tres"
+    hand_made.write_text("made in the Godot editor", encoding="utf-8")
+    write_variant_materials(tmp_path / "game", folder, "Crate", [RED_ENTRY, BLUE_ENTRY])
 
-    result = _import(world, desktop, DESKTOP, [entry])
+    write_variant_materials(tmp_path / "game", folder, "Crate", [])
 
-    assert result["removed"] == []
-    assert world.created.count(f"{DESKTOP}/MI_Crate_Body_Red") == 1
+    assert hand_made.read_text(encoding="utf-8") == "made in the Godot editor"
+    assert not (folder / "M_Crate_Body_Red.tres").exists()
+    assert not (folder / "M_Crate_Body_Blue.tres").exists()
 
 
-def test_without_material_variants_the_bindings_are_unchanged(tmp_path: Path) -> None:
-    world = _world()
-    desktop = _variant_dir(world, tmp_path, "Desktop", [])
+def test_rewriting_the_same_declaration_leaves_the_file_unchanged(tmp_path: Path) -> None:
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
+    folder.mkdir(parents=True)
+    (path,) = write_variant_materials(tmp_path / "game", folder, "Crate", [RED_ENTRY])
+    before = path.read_bytes()
 
-    result = _import(world, desktop, DESKTOP, None)
+    write_variant_materials(tmp_path / "game", folder, "Crate", [RED_ENTRY])
 
-    assert result["ok"] is True
-    assert result["materials"] == {"M_Crate_Body": f"{DESKTOP}/MI_Crate_Body"}
-    assert result["material_variants"] == []
-    assert result["removed"] == []
-    assert _bound(world, f"{DESKTOP}/SM_Crate") == [f"{DESKTOP}/MI_Crate_Body"]
+    assert path.read_bytes() == before
 
 
-def test_build_import_code_embeds_each_declared_entry_for_the_template() -> None:
-    entries = [
-        {
-            "name": "Red",
-            "material": "M_Crate_Body",
-            "base_color": "T_Crate_Body_BC_Red.png",
-            "parameters": {},
-            "material_instance": "MI_Crate_Body_Red",
-        }
-    ]
+def test_a_material_outside_the_asset_naming_is_a_mismatch(tmp_path: Path) -> None:
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
+    folder.mkdir(parents=True)
 
-    code = build_import_code(
-        "/work/Desktop", DESKTOP, "Crate", _report(), material_variants=entries
-    )
+    with pytest.raises(PipelineError) as raised:
+        write_variant_materials(
+            tmp_path / "game", folder, "Crate", [{**RED_ENTRY, "material": "M_Barrel_Body"}]
+        )
 
-    assert _ue_params(code)["material_variants"] == entries
-    assert "_BC_" in code  # the template treats a variant base colour as sRGB
+    assert raised.value.code == "import_godot.mismatch"
+    assert raised.value.remediation
 
 
-def test_the_import_step_passes_each_variants_sidecar_list_to_unreal(tmp_path: Path) -> None:
-    class _DeclaringRunner(FakeStepRunner):
-        def _export_outputs(self, job_dir: Path) -> dict[str, Any]:
-            outputs = super()._export_outputs(job_dir)
-            entry = {
-                "name": "Red",
-                "material": "M_Crate_Body",
-                "base_color": "T_Crate_Body_BC_Red.png",
-                "parameters": {},
-                "material_instance": "MI_Crate_Body_Red",
+class _VariantStepRunner(FakeStepRunner):
+    """The Blender fake, with an export sidecar that lists material variants."""
+
+    def __init__(self, request: FinalizeRequest, entries: list[dict[str, Any]]) -> None:
+        super().__init__(request)
+        self.entries = entries
+
+    def _sidecar(self) -> dict[str, Any]:
+        payload = super()._sidecar()
+        if self.entries:
+            payload["material_variants"] = {
+                "desktop": self.entries,
+                "mobile": [dict(entry) for entry in self.entries],
             }
-            Path(outputs["sidecar"]).write_text(
-                json.dumps(
-                    {"asset": "Crate", "material_variants": {"desktop": [entry], "mobile": [entry]}}
-                ),
-                encoding="utf-8",
-            )
-            return outputs
+        return payload
 
-    blend = _blend(tmp_path)
-    request = FinalizeRequest(
-        collection="Crate",
-        category="Props",
-        asset_class="standard_prop",
-        export_root=tmp_path / "export",
-        blend=blend,
-    )
-    unreal = FakeUnrealRunner()
 
-    finalize(
+def _finalize(tmp_path: Path, entries: list[dict[str, Any]]) -> tuple[Any, FinalizeGodot]:
+    export_root = _game(tmp_path / "game")
+    request = _request(_blend(tmp_path), export_root)
+    godot = FinalizeGodot(tmp_path / "game")
+    result = finalize(
         request,
-        steps=STEP_ORDER,
-        force=False,
         cache_dir=tmp_path / "cache",
-        runner=_DeclaringRunner(request),
+        runner=_VariantStepRunner(request, entries),
         job_dir=tmp_path / "job",
-        clients=FinalizeClients(blender=FakeBlenderSession(), unreal=unreal),
+        clients=FinalizeClients(godot=godot),
     )
-
-    params = [_ue_params(code) for code in unreal.codes]
-    assert [item["material_variants"][0]["name"] for item in params] == ["Red", "Red"]
+    return result, godot
 
 
-def test_a_sidecar_without_material_variants_imports_with_none(tmp_path: Path) -> None:
-    blend = _blend(tmp_path)
-    request = FinalizeRequest(
-        collection="Crate",
-        category="Props",
-        asset_class="standard_prop",
-        export_root=tmp_path / "export",
-        blend=blend,
+def test_import_godot_writes_each_variants_materials_in_both_folders(tmp_path: Path) -> None:
+    result, godot = _finalize(tmp_path, [RED_ENTRY, BLUE_ENTRY, LID_ENTRY])
+
+    asset = tmp_path / "game" / "assets" / "Props" / "Crate"
+    for variant in ("Desktop", "Mobile"):
+        for name in ("M_Crate_Body_Red.tres", "M_Crate_Body_Blue.tres", "M_Crate_Lid_Red.tres"):
+            assert (asset / variant / name).is_file(), f"{variant}/{name}"
+    imported = next(step for step in result.steps if step.step == "import_godot")
+    assert imported.outputs["imports"]["Desktop"]["material_variants"] == [
+        "res://assets/Props/Crate/Desktop/M_Crate_Body_Red.tres",
+        "res://assets/Props/Crate/Desktop/M_Crate_Body_Blue.tres",
+        "res://assets/Props/Crate/Desktop/M_Crate_Lid_Red.tres",
+    ]
+    # The materials are written before the one headless import, which picks them up.
+    assert godot.count("--import") == 1
+
+
+def test_a_sidecar_without_material_variants_writes_no_material(tmp_path: Path) -> None:
+    result, _godot = _finalize(tmp_path, [])
+
+    asset = tmp_path / "game" / "assets" / "Props" / "Crate"
+    assert list(asset.rglob("*.tres")) == []
+    imported = next(step for step in result.steps if step.step == "import_godot")
+    assert imported.outputs["imports"]["Mobile"]["material_variants"] == []
+
+
+def test_listing_after_finalize_returns_the_written_materials(tmp_path: Path) -> None:
+    _finalize(tmp_path, [RED_ENTRY, BLUE_ENTRY])
+
+    rows = list_material_variants(
+        category="Props", collection="Crate", export_root=str(tmp_path / "game" / "assets")
     )
-    unreal = FakeUnrealRunner()
-
-    finalize(
-        request,
-        steps=STEP_ORDER,
-        force=False,
-        cache_dir=tmp_path / "cache",
-        runner=FakeStepRunner(request),
-        job_dir=tmp_path / "job",
-        clients=FinalizeClients(blender=FakeBlenderSession(), unreal=unreal),
-    )
-
-    assert [_ue_params(code)["material_variants"] for code in unreal.codes] == [[], []]
-
-
-# --- AC8 and FR8: listing from the tags -----------------------------------------------------
-
-
-def _import_both_folders(world: FakeWorld, tmp_path: Path) -> None:
-    red = {
-        "name": "Red",
-        "material": "M_Crate_Body",
-        "base_color": "T_Crate_Body_BC_Red.png",
-        "parameters": {},
-        "material_instance": "MI_Crate_Body_Red",
-    }
-    blue = {
-        "name": "Blue",
-        "material": "M_Crate_Body",
-        "base_color": None,
-        "parameters": {"Tint": [0.5, 0.25, 1.0, 1.0]},
-        "material_instance": "MI_Crate_Body_Blue",
-    }
-    _import(
-        world,
-        _variant_dir(world, tmp_path, "Desktop", ["T_Crate_Body_BC_Red"]),
-        DESKTOP,
-        [red, blue],
-    )
-    _import(
-        world, _variant_dir(world, tmp_path, "Mobile", ["T_Crate_Body_BC_Red"]), MOBILE, [red, blue]
-    )
-
-
-def test_listing_returns_each_variant_with_its_instance_in_both_folders(tmp_path: Path) -> None:
-    world = _world()
-    _import_both_folders(world, tmp_path)
-
-    rows = list_rows(world, "Props", "Crate")
 
     assert rows == [
         {
             "name": "Blue",
             "material": "M_Crate_Body",
-            "desktop": f"{DESKTOP}/MI_Crate_Body_Blue",
-            "mobile": f"{MOBILE}/MI_Crate_Body_Blue",
+            "desktop": "res://assets/Props/Crate/Desktop/M_Crate_Body_Blue.tres",
+            "mobile": "res://assets/Props/Crate/Mobile/M_Crate_Body_Blue.tres",
         },
         {
             "name": "Red",
             "material": "M_Crate_Body",
-            "desktop": f"{DESKTOP}/MI_Crate_Body_Red",
-            "mobile": f"{MOBILE}/MI_Crate_Body_Red",
+            "desktop": "res://assets/Props/Crate/Desktop/M_Crate_Body_Red.tres",
+            "mobile": "res://assets/Props/Crate/Mobile/M_Crate_Body_Red.tres",
         },
     ]
 
 
-def test_listing_returns_an_empty_list_when_nothing_is_tagged_or_the_folders_are_missing() -> None:
-    assert list_rows(_world(), "Props", "Crate") == []
+# --- AC6 and FR6: listing from the files finalize wrote, without Godot ------------------------
 
 
-def test_listing_ignores_untagged_instances_of_other_assets(tmp_path: Path) -> None:
-    world = _world()
-    other = MaterialInstanceConstant(f"{DESKTOP}/MI_Crate_Body")
-    other.tags = {"nmg.asset": "Chest"}
-    world.assets[other.path] = other
+def test_listing_returns_sorted_rows_with_paths_only_for_existing_materials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    export_root = _game(tmp_path / "game")
+    _finalized(
+        export_root,
+        [RED_ENTRY, BLUE_ENTRY, LID_ENTRY],
+        [RED_ENTRY, LID_ENTRY],
+        tres=(
+            "Desktop/M_Crate_Body_Red.tres",
+            "Desktop/M_Crate_Lid_Red.tres",
+            "Mobile/M_Crate_Lid_Red.tres",
+        ),
+    )
+    forbid_godot(monkeypatch)
 
-    assert list_rows(world, "Props", "Crate") == []
+    rows = list_material_variants(
+        category="Props", collection="Crate", export_root=str(export_root)
+    )
+
+    assert rows == [
+        {"name": "Blue", "material": "M_Crate_Body", "desktop": None, "mobile": None},
+        {
+            "name": "Red",
+            "material": "M_Crate_Body",
+            "desktop": "res://assets/Props/Crate/Desktop/M_Crate_Body_Red.tres",
+            "mobile": None,
+        },
+        {
+            "name": "Red",
+            "material": "M_Crate_Lid",
+            "desktop": "res://assets/Props/Crate/Desktop/M_Crate_Lid_Red.tres",
+            "mobile": "res://assets/Props/Crate/Mobile/M_Crate_Lid_Red.tres",
+        },
+    ]
 
 
-def test_listing_reports_a_ue_failure_with_the_finalize_code() -> None:
-    class _Broken:
-        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-            _ = code
-            return 'NMG_RESULT {"error": "KeyError: x", "instances": [], "ok": false}'
+def test_listing_an_asset_without_material_variants_is_empty(tmp_path: Path) -> None:
+    export_root = _game(tmp_path / "game")
+    asset = export_root / "Props" / "Crate"
+    asset.mkdir(parents=True)
+    (asset / "nmg-variants.json").write_text('{"asset": "Crate"}', encoding="utf-8")
+
+    assert list_rows(export_root, "Props", "Crate") == []
+
+
+def test_listing_defaults_to_the_project_game_assets(tmp_path: Path, _project: Path) -> None:
+    export_root = _game(_project / "game")
+    _finalized(export_root, [RED_ENTRY], tres=("Desktop/M_Crate_Body_Red.tres",))
+
+    rows = list_material_variants(category="Props", collection="Crate")
+
+    assert rows == [
+        {
+            "name": "Red",
+            "material": "M_Crate_Body",
+            "desktop": "res://assets/Props/Crate/Desktop/M_Crate_Body_Red.tres",
+            "mobile": None,
+        }
+    ]
+
+
+def test_a_missing_sidecar_is_material_variants_failed(tmp_path: Path) -> None:
+    response = list_material_variants(
+        category="Props", collection="Crate", export_root=str(_game(tmp_path / "game"))
+    )
+
+    assert isinstance(response, dict)
+    assert response["error"]["code"] == "finalize.material_variants_failed"
+    assert "nmg-variants.json" in response["error"]["message"]
+    assert response["error"]["remediation"]
+
+
+@pytest.mark.parametrize("text", ["{not json", "[1, 2]"])
+def test_an_invalid_sidecar_is_material_variants_failed(tmp_path: Path, text: str) -> None:
+    export_root = _game(tmp_path / "game")
+    asset = export_root / "Props" / "Crate"
+    asset.mkdir(parents=True)
+    (asset / "nmg-variants.json").write_text(text, encoding="utf-8")
 
     with pytest.raises(PipelineError) as raised:
-        list_rows(_Broken(), "Props", "Crate")
+        list_rows(export_root, "Props", "Crate")
 
     assert raised.value.code == "finalize.material_variants_failed"
 
 
-def test_the_mcp_tool_returns_the_same_rows_as_the_listing(tmp_path: Path) -> None:
-    world = _world()
-    _import_both_folders(world, tmp_path)
+def test_an_entry_without_a_name_is_material_variants_failed(tmp_path: Path) -> None:
+    export_root = _game(tmp_path / "game")
+    _finalized(export_root, [{"material": "M_Crate_Body"}])
 
-    rows = list_material_variants(category="Props", collection="Crate", client=world)
+    with pytest.raises(PipelineError) as raised:
+        list_rows(export_root, "Props", "Crate")
 
-    assert rows == list_rows(world, "Props", "Crate")
-    assert list_for_mcp(category="Props", collection="Crate", client=_world()) == []
-
-
-def test_the_mcp_tool_returns_the_unreachable_error_structured() -> None:
-    class _Unreachable:
-        def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-            _ = code
-            raise PipelineError(
-                code="mcp.unreal.unreachable",
-                message="no Unreal MCP endpoint",
-                remediation="Run scripts/start-unreal-mcp.sh.",
-                stage="import_ue",
-            )
-
-    result = list_for_mcp(category="Props", collection="Crate", client=_Unreachable())
-
-    assert result == {
-        "error": {
-            "code": "mcp.unreal.unreachable",
-            "message": "no Unreal MCP endpoint",
-            "remediation": "Run scripts/start-unreal-mcp.sh.",
-            "stage": "import_ue",
-        }
-    }
+    assert raised.value.code == "finalize.material_variants_failed"
 
 
-def test_the_mcp_tool_refuses_a_name_that_is_not_pascal_case() -> None:
-    result = list_for_mcp(category="props", collection="Crate", client=_world())
+def test_a_material_outside_any_godot_project_is_material_variants_failed(
+    tmp_path: Path,
+) -> None:
+    export_root = tmp_path / "loose"
+    _finalized(export_root, [RED_ENTRY], tres=("Desktop/M_Crate_Body_Red.tres",))
 
-    assert isinstance(result, dict)
-    assert result["error"]["code"] == "finalize.invalid_request"
+    with pytest.raises(PipelineError) as raised:
+        list_rows(export_root, "Props", "Crate")
+
+    assert raised.value.code == "finalize.material_variants_failed"
+
+
+def test_the_mcp_tool_refuses_a_name_that_is_not_pascal_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_godot(monkeypatch)
+    response = list_material_variants(category="props", collection="Crate")
+
+    assert isinstance(response, dict)
+    assert response["error"]["code"] == "finalize.invalid_request"
 
 
 def test_the_cli_lists_the_rows_as_json(tmp_path: Path) -> None:
-    world = _world()
-    _import_both_folders(world, tmp_path)
-    stdout, stderr = io.StringIO(), io.StringIO()
+    export_root = _game(tmp_path / "game")
+    _finalized(export_root, [RED_ENTRY], tres=("Mobile/M_Crate_Body_Red.tres",))
+    stdout = io.StringIO()
 
     code = main(
-        ["material-variants", "--category", "Props", "--collection", "Crate", "--json"],
+        [
+            "material-variants",
+            "--category",
+            "Props",
+            "--collection",
+            "Crate",
+            "--export-root",
+            str(export_root),
+            "--json",
+        ],
         stdout=stdout,
-        stderr=stderr,
-        unreal_client=world,
+        stderr=io.StringIO(),
     )
 
     assert code == EXIT_OK
-    assert [row["name"] for row in json.loads(stdout.getvalue())] == ["Blue", "Red"]
+    assert json.loads(stdout.getvalue()) == [
+        {
+            "name": "Red",
+            "material": "M_Crate_Body",
+            "desktop": None,
+            "mobile": "res://assets/Props/Crate/Mobile/M_Crate_Body_Red.tres",
+        }
+    ]
 
 
-def test_the_cli_prints_one_line_per_variant_and_says_when_there_are_none() -> None:
+def test_the_cli_prints_one_line_per_variant_and_says_when_there_are_none(
+    tmp_path: Path,
+) -> None:
+    export_root = _game(tmp_path / "game")
+    _finalized(export_root, [RED_ENTRY], tres=("Desktop/M_Crate_Body_Red.tres",))
+    args = ["material-variants", "--category", "Props", "--collection", "Crate"]
     stdout = io.StringIO()
-    main(
-        ["material-variants", "--category", "Props", "--collection", "Crate"],
-        stdout=stdout,
-        stderr=io.StringIO(),
-        unreal_client=_world(),
+
+    assert main([*args, "--export-root", str(export_root)], stdout=stdout) == EXIT_OK
+    assert stdout.getvalue() == (
+        "Red  M_Crate_Body  Desktop: res://assets/Props/Crate/Desktop/M_Crate_Body_Red.tres  "
+        "Mobile: -\n"
     )
 
-    assert stdout.getvalue() == "Crate has no material variants in Unreal.\n"
+    _finalized(export_root, [])
+    stdout = io.StringIO()
+    assert main([*args, "--export-root", str(export_root)], stdout=stdout) == EXIT_OK
+    assert stdout.getvalue() == "Crate has no material variants.\n"
+
+
+def test_the_cli_reports_a_missing_sidecar_with_exit_one(tmp_path: Path) -> None:
+    stderr = io.StringIO()
+
+    code = main(
+        [
+            "material-variants",
+            "--category",
+            "Props",
+            "--collection",
+            "Crate",
+            "--export-root",
+            str(tmp_path / "nowhere"),
+        ],
+        stdout=io.StringIO(),
+        stderr=stderr,
+    )
+
+    assert code == EXIT_FAILED
+    assert "ERROR [finalize.material_variants_failed]" in stderr.getvalue()
 
 
 def test_the_cli_refuses_a_missing_declaration_with_exit_one(tmp_path: Path) -> None:
@@ -764,7 +677,7 @@ def test_the_documents_name_the_declaration_naming_rules_and_listing() -> None:
     for needle in (
         ".material-variants.json",
         "T_<Name>_<Part>_BC_<Variant>",
-        "MI_<Name>_<Part>_<Variant>",
+        "M_<Name>_<Part>_<Variant>.tres",
         "material_variant.material_merged",
         "Tint",
     ):

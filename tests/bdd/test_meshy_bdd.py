@@ -639,7 +639,7 @@ def _mcp_entries(ctx: dict[str, Any]) -> None:
     assert servers["meshy"]["command"] == "uv"
     assert "run" in servers["meshy"]["args"]
     assert "MESHY_API_KEY" not in ctx["mcp_text"]
-    assert {"blender", "unreal", "finalize", "texture-gen"} <= set(servers)
+    assert {"blender", "finalize", "texture-gen"} <= set(servers)
 
 
 @then("the generate_model description limits pose to characters and creatures with limbs")

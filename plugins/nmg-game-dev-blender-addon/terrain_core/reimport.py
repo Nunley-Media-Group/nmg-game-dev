@@ -1,10 +1,11 @@
 """Terrain re-import check against the pre-export report (#154, FR10).
 
-For one variant folder the check reads ``T_<Name>_Height.png`` and the ``T_<Name>_Layer_<L>.png``
-weightmaps, and confirms the layer textures exist. It fails the report with ``reimport.terrain``
-when the resolution or bit depth differs, a file is missing, a weight pixel does not sum to 255,
-or a decoded height differs from the evaluated height by more than 0.05 m. The evaluated heights
-come from the height samples file that the export step wrote next to the pre-export report.
+For one variant folder the check reads ``T_<Name>_Height.png`` and the ``T_<Name>_Splat.png``
+weightmap, and confirms the chunk GLBs and the layer textures exist. It fails the report with
+``reimport.terrain`` when the resolution or bit depth differs, a file is missing, a splat pixel's
+layer channels do not sum to 255 (or an unused channel is not 0), or a decoded height differs from
+the evaluated height by more than 0.05 m. The evaluated heights come from the height samples file
+that the export step wrote next to the pre-export report.
 """
 
 from __future__ import annotations
@@ -17,7 +18,14 @@ from pathlib import Path
 from typing import Any, Final
 
 from ..contract_core.report import ContractError, build_report, finding
-from .heightfield import WEIGHT_TOTAL, decode_heights, read_png_gray
+from .heightfield import (
+    SPLAT_CHANNELS,
+    WEIGHT_TOTAL,
+    chunk_file_names,
+    decode_heights,
+    read_png_gray,
+    read_png_rgba8,
+)
 
 HEIGHT_TOLERANCE_M: Final = 0.05
 LAYER_TEXTURE_SUFFIXES: Final[tuple[str, ...]] = ("BC", "N", "ORM")
@@ -71,15 +79,10 @@ def terrain_reimport_check(
 
     findings: list[dict[str, str]] = []
     height_error = _check_heightmap(folder, asset, n, zmin, zmax, Path(heights_path), findings)
-    weight_codes = _check_weightmaps(folder, asset, n, layers, findings)
-    if weight_codes is not None and _pixels_off_total(weight_codes):
-        findings.append(
-            finding(
-                "reimport.terrain",
-                f"T_{asset}_Layer",
-                f"The {variant} weightmaps do not sum to {WEIGHT_TOTAL} at every pixel.",
-            )
-        )
+    _check_splat(folder, asset, n, len(layers), variant, findings)
+    for name in chunk_file_names(asset, n):
+        if not (folder / name).is_file():
+            findings.append(_missing(name))
     for layer in layers:
         for suffix in LAYER_TEXTURE_SUFFIXES:
             name = f"T_{asset}_{layer}_{suffix}.png"
@@ -142,42 +145,53 @@ def _check_heightmap(
     return error
 
 
-def _check_weightmaps(
+def _check_splat(
     folder: Path,
     asset: str,
     n: int,
-    layers: Sequence[str],
+    layer_count: int,
+    variant: str,
     findings: list[dict[str, str]],
-) -> list[bytes] | None:
-    """Read each layer weightmap (8-bit); return the codes when every layer is valid."""
-    codes: list[bytes] = []
-    complete = True
-    for layer in layers:
-        name = f"T_{asset}_Layer_{layer}.png"
-        path = folder / name
-        if not path.is_file():
-            findings.append(_missing(name))
-            complete = False
-            continue
-        image = read_png_gray(path)
-        if image.bit_depth != 8 or (image.width, image.height) != (n, n):
-            findings.append(
-                finding(
-                    "reimport.terrain",
-                    name,
-                    f"{name} is {image.width}x{image.height} at {image.bit_depth}-bit; a weightmap "
-                    f"must be {n}x{n} at 8-bit.",
-                )
+) -> None:
+    """Read the RGBA splat map and check its size and that every pixel's weights sum to 255."""
+    name = f"T_{asset}_Splat.png"
+    path = folder / name
+    if not path.is_file():
+        findings.append(_missing(name))
+        return
+    try:
+        image = read_png_rgba8(path)
+    except ValueError as error:
+        findings.append(finding("reimport.terrain", name, f"{name} is not 8-bit RGBA: {error}"))
+        return
+    if (image.width, image.height) != (n, n):
+        findings.append(
+            finding(
+                "reimport.terrain",
+                name,
+                f"{name} is {image.width}x{image.height}; the splat map must be {n}x{n}.",
             )
-            complete = False
-            continue
-        codes.append(image.samples)
-    return codes if complete and codes else None
+        )
+        return
+    if _pixels_off_total(image.samples, layer_count):
+        findings.append(
+            finding(
+                "reimport.terrain",
+                name,
+                f"The {variant} splat map's {layer_count} layer channel(s) do not sum to "
+                f"{WEIGHT_TOTAL} at every pixel, or an unused channel is not 0.",
+            )
+        )
 
 
-def _pixels_off_total(codes: Sequence[bytes]) -> bool:
-    """True when any pixel's weights across the layers do not sum to WEIGHT_TOTAL."""
-    return any(sum(pixel) != WEIGHT_TOTAL for pixel in zip(*codes, strict=True))
+def _pixels_off_total(samples: bytes, layer_count: int) -> bool:
+    """True when a pixel's layer channels miss WEIGHT_TOTAL or an unused channel is not 0."""
+    channels = [samples[slot::SPLAT_CHANNELS] for slot in range(SPLAT_CHANNELS)]
+    used = channels[:layer_count]
+    unused = channels[layer_count:]
+    if any(any(channel) for channel in unused):
+        return True
+    return any(sum(pixel) != WEIGHT_TOTAL for pixel in zip(*used, strict=True))
 
 
 def _missing(name: str) -> dict[str, str]:

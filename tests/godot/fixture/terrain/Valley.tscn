@@ -1,0 +1,34 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="PackedScene" path="res://terrain/Valley_Chunk_0_0.glb" id="chunk_Valley_Chunk_0_0"]
+[ext_resource type="Shader" path="res://addons/nmg_game_dev/terrain/nmg_terrain.gdshader" id="shader"]
+[ext_resource type="Texture2D" path="res://terrain/T_Valley_Splat.png" id="splat"]
+[ext_resource type="Texture2D" path="res://terrain/T_Valley_Grass_BC.png" id="layer0_bc"]
+[ext_resource type="Texture2D" path="res://terrain/T_Valley_Grass_N.png" id="layer0_n"]
+[ext_resource type="Texture2D" path="res://terrain/T_Valley_Grass_ORM.png" id="layer0_orm"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_terrain"]
+shader = ExtResource("shader")
+shader_parameter/splat = ExtResource("splat")
+shader_parameter/uv_scale = 1
+shader_parameter/layer0_bc = ExtResource("layer0_bc")
+shader_parameter/layer0_n = ExtResource("layer0_n")
+shader_parameter/layer0_orm = ExtResource("layer0_orm")
+
+[sub_resource type="HeightMapShape3D" id="HeightMapShape3D_terrain"]
+map_width = 2
+map_depth = 2
+map_data = PackedFloat32Array(-0.5, 0.5, 0.5, -0.5)
+
+[node name="Valley" type="Node3D"]
+
+[node name="Valley_Chunk_0_0" parent="." instance=ExtResource("chunk_Valley_Chunk_0_0")]
+
+[node name="Crate" parent="Valley_Chunk_0_0"]
+material_override = SubResource("ShaderMaterial_terrain")
+
+[node name="Collision" type="StaticBody3D" parent="."]
+
+[node name="HeightMap" type="CollisionShape3D" parent="Collision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+shape = SubResource("HeightMapShape3D_terrain")

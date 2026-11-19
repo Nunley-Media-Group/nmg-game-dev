@@ -1,18 +1,15 @@
 # ruff: noqa: E501  -- step decorators repeat the Gherkin text verbatim, so they run long.
 """pytest-bdd bindings for design.feature: SCN001-SCN007 of #112.
 
-The steps share one ``state`` dict per scenario.  The project root is a temp directory, and
-``CLAUDE_PROJECT_DIR`` points at it, so nothing touches the real repository.  The Unreal editor is
-a fake that answers each scaffold call the way the generated UE code does.
+The steps share one ``state`` dict per scenario.  The project root is a temp directory with an
+empty ``game/project.godot``, and ``CLAUDE_PROJECT_DIR`` points at it, so nothing touches the real
+repository.  Scaffolding writes Godot text files directly, so no engine runs.
 """
 
 from __future__ import annotations
 
-import ast
 import io
-import json
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -26,46 +23,30 @@ from nmg_game_dev.design.paths import backlog_path
 from nmg_game_dev.finalize import FinalizeService, finalize_asset
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, jobs
 from tests.bdd.test_onboard_bdd import _fresh, _install
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot
 
 FEATURE = "design.feature"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DESIGN_CONTRACT = REPO_ROOT / "docs" / "design-contract.md"
 
 
-class FakeEditor:
-    """Answers scaffold calls like the generated UE code: an existing target is not created."""
-
-    def __init__(self, existing: set[str] | None = None) -> None:
-        self.existing: set[str] = set(existing or ())
-        self.created: list[str] = []
-
-    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-        assert "does_asset_exist(PATH)" in code, "the existence check must come first"
-        path = _path_of(code)
-        if path in self.existing:
-            return _result(created=False, path=path)
-        self.existing.add(path)
-        self.created.append(path)
-        return _result(created=True, path=path)
+REGION_FILE = "game/levels/OldTown/OldTown.tscn"
+MISSION_FILE = "game/missions/FirstLight.tres"
+SYSTEM_FILE = "game/systems/Stamina/stamina.gd"
 
 
-def _path_of(code: str) -> str:
-    match = re.search(r"^PATH = (.+)$", code, re.MULTILINE)
-    assert match, "the generated code assigns PATH"
-    return str(ast.literal_eval(match.group(1)))
-
-
-def _result(*, created: bool, path: str) -> str:
-    return "NMG_RESULT " + json.dumps({"ok": True, "created": created, "path": path, "error": None})
+def _game_files(root: Path) -> dict[str, bytes]:
+    game = root / "game"
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in game.rglob("*") if p.is_file()}
 
 
 @pytest.fixture
 def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     root = tmp_path / "project"
-    root.mkdir()
+    (root / "game").mkdir(parents=True)
+    (root / "game" / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root))
-    return {"root": root, "tmp": tmp_path, "out": "", "exit": None, "editor": None, "before": None}
+    return {"root": root, "tmp": tmp_path, "out": "", "exit": None, "before": None}
 
 
 def _write(root: Path, relative: str, text: str) -> None:
@@ -93,12 +74,7 @@ def _sync(state: dict[str, Any]) -> int:
 
 def _scaffold(state: dict[str, Any]) -> int:
     out, err = io.StringIO(), io.StringIO()
-    code = design_main(
-        ["scaffold", "--project", str(state["root"])],
-        client=state["editor"],
-        stdout=out,
-        stderr=err,
-    )
+    code = design_main(["scaffold", "--project", str(state["root"])], stdout=out, stderr=err)
     state["out"], state["exit"] = out.getvalue(), code
     state["err"] = err.getvalue()
     return code
@@ -268,7 +244,7 @@ def _finalize_without_arguments(state: dict[str, Any]) -> None:
     service = FinalizeService(cache, launcher=lambda job_dir: os.getpid())
     response = finalize_asset(
         collection="Crate",
-        export_root=str(state["tmp"] / "export"),
+        export_root=str(state["tmp"] / "game" / "assets"),
         blend=str(blend),
         service=service,
     )
@@ -278,7 +254,9 @@ def _finalize_without_arguments(state: dict[str, Any]) -> None:
     )
     jobs.run_job(
         job_dir,
-        clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+        clients=FinalizeClients(
+            blender=FakeBlenderSession(), godot=FinalizeGodot(state["tmp"] / "game")
+        ),
         runner=FakeStepRunner(request),
     )
     state["request"] = request
@@ -300,9 +278,9 @@ def _crate_finalized(state: dict[str, Any]) -> None:
 # --- SCN005 ------------------------------
 
 
-@scenario(FEATURE, "Regions, missions, and systems are scaffolded in Unreal")
-def test_regions_missions_and_systems_are_scaffolded_in_unreal() -> None:
-    """AC5: each non-asset entry gets its UE asset and is marked scaffolded."""
+@scenario(FEATURE, "Regions, missions, and systems are scaffolded as Godot files")
+def test_regions_missions_and_systems_are_scaffolded_as_godot_files() -> None:
+    """#249 AC7: each non-asset entry gets its Godot file and is marked scaffolded."""
 
 
 @given("planned entries OldTown (region), FirstLight (mission in OldTown), and Stamina (system)")
@@ -314,28 +292,40 @@ def _planned_non_assets(state: dict[str, Any]) -> None:
     assert _sync(state) == 0
 
 
-@when("design scaffold runs against the editor")
-def _scaffold_against_editor(state: dict[str, Any]) -> None:
-    state["editor"] = FakeEditor()
+@when("design scaffold runs against the Godot project")
+def _scaffold_against_project(state: dict[str, Any]) -> None:
     _scaffold(state)
 
 
 @then(
-    "it creates /Game/Levels/OldTown/L_OldTown, /Game/Missions/FirstLight/DA_FirstLight, and /Game/Systems/Stamina/BPC_Stamina"
+    "it creates game/levels/OldTown/OldTown.tscn, game/missions/FirstLight.tres, and game/systems/Stamina/stamina.gd"
 )
-def _creates_three_assets(state: dict[str, Any]) -> None:
+def _creates_three_files(state: dict[str, Any]) -> None:
     assert state["exit"] == 0, state["err"]
-    assert set(state["editor"].created) == {
-        "/Game/Levels/OldTown/L_OldTown",
-        "/Game/Missions/FirstLight/DA_FirstLight",
-        "/Game/Systems/Stamina/BPC_Stamina",
-    }
+    root = state["root"]
+    assert set(_game_files(root)) == {"game/project.godot", REGION_FILE, MISSION_FILE, SYSTEM_FILE}
+    scene = (root / REGION_FILE).read_text(encoding="utf-8")
+    for node in ('type="Marker3D"', 'type="DirectionalLight3D"', 'type="WorldEnvironment"'):
+        assert node in scene
+    mission = (root / MISSION_FILE).read_text(encoding="utf-8")
+    assert 'script_class="NmgMissionDefinition"' in mission
+    for field in ("mission_name", "act", "region", "depends_on", "design_doc_path"):
+        assert f"\n{field} = " in mission
+    assert "class_name StaminaComponent\nextends Node\n" in (root / SYSTEM_FILE).read_text("utf-8")
 
 
 @then("the three entries are scaffolded")
 def _three_scaffolded(state: dict[str, Any]) -> None:
     statuses = _statuses(state["root"])
     assert statuses["OldTown"] == statuses["FirstLight"] == statuses["Stamina"] == "scaffolded"
+
+
+@then("a second scaffold leaves every file unchanged")
+def _second_scaffold_unchanged(state: dict[str, Any]) -> None:
+    before = _game_files(state["root"])
+    assert _scaffold(state) == 0, state["err"]
+    assert _game_files(state["root"]) == before
+    assert all(line.startswith("unchanged ") for line in state["out"].splitlines())
 
 
 # --- SCN006 ------------------------------
@@ -346,14 +336,17 @@ def test_existing_scaffold_targets_are_left_alone() -> None:
     """AC6: an existing target prints unchanged and is not modified; the others still scaffold."""
 
 
-@given("/Game/Levels/OldTown/L_OldTown already exists")
+@given("game/levels/OldTown/OldTown.tscn already exists")
 def _level_exists(state: dict[str, Any]) -> None:
     root = state["root"]
     _write(root, "regions/old-town.md", REGION)
     _write(root, "missions/first-light.md", MISSION)
     _write(root, "systems/stamina.md", SYSTEM)
     assert _sync(state) == 0
-    state["editor"] = FakeEditor(existing={"/Game/Levels/OldTown/L_OldTown"})
+    level = root / REGION_FILE
+    level.parent.mkdir(parents=True)
+    level.write_text("[gd_scene format=3]\n# hand-made\n", encoding="utf-8")
+    state["before"] = level.read_bytes()
 
 
 @when("design scaffold runs")
@@ -364,14 +357,14 @@ def _scaffold_runs(state: dict[str, Any]) -> None:
 @then("it prints unchanged for OldTown without modifying the level")
 def _unchanged_level(state: dict[str, Any]) -> None:
     assert state["exit"] == 0, state["err"]
-    assert "unchanged region OldTown: /Game/Levels/OldTown/L_OldTown" in state["out"]
-    assert "/Game/Levels/OldTown/L_OldTown" not in state["editor"].created
+    assert f"unchanged region OldTown: {REGION_FILE}" in state["out"]
+    assert (state["root"] / REGION_FILE).read_bytes() == state["before"]
 
 
 @then("the other entries still scaffold")
 def _others_scaffold(state: dict[str, Any]) -> None:
-    assert "created mission FirstLight: /Game/Missions/FirstLight/DA_FirstLight" in state["out"]
-    assert "created system Stamina: /Game/Systems/Stamina/BPC_Stamina" in state["out"]
+    assert f"created mission FirstLight: {MISSION_FILE}" in state["out"]
+    assert f"created system Stamina: {SYSTEM_FILE}" in state["out"]
     assert _statuses(state["root"])["OldTown"] == "scaffolded"
 
 

@@ -6,7 +6,7 @@ visible, moves the selection on up/down keys (wrapping at either end, as Claude 
 logs the keys it receives. With ``name_width`` set it draws the narrow-pane list Claude Code
 draws in a ~40-column Herdr tab: names cut to ``plugin:nmg-game…`` and ``enter`` opening a detail
 view that names the server in full, which ``esc`` leaves with the first row selected. No Claude
-Code, Blender, or Unreal process starts.
+Code, Blender, or Godot process starts.
 """
 
 from __future__ import annotations

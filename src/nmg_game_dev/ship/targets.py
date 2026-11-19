@@ -1,10 +1,12 @@
 """Ship targets: platform groups, their expansion order, and the environment each platform needs.
 
 ``expand_target`` returns platforms in the fixed order ``desktop = [macos, windows]``,
-``mobile = [ios, android]``, and ``all = [macos, windows, ios, android]``. ``preflight_env``
-raises ``ship.env_missing`` naming each unset variable, never its value.
+``mobile = [ios, android]``, and ``all = [macos, windows, ios, android, web]``. ``preflight_env``
+raises ``ship.env_missing`` naming each unset variable, never its value. Windows and web export
+locally and need no variables.
 
-See: specs/6-ship-skills-per-platform-build-sign-notarize-package/design.md (§ Modules)
+See: the #249 design
+(§ Ship)
 """
 
 from __future__ import annotations
@@ -14,30 +16,32 @@ from typing import Final, Literal
 
 from nmg_game_dev.ship.errors import ShipError
 
-Platform = Literal["macos", "ios", "android", "windows"]
-Target = Literal["macos", "ios", "android", "windows", "desktop", "mobile", "all"]
+Platform = Literal["macos", "ios", "android", "windows", "web"]
+Target = Literal["macos", "ios", "android", "windows", "web", "desktop", "mobile", "all"]
 
 TARGETS: Final[tuple[str, ...]] = (
     "macos",
     "ios",
     "android",
     "windows",
+    "web",
     "desktop",
     "mobile",
     "all",
 )
-MOBILE_PLATFORMS: Final[frozenset[Platform]] = frozenset({"ios", "android"})
+BUDGET_PLATFORMS: Final[frozenset[Platform]] = frozenset({"ios", "android", "web"})
+"""Platforms that ship the Mobile variants, so the mobile budget gate runs before them."""
 
 _APPLE_ID_CREDENTIALS: Final[tuple[str, ...]] = (
     "NOTARIZATION_APPLE_ID",
     "NOTARIZATION_APP_SPECIFIC_PASSWORD",
 )
 
-_PLATFORMS: Final[tuple[Platform, ...]] = ("macos", "ios", "android", "windows")
+_PLATFORMS: Final[tuple[Platform, ...]] = ("macos", "ios", "android", "windows", "web")
 _GROUPS: Final[dict[str, tuple[Platform, ...]]] = {
     "desktop": ("macos", "windows"),
     "mobile": ("ios", "android"),
-    "all": ("macos", "windows", "ios", "android"),
+    "all": ("macos", "windows", "ios", "android", "web"),
 }
 
 REQUIRED_ENV: Final[dict[Platform, tuple[str, ...]]] = {
@@ -46,14 +50,10 @@ REQUIRED_ENV: Final[dict[Platform, tuple[str, ...]]] = {
         "NOTARIZATION_APP_SPECIFIC_PASSWORD",
         "NOTARIZATION_TEAM_ID",
     ),
-    "ios": ("IOS_PROVISIONING_PROFILE",),
+    "ios": ("IOS_PROVISIONING_PROFILE", "IOS_TEAM_ID"),
     "android": ("ANDROID_KEYSTORE", "ANDROID_KEYSTORE_PASSWORD"),
-    "windows": (
-        "WINDOWS_BUILD_HOST",
-        "WINDOWS_BUILD_USER",
-        "WINDOWS_BUILD_SSH_KEY",
-        "WINDOWS_REMOTE_PROJECT_PATH",
-    ),
+    "windows": (),
+    "web": (),
 }
 
 

@@ -1,7 +1,8 @@
-"""AC10: scripts/ship-smoke.sh runs a dry-run "all" ship of the fixture and exits 0.
+"""gate-ship-smoke: scripts/ship-smoke.sh dry-runs "all" for tests/godot/fixture and exits 0.
 
-The smoke sets its own placeholder credentials and runs no tool that touches a service. This test
-gives the script a minimal environment, so no real NOTARIZATION_* or keystore value is inherited.
+The smoke sets its own placeholder credentials, runs no Godot, and runs no tool that touches a
+service. This test gives the script a minimal environment, so no real NOTARIZATION_*, iOS, or
+keystore value is inherited.
 """
 
 from __future__ import annotations
@@ -35,4 +36,6 @@ def test_ship_smoke_dry_run_of_all_exits_zero() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "DRY-RUN" in result.stdout
+    assert "--export-release Web" in result.stdout
     assert "Release notes:" in result.stdout
+    assert "smoke-placeholder" not in result.stdout + result.stderr

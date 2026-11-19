@@ -21,7 +21,7 @@ from nmg_game_dev.finalize import FinalizeService, finalize_asset, run_finalize_
 from nmg_game_dev.finalize.__main__ import main as finalize_main
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, jobs
 from nmg_game_dev.pipeline.steps import settings_hash
-from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FakeUnrealRunner
+from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot
 
 
 @pytest.fixture
@@ -61,7 +61,9 @@ def _run_job(cache: Path, job_id: str) -> None:
     )
     jobs.run_job(
         job_dir,
-        clients=FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+        clients=FinalizeClients(
+            blender=FakeBlenderSession(), godot=FinalizeGodot(request.export_root.parent)
+        ),
         runner=FakeStepRunner(request),
     )
 
@@ -187,5 +189,5 @@ def test_the_backlog_path_never_changes_the_cache_settings(tmp_path: Path) -> No
     )
     linked = base.model_copy(update={"backlog_path": tmp_path / "backlog.json"})
 
-    for step in ("validate", "bake", "variants", "export", "reimport", "import_ue"):
+    for step in ("validate", "bake", "variants", "export", "reimport", "import_godot"):
         assert settings_hash(step, base, "") == settings_hash(step, linked, "")

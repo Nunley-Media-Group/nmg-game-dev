@@ -1,0 +1,61 @@
+{
+  "params": {
+    "clips": [
+      {
+        "name": "Walk",
+        "path": "res://anims/A_Rig_Walk.glb",
+        "fps": 24.0
+      },
+      {
+        "name": "Wave",
+        "path": "res://anims/A_Rig_Wave.glb",
+        "fps": 30.0
+      },
+      {
+        "name": "WaveUnslid",
+        "path": "res://anims/A_Rig_WaveUnslid.glb",
+        "fps": 30.0
+      }
+    ],
+    "skeletons": [
+      "res://anims/Rig.glb"
+    ]
+  },
+  "result": {
+    "clips": {
+      "Walk": {
+        "animation": "Walk",
+        "frame_count": 24,
+        "bones": [
+          "Hip",
+          "Spine"
+        ]
+      },
+      "Wave": {
+        "animation": "Wave",
+        "frame_count": 15,
+        "bones": [
+          "Hip",
+          "Spine"
+        ]
+      },
+      "WaveUnslid": {
+        "animation": "WaveUnslid",
+        "frame_count": 25,
+        "bones": [
+          "Hip",
+          "Spine"
+        ]
+      }
+    },
+    "skeletons": {
+      "res://anims/Rig.glb": {
+        "found": true,
+        "bones": [
+          "Hip",
+          "Spine"
+        ]
+      }
+    }
+  }
+}

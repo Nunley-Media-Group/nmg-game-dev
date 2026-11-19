@@ -193,8 +193,8 @@ folder holds:
 The output root, `SourceArt/Textures/Generated/`, also holds the contact sheet pages,
 `contact_sheet_NNN.png`, beside the set folders (see Contact sheet).
 
-The output lives under `SourceArt/`, not `Content/`. Unreal does not auto-import it. Import the textures
-you keep through the asset pipeline.
+The output lives under `SourceArt/`, not `game/`. Godot does not import it. Bring the textures you
+keep into a game through the asset pipeline.
 
 ## Derived maps
 

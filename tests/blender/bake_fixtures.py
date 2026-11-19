@@ -19,6 +19,7 @@ import numpy as np
 from .contract_fixtures import clear_scene
 
 __all__ = [
+    "add_tiling_occluder",
     "budgets_file",
     "build_asset",
     "build_failure",
@@ -140,6 +141,40 @@ def build_tiling_plane(
     obj = bpy.data.objects.new(f"SM_{name}", mesh)
     collection.objects.link(obj)
     return collection
+
+
+def add_tiling_occluder(
+    collection: bpy.types.Collection,
+    material: bpy.types.Material,
+    uv_density: float = 10.0,
+) -> bpy.types.Object:
+    """A box SM_<collection>_Occluder standing on a tiling plane over its +X edge (#240).
+
+    The box spans x 0.3 to 0.5, y -0.5 to 0.5 and z 0 to 0.5, so it sits over the bake tile at the
+    origin. Its UVMap projects each face's world coordinates times uv_density onto the two axes
+    the face does not face along.
+    """
+    name = f"SM_{collection.name}_Occluder"
+    mesh = bpy.data.meshes.new(name)
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    for vert in bm.verts:
+        vert.co.x = 0.4 + vert.co.x * 0.2
+        vert.co.z = (vert.co.z + 0.5) * 0.5
+    bm.normal_update()
+    layer = bm.loops.layers.uv.new("UVMap")
+    for face in bm.faces:
+        axis = max(range(3), key=lambda item: abs(face.normal[item]))
+        u_axis, v_axis = [item for item in range(3) if item != axis]
+        for loop in face.loops:
+            co = loop.vert.co
+            loop[layer].uv = (co[u_axis] * uv_density, co[v_axis] * uv_density)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.materials.append(material)
+    obj = bpy.data.objects.new(name, mesh)
+    collection.objects.link(obj)
+    return obj
 
 
 def _principled(material: bpy.types.Material) -> tuple[Any, Any]:

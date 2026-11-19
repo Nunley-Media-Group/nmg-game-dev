@@ -12,7 +12,7 @@ _OP_NAME = "nmggamedev.reimport_check"
 class NMGGAMEDEV_OT_reimport_check(bpy.types.Operator):
     bl_idname = "nmggamedev.reimport_check"
     bl_label = "Re-import check"
-    bl_description = "Import the exported FBX in a fresh Blender and compare it with the report"
+    bl_description = "Import the exported GLB in a fresh Blender and compare it with the report"
     bl_options = {"REGISTER"}
 
     variant_dir: bpy.props.StringProperty(  # type: ignore[valid-type]

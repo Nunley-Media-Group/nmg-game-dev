@@ -1,7 +1,7 @@
 """Unit tests for the ``python -m nmg_game_dev.finalize`` CLI (AC3, #69).
 
 The CLI runs through the real job layer.  An in-process launcher runs the job body with the fake
-step runner, so no Blender or Unreal process is started.
+step runner and a fake Godot runner, so no Blender or Godot process is started.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from tests.finalize_fakes import (
     Failure,
     FakeBlenderSession,
     FakeStepRunner,
-    FakeUnrealRunner,
+    FinalizeGodot,
     batch_launcher,
 )
 
@@ -50,7 +50,9 @@ def _inproc_service(
         jobs.run_job(
             job_dir,
             clients=clients
-            or FinalizeClients(blender=FakeBlenderSession(), unreal=FakeUnrealRunner()),
+            or FinalizeClients(
+                blender=FakeBlenderSession(), godot=FinalizeGodot(request.export_root.parent)
+            ),
             runner=make_runner(request),  # type: ignore[arg-type]
         )
         return _dead_pid()
@@ -92,7 +94,7 @@ def _run(argv: list[str], service: FinalizeService, streams: _Streams) -> int:
     return main(argv, service=service, stdout=streams.out, stderr=streams.err)
 
 
-def test_all_runs_every_step_and_prints_the_content_paths(
+def test_all_runs_every_step_and_prints_the_resource_paths(
     tmp_path: Path, streams: _Streams
 ) -> None:
     service = _inproc_service(
@@ -104,9 +106,9 @@ def test_all_runs_every_step_and_prints_the_content_paths(
     assert code == EXIT_OK
     out = streams.out.getvalue()
     assert "validate:" in out
-    assert "import_ue:" in out
-    assert "Desktop: /Game/Props/Crate/Desktop" in out
-    assert "Mobile: /Game/Props/Crate/Mobile" in out
+    assert "import_godot:" in out
+    assert "Desktop: res://export/Props/Crate/Desktop/Crate.glb" in out
+    assert "Mobile: res://export/Props/Crate/Mobile/Crate.glb" in out
 
 
 def test_json_flag_prints_the_result_as_json(tmp_path: Path, streams: _Streams) -> None:
@@ -115,7 +117,8 @@ def test_json_flag_prints_the_result_as_json(tmp_path: Path, streams: _Streams) 
 
     assert code == EXIT_OK
     result = json.loads(streams.out.getvalue())
-    assert result["desktop_content_path"] == "/Game/Props/Crate/Desktop"
+    assert result["desktop_resource_path"] == "res://export/Props/Crate/Desktop/Crate.glb"
+    assert result["mobile_resource_path"] == "res://export/Props/Crate/Mobile/Crate.glb"
     assert [step["step"] for step in result["steps"]][-1] == "import_anims"
 
 
@@ -126,7 +129,7 @@ def test_a_single_step_runs_its_prerequisites_only(tmp_path: Path, streams: _Str
     assert code == EXIT_OK
     out = streams.out.getvalue()
     assert "variants:" in out
-    assert "import_ue" not in out
+    assert "import_godot" not in out
 
 
 def test_failed_step_exits_one_with_error_and_remediation(
@@ -389,7 +392,7 @@ def test_invalid_batch_entries_name_each_zero_based_index(
     assert not (tmp_path / "cache" / "jobs").exists()
 
 
-def test_a_single_collection_passes_the_wait_and_pie_flags_to_the_job(
+def test_a_single_collection_passes_the_wait_flags_to_the_job(
     tmp_path: Path, streams: _Streams
 ) -> None:
     cache = tmp_path / "cache"
@@ -407,10 +410,6 @@ def test_a_single_collection_passes_the_wait_and_pie_flags_to_the_job(
         "--wait",
         "--wait-limit",
         "5",
-        "--pie",
-        "refuse",
-        "--pie-wait-limit",
-        "42",
     ]
     code = _run(argv, service, streams)
 
@@ -420,8 +419,22 @@ def test_a_single_collection_passes_the_wait_and_pie_flags_to_the_job(
     request = json.loads((job_dir / "request.json").read_text(encoding="utf-8"))
     assert job["wait_for_lock"] is True
     assert job["lock_wait_s"] == 5
-    assert request["pie_mode"] == "refuse"
-    assert request["pie_wait_seconds"] == 42
+    assert "pie_mode" not in request
+    assert "pie_wait_seconds" not in request
+
+
+@pytest.mark.parametrize("flag", ["--pie", "--pie-wait-limit"])
+def test_the_removed_play_in_editor_flags_are_usage_errors(
+    tmp_path: Path, streams: _Streams, flag: str
+) -> None:
+    with pytest.raises(SystemExit) as info:
+        main(
+            _argv(tmp_path, flag, "1"),
+            service=_batch_service(tmp_path / "cache")[0],
+            stdout=streams.out,
+            stderr=streams.err,
+        )
+    assert info.value.code == 2
 
 
 def test_wait_limit_without_wait_is_a_usage_error(tmp_path: Path, streams: _Streams) -> None:
@@ -449,16 +462,38 @@ def test_compatible_with_on_several_collections_is_a_usage_error(
     assert info.value.code == 2
 
 
-def test_collections_need_an_export_root(tmp_path: Path, streams: _Streams) -> None:
-    argv = ["all", "--collection", "Alpha", "--category", "Props", "--class", "standard_prop"]
-    with pytest.raises(SystemExit) as info:
-        main(
-            argv,
-            service=_batch_service(tmp_path / "cache")[0],
-            stdout=streams.out,
-            stderr=streams.err,
-        )
-    assert info.value.code == 2
+def test_the_export_root_defaults_to_the_project_game_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    args = build_parser().parse_args(
+        ["all", "--collection", "Alpha", "--category", "Props", "--class", "standard_prop"]
+    )
+    assert args.export_root is None
+
+    request = build_request(
+        collection="Alpha",
+        category="Props",
+        asset_class="standard_prop",
+        export_root=args.export_root,
+    )
+    assert request.export_root == tmp_path / "game" / "assets"
+
+
+def test_a_collection_without_export_root_lands_in_the_project_game_assets(
+    tmp_path: Path, streams: _Streams, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    service = _inproc_service(tmp_path / "cache", lambda request: FakeStepRunner(request))
+    argv = _argv(tmp_path)
+    index = argv.index("--export-root")
+    del argv[index : index + 2]
+
+    code = _run(argv, service, streams)
+
+    assert code == EXIT_OK, streams.err.getvalue()
+    assert "Desktop: res://assets/Props/Crate/Desktop/Crate.glb" in streams.out.getvalue()
+    assert (tmp_path / "game" / "assets" / "Props" / "Crate" / "Desktop" / "Crate.glb").is_file()
 
 
 def test_export_anims_runs_its_prerequisites_and_no_later_step(
@@ -484,7 +519,7 @@ def test_import_anims_is_a_command_and_runs_the_whole_chain(
 
     assert code == EXIT_OK
     assert "import_anims:" in streams.out.getvalue()
-    assert "import_ue:" in streams.out.getvalue()
+    assert "import_godot:" in streams.out.getvalue()
 
 
 def test_compatible_with_repeats_into_the_request(tmp_path: Path) -> None:

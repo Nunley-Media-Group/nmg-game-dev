@@ -1,4 +1,4 @@
-"""nmg-game-dev — Blender-first, Unreal-shipped content pipeline for NMG games."""
+"""nmg-game-dev — Blender-first, Godot-shipped content pipeline for NMG games."""
 
 from __future__ import annotations
 

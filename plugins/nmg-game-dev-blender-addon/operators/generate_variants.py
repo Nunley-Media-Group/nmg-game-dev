@@ -12,7 +12,9 @@ _OP_NAME = "nmggamedev.generate_variants"
 class NMGGAMEDEV_OT_generate_variants(bpy.types.Operator):
     bl_idname = "nmggamedev.generate_variants"
     bl_label = "Generate Desktop + Mobile variants"
-    bl_description = "Clean up, build Mobile LODs, export both FBX variants, and write sidecars"
+    bl_description = (
+        "Clean up, build the Mobile variant, export both GLB variants, and write sidecars"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     collection_name: bpy.props.StringProperty(  # type: ignore[valid-type]

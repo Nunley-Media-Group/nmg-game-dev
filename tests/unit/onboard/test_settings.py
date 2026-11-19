@@ -99,48 +99,47 @@ def test_merge_env_sets_values_and_keeps_others(tmp_path: Path) -> None:
     assert not [key for key in env if key.endswith("_API_KEY")]
 
 
-UNREAL_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/scripts/start-unreal-mcp.sh"'
+SLOW_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/scripts/slow-start.sh"'
 BLENDER_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/scripts/start-blender-mcp.sh"'
 REAL_TEMPLATE = (
     Path(__file__).resolve().parents[3] / "templates" / "consumer" / ".claude" / "settings.json"
 )
 
 
-def _unreal_template(timeout: int | None) -> dict[str, Any]:
-    hook: dict[str, Any] = {"type": "command", "command": UNREAL_COMMAND}
+def _slow_template(timeout: int | None) -> dict[str, Any]:
+    hook: dict[str, Any] = {"type": "command", "command": SLOW_COMMAND}
     if timeout is not None:
         hook["timeout"] = timeout
     return {"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [hook]}]}}
 
 
-def _unreal_timeout(settings: Path) -> object:
+def _slow_timeout(settings: Path) -> object:
     groups = json.loads(settings.read_text())["hooks"]["SessionStart"]
-    hook = next(h for g in groups for h in g["hooks"] if h["command"] == UNREAL_COMMAND)
+    hook = next(h for g in groups for h in g["hooks"] if h["command"] == SLOW_COMMAND)
     return hook.get("timeout")
 
 
-def test_template_gives_the_unreal_hook_900_seconds_and_leaves_blender_alone() -> None:
-    hooks = json.loads(REAL_TEMPLATE.read_text())["hooks"]["SessionStart"][0]["hooks"]
+def test_template_registers_only_the_blender_hook() -> None:
+    """#249 AC10: the consumer template starts Blender and nothing else, with no timeout."""
+    groups = json.loads(REAL_TEMPLATE.read_text())["hooks"]["SessionStart"]
+    hooks = [hook for group in groups for hook in group["hooks"]]
 
-    unreal = [h for h in hooks if "start-unreal-mcp.sh" in h["command"]]
-    blender = [h for h in hooks if "start-blender-mcp.sh" in h["command"]]
-
-    assert [h.get("timeout") for h in unreal] == [900]
-    assert [h.get("timeout") for h in blender] == [None]
+    assert [h["command"] for h in hooks] == [BLENDER_COMMAND]
+    assert [h.get("timeout") for h in hooks] == [None]
 
 
 def test_missing_hook_is_added_with_its_timeout(tmp_path: Path) -> None:
-    template = _write(tmp_path / "template.json", _unreal_template(900))
+    template = _write(tmp_path / "template.json", _slow_template(900))
     settings = _write(tmp_path / "settings.json", {})
 
     result = merge_session_hooks("settings_hooks", settings, template)
 
     assert result.status == "installed"
-    assert _unreal_timeout(settings) == 900
+    assert _slow_timeout(settings) == 900
 
 
 def test_missing_timeout_is_raised_and_reported_refreshed(tmp_path: Path) -> None:
-    template = _write(tmp_path / "template.json", _unreal_template(900))
+    template = _write(tmp_path / "template.json", _slow_template(900))
     blender = {"type": "command", "command": BLENDER_COMMAND, "timeout": 5}
     settings = _write(
         tmp_path / "settings.json",
@@ -150,7 +149,7 @@ def test_missing_timeout_is_raised_and_reported_refreshed(tmp_path: Path) -> Non
                 "SessionStart": [
                     {
                         "matcher": "startup",
-                        "hooks": [blender, {"type": "command", "command": UNREAL_COMMAND}],
+                        "hooks": [blender, {"type": "command", "command": SLOW_COMMAND}],
                     }
                 ]
             },
@@ -165,19 +164,19 @@ def test_missing_timeout_is_raised_and_reported_refreshed(tmp_path: Path) -> Non
     assert data["hooks"]["SessionStart"] == [
         {
             "matcher": "startup",
-            "hooks": [blender, {"type": "command", "command": UNREAL_COMMAND, "timeout": 900}],
+            "hooks": [blender, {"type": "command", "command": SLOW_COMMAND, "timeout": 900}],
         }
     ]
 
 
 def test_lower_timeout_is_raised_to_the_template_value(tmp_path: Path) -> None:
-    template = _write(tmp_path / "template.json", _unreal_template(900))
+    template = _write(tmp_path / "template.json", _slow_template(900))
     settings = _write(
         tmp_path / "settings.json",
         {
             "hooks": {
                 "SessionStart": [
-                    {"hooks": [{"type": "command", "command": UNREAL_COMMAND, "timeout": 120}]}
+                    {"hooks": [{"type": "command", "command": SLOW_COMMAND, "timeout": 120}]}
                 ]
             }
         },
@@ -186,18 +185,18 @@ def test_lower_timeout_is_raised_to_the_template_value(tmp_path: Path) -> None:
     result = merge_session_hooks("settings_hooks", settings, template)
 
     assert result.status == "refreshed"
-    assert _unreal_timeout(settings) == 900
+    assert _slow_timeout(settings) == 900
 
 
 @pytest.mark.parametrize("timeout", [900, 1800])
 def test_equal_or_higher_timeout_is_unchanged(tmp_path: Path, timeout: int) -> None:
-    template = _write(tmp_path / "template.json", _unreal_template(900))
+    template = _write(tmp_path / "template.json", _slow_template(900))
     settings = _write(
         tmp_path / "settings.json",
         {
             "hooks": {
                 "SessionStart": [
-                    {"hooks": [{"type": "command", "command": UNREAL_COMMAND, "timeout": timeout}]}
+                    {"hooks": [{"type": "command", "command": SLOW_COMMAND, "timeout": timeout}]}
                 ]
             }
         },

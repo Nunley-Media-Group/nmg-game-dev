@@ -13,6 +13,7 @@ import importlib
 import importlib.util
 import sys
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ import pytest
 bpy = pytest.importorskip("bpy")
 
 from .bake_fixtures import (  # noqa: E402
+    add_tiling_occluder,
     budgets_file,
     build_tiling_plane,
     checker_image,
@@ -272,3 +274,153 @@ def test_scn007_bake_report_lists_each_slot_with_its_densities(
     assert entry["material"] == "M_Road_Src"
     assert entry["desktop"] == pytest.approx(2560.0, abs=0.05)
     assert entry["mobile"] == pytest.approx(1280.0, abs=0.05)
+
+
+# ---------------------------------------------------------------------------
+# #240: each tiling material bakes alone, so the asset does not occlude its AO (SCN001-SCN003)
+# ---------------------------------------------------------------------------
+
+
+def _road_with_occluder(material: Any) -> Any:
+    collection = build_tiling_plane("Road", material, uv_span=10.0)
+    add_tiling_occluder(collection, material)
+    return collection
+
+
+def _desktop_orm_red(result: dict[str, Any]) -> np.ndarray:
+    (path,) = [path for path in result["desktop_textures"] if path.endswith("_ORM.png")]
+    return _baked_rgb(path)[..., 0]
+
+
+def test_scn001_occluder_does_not_shade_the_tiling_bake(
+    core: Any, tiling: Any, enabled_addon: str, tmp_path: Path, budgets: str, monkeypatch: Any
+) -> None:
+    """SCN001 (AC1): only the bake tile is render-visible while each channel bakes."""
+    _road_with_occluder(_periodic_material("M_Road_Src"))
+    core_module = importlib.import_module(f"{enabled_addon}.bake_core.core")
+    original = core_module.bake.bake_channel
+    visible: list[list[str]] = []
+
+    def _recording(*args: Any, **kwargs: Any) -> Any:
+        visible.append(sorted(obj.name for obj in bpy.context.scene.objects if not obj.hide_render))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(core_module.bake, "bake_channel", _recording)
+
+    result = core.bake_asset("Road", "environment_piece", tmp_path / "out", budgets, "CPU", 4)
+
+    assert result["mode"] == "tiling"
+    assert visible
+    assert all(record == [tiling.TILE_NAME] for record in visible), visible
+    _assert_textures_pass(result["desktop_textures"] + result["mobile_textures"])
+
+
+def test_scn002_tiling_ao_matches_an_isolated_bake(core: Any, tmp_path: Path, budgets: str) -> None:
+    """SCN002 (AC2): the occluder leaves the baked AO of the tiling material unchanged."""
+    build_tiling_plane("Road", _periodic_material("M_Road_Src"), uv_span=10.0)
+    alone = core.bake_asset("Road", "environment_piece", tmp_path / "alone", budgets, "CPU", 4)
+    alone_red = _desktop_orm_red(alone)
+
+    clear_scene()
+    _road_with_occluder(_periodic_material("M_Road_Src"))
+    occluded = core.bake_asset(
+        "Road", "environment_piece", tmp_path / "occluded", budgets, "CPU", 4
+    )
+
+    difference = float(np.mean(np.abs(_desktop_orm_red(occluded) - alone_red)))
+    assert difference <= 0.02, difference
+
+
+def _extra_object(name: str, hide_render: bool) -> Any:
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata([(3.0, 0.0, 0.0), (3.5, 0.0, 0.0), (3.0, 0.5, 0.0)], [], [(0, 1, 2)])
+    obj = bpy.data.objects.new(name, mesh)
+    obj.hide_render = hide_render
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+@pytest.mark.parametrize("periodic", [True, False], ids=["success", "not_seamless"])
+def test_scn003_tiling_bake_restores_scene_state(
+    core: Any, tiling: Any, tmp_path: Path, budgets: str, periodic: bool
+) -> None:
+    """SCN003 (AC3): visibility, AO distance, scene and view layer survive the bake."""
+    scene = bpy.context.scene
+    previous_world = scene.world
+    world = bpy.data.worlds.new("__nmg_test_world")
+    world.light_settings.distance = 0.37
+    scene.world = world
+    try:
+        material = image_material("M_Road_Src", checker_image("M_Road_img", periodic=periodic))
+        _road_with_occluder(material)
+        _extra_object("Extra_Visible", hide_render=False)
+        _extra_object("Extra_Hidden", hide_render=True)
+        flags = {obj.name: obj.hide_render for obj in bpy.data.objects}
+        view_layer = bpy.context.view_layer
+
+        if periodic:
+            result = core.bake_asset(
+                "Road", "environment_piece", tmp_path / "out", budgets, "CPU", 4
+            )
+            assert result["mode"] == "tiling"
+        else:
+            with pytest.raises(core.BakeError) as info:
+                core.bake_asset("Road", "environment_piece", tmp_path / "out", budgets, "CPU", 4)
+            assert info.value.reason == "not_seamless"
+
+        assert {name: bpy.data.objects[name].hide_render for name in flags} == flags
+        assert bpy.context.scene == scene
+        assert bpy.context.view_layer == view_layer
+        assert scene.world == world
+        assert world.light_settings.distance == pytest.approx(0.37)
+        assert tiling.TILE_NAME not in bpy.data.objects
+        assert tiling.TILE_NAME not in bpy.data.meshes
+    finally:
+        scene.world = previous_world
+        bpy.data.worlds.remove(world)
+
+
+def test_scn003_a_failed_channel_bake_restores_visibility_on_leaving_isolation(
+    core: Any, tiling: Any, enabled_addon: str, tmp_path: Path, budgets: str, monkeypatch: Any
+) -> None:
+    """SCN003 (AC3): a raise inside isolation restores each flag before BakeState releases them.
+
+    The flags are compared as isolation exits, so BakeState.release cannot mask a missing restore.
+    """
+    _road_with_occluder(_periodic_material("M_Road_Src"))
+    _extra_object("Extra_Visible", hide_render=False)
+    _extra_object("Extra_Hidden", hide_render=True)
+    core_module = importlib.import_module(f"{enabled_addon}.bake_core.core")
+    real_isolated = tiling.isolated
+    entered: dict[str, bool] = {}
+    left: dict[str, bool] = {}
+
+    def _flags() -> dict[str, bool]:
+        return {
+            obj.name: obj.hide_render
+            for obj in bpy.context.scene.objects
+            if obj.name != tiling.TILE_NAME
+        }
+
+    @contextmanager
+    def _observed(tile: Any) -> Iterator[None]:
+        entered.update(_flags())
+        try:
+            with real_isolated(tile):
+                yield
+        finally:
+            left.update(_flags())
+
+    def _failing(*_args: Any, **_kwargs: Any) -> Any:
+        raise core.BakeError("internal_error", "channel bake failed inside isolation")
+
+    monkeypatch.setattr(tiling, "isolated", _observed)
+    monkeypatch.setattr(core_module.bake, "bake_channel", _failing)
+
+    with pytest.raises(core.BakeError) as info:
+        core.bake_asset("Road", "environment_piece", tmp_path / "out", budgets, "CPU", 4)
+
+    assert info.value.reason == "internal_error"
+    assert entered
+    assert left == entered
+    assert tiling.TILE_NAME not in bpy.data.objects

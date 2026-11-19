@@ -1,8 +1,8 @@
 """AudioError: the error the audio import raises (#155).
 
 ``code`` uses the ``audio.<condition>`` convention. ``remediation`` is the copy-pasteable next
-action the developer sees. An Unreal reachability failure keeps its own ``mcp.unreal.unreachable``
-code, because ``import_audio`` turns that one into a warning instead of an error.
+action the developer sees. A missing Godot binary keeps its own ``godot.not_found`` code, because
+``import_audio`` turns that one into a warning instead of an error.
 """
 
 from __future__ import annotations

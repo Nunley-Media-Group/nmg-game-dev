@@ -8,15 +8,10 @@
       },
       "description": "Blender MCP — ahujasid/blender-mcp, published as mcp-for-blender; always the latest release"
     },
-    "unreal": {
-      "type": "http",
-      "url": "http://127.0.0.1:${UE_MCP_PORT:-8000}/mcp",
-      "description": "Unreal MCP — Epic's native UE 5.8 Unreal MCP server with VibeUE's toolsets registered on it"
-    },
     "finalize": {
       "command": "uv",
       "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT}/mcp-servers/finalize", "finalize-mcp"],
-      "description": "finalize MCP — finalize an authored Blender asset into Desktop and Mobile Unreal content (#69)"
+      "description": "finalize MCP — finalize an authored Blender asset into Desktop and Mobile Godot assets (#69)"
     },
     "texture-gen": {
       "command": "uv",

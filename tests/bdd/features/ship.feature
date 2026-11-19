@@ -1,83 +1,81 @@
 # Generated from: specs/6-ship-skills-per-platform-build-sign-notarize-package/requirements.md
-# Spec: specs/6-ship-skills-per-platform-build-sign-notarize-package/feature.gherkin (Issue #6)
-Feature: Ship an NMG game per platform
+# Reworked for Godot by issue #249 (AC9, SCN009)
+Feature: Ship an NMG Godot game per platform
 
   @SCN001
-  Scenario: Ship macOS packages, signs, notarizes, and releases the app
-    Given a consumer project, a UE_ROOT with RunUAT.sh, and notarization variables set
+  Scenario: Ship macOS exports, signs, notarizes, and releases the app
+    Given a consumer Godot project with notarization variables set and an earlier macOS build
     When "ship macos" runs
-    Then RunUAT BuildCookRun is invoked with -platform=Mac and Shipping package flags
+    Then Godot exports the "macOS" preset headless
     And the .app is codesigned with the team's signing identity
     And the .app is submitted with notarytool for the team and stapled
-    And the signed .app is in release/macos/ replacing any earlier .app
+    And the signed .app is in release/macos/ replacing any earlier build
     And release/RELEASE-NOTES.md lists the .app with its SHA-256
 
   @SCN002
-  Scenario: Dry-run ship reports the plan without building
-    Given a consumer project with notarization variables set and no Unreal Engine installed
+  Scenario: Dry-run ship reports the plan without exporting
+    Given a consumer Godot project with notarization variables set
     When "ship macos --dry-run" runs
-    Then no UAT, codesign, security, or xcrun process runs
+    Then no Godot, codesign, or xcrun process runs
     And each planned command is printed with a "DRY-RUN:" prefix including a notarization dry-run pass
-    And release/macos/DRY-RUN.txt records the plan and the command exits 0
+    And release/macos/DRY-RUN.txt records the plan
 
   @SCN003
-  Scenario: Ship mobile produces an .ipa and an .aab
-    Given iOS and Android signing variables are set and every Mobile variant is within budget
-    When "ship mobile" runs
-    Then UAT is invoked for IOS and for Android
-    And an .ipa is in release/ios/ and an .aab is in release/android/
-    And the mobile cook-manifest gate passed for both platforms
+  Scenario: Ship exports every target through Godot
+    Given a consumer Godot project with project tests and the environment for target "all"
+    When "ship all" runs
+    Then the script check, the project tests, and the mobile budget gate run before any export
+    And release/ holds the macOS .app, the .ipa, the .aab, the .exe, and the web folder, each with SHA-256 in RELEASE-NOTES.md
+    And no WINDOWS_BUILD_* variable was required
     And the Android keystore password does not appear in the output
 
   @SCN004
-  Scenario: Cook-manifest gate blocks cross-variant leakage
-    Given the iOS cooked content contains "Content/Props/Crate/Desktop/SM_Crate.uasset"
-    When "ship ios" runs
-    Then verify-cook-manifest.sh reports the Desktop path
-    And the ship exits non-zero with a remediation
-    And no artifact is in release/ios/
+  Scenario: A script that does not parse stops the ship
+    Given "scripts/player.gd" in the consumer project does not parse
+    When "ship windows" runs
+    Then the ship fails with code "ship.script_check_failed" naming "scripts/player.gd"
+    And no preset is exported
 
   @SCN005
-  Scenario: Windows build runs on the remote host
-    Given the Windows build host, user, SSH key, and remote project path are set
-    When "ship windows" runs
-    Then ssh invokes RunUAT.bat BuildCookRun with -platform=Win64 on the remote project
-    And the remote cooked listing passes the desktop cook-manifest gate
-    And a .exe is copied back into release/windows/
+  Scenario: A large web pack warns
+    Given the web export writes an index.pck of 40 MiB
+    When "ship web" runs
+    Then the output warns "WARNING [ship.web_pack_large]: index.pck is 40.0 MB, over 38 MB"
+    And release/web/ is listed in RELEASE-NOTES.md
 
   @SCN006
-  Scenario: Mobile budget gate blocks an over-budget asset before any build
-    Given "Content/Props/Crate/Mobile/nmg-asset.json" reports a standard_prop with 4200 tris
+  Scenario: Mobile budget gate blocks an over-budget asset before any export
+    Given "assets/Props/Crate/Mobile/nmg-asset.json" reports a standard_prop with 4200 tris
     When "ship mobile" runs
-    Then gate-mobile-budgets fails before any UAT invocation
+    Then the mobile budget gate fails before any export
     And no artifact is in release/ios/ or release/android/
     And the remediation names "Props/Crate", tris, 4200, budget 3000, and overage 1200
 
   @SCN007
   Scenario: A Mobile variant without a report fails the budget gate
-    Given "Content/Props/Lamp/Mobile/" has no nmg-asset.json
-    When gate-mobile-budgets runs
+    Given "assets/Props/Lamp/Mobile/" has no nmg-asset.json
+    When the mobile budget gate runs
     Then it fails with code "ship.budget_report_missing" telling the developer to finalize "Props/Lamp"
 
   @SCN008
   Scenario: Consumer budget overrides apply
     Given nmg-budgets.json sets standard_prop tris to 5000
-    And "Content/Props/Crate/Mobile/nmg-asset.json" reports a standard_prop with 4200 tris
-    When gate-mobile-budgets runs
+    And "assets/Props/Crate/Mobile/nmg-asset.json" reports a standard_prop with 4200 tris
+    When the mobile budget gate runs
     Then the gate passes
 
   @SCN009
   Scenario: Missing prerequisites fail fast without leaking secrets
     Given NOTARIZATION_TEAM_ID is unset and the other notarization variables hold secret values
     When "ship macos" runs
-    Then it exits 1 before any UAT invocation naming NOTARIZATION_TEAM_ID
+    Then it fails before any Godot command naming NOTARIZATION_TEAM_ID
     And no secret value appears in the output
 
   @SCN010
   Scenario: Ship smoke dry-run succeeds on the fixture project
-    Given the repository checkout with no Unreal Engine install
+    Given the repository checkout with no Godot install required
     When scripts/ship-smoke.sh runs
-    Then a dry-run "all" ship of fixtures/dogfood.uproject exits 0
+    Then a dry-run "all" ship of tests/godot/fixture/project.godot exits 0
 
   @SCN011
   Scenario: The ship skill is the single Claude Code entry point

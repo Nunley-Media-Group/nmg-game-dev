@@ -1,7 +1,7 @@
 """Vocabulary and value types for the design-doc backlog (#112).
 
 ``ENTITY_TYPES`` are the seven design doc types.  ``ASSET_TYPES`` are the four that finalize as a
-Blender asset.  ``asset_name`` derives the PascalCase name that the backlog and Unreal use.
+Blender asset.  ``asset_name`` derives the PascalCase name that the backlog and Godot use.
 """
 
 from __future__ import annotations

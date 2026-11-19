@@ -1,9 +1,12 @@
-"""Mobile build: copy the Desktop hierarchy, decimate to budget, wrap LODs in a group, and re-seat
-the variant on the world origin."""
+"""Mobile build: copy the Desktop hierarchy, decimate it to budget, and re-seat the variant on the
+world origin.
+
+The Mobile variant is one level of detail. Godot generates the lower levels when it imports the
+``.glb`` (``meshes/generate_lods``), so no LOD meshes are built here.
+"""
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -22,8 +25,6 @@ from .textures import max_texture_px, mobile_image_copy, mobile_material_copy, s
 
 #: Modifier name for the skin, matching the name rig_core gives the rig's own Armature modifier.
 _SKIN_MODIFIER = "Armature"
-#: LOD1 and LOD2 names. The re-seat measures without them, as contract_core's pivot check does.
-_LOD_EXTRA = re.compile(r"_LOD[1-9]$")
 
 
 def build_mobile(collection_name: str, budget: Mapping[str, int]) -> dict[str, Any]:
@@ -49,28 +50,15 @@ def build_mobile(collection_name: str, budget: Mapping[str, int]) -> dict[str, A
 
     root_copy = copies[root.name]
     parts = [copies[src.name] for src in sources if src.name != root.name]
-    if parts:
-        lod_tris = [_fit_objects([root_copy, *parts], budget["tris"], mobile_name)]
-    elif rig is not None:
-        lod_tris = _build_rigged_chain(
-            root_copy,
-            root.matrix_world.copy(),
-            budget["tris"],
-            mobile_collection,
-            rig,
-            collection_name,
-        )
-    else:
-        lod_tris = _build_lod_group(root_copy, budget["tris"], mobile_collection, collection_name)
+    tris = _fit_objects([root_copy, *parts], budget["tris"], mobile_name)
     _reseat(mobile_collection)
 
     return {
+        "kind": "mobile",
         "collection": mobile_name,
         "root": f"SM_{collection_name}_Mobile",
         "rigged": rig is not None,
-        "lod_levels": len(lod_tris),
-        "lod_tris": lod_tris,
-        "tris": lod_tris[0],
+        "tris": tris,
         "materials": len(mobile_materials),
         "max_texture_px": max_texture_px(list(mobile_images.values())),
         "budget": dict(budget),
@@ -140,36 +128,6 @@ def _bind_to_rig(obj: bpy.types.Object, rig: bpy.types.Object, world: Matrix) ->
     skin.use_vertex_groups = True
 
 
-def _build_rigged_chain(
-    root: bpy.types.Object,
-    world: Matrix,
-    budget_tris: int,
-    mobile_collection: bpy.types.Collection,
-    rig: bpy.types.Object,
-    asset_name: str,
-) -> list[int]:
-    """LOD0 at budget, LOD1 at 50%, LOD2 at 25%, as three skinned meshes with no Empty.
-
-    Each LOD is a separate skinned mesh parented to the rig, so each exports to its own FBX.
-    world is the Desktop root's world matrix, which every LOD takes. Returns the triangle count
-    of each LOD level, LOD0 first.
-    """
-    group_name = f"SM_{asset_name}_Mobile"
-    (lod0,) = fit_meshes([root.data], budget_tris, group_name)
-    replace_mesh(root, lod0)
-    lod0_tris = triangle_count(lod0)
-
-    lods = [root]
-    for level, target in ((1, lod0_tris // 2), (2, lod0_tris // 4)):
-        mesh = fit_meshes([lod0], target, f"{group_name} LOD{level}")[0]
-        obj = bpy.data.objects.new(f"{group_name}_LOD{level}", mesh)
-        mobile_collection.objects.link(obj)
-        _copy_vertex_groups(root, obj)
-        _bind_to_rig(obj, rig, world)
-        lods.append(obj)
-    return [triangle_count(obj.data) for obj in lods]
-
-
 def _fit_objects(objects: list[bpy.types.Object], target: int, label: str) -> int:
     """Decimate every object's mesh so the group totals at most target; return the total."""
     fitted = fit_meshes([obj.data for obj in objects], target, label)
@@ -178,58 +136,18 @@ def _fit_objects(objects: list[bpy.types.Object], target: int, label: str) -> in
     return sum(triangle_count(obj.data) for obj in objects)
 
 
-def _build_lod_group(
-    root: bpy.types.Object,
-    budget_tris: int,
-    mobile_collection: bpy.types.Collection,
-    asset_name: str,
-) -> list[int]:
-    """LOD0 at budget, LOD1 at 50%, LOD2 at 25%, parented under an Empty LodGroup.
-
-    Returns the triangle count of each LOD level, LOD0 first.
-    """
-    group_name = f"SM_{asset_name}_Mobile"
-    (lod0,) = fit_meshes([root.data], budget_tris, group_name)
-    replace_mesh(root, lod0)
-    lod0_tris = triangle_count(lod0)
-    lod1 = fit_meshes([lod0], lod0_tris // 2, f"{group_name} LOD1")[0]
-    lod2 = fit_meshes([lod0], lod0_tris // 4, f"{group_name} LOD2")[0]
-
-    root.name = f"{group_name}_LOD0"
-    group = bpy.data.objects.new(group_name, None)
-    group.empty_display_type = "PLAIN_AXES"
-    group["fbx_type"] = "LodGroup"
-    group.matrix_world = root.matrix_world.copy()
-    mobile_collection.objects.link(group)
-
-    lods = [root]
-    for level, mesh in ((1, lod1), (2, lod2)):
-        obj = bpy.data.objects.new(f"{group_name}_LOD{level}", mesh)
-        mobile_collection.objects.link(obj)
-        lods.append(obj)
-    for obj in lods:
-        obj.parent = group
-        obj.matrix_parent_inverse = group.matrix_world.inverted()
-    return [triangle_count(obj.data) for obj in lods]
-
-
 def _reseat(mobile_collection: bpy.types.Collection) -> None:
     """Move the Mobile mesh data so the bounding-box bottom centre sits on the world origin.
 
     Decimation can drop the extreme vertex that set the bottom, so the offset is measured after the
-    layout is built. The measure is the bounding box of the non-LOD meshes in world space, the one
-    contract_core's pivot check uses. Only mesh data moves. Origins, parents, the LodGroup Empty
-    and the skin stay as they are, and every LOD moves by the same world offset, so they stay
-    aligned with LOD0. A variant already exactly on the origin is left untouched.
+    meshes are fitted. The measure is the bounding box of the meshes in world space, the one
+    contract_core's pivot check uses. Only mesh data moves. Origins, parents, and the skin stay as
+    they are, and every mesh moves by the same world offset, so parts stay aligned with the root.
+    A variant already exactly on the origin is left untouched.
     """
     bpy.context.view_layer.update()
     meshes = [obj for obj in mobile_collection.objects if obj.type == "MESH"]
-    corners = [
-        corner
-        for obj in meshes
-        if not _LOD_EXTRA.search(obj.name)
-        for corner in _world_bounds_corners(obj)
-    ]
+    corners = [corner for obj in meshes for corner in _world_bounds_corners(obj)]
     if not corners:
         return
     xs = [corner.x for corner in corners]

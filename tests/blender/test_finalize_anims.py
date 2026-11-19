@@ -2,7 +2,7 @@
 
 A rig ``SK_Hero`` in collection ``Hero`` holds clips in three ways: a provenance clip, an action
 on the rig's NLA track, and an unrelated action that nothing holds.  Each test exports through
-``finalize_core.anims`` and, where it matters, re-imports the written FBX into a fresh scene.
+``finalize_core.anims`` and, where it matters, re-imports the written GLB into a fresh scene.
 
 Run with scripts/run-blender-tests.sh.  Under plain CPython the module is skipped.
 """
@@ -107,23 +107,55 @@ def test_the_clip_set_is_provenance_plus_the_rigs_actions_and_excludes_other(
     assert names == ["Idle", "Wave"]
 
 
-def test_one_armature_only_fbx_per_clip_and_each_reimports_as_one_clip(
+def test_one_armature_only_glb_per_clip_and_each_reimports_as_one_clip(
     scene_with_clips: Any, tmp_path: Path
 ) -> None:
-    # SCN001 and AC1: each clip is its own FBX.  Re-imported, it has the armature named Armature,
-    # no mesh, and exactly one action.
+    # SCN001 and AC1: each clip is its own GLB.  Re-imported, it has the armature named Armature,
+    # no mesh, and exactly one action spanning the clip's frames.
     out = tmp_path / "Animations"
     records = scene_with_clips.export_clips(_COLLECTION, ["Idle", "Wave"], out)
 
-    assert [record["file"] for record in records] == ["A_Hero_Idle.fbx", "A_Hero_Wave.fbx"]
+    assert [record["file"] for record in records] == ["A_Hero_Idle.glb", "A_Hero_Wave.glb"]
+    assert list(out.glob("*.fbx")) == []
     for record in records:
         bpy.ops.wm.read_homefile(use_empty=True)
-        bpy.ops.import_scene.fbx(filepath=str(out / record["file"]))
+        bpy.ops.import_scene.gltf(filepath=str(out / record["file"]), disable_bone_shape=True)
         armatures = [obj for obj in bpy.data.objects if obj.type == "ARMATURE"]
         meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
         assert [obj.name for obj in armatures] == ["Armature"]
         assert meshes == []
-        assert len(bpy.data.actions) == 1
+        (action,) = bpy.data.actions
+        start, end = action.frame_range
+        assert round(end - start) + 1 == record["frame_count"], record["name"]
+
+
+def _glb_animation_times(path: Path) -> tuple[float, float]:
+    """Return the earliest and latest key time across every animation sampler in ``path``."""
+    import struct
+
+    data = path.read_bytes()
+    (length,) = struct.unpack_from("<I", data, 12)
+    document = json.loads(data[20 : 20 + length])
+    inputs = [
+        document["accessors"][sampler["input"]]
+        for animation in document["animations"]
+        for sampler in animation["samplers"]
+    ]
+    return min(item["min"][0] for item in inputs), max(item["max"][0] for item in inputs)
+
+
+def test_a_clip_starting_after_frame_0_is_slid_to_time_0(
+    scene_with_clips: Any, tmp_path: Path
+) -> None:
+    # #249 AC3: Godot keeps key times as written, so a clip keyed from frame 1 to 10 must start at
+    # time 0 and last (frame_end - frame_start) / fps, the length import_anims expects.
+    out = tmp_path / "Animations"
+    (record,) = scene_with_clips.export_clips(_COLLECTION, ["Idle"], out)
+    start, end = _glb_animation_times(out / record["file"])
+
+    assert start == pytest.approx(0.0, abs=1e-6)
+    expected = (record["frame_end"] - record["frame_start"]) / record["fps"]
+    assert end == pytest.approx(expected, abs=1e-4)
 
 
 def test_the_sidecar_fields_match_the_exported_actions_and_sources(
@@ -225,5 +257,5 @@ def test_the_entry_step_probes_and_exports_through_finalize_core(
     )
     assert exported["ok"] is True
     folder = tmp_path / "Characters" / _COLLECTION / "Animations"
-    assert (folder / "A_Hero_Idle.fbx").is_file()
-    assert not (folder / "A_Hero_Wave.fbx").exists()
+    assert (folder / "A_Hero_Idle.glb").is_file()
+    assert not (folder / "A_Hero_Wave.glb").exists()

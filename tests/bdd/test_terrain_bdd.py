@@ -1,9 +1,9 @@
 # ruff: noqa: E501  -- step decorators repeat the Gherkin text verbatim, so they run long.
-"""pytest-bdd bindings for terrain.feature: SCN001-SCN008 of #154.
+"""pytest-bdd bindings for terrain.feature: SCN001-SCN008 of #154, on Godot (#249).
 
 The bindings run in plain CPython. They use the pure-Python heightfield core (loaded by path), the
-fake Unreal editor and scaffold fakes, the Unreal import code, and the contract rule catalogue
-(loaded by path). Three behaviours need the live Blender validator and exporter: the validator
+finalize fakes (``TerrainStepRunner`` and ``FinalizeGodot``) with the real terrain import, the
+scaffold helpers, and the contract rule catalogue (loaded by path). Three behaviours need the live Blender validator and exporter: the validator
 report (SCN001), the export files and sidecars (SCN002), and the per-rule findings (SCN007). The
 headless suite tests/blender/test_terrain.py, run by gate-blender-headless, owns those. Their
 bindings check that the owning test exists rather than running Blender here.
@@ -22,23 +22,18 @@ from typing import Any
 import pytest
 from pytest_bdd import given, parsers, scenario, then, when
 
+from nmg_game_dev.godot.terrain import SHADER_PATH, decode_heights, parse_variant
+from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, finalize
 from nmg_game_dev.pipeline.errors import PipelineError
-from nmg_game_dev.unreal.terrain import (
-    build_terrain_code,
-    import_terrain_variant,
-    landscape_transform,
-)
-from tests.unit.design.terrain_fakes import PLANE
+from tests.finalize_fakes import FinalizeGodot, TerrainStepRunner
 from tests.unit.design.test_scaffold import (
     HARBOR,
     HILLS,
-    HILLS_LEVEL,
+    HILLS_SCENE,
     REGION,
     SYSTEM,
-    FakeUnrealClient,
     _project,
     _run,
-    _run_region,
     _set_terrain,
     _terrain_project,
     _texts,
@@ -62,8 +57,7 @@ UNKNOWN_REFERENCE = (
     "error design.unknown_reference OldTown: "
     "terrain 'Ghost' names no environment entry with asset_class terrain"
 )
-REGION_LEVEL = "/Game/Levels/OldTown/L_OldTown"
-GROUND_DESKTOP = "/Game/Terrain/Ground/Desktop"
+REGION_SCENE = "game/levels/OldTown/OldTown.tscn"
 
 
 def _load_by_path(name: str, path: Path) -> ModuleType:
@@ -98,18 +92,28 @@ def _owned_by_blender_suite(test_name: str) -> None:
     assert f"def {test_name}(" in BLENDER_SUITE, f"the headless suite lacks {test_name}"
 
 
-def _sidecar(**overrides: Any) -> dict[str, Any]:
-    base: dict[str, Any] = {
-        "heightmap_px": 127,
-        "spacing_m": 1.0,
-        "height_min_m": 0.0,
-        "height_max_m": 5.0,
-        "uv_tile_m": 3.0,
-        "layers": ["Grass", "Rock"],
-        "samples": [[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]],
-    }
-    base.update(overrides)
-    return base
+def _terrain_request(root: Path) -> FinalizeRequest:
+    blend = root / "ground.blend"
+    blend.write_bytes(b"authored")
+    return FinalizeRequest(
+        collection="Ground",
+        category="Terrain",
+        asset_class="terrain",
+        export_root=root / "export",
+        blend=blend,
+    )
+
+
+def _import_terrain(root: Path, godot: FinalizeGodot) -> Any:
+    request = _terrain_request(root)
+    return finalize(
+        request,
+        steps=("import_godot",),
+        cache_dir=root / "cache",
+        runner=TerrainStepRunner(request),
+        job_dir=root / "job",
+        clients=FinalizeClients(godot=godot),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +126,7 @@ def test_scn001_valid_terrain_passes() -> None:
     pass
 
 
-@given("a collection with one centered 1 m grid mesh at a valid Landscape resolution")
+@given("a collection with one centered 1 m grid mesh at a valid terrain resolution")
 def _scn001_grid(state: dict[str, Any]) -> None:
     state["resolution"] = 127
 
@@ -179,7 +183,7 @@ def _scn002_export(state: dict[str, Any], heightfield: ModuleType, tmp_path: Pat
 
 
 @then(
-    "each variant folder holds T_<Name>_Height.png, one weightmap per layer, and each layer's BC, N, and ORM textures"
+    "each variant folder holds T_<Name>_Height.png, <Name>_Chunk_<r>_<c>.glb chunks, T_<Name>_Splat.png, and each layer's BC, N, and ORM textures"
 )
 def _scn002_files(state: dict[str, Any], heightfield: ModuleType) -> None:
     _owned_by_blender_suite("test_ac2_export_writes_every_variant_file_and_the_sidecars")
@@ -246,76 +250,77 @@ def _scn003_layers(state: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SCN004: Unreal import builds a Landscape level per variant
+# SCN004: Godot import builds a terrain scene per variant
 # ---------------------------------------------------------------------------
 
 
-@scenario(FEATURE, "Unreal import builds a Landscape level per variant")
-def test_scn004_unreal_import_builds_the_landscape() -> None:
+@scenario(FEATURE, "Godot import builds a terrain scene per variant")
+def test_scn004_godot_import_builds_the_terrain_scene() -> None:
     pass
 
 
-class _HeightMismatchClient:
-    """Returns the NMG_RESULT that the generated code prints when a sample is 6 cm off."""
-
-    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-        return 'NMG_RESULT {"ok": false, "error": "terrain_height_mismatch", "height_errors_cm": [6.0]}'
-
-
 @given("exported Desktop and Mobile terrain variants")
-def _scn004_exported(state: dict[str, Any]) -> None:
-    state["sidecar"] = _sidecar()
+def _scn004_exported(state: dict[str, Any], tmp_path: Path) -> None:
+    state["root"] = tmp_path
 
 
-@when("the import_ue step runs")
+@when("the import_godot step runs")
 def _scn004_run(state: dict[str, Any]) -> None:
-    state["code"] = build_terrain_code(
-        "Terrain/Ground/Desktop", GROUND_DESKTOP, "Ground", state["sidecar"]
-    )
+    godot = FinalizeGodot(state["root"])
+    state["result"] = _import_terrain(state["root"], godot)
+    state["godot"] = godot
 
 
 @then(
-    "each variant gets M_<Name>_Landscape, one layer info per layer, and the level L_<Name> with a Landscape at the derived transform"
+    "each variant gets <Name>.tscn instancing every chunk with the terrain shader and a HeightMapShape3D built from the heightfield"
 )
-def _scn004_landscape(state: dict[str, Any]) -> None:
-    code = state["code"]
-    # The generated code takes its names from an embedded PARAMS object and builds the M_, LI_, and
-    # L_ names from them, so the parameters are checked here and the template patterns below.
-    match = re.search(r'PARAMS = json\.loads\((".*")\)', code)
-    assert match is not None, "the generated code embeds no PARAMS"
-    params = json.loads(json.loads(match.group(1)))
-    assert params["name"] == "Ground"
-    assert params["dest"] == GROUND_DESKTOP
-    assert params["layers"] == ["Grass", "Rock"]
-    assert '"M_" + NAME + "_Landscape"' in code
-    assert '"LI_" + NAME + "_" + layer' in code
-    assert "LevelEditorSubsystem" in code or "new_level" in code
-    transform = landscape_transform(127, 1.0, 0.0, 5.0)
-    assert transform["scale"][2] == pytest.approx(5.0 * 100 * 128 / 65535)
+def _scn004_scene(state: dict[str, Any]) -> None:
+    root: Path = state["root"]
+    folder_root = root / "export" / "Terrain" / "Ground"
+    sidecar = json.loads((folder_root / "nmg-variants.json").read_text(encoding="utf-8"))
+    for variant in ("Desktop", "Mobile"):
+        folder = folder_root / variant
+        text = (folder / "Ground.tscn").read_text(encoding="utf-8")
+        terrain = parse_variant(sidecar, variant)
+        side = terrain.chunks_per_side
+        assert text.startswith("[gd_scene ")
+        assert '[node name="Ground" type="Node3D"]' in text
+        for row in range(side):
+            for col in range(side):
+                assert f'instance=ExtResource("chunk_Ground_Chunk_{row}_{col}")' in text
+        assert f'path="{SHADER_PATH}"' in text
+        assert "T_Ground_Splat.png" in text
+        assert f"map_width = {terrain.heightmap_px}" in text
+        assert f"map_depth = {terrain.heightmap_px}" in text
+        match = re.search(r"map_data = PackedFloat32Array\(([^)]*)\)", text)
+        assert match is not None
+        values = [float(item) for item in match.group(1).split(",")]
+        heights = decode_heights(folder / "T_Ground_Height.png", terrain)
+        assert max(abs(a - b) for a, b in zip(values, heights, strict=True)) < 1e-3
+        assert '[node name="HeightMap" type="CollisionShape3D" parent="Collision"]' in text
+    resources = state["result"]
+    assert resources.desktop_resource_path == "res://export/Terrain/Ground/Desktop/Ground.tscn"
+    assert state["godot"].count("--import") == 1
 
 
 @then(
-    "a sampled height more than 5 cm from the Blender height fails with import_ue.terrain_height_mismatch"
+    "a probed height range more than 5 cm from the heightfield fails with import_godot.terrain_height_mismatch"
 )
-def _scn004_mismatch(state: dict[str, Any]) -> None:
+def _scn004_mismatch(state: dict[str, Any], tmp_path: Path) -> None:
+    root = tmp_path / "mismatch"
     with pytest.raises(PipelineError) as info:
-        import_terrain_variant(
-            _HeightMismatchClient(),
-            variant_dir="Terrain/Ground/Desktop",
-            dest=GROUND_DESKTOP,
-            name="Ground",
-            sidecar_variant=state["sidecar"],
-        )
-    assert info.value.code == "import_ue.terrain_height_mismatch"
+        _import_terrain(root, FinalizeGodot(root, mesh_range=(10.0, 40.06)))
+    assert info.value.code == "import_godot.terrain_height_mismatch"
+    assert info.value.remediation
 
 
 # ---------------------------------------------------------------------------
-# SCN005 and SCN006: the region scaffold streams a terrain or keeps the plane
+# SCN005 and SCN006: the region scaffold instances a terrain or keeps the plane
 # ---------------------------------------------------------------------------
 
 
-@scenario(FEATURE, "A region with an imported terrain streams it instead of a plane")
-def test_scn005_region_streams_the_terrain() -> None:
+@scenario(FEATURE, "A region with an imported terrain instances it instead of a plane")
+def test_scn005_region_instances_the_terrain() -> None:
     pass
 
 
@@ -326,31 +331,41 @@ def test_scn006_region_keeps_the_plane() -> None:
 
 @given("a region entry whose terrain names an imported terrain entry")
 def _scn005_given(state: dict[str, Any], tmp_path: Path) -> None:
-    state["fake"], state["result"] = _run_region(_terrain_project(tmp_path), existing={HILLS_LEVEL})
+    root = _terrain_project(tmp_path)
+    scene = root / HILLS_SCENE
+    scene.parent.mkdir(parents=True)
+    scene.write_text("[gd_scene format=3]\n", encoding="utf-8")
+    state["root"] = root
 
 
-@given("a region entry without terrain, or whose terrain level does not exist yet")
+@given("a region entry without terrain, or whose terrain scene does not exist yet")
 def _scn006_given(state: dict[str, Any], tmp_path: Path) -> None:
-    state["fake"], state["result"] = _run_region(_terrain_project(tmp_path), existing=())
+    state["root"] = _terrain_project(tmp_path)
 
 
 @when("scaffold creates the region level")
 def _scn_scaffold(state: dict[str, Any]) -> None:
-    assert state["result"]["ok"] is True
+    report = _run(state["root"])
+    assert report.failed is False
+    state["text"] = (state["root"] / REGION_SCENE).read_text(encoding="utf-8")
 
 
-@then("the level streams the terrain's Desktop level and has no ground plane")
-def _scn005_streams(state: dict[str, Any]) -> None:
-    calls = state["fake"].calls
-    assert ("add_level_to_world", REGION_LEVEL, HILLS_LEVEL, "LevelStreamingAlwaysLoaded") in calls
-    assert ("load_asset", PLANE) not in calls
+@then("the level loads the terrain's platform variant and has no ground plane")
+def _scn005_instances(state: dict[str, Any]) -> None:
+    text = state["text"]
+    # Variant-free: NmgVariantScene resolves Desktop/ or Mobile/ at run time (#249 review F2).
+    assert 'path="res://addons/nmg_game_dev/nmg_variant_scene.gd"' in text
+    assert '[node name="Hills" type="Node3D" parent="."]' in text
+    assert 'scene_path = "res://assets/Terrain/Hills/Hills.tscn"' in text
+    assert "/Desktop/" not in text and "/Mobile/" not in text
+    assert "PlaneMesh" not in text
 
 
 @then("the level has the flat ground plane")
 def _scn006_plane(state: dict[str, Any]) -> None:
-    calls = state["fake"].calls
-    assert ("load_asset", PLANE) in calls
-    assert not any(call[0] == "add_level_to_world" for call in calls)
+    text = state["text"]
+    assert "PlaneMesh" in text
+    assert "ext_resource" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +395,7 @@ def _scn007_fails(state: dict[str, Any], rule: str, rule_catalogue: dict[str, st
     assert state["owner"] in BLENDER_SUITE, f"the headless suite does not cover {rule}"
 
 
-@then("finalize exports nothing and creates no Unreal asset")
+@then("finalize exports nothing and imports nothing into Godot")
 def _scn007_exports_nothing() -> None:
     _owned_by_blender_suite("test_ac6_a_failing_contract_exports_nothing")
 
@@ -407,7 +422,7 @@ def _scn008_given(state: dict[str, Any], tmp_path: Path) -> None:
         },
     )
     _set_terrain(root, "OldTown", "Ghost")
-    state["report"] = _run(root, FakeUnrealClient())
+    state["report"] = _run(root)
 
 
 @when("the design docs are synced or scaffolded")

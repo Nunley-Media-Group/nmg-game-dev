@@ -1,23 +1,34 @@
-"""Shared fakes for the #7 onboarding tests: a framework root, a fixture consumer, and stub
+"""Shared fakes for the onboarding tests (#7, #249): a framework root, a fixture consumer, and stub
 commands.
 
-No test in this module runs a real ``git``, ``mflux-save``, or ``uv``. ``FakeRunner`` logs each argv
-and creates the files a real clone or model save would leave behind.
+No test in this module runs a real ``git``, ``mflux-save``, ``uv``, or Godot. ``FakeRunner`` logs
+each argv and creates the files a real model save or ``git lfs install`` would leave behind.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from nmg_game_dev.onboard.commands import CommandResult, HostFacts
+from nmg_game_dev.onboard.commands import HostFacts
+from nmg_game_dev.process import CommandResult
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GIB = 2**30
-BRANCH_HEAD = "eabe83aba0708aeb79ce586f23684417d17cb852"
 APPLE_SILICON = HostFacts(system="Darwin", machine="arm64")
+
+
+GODOT_ADDON_FILES: dict[str, str] = {
+    "plugin.cfg": '[plugin]\n\nname="nmg-game-dev"\nversion="0.0.0"\nscript="plugin.gd"\n',
+    "plugin.gd": "@tool\nextends EditorPlugin\n",
+    "nmg_assets.gd": "extends Node\n",
+    "nmg_mission_definition.gd": "class_name NmgMissionDefinition\nextends Resource\n",
+    "tests/run_tests.gd": "extends SceneTree\n",
+}
+"""A stand-in for ``plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev``."""
 
 
 def make_framework(root: Path) -> Path:
@@ -25,26 +36,20 @@ def make_framework(root: Path) -> Path:
     exclude."""
     scripts = root / "scripts"
     scripts.mkdir(parents=True)
-    for name in ("start-blender-mcp.sh", "start-unreal-mcp.sh"):
-        script = scripts / name
-        script.write_text(f"#!/usr/bin/env bash\n# {name}\n", encoding="utf-8")
-        script.chmod(0o755)
+    script = scripts / "start-blender-mcp.sh"
+    script.write_text("#!/usr/bin/env bash\n# start-blender-mcp.sh\n", encoding="utf-8")
+    script.chmod(0o755)
     (root / "docs").mkdir()
     shutil.copy(REPO_ROOT / "docs" / "asset-contract.md", root / "docs" / "asset-contract.md")
     shutil.copy(REPO_ROOT / "docs" / "design-contract.md", root / "docs" / "design-contract.md")
     template = root / "templates" / "consumer" / ".claude"
     template.mkdir(parents=True)
     shutil.copy(REPO_ROOT / "templates" / "consumer" / ".claude" / "settings.json", template)
-    ue = root / "plugins" / "nmg-game-dev-ue-plugin"
-    (ue / "Source" / "NmgGameDevRuntime" / "Public").mkdir(parents=True)
-    (ue / "nmg-game-dev.uplugin").write_text('{"FileVersion": 3, "VersionName": "0.13.0"}\n')
-    (ue / "Source" / "NmgGameDevRuntime" / "Public" / "NmgAssetResolver.h").write_text(
-        "#pragma once\n"
-    )
-    (ue / "Binaries" / "Linux").mkdir(parents=True)
-    (ue / "Binaries" / "Linux" / "junk.so").write_bytes(b"built")
-    (ue / "Intermediate" / "Build").mkdir(parents=True)
-    (ue / "Intermediate" / "Build" / "junk.txt").write_text("generated\n")
+    godot = root / "plugins" / "nmg-game-dev-godot-addon" / "addons" / "nmg_game_dev"
+    (godot / "tests").mkdir(parents=True)
+    for rel, text in GODOT_ADDON_FILES.items():
+        (godot / rel).parent.mkdir(parents=True, exist_ok=True)
+        (godot / rel).write_text(text, encoding="utf-8")
     addon = root / "plugins" / "nmg-game-dev-blender-addon"
     addon.mkdir(parents=True)
     (addon / "blender_manifest.toml").write_text(
@@ -52,23 +57,15 @@ def make_framework(root: Path) -> Path:
     )
     (addon / "__init__.py").write_text("bl_info = {}\n", encoding="utf-8")
     (root / "fixtures").mkdir()
-    (root / "fixtures" / "dogfood.uproject").write_text("{}\n")
+    (root / "fixtures" / "sample.txt").write_text("framework-only\n")
     (root / ".mcp.json").write_text('{"mcpServers": {}}\n')
     return root
 
 
 def make_consumer(root: Path) -> Path:
-    """A consumer with one .uproject, unrelated Claude settings, and an existing CLAUDE.md."""
+    """A consumer with no nmg-game-dev setup: unrelated Claude settings and a CLAUDE.md."""
     consumer = root / "Game"
     consumer.mkdir(parents=True)
-    uproject = {
-        "FileVersion": 3,
-        "EngineAssociation": "5.8",
-        "Modules": [{"Name": "Game", "Type": "Runtime"}],
-        "Plugins": [{"Name": "Other", "Enabled": True}],
-        "Description": "keep me",
-    }
-    (consumer / "Game.uproject").write_text(json.dumps(uproject, indent="\t") + "\n")
     (consumer / ".claude").mkdir()
     settings = {"model": "opus", "permissions": {"allow": ["Bash(ls)"]}}
     (consumer / ".claude" / "settings.json").write_text(json.dumps(settings, indent=2) + "\n")
@@ -88,18 +85,9 @@ def snapshot(root: Path) -> dict[str, bytes]:
 class FakeRunner:
     """Stands in for subprocess: logs every argv and fakes the files each command leaves behind."""
 
-    def __init__(
-        self,
-        *,
-        head: str = BRANCH_HEAD,
-        remote: str = BRANCH_HEAD,
-        fail: str | None = None,
-        work_tree: bool = False,
-    ) -> None:
+    def __init__(self, *, fail: str | None = None, work_tree: bool = False) -> None:
         self.calls: list[list[str]] = []
         self.envs: list[dict[str, str] | None] = []
-        self.head = head
-        self.remote = remote
         self.fail = fail
         self.work_tree = work_tree
 
@@ -107,17 +95,6 @@ class FakeRunner:
         args = list(argv)
         self.calls.append(args)
         self.envs.append(None if env is None else dict(env))
-        if args[:2] == ["git", "clone"]:
-            if self.fail == "clone":
-                return CommandResult(returncode=128, stderr="clone refused")
-            target = Path(args[-1])
-            (target / ".git").mkdir(parents=True)
-            (target / "VibeUE.uplugin").write_text('{"FileVersion": 3}\n')
-            return CommandResult(returncode=0)
-        if args[:2] == ["git", "ls-remote"]:
-            if self.fail == "ls-remote":
-                return CommandResult(returncode=128, stderr="could not resolve host")
-            return CommandResult(returncode=0, stdout=f"{self.remote}\trefs/heads/5-8\n")
         if "rev-parse" in args and "--is-inside-work-tree" in args:
             if self.work_tree:
                 return CommandResult(returncode=0, stdout="true\n")
@@ -131,8 +108,6 @@ class FakeRunner:
             hook.parent.mkdir(parents=True, exist_ok=True)
             hook.write_text('#!/bin/sh\ngit lfs pre-push "$@"\n', encoding="utf-8")
             return CommandResult(returncode=0)
-        if "rev-parse" in args:
-            return CommandResult(returncode=0, stdout=f"{self.head}\n")
         if args[:1] == ["mflux-save"]:
             if self.fail == "mflux-save":
                 return CommandResult(returncode=1, stderr="download failed")
@@ -144,6 +119,20 @@ class FakeRunner:
 
     def argv_starting(self, *prefix: str) -> list[list[str]]:
         return [call for call in self.calls if call[: len(prefix)] == list(prefix)]
+
+
+def no_godot_tools(name: str) -> str | None:
+    """Every tool is on PATH except Godot and ffmpeg."""
+    return None if name in ("godot", "ffmpeg") else f"/usr/bin/{name}"
+
+
+def make_executable(path: Path) -> Path:
+    """Create an executable stub at ``path`` (for GODOT_BIN and FFMPEG_BIN tests)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(0o755)
+    assert os.access(path, os.X_OK)
+    return path
 
 
 def all_tools_present(name: str) -> str | None:

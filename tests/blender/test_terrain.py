@@ -286,30 +286,48 @@ def test_ac2_export_writes_every_variant_file_and_the_sidecars(
     assert exported["outputs"]["exported"] is True
 
     root = _variant_root(tmp_path)
+    chunks = ["Ground_Chunk_0_0.glb", "Ground_Chunk_0_1.glb", "Ground_Chunk_1_0.glb"]
+    chunks.append("Ground_Chunk_1_1.glb")
     for variant in ("Desktop", "Mobile"):
         folder = root / variant
         assert (folder / "T_Ground_Height.png").is_file()
+        assert (folder / "T_Ground_Splat.png").is_file()
+        assert sorted(path.name for path in folder.glob("*.glb")) == chunks
+        assert not list(folder.glob("T_Ground_Layer_*.png"))
         for layer in ("Grass", "Rock"):
-            assert (folder / f"T_Ground_Layer_{layer}.png").is_file()
             for suffix in ("BC", "N", "ORM"):
                 assert (folder / f"T_Ground_{layer}_{suffix}.png").is_file()
+        assert exported["outputs"]["chunks"][variant] == [str(folder / name) for name in chunks]
+        assert exported["outputs"]["splat"][variant] == str(folder / "T_Ground_Splat.png")
 
     height = heightfield.read_png_gray(root / "Desktop" / "T_Ground_Height.png")
     assert (height.bit_depth, height.width, height.height) == (16, 127, 127)
-    weights = [
-        heightfield.read_png_gray(root / "Desktop" / f"T_Ground_Layer_{layer}.png").samples
-        for layer in ("Grass", "Rock")
-    ]
-    assert all(sum(pixel) == 255 for pixel in zip(*weights, strict=True))
+    splat = heightfield.read_png_rgba8(root / "Desktop" / "T_Ground_Splat.png")
+    assert (splat.width, splat.height) == (127, 127)
+    pixels = [splat.samples[index : index + 4] for index in range(0, len(splat.samples), 4)]
+    assert all(pixel[0] + pixel[1] == 255 and pixel[2:] == b"\0\0" for pixel in pixels)
 
     sidecar = json.loads((root / "nmg-variants.json").read_text(encoding="utf-8"))
     assert sidecar["terrain"] is True
     assert sidecar["class"] == "terrain"
-    assert sidecar["desktop"]["heightmap_px"] == 127
-    assert sidecar["desktop"]["layers"] == ["Grass", "Rock"]
-    assert len(sidecar["desktop"]["samples"]) == 11
-    asset = json.loads((root / "Mobile" / "nmg-asset.json").read_text(encoding="utf-8"))
-    assert asset == {"class": "terrain", "heightmap_px": 127, "layers": 2, "max_texture_px": 1024}
+    desktop = sidecar["desktop"]
+    assert desktop["heightmap_px"] == 127
+    assert desktop["spacing_m"] == pytest.approx(1.0)
+    assert desktop["layers"] == ["Grass", "Rock"]
+    assert desktop["heightmap"] == "Desktop/T_Ground_Height.png"
+    assert desktop["splat"] == "Desktop/T_Ground_Splat.png"
+    assert desktop["chunks"] == chunks
+    assert desktop["chunk_quads"] == 63
+    assert {"height_min_m", "height_max_m", "uv_tile_m"} <= set(desktop)
+    assert "samples" not in desktop
+    for variant in ("Desktop", "Mobile"):
+        asset = json.loads((root / variant / "nmg-asset.json").read_text(encoding="utf-8"))
+        assert asset == {
+            "class": "terrain",
+            "heightmap_px": 127,
+            "layers": 2,
+            "max_texture_px": 1024,
+        }
 
 
 def test_ac3_mobile_takes_every_second_sample_and_drops_the_lightest_layer(
@@ -342,15 +360,16 @@ def test_ac3_mobile_takes_every_second_sample_and_drops_the_lightest_layer(
     assert sidecar["mobile"]["height_max_m"] == pytest.approx(0.0)
     assert sidecar["desktop"]["height_max_m"] == pytest.approx(5.0)
     mobile = root / "Mobile"
-    assert not (mobile / "T_Ground_Layer_Snow.png").exists()
     assert not (mobile / "T_Ground_Snow_BC.png").exists()
     mobile_height = heightfield.read_png_gray(mobile / "T_Ground_Height.png")
     assert (mobile_height.width, mobile_height.height) == (127, 127)
-    weights = [
-        heightfield.read_png_gray(mobile / f"T_Ground_Layer_{layer}.png").samples
-        for layer in ("Grass", "Rock", "Sand")
-    ]
-    assert all(sum(pixel) == 255 for pixel in zip(*weights, strict=True))
+    assert len(list(mobile.glob("Ground_Chunk_*.glb"))) == 4
+    assert len(list((root / "Desktop").glob("Ground_Chunk_*.glb"))) == 16
+    splat = heightfield.read_png_rgba8(mobile / "T_Ground_Splat.png")
+    pixels = [splat.samples[index : index + 4] for index in range(0, len(splat.samples), 4)]
+    assert all(sum(pixel[:3]) == 255 and pixel[3] == 0 for pixel in pixels)
+    desktop_splat = heightfield.read_png_rgba8(root / "Desktop" / "T_Ground_Splat.png")
+    assert any(desktop_splat.samples[3::4]), "Desktop keeps the fourth layer in alpha"
 
 
 def test_ac6_a_failing_contract_exports_nothing(steps: Any, tmp_path: Path) -> None:
@@ -394,6 +413,65 @@ def test_fr10_reimport_passes_a_clean_export_and_catches_a_tampered_heightmap(
     assert any("heights" in item["message"] for item in tampered["findings"])
     untouched = reimport.terrain_reimport_check(mobile["dir"], mobile["pre_report"])
     assert untouched["passed"], untouched["findings"]
+
+    # A splat pixel off 255, and a missing chunk, each fail the Mobile check.
+    splat_path = Path(mobile["dir"]) / "T_Ground_Splat.png"
+    heightfield.write_png_rgba8(bytes(4 * 127 * 127), 127, 127, splat_path)
+    (Path(mobile["dir"]) / "Ground_Chunk_1_1.glb").unlink()
+    broken = reimport.terrain_reimport_check(mobile["dir"], mobile["pre_report"])
+    targets = {item["target"] for item in broken["findings"]}
+    assert {"T_Ground_Splat.png", "Ground_Chunk_1_1.glb"} <= targets
+
+
+def test_chunks_cover_the_heightfield_in_engine_space(
+    steps: Any, reset_scene: Any, tmp_path: Path
+) -> None:
+    build_terrain("Ground", 127, height_at=lambda x, y: x * 0.1)
+    request = _request(tmp_path)
+    job = tmp_path / "job"
+    assert steps.run_step("variants", request, job)["ok"]
+    exported = steps.run_step("export", request, job)
+    assert exported["ok"], exported["error"]
+    sidecar = json.loads((_variant_root(tmp_path) / "nmg-variants.json").read_text("utf-8"))
+
+    reset_scene()
+    for path in exported["outputs"]["chunks"]["Desktop"]:
+        bpy.ops.import_scene.gltf(filepath=path)
+    meshes = {obj.name: obj for obj in bpy.context.scene.objects if obj.type == "MESH"}
+    assert sorted(meshes) == [Path(name).stem for name in sidecar["desktop"]["chunks"]]
+    points = [obj.matrix_world @ v.co for obj in meshes.values() for v in obj.data.vertices]
+    assert min(p.x for p in points) == pytest.approx(-63.0, abs=1e-4)
+    assert max(p.x for p in points) == pytest.approx(63.0, abs=1e-4)
+    assert min(p.z for p in points) == pytest.approx(sidecar["desktop"]["height_min_m"], abs=1e-3)
+    assert max(p.z for p in points) == pytest.approx(sidecar["desktop"]["height_max_m"], abs=1e-3)
+    for obj in meshes.values():
+        assert len(obj.data.polygons) == 2 * 63 * 63
+        assert [layer.name for layer in obj.data.uv_layers] == ["UVMap"]
+
+
+def test_more_than_four_layers_fail_the_export_before_any_write(steps: Any, tmp_path: Path) -> None:
+    build_terrain(
+        "Ground",
+        127,
+        layers={"Grass": 0.2, "Rock": 0.2, "Sand": 0.2, "Snow": 0.2, "Mud": 0.2},
+        tile_m=1.5,
+        texture_px=512,
+    )
+    budgets = tmp_path / "nmg-budgets.json"
+    budgets.write_text(
+        json.dumps({"terrain": {"desktop": {"layers": 5, "materials": 5}}}), encoding="utf-8"
+    )
+    request = _request(tmp_path, budgets)
+    job = tmp_path / "job"
+    assert steps.run_step("variants", request, job)["ok"]
+
+    exported = steps.run_step("export", request, job)
+
+    assert not exported["ok"]
+    assert exported["error"]["code"] == "export.terrain_layers_unsupported"
+    assert exported["error"]["remediation"]
+    assert not list(_variant_root(tmp_path).rglob("*.glb"))
+    assert not list(_variant_root(tmp_path).rglob("*.png"))
 
 
 def test_t004_bake_refuses_more_layers_than_the_desktop_material_limit(

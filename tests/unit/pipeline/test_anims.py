@@ -1,8 +1,8 @@
-"""Unit tests for the per-clip finalize steps export_anims and import_anims (#138).
+"""Unit tests for the per-clip finalize steps export_anims and import_anims (#138, #249 FR3).
 
 These run the real orchestrator, per-clip cache, gates, and sidecar writer, with in-process fakes
-for Blender (``FakeStepRunner``) and the Unreal editor (``FakeAnimUnrealRunner``).  No live Blender
-or UE session is touched.  Each test names the acceptance criterion it covers.
+for Blender (``FakeStepRunner``) and ``godot --headless`` (``FinalizeGodot``).  No live Blender
+or Godot editor is touched.  Each clip is a ``.glb`` imported as a Godot animation library.
 """
 
 from __future__ import annotations
@@ -23,32 +23,15 @@ from nmg_game_dev.pipeline import (
     finalize,
     run_step,
 )
-from nmg_game_dev.pipeline.anims import SIDECAR_NAME
-from tests.finalize_fakes import (
-    FakeAnimUnrealRunner,
-    FakeBlenderSession,
-    FakeStepRunner,
-    FakeUnrealRunner,
-    _decode_params,
-)
+from nmg_game_dev.pipeline.anims import SIDECAR_NAME, run_import_anims
+from nmg_game_dev.pipeline.cache import ArtifactCache
+from tests.finalize_fakes import FakeBlenderSession, FakeStepRunner, FinalizeGodot
 
-DESKTOP_SKELETON = "/Game/Props/Crate/Desktop/SM_Crate_Skeleton"
-ANIMATIONS = "/Game/Props/Crate/Animations"
+DESKTOP = "res://export/Props/Crate/Desktop/Crate.glb"
+ANIMATIONS = "res://export/Props/Crate/Animations"
+OTHER = "res://export/Props/Other/Desktop/Other.glb"
 IDLE = {"name": "Idle", "hash": "hash-idle", "valid_name": True}
 WALK = {"name": "Walk", "hash": "hash-walk", "valid_name": True}
-
-
-class _Router:
-    """Sends anim-import UE calls to the anim fake and mesh-import calls to the mesh fake."""
-
-    def __init__(self, anim: FakeAnimUnrealRunner, mesh: FakeUnrealRunner) -> None:
-        self.anim = anim
-        self.mesh = mesh
-
-    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-        if "PARAMS = json.loads(" in code and "prefix" in _decode_params(code):
-            return self.anim.execute_python_code(code, timeout=timeout)
-        return self.mesh.execute_python_code(code, timeout=timeout)
 
 
 @pytest.fixture()
@@ -74,10 +57,8 @@ def _job(tmp_path: Path, counter: list[int]) -> Path:
     return tmp_path / f"job-{counter[0]}"
 
 
-def _anim_unreal(**overrides: Any) -> FakeAnimUnrealRunner:
-    options: dict[str, Any] = {"skeletons": [DESKTOP_SKELETON]}
-    options.update(overrides)
-    return FakeAnimUnrealRunner(**options)
+def _godot(tmp_path: Path, **options: Any) -> FinalizeGodot:
+    return FinalizeGodot(tmp_path, **options)
 
 
 def _finalize(
@@ -86,13 +67,13 @@ def _finalize(
     counter: list[int],
     *,
     clips: list[dict[str, Any]],
-    unreal: FakeAnimUnrealRunner | None = None,
+    godot: FinalizeGodot | None = None,
     steps: tuple[str, ...] = STEP_ORDER,
     force: bool = False,
     runner: FakeStepRunner | None = None,
-) -> tuple[FinalizeResult, FakeStepRunner, FakeAnimUnrealRunner]:
+) -> tuple[FinalizeResult, FakeStepRunner, FinalizeGodot]:
     fake_runner = runner if runner is not None else FakeStepRunner(request, clips=clips)
-    anim = unreal if unreal is not None else _anim_unreal()
+    engine = godot if godot is not None else _godot(tmp_path)
     result = finalize(
         request,
         steps=steps,
@@ -100,12 +81,9 @@ def _finalize(
         cache_dir=tmp_path / "cache",
         runner=fake_runner,
         job_dir=_job(tmp_path, counter),
-        clients=FinalizeClients(
-            blender=FakeBlenderSession(),
-            unreal=_Router(anim, FakeUnrealRunner()),
-        ),
+        clients=FinalizeClients(blender=FakeBlenderSession(), godot=engine),
     )
-    return result, fake_runner, anim
+    return result, fake_runner, engine
 
 
 def _export_calls(runner: FakeStepRunner) -> list[dict[str, Any]]:
@@ -127,16 +105,28 @@ def _anim_result(result: FinalizeResult) -> Mapping[str, Any]:
     return result.animations
 
 
+def _clip_imports(godot: FinalizeGodot) -> list[list[str]]:
+    """The clip names each probe_anims.gd call measured."""
+    return godot.probed_clips()
+
+
+def _other_character(request: FinalizeRequest) -> Path:
+    scene = request.export_root / "Props" / "Other" / "Desktop" / "Other.glb"
+    scene.parent.mkdir(parents=True, exist_ok=True)
+    scene.write_bytes(b"glb other")
+    return scene
+
+
 class TestExportPerClip:
-    def test_each_clip_is_exported_as_its_own_fbx(
+    def test_each_clip_is_exported_as_its_own_glb(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC1: finalize all exports A_<Name>_Idle.fbx and A_<Name>_Walk.fbx under Animations/.
-        result, runner, _anim = _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
+        # finalize exports A_<Name>_Idle.glb and A_<Name>_Walk.glb under Animations/.
+        result, runner, _godot_runner = _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
 
         folder = request_for.export_root / "Props" / "Crate" / "Animations"
-        assert (folder / "A_Crate_Idle.fbx").is_file()
-        assert (folder / "A_Crate_Walk.fbx").is_file()
+        assert (folder / "A_Crate_Idle.glb").is_file()
+        assert (folder / "A_Crate_Walk.glb").is_file()
         assert [call["inputs"]["clips"] for call in _export_calls(runner)] == [["Idle", "Walk"]]
         assert _anim_result(result)["content_path"] == ANIMATIONS
 
@@ -149,12 +139,12 @@ class TestExportPerClip:
         sidecar = _sidecar(request_for)
         assert sidecar["asset"] == "Crate"
         assert sidecar["armature"] == "Armature"
-        assert sidecar["skeleton"] == DESKTOP_SKELETON
+        assert sidecar["skeleton"] == DESKTOP
         clip = sidecar["clips"][0]
         assert clip == {
             "name": "Idle",
-            "file": "A_Crate_Idle.fbx",
-            "asset_path": f"{ANIMATIONS}/A_Crate_Idle",
+            "file": "A_Crate_Idle.glb",
+            "asset_path": f"{ANIMATIONS}/A_Crate_Idle.glb",
             "frame_start": 1,
             "frame_end": 10,
             "frame_count": 10,
@@ -175,18 +165,22 @@ class TestExportPerClip:
     def test_only_the_clip_that_changed_is_exported_and_reimported(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC6: Walk changes, so only Walk is re-exported and re-imported; Idle is served from cache.
-        project = _anim_unreal()
-        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], unreal=project)
-        project.imported.clear()
+        # AC3: Walk changes, so only Walk is re-exported and re-imported; Idle is served from cache.
+        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
         changed_walk = {**WALK, "hash": "hash-walk-changed"}
 
-        result, runner, anim = _finalize(
-            request_for, tmp_path, jobs, clips=[IDLE, changed_walk], unreal=project
-        )
+        result, runner, godot = _finalize(request_for, tmp_path, jobs, clips=[IDLE, changed_walk])
 
         assert [call["inputs"]["clips"] for call in _export_calls(runner)] == [["Walk"]]
-        assert anim.imported == ["Walk"]
+        # The recorded Godot calls name one clip: one --import, then a probe of Walk only.
+        assert godot.calls[0] == ["--import"]
+        assert _clip_imports(godot) == [["Walk"]]
+        walk = request_for.export_root / "Props" / "Crate" / "Animations" / "A_Crate_Walk.glb"
+        probe_params = next(params for params in godot.params if "skeletons" in params)
+        assert probe_params["clips"] == [
+            {"name": "Walk", "path": f"{ANIMATIONS}/A_Crate_Walk.glb", "fps": 30.0}
+        ]
+        assert walk.with_name("A_Crate_Walk.glb.import").is_file()
         clips = {clip["name"]: clip for clip in _anim_result(result)["clips"]}
         assert clips["Idle"]["export_cache_hit"] is True
         assert clips["Idle"]["import_cache_hit"] is True
@@ -196,18 +190,16 @@ class TestExportPerClip:
     def test_mesh_steps_stay_cached_when_only_a_clip_changes(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC6: the mesh steps' cached results are still served from cache.
-        project = _anim_unreal()
-        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], unreal=project)
+        # AC3: the mesh steps' cached results are still served from cache.
+        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
         changed_walk = {**WALK, "hash": "hash-walk-changed"}
 
-        result, runner, _anim = _finalize(
-            request_for, tmp_path, jobs, clips=[IDLE, changed_walk], unreal=project
-        )
+        result, runner, godot = _finalize(request_for, tmp_path, jobs, clips=[IDLE, changed_walk])
 
         cache_hits = {step.step: step.cache_hit for step in result.steps}
-        for mesh_step in ("validate", "bake", "variants", "export", "reimport", "import_ue"):
+        for mesh_step in ("validate", "bake", "variants", "export", "reimport", "import_godot"):
             assert cache_hits[mesh_step] is True, mesh_step
+        assert godot.probe_calls("probe_asset.gd") == []
         # The probe, then the one export run for Walk.  Nothing else in Blender runs.
         assert runner.steps_run() == ["export_anims", "export_anims"]
 
@@ -217,12 +209,11 @@ class TestExportPerClip:
         # AC6 and FR7: the asset hash does not cover actions, so on a clip-only change the mesh
         # steps restore the old cached variants .blend.  The probe and export must read this run's
         # checkpoint, which holds the session's current actions, never a cached step result.
-        project = _anim_unreal()
-        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], unreal=project)
+        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
         changed_walk = {**WALK, "hash": "hash-walk-changed"}
 
-        _result, runner, _anim = _finalize(
-            request_for, tmp_path, jobs, clips=[IDLE, changed_walk], unreal=project
+        _result, runner, _godot_runner = _finalize(
+            request_for, tmp_path, jobs, clips=[IDLE, changed_walk]
         )
 
         anim_calls = [call for call in runner.calls if call["step"] == "export_anims"]
@@ -234,23 +225,21 @@ class TestExportPerClip:
     def test_force_reexports_and_reimports_every_clip(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC7: force reruns every clip.
-        project = _anim_unreal()
-        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], unreal=project)
-        project.imported.clear()
+        # Force reruns every clip.
+        _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
 
-        result, runner, anim = _finalize(
-            request_for, tmp_path, jobs, clips=[IDLE, WALK], force=True, unreal=project
+        result, runner, godot = _finalize(
+            request_for, tmp_path, jobs, clips=[IDLE, WALK], force=True
         )
 
         assert [call["inputs"]["clips"] for call in _export_calls(runner)] == [["Idle", "Walk"]]
-        assert sorted(anim.imported) == ["Idle", "Walk"]
+        assert _clip_imports(godot) == [["Idle", "Walk"]]
         assert all(not clip["export_cache_hit"] for clip in _anim_result(result)["clips"])
 
     def test_a_clip_with_an_invalid_name_stops_before_any_write(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC11: the probe reports an invalid name, so no FBX and no sidecar is written.
+        # The probe reports an invalid name, so no clip file and no sidecar is written.
         bad = {"name": "Run-Fast", "hash": "hash-bad", "valid_name": False}
 
         with pytest.raises(PipelineError) as info:
@@ -265,12 +254,12 @@ class TestExportPerClip:
     def test_an_unrigged_asset_passes_through_with_no_clips(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC8: no clips means both steps succeed, report zero clips, write nothing, and make no
-        # Unreal call.
-        result, runner, anim = _finalize(request_for, tmp_path, jobs, clips=[])
+        # No clips means both steps succeed, report zero clips, write nothing, and run no clip
+        # probe.
+        result, runner, godot = _finalize(request_for, tmp_path, jobs, clips=[])
 
         assert _export_calls(runner) == []
-        assert anim.codes == []
+        assert godot.probe_calls("probe_anims.gd") == []
         assert _anim_result(result)["clips"] == []
         assert _anim_result(result)["content_path"] is None
         assert not (request_for.export_root / "Props" / "Crate" / "Animations").exists()
@@ -281,7 +270,7 @@ class TestExportPerClip:
     def test_run_step_export_anims_runs_its_prerequisites_and_returns_the_standard_shape(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC9: the step runs alone, with its dependencies, and returns a StepResult.
+        # The step runs alone, with its dependencies, and returns a StepResult.
         runner = FakeStepRunner(request_for, clips=[IDLE])
 
         step = run_step(
@@ -306,177 +295,249 @@ class TestExportPerClip:
 
 
 class TestImportPerClip:
-    def test_clips_import_as_anim_sequences_on_the_desktop_skeleton(
+    def test_clips_import_as_animation_libraries(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC4: each clip is imported on the Desktop skeleton, and the result lists the folder and
-        # every clip.  The code uses the anim import flags.
-        result, _runner, anim = _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
+        # AC3: each changed clip gets an animation_library .import before the one --import, and
+        # the probe measures every clip.
+        result, _runner, godot = _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK])
 
-        assert anim.imported == ["Idle", "Walk"]
-        params = anim.params[0]
-        assert params["skeleton"] == DESKTOP_SKELETON
-        assert params["anim_dir"] == ANIMATIONS
-        assert [clip["asset_path"] for clip in params["clips"]] == [
-            f"{ANIMATIONS}/A_Crate_Idle",
-            f"{ANIMATIONS}/A_Crate_Walk",
-        ]
+        folder = request_for.export_root / "Props" / "Crate" / "Animations"
+        for clip in ("Idle", "Walk"):
+            settings = (folder / f"A_Crate_{clip}.glb.import").read_text(encoding="utf-8")
+            assert 'importer="animation_library"' in settings
+        assert godot.count("--import") == 2  # import_godot, then import_anims
+        assert _clip_imports(godot) == [["Idle", "Walk"]]
         assert _anim_result(result)["content_path"] == ANIMATIONS
-        assert [clip["name"] for clip in _anim_result(result)["clips"]] == ["Idle", "Walk"]
+        assert [clip["asset_path"] for clip in _anim_result(result)["clips"]] == [
+            f"{ANIMATIONS}/A_Crate_Idle.glb",
+            f"{ANIMATIONS}/A_Crate_Walk.glb",
+        ]
+
+    def test_an_existing_library_import_file_is_kept(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        folder = request_for.export_root / "Props" / "Crate" / "Animations"
+        folder.mkdir(parents=True)
+        kept = '[remap]\n\nimporter="animation_library"\nuid="uid://keep"\n'
+        (folder / "A_Crate_Idle.glb.import").write_text(kept, encoding="utf-8")
+
+        _finalize(request_for, tmp_path, jobs, clips=[IDLE])
+
+        assert (folder / "A_Crate_Idle.glb.import").read_text(encoding="utf-8") == kept
 
     def test_a_frame_count_difference_names_the_clip_and_both_values(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC5: a clip whose AnimSequence has another frame count fails, naming clip and values.
-        unreal = _anim_unreal(frame_counts={"Walk": 12})
+        # A clip whose library has another frame count fails, naming the clip and both values.
+        # Frames 1 to 10 at 30 fps are an animation 9 frames long.
+        godot = _godot(tmp_path, frame_counts={"Walk": 12})
 
         with pytest.raises(PipelineError) as info:
-            _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], unreal=unreal)
+            _finalize(request_for, tmp_path, jobs, clips=[IDLE, WALK], godot=godot)
 
         assert info.value.code == "import_anims.clip_mismatch"
+        assert info.value.remediation
         assert "Walk" in info.value.message
-        assert "expected 10" in info.value.message
+        assert "expected 9" in info.value.message
         assert "measured 12" in info.value.message
 
-    def test_a_skeleton_difference_fails_the_clip_check(
+    def test_a_clip_that_did_not_load_as_a_library_is_a_mismatch(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC5: a clip on a different skeleton fails with import_anims.clip_mismatch.
-        unreal = _anim_unreal(skeleton_of={"Idle": "/Game/Props/Other/Desktop/SM_Other_Skeleton"})
+        godot = _godot(tmp_path, missing_clips=["Idle"])
 
         with pytest.raises(PipelineError) as info:
-            _finalize(request_for, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+            _finalize(request_for, tmp_path, jobs, clips=[IDLE], godot=godot)
 
         assert info.value.code == "import_anims.clip_mismatch"
-        assert "Idle skeleton" in info.value.message
+        assert "Idle" in info.value.message
 
-    def test_a_missing_desktop_skeleton_says_to_run_import_ue_first(
+    def test_a_failed_clip_import_is_import_anims_failed(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC10: no Desktop skeleton means finalize.skeleton_not_found, with the import_ue remedy and
-        # no AnimSequence created.
-        unreal = FakeAnimUnrealRunner(skeletons=[])
+        from nmg_game_dev.godot.runner import CommandResult
+
+        godot = _godot(
+            tmp_path, responses={"probe_anims.gd": CommandResult(1, stderr="ERROR: bad clip")}
+        )
 
         with pytest.raises(PipelineError) as info:
-            _finalize(request_for, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+            _finalize(request_for, tmp_path, jobs, clips=[IDLE], godot=godot)
+
+        assert info.value.code == "import_anims.failed"
+        assert "ERROR: bad clip" in info.value.message
+
+    def test_a_missing_desktop_scene_says_to_run_import_godot_first(
+        self, request_for: FinalizeRequest, tmp_path: Path
+    ) -> None:
+        # No Desktop .glb means finalize.skeleton_not_found with the import_godot remedy, and no
+        # Godot call.
+        godot = _godot(tmp_path)
+        exported = [
+            {
+                "name": "Idle",
+                "file": "A_Crate_Idle.glb",
+                "frame_start": 1,
+                "frame_end": 10,
+                "fps": 30.0,
+                "output_hash": "out-idle",
+            }
+        ]
+
+        with pytest.raises(PipelineError) as info:
+            run_import_anims(
+                request_for,
+                cache=ArtifactCache(tmp_path / "cache"),
+                job_dir=tmp_path / "job",
+                exported=exported,
+                client=lambda: godot,
+                force=False,
+            )
 
         assert info.value.code == "finalize.skeleton_not_found"
-        assert "import_ue" in info.value.remediation
-        assert unreal.imported == []
+        assert "import_godot" in info.value.remediation
+        assert godot.calls == []
 
-    def test_stale_sequences_are_reported_and_never_deleted(
+    def test_stale_clip_files_are_reported_and_never_deleted(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC12: A_<Name>_Run is listed under stale.  The host never deletes it.
-        unreal = _anim_unreal(stale=["A_Crate_Run"], present=[f"{ANIMATIONS}/A_Crate_Run"])
+        # A_<Name>_Run.glb is listed under stale.  The host never deletes it.
+        folder = request_for.export_root / "Props" / "Crate" / "Animations"
+        folder.mkdir(parents=True)
+        (folder / "A_Crate_Run.glb").write_bytes(b"old run")
 
-        result, _runner, _anim = _finalize(request_for, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+        result, _runner, _godot_runner = _finalize(request_for, tmp_path, jobs, clips=[IDLE])
 
-        assert _anim_result(result)["stale"] == [f"{ANIMATIONS}/A_Crate_Run"]
-        assert unreal.params[0]["prefix"] == "A_Crate_"
+        assert _anim_result(result)["stale"] == [f"{ANIMATIONS}/A_Crate_Run.glb"]
+        assert (folder / "A_Crate_Run.glb").is_file()
 
-    def test_a_clip_whose_sequence_is_gone_is_imported_again(
+    def test_a_clip_whose_import_settings_are_gone_is_imported_again(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # The cached Idle is imported again when its AnimSequence no longer exists in the project.
+        # A cached Idle is imported again when its .import file no longer selects the library.
         _finalize(request_for, tmp_path, jobs, clips=[IDLE])
-        unreal = _anim_unreal(present=[])
+        folder = request_for.export_root / "Props" / "Crate" / "Animations"
+        (folder / "A_Crate_Idle.glb.import").unlink()
 
-        result, _runner, anim = _finalize(request_for, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+        result, _runner, godot = _finalize(request_for, tmp_path, jobs, clips=[IDLE])
 
-        assert anim.imported == ["Idle"]
-        assert _anim_result(result)["clips"][0]["import_cache_hit"] is True
+        assert _clip_imports(godot) == [["Idle"]]
+        assert (folder / "A_Crate_Idle.glb.import").is_file()
+        assert _anim_result(result)["clips"][0]["import_cache_hit"] is False
 
 
 class TestCompatibleSkeletons:
     def _request(self, request_for: FinalizeRequest, *targets: str) -> FinalizeRequest:
         return request_for.model_copy(update={"compatible_with": targets})
 
-    def test_registration_is_two_way_and_listed_in_the_result(
+    def test_a_target_holding_every_animated_bone_is_listed(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC13: both characters list each other, keep their own skeletons, and the result lists it.
-        other = "/Game/Props/Other/Desktop/SM_Other_Skeleton"
-        unreal = _anim_unreal(skeletons=[DESKTOP_SKELETON, other])
+        # The probe reads the target's Desktop Skeleton3D; every clip bone exists there.
+        _other_character(request_for)
+        godot = _godot(
+            tmp_path,
+            clip_bones=["root", "spine"],
+            skeleton_bones={OTHER: ["root", "spine", "head"]},
+        )
         request = self._request(request_for, "Props/Other")
 
-        result, _runner, anim = _finalize(request, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+        result, _runner, godot = _finalize(request, tmp_path, jobs, clips=[IDLE], godot=godot)
 
-        assert anim.compatible[DESKTOP_SKELETON] == [other]
-        assert anim.compatible[other] == [DESKTOP_SKELETON]
-        assert _anim_result(result)["compatible"] == [other]
+        probe_params = next(params for params in godot.params if "skeletons" in params)
+        assert probe_params["skeletons"] == [OTHER]
+        assert _anim_result(result)["compatible"] == [OTHER]
 
-    def test_registration_is_idempotent(
+    def test_a_missing_target_names_it(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC14: a rerun with the same compatible_with lists each other skeleton exactly once.
-        other = "/Game/Props/Other/Desktop/SM_Other_Skeleton"
-        unreal = _anim_unreal(skeletons=[DESKTOP_SKELETON, other])
-        request = self._request(request_for, "Props/Other")
-        _finalize(request, tmp_path, jobs, clips=[IDLE], unreal=unreal)
-
-        _finalize(request, tmp_path, jobs, clips=[IDLE], unreal=unreal)
-
-        assert unreal.compatible[DESKTOP_SKELETON] == [other]
-        assert unreal.compatible[other] == [DESKTOP_SKELETON]
-
-    def test_a_missing_target_names_it_and_registers_nothing(
-        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
-    ) -> None:
-        # AC15: a missing target fails with finalize.skeleton_not_found and changes nothing.
-        unreal = _anim_unreal()
+        # A target with no Desktop scene fails with finalize.skeleton_not_found.
         request = self._request(request_for, "Props/Missing")
 
         with pytest.raises(PipelineError) as info:
-            _finalize(request, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+            _finalize(request, tmp_path, jobs, clips=[IDLE])
 
         assert info.value.code == "finalize.skeleton_not_found"
         assert "Props/Missing" in info.value.message
-        assert unreal.compatible == {}
+        assert info.value.remediation
 
-    def test_a_bone_mismatch_names_the_differing_bones_and_registers_nothing(
+    def test_a_target_the_probe_cannot_load_is_not_found(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC15: differing bone names fail with finalize.skeleton_mismatch, listing those bones.
-        other = "/Game/Props/Other/Desktop/SM_Other_Skeleton"
-        unreal = _anim_unreal(
-            skeletons=[DESKTOP_SKELETON, other],
-            bones={DESKTOP_SKELETON: ["root", "spine"], other: ["root", "head"]},
+        _other_character(request_for)
+
+        def unloadable(params: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "clips": {
+                    clip["name"]: {"animation": clip["name"], "frame_count": 9, "bones": ["root"]}
+                    for clip in params["clips"]
+                },
+                "skeletons": {OTHER: {"found": False, "bones": []}},
+            }
+
+        godot = _godot(tmp_path, responses={"probe_anims.gd": unloadable})
+        request = self._request(request_for, "Props/Other")
+
+        with pytest.raises(PipelineError) as info:
+            _finalize(request, tmp_path, jobs, clips=[IDLE], godot=godot)
+
+        assert info.value.code == "finalize.skeleton_not_found"
+
+    def test_a_missing_bone_names_the_bones(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        # A clip bone absent from the target skeleton fails with finalize.skeleton_mismatch.
+        _other_character(request_for)
+        godot = _godot(
+            tmp_path, clip_bones=["root", "spine"], skeleton_bones={OTHER: ["root", "head"]}
         )
         request = self._request(request_for, "Props/Other")
 
         with pytest.raises(PipelineError) as info:
-            _finalize(request, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+            _finalize(request, tmp_path, jobs, clips=[IDLE], godot=godot)
 
         assert info.value.code == "finalize.skeleton_mismatch"
-        assert "head" in info.value.message
         assert "spine" in info.value.message
-        assert unreal.compatible == {}
+        assert "Props/Other" in info.value.message
 
-    def test_without_compatible_with_nothing_is_registered(
+    def test_a_rerun_checks_cached_clip_bones_against_the_target(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # AC16: no compatible_with means no skeleton's list changes.
-        other = "/Game/Props/Other/Desktop/SM_Other_Skeleton"
-        unreal = _anim_unreal(skeletons=[DESKTOP_SKELETON, other])
+        # Unchanged clips are not re-imported, but their recorded bones still meet the check.
+        _other_character(request_for)
+        request = self._request(request_for, "Props/Other")
+        first = _godot(
+            tmp_path, clip_bones=["root", "spine"], skeleton_bones={OTHER: ["root", "spine"]}
+        )
+        _finalize(request, tmp_path, jobs, clips=[IDLE], godot=first)
+        shrunk = _godot(tmp_path, skeleton_bones={OTHER: ["root"]})
 
-        result, _runner, _anim = _finalize(request_for, tmp_path, jobs, clips=[IDLE], unreal=unreal)
+        with pytest.raises(PipelineError) as info:
+            _finalize(request, tmp_path, jobs, clips=[IDLE], godot=shrunk)
 
-        assert unreal.compatible == {}
+        assert info.value.code == "finalize.skeleton_mismatch"
+        assert _clip_imports(shrunk) == [[]]
+        assert shrunk.count("--import") == 0
+
+    def test_without_compatible_with_nothing_is_listed(
+        self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
+    ) -> None:
+        result, _runner, _godot_runner = _finalize(request_for, tmp_path, jobs, clips=[IDLE])
+
         assert _anim_result(result)["compatible"] == []
 
-    def test_zero_clips_with_a_compatible_target_still_registers(
+    def test_zero_clips_with_a_compatible_target_still_checks_it(
         self, request_for: FinalizeRequest, tmp_path: Path, jobs: list[int]
     ) -> None:
-        # With no clips, an Unreal call still runs when compatible_with is set.
-        other = "/Game/Props/Other/Desktop/SM_Other_Skeleton"
-        unreal = _anim_unreal(skeletons=[DESKTOP_SKELETON, other])
+        # With no clips, one skeleton probe still runs when compatible_with is set.
+        _other_character(request_for)
         request = self._request(request_for, "Props/Other")
 
-        result, _runner, anim = _finalize(request, tmp_path, jobs, clips=[], unreal=unreal)
+        result, _runner, godot = _finalize(request, tmp_path, jobs, clips=[])
 
-        assert len(anim.codes) == 1
-        assert _anim_result(result)["compatible"] == [other]
+        assert _clip_imports(godot) == [[]]
+        assert _anim_result(result)["compatible"] == [OTHER]
         assert _anim_result(result)["content_path"] is None
 
 

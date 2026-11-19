@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sign the archived macOS app with the hardened runtime, then verify the signature (#6, FR4, AC1).
+# Sign the exported macOS app with the hardened runtime, then verify the signature (#6, FR4, AC1).
 #
 #   scripts/sign-macos.sh <app> --identity <id> [--dry-run]
 #
@@ -51,11 +51,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$app" ]] || die 2 "Pass the path to the archived .app." "no .app path was given"
+[[ -n "$app" ]] || die 2 "Pass the path to the exported .app." "no .app path was given"
 [[ -n "$identity" ]] || die 2 "Pass --identity with the Developer ID Application identity for the team." "--identity is required"
 
 if (( ! dry_run )); then
-  [[ -d "$app" ]] || die 2 "Build the macOS app first, or pass the .app that UAT archived." "app bundle not found: $app"
+  [[ -d "$app" ]] || die 2 "Export the macOS app first, or pass the .app that the Godot export wrote." "app bundle not found: $app"
   command -v codesign >/dev/null || die 2 "Install the Xcode command line tools so codesign is on PATH." "codesign not found on PATH"
 fi
 
@@ -71,5 +71,5 @@ fi
 show "RUN:" "${sign_cmd[@]}"
 "${sign_cmd[@]}" || die 1 "Check the signing identity in Keychain Access and that the .app is intact, then rerun the macOS ship." "codesign failed for $app"
 show "RUN:" "${verify_cmd[@]}"
-"${verify_cmd[@]}" || die 1 "Rebuild the .app, then sign it again; the signature did not verify." "codesign verification failed for $app"
+"${verify_cmd[@]}" || die 1 "Export the .app again, then sign it again; the signature did not verify." "codesign verification failed for $app"
 echo "Signed and verified $app"

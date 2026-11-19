@@ -33,7 +33,7 @@ STANDARD_TRIS = 3000
 #: Mobile budget for the pivot scenario, tight enough that decimation removes the sphere's pole.
 TIGHT_TRIS = 200
 #: Tip of the sliver face, 1e-3 off the top-front edge of the unit cube. The edge then has three
-#: faces, and the sliver decimated into a Mobile LOD fails geometry.normals before the fix.
+#: faces, and the sliver decimated into the Mobile mesh fails geometry.normals before the fix.
 SLIVER_TIP = (0.0, -0.5 - 1e-3, 1.0 + 1e-3)
 #: Vertices of the two coincident triangles that share one vertex set.
 PAIR = ((0.1, -0.2, 0.5), (0.2, -0.2, 0.5), (0.15, 0.1, 0.6))
@@ -227,11 +227,11 @@ def _findings(contract: Any) -> list[tuple[str, str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# AC1 / SCN001: decimated Mobile LODs have no zero-area or loose geometry
+# AC1 / SCN001: the decimated Mobile mesh has no zero-area or loose geometry
 # ---------------------------------------------------------------------------
 
 
-def test_scn001_decimated_lods_have_no_zero_area_or_loose_geometry(
+def test_scn001_decimated_mobile_has_no_zero_area_or_loose_geometry(
     rigged_hero: None,
     decimation_leaks_zero_area: None,
     core: Any,
@@ -260,9 +260,7 @@ def test_scn001_decimated_lods_have_no_zero_area_or_loose_geometry(
 # ---------------------------------------------------------------------------
 
 
-def test_scn002_normals_are_stable_on_desktop_and_every_mobile_lod(
-    core: Any, contract: Any
-) -> None:
+def test_scn002_normals_are_stable_on_desktop_and_mobile(core: Any, contract: Any) -> None:
     _fin_asset("Crate", duplicates=False)
     core.cleanup_desktop("Crate")
     core.optimize_mobile("Crate", "standard_prop")
@@ -284,9 +282,8 @@ def test_scn003_mobile_root_is_reseated_after_decimation(core: Any, contract: An
     core.build_mobile("Ball", _budget(TIGHT_TRIS))
 
     root = bpy.data.objects["SM_Ball_Mobile"]
-    lod0 = bpy.data.objects["SM_Ball_Mobile_LOD0"]
     origin = root.matrix_world.translation
-    world = [lod0.matrix_world @ vert.co for vert in lod0.data.vertices]
+    world = [root.matrix_world @ vert.co for vert in root.data.vertices]
     xs = [point.x for point in world]
     ys = [point.y for point in world]
     bottom_centre = (
@@ -347,53 +344,42 @@ def test_scn005_reimport_triangle_counts_match(core: Any, contract: Any, tmp_pat
 # ---------------------------------------------------------------------------
 
 
-def test_scn006_rigged_chain_keeps_budget_skin_and_layout(rigged_hero: None, core: Any) -> None:
+def test_scn006_rigged_mobile_keeps_budget_skin_and_layout(rigged_hero: None, core: Any) -> None:
     core.cleanup_desktop("Hero")
     result = core.optimize_mobile("Hero", "character")
 
     assert result["rigged"] is True
-    assert result["lod_levels"] == 3
-    names = ("SM_Hero_Mobile", "SM_Hero_Mobile_LOD1", "SM_Hero_Mobile_LOD2")
-    lods = [bpy.data.objects[name] for name in names]
-    counts = [_triangles(obj.data) for obj in lods]
-    assert result["lod_tris"] == counts
-    assert counts[0] <= result["budget"]["tris"]
-    assert counts[1] <= 0.5 * counts[0]
-    assert counts[2] <= 0.25 * counts[0]
-    for obj in lods:
-        assert obj.parent is not None and obj.parent.name == "SK_Hero"
-        skins = [m for m in obj.modifiers if m.type == "ARMATURE" and m.object is not None]
-        assert len(skins) == 1 and skins[0].object.name == "SK_Hero"
-        assert len(obj.vertex_groups) > 0
+    obj = bpy.data.objects["SM_Hero_Mobile"]
+    assert [item.name for item in bpy.data.collections["Hero_Mobile"].all_objects] == [obj.name]
+    assert result["tris"] == _triangles(obj.data)
+    assert result["tris"] <= result["budget"]["tris"]
+    assert obj.parent is not None and obj.parent.name == "SK_Hero"
+    skins = [m for m in obj.modifiers if m.type == "ARMATURE" and m.object is not None]
+    assert len(skins) == 1 and skins[0].object.name == "SK_Hero"
+    assert len(obj.vertex_groups) > 0
 
 
-def test_scn006_unrigged_lod_group_keeps_its_layout(core: Any) -> None:
+def test_scn006_unrigged_mobile_is_one_mesh_within_budget(core: Any) -> None:
     _dense_crate("Crate")
     core.cleanup_desktop("Crate")
     result = core.optimize_mobile("Crate", "standard_prop")
 
-    group = bpy.data.objects["SM_Crate_Mobile"]
-    assert group.type == "EMPTY" and group["fbx_type"] == "LodGroup"
-    lods = [bpy.data.objects[f"SM_Crate_Mobile_LOD{level}"] for level in range(3)]
-    for lod in lods:
-        assert lod.parent is not None and lod.parent.name == group.name
-    counts = [_triangles(obj.data) for obj in lods]
+    root = bpy.data.objects["SM_Crate_Mobile"]
+    assert root.type == "MESH" and root.parent is None
+    assert [item.name for item in bpy.data.collections["Crate_Mobile"].all_objects] == [root.name]
     assert result["rigged"] is False
-    assert result["lod_tris"] == counts
-    assert counts[0] <= STANDARD_TRIS
-    assert counts[1] <= 0.5 * counts[0]
-    assert counts[2] <= 0.25 * counts[0]
+    assert result["tris"] == _triangles(root.data)
+    assert result["tris"] <= STANDARD_TRIS
 
 
-def test_scn006_multi_part_asset_keeps_lod0_only(core: Any) -> None:
+def test_scn006_multi_part_asset_is_fitted_as_a_whole(core: Any) -> None:
     _add_trim_part(_dense_crate("Crate"))
     core.cleanup_desktop("Crate")
     result = core.optimize_mobile("Crate", "standard_prop")
 
     parts = [bpy.data.objects["SM_Crate_Mobile"], bpy.data.objects["SM_Crate_Trim_Mobile"]]
     total = sum(_triangles(obj.data) for obj in parts)
-    assert result["lod_levels"] == 1
-    assert result["lod_tris"] == [total]
+    assert result["tris"] == total
     assert total <= STANDARD_TRIS
     assert bpy.data.objects["SM_Crate_Trim_Mobile"].parent.name == "SM_Crate_Mobile"
 
@@ -406,28 +392,21 @@ def test_scn006_multi_part_asset_keeps_lod0_only(core: Any) -> None:
 def test_scn007_clean_asset_keeps_triangles_and_is_deterministic(
     build_crate: Any, core: Any
 ) -> None:
-    def run() -> tuple[list[int], list[list[tuple[float, ...]]]]:
+    def run() -> tuple[int, list[tuple[float, ...]]]:
         build_crate()
         cleaned = core.cleanup_desktop("Crate")
         assert cleaned["tris_after"] == DENSE_TRIS
         result = core.optimize_mobile("Crate", "standard_prop")
-        positions = [
-            sorted(
-                _rounded(vert.co)
-                for vert in bpy.data.objects[f"SM_Crate_Mobile_LOD{level}"].data.vertices
-            )
-            for level in range(3)
-        ]
-        return result["lod_tris"], positions
+        positions = sorted(
+            _rounded(vert.co) for vert in bpy.data.objects["SM_Crate_Mobile"].data.vertices
+        )
+        return result["tris"], positions
 
     first = run()
     second = run()
     assert first == second, "identical input must give identical triangle counts and vertices"
 
-    lod0, lod1, lod2 = first[0]
-    assert lod0 <= STANDARD_TRIS
-    assert lod1 <= 0.5 * lod0
-    assert lod2 <= 0.25 * lod0
+    assert first[0] <= STANDARD_TRIS
     assert bpy.data.objects["SM_Crate_Mobile"].matrix_world.translation == Vector((0.0, 0.0, 0.0))
 
 
@@ -438,6 +417,6 @@ def test_scn007_mobile_already_on_origin_is_not_translated(core: Any) -> None:
 
     core.optimize_mobile("Crate", "standard_prop")
 
-    lod0 = bpy.data.objects["SM_Crate_Mobile_LOD0"]
-    mobile = sorted(_rounded(vert.co) for vert in lod0.data.vertices)
+    root = bpy.data.objects["SM_Crate_Mobile"]
+    mobile = sorted(_rounded(vert.co) for vert in root.data.vertices)
     assert mobile == desktop

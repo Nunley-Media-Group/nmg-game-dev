@@ -1,4 +1,4 @@
-"""Rigged FBX, material PNGs, and nmg-animations.json for one SK_<Name> rig (touches Blender)."""
+"""Rigged GLB, material PNGs, and nmg-animations.json for one SK_<Name> rig (touches Blender)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 
 import bpy
 
+from ..variants_core.export import RIG_GLB_OPTIONS, glb_name
 from ..variants_core.textures import source_images, write_png
 from .outcome import STATUS_FALLBACK, RigError, fail, ok
 from .skeleton import MANNY_BONE_NAMES
@@ -15,27 +16,18 @@ from .skeleton import MANNY_BONE_NAMES
 SIDECAR_NAME = "nmg-animations.json"
 _EXPORT_ARMATURE_NAME = "Armature"
 _PROVENANCE_KEY = "nmg_animations"
-_FBX_OPTIONS: dict[str, Any] = {
-    "object_types": {"ARMATURE", "MESH"},
-    "use_selection": True,
-    "use_mesh_modifiers": True,
-    "mesh_smooth_type": "FACE",
-    "apply_scale_options": "FBX_SCALE_UNITS",
-    "path_mode": "STRIP",
-    "embed_textures": False,
-    "add_leaf_bones": False,
-    "use_armature_deform_only": True,
-    "primary_bone_axis": "Y",
-    "secondary_bone_axis": "X",
-    "bake_anim": True,
-    "bake_anim_use_all_actions": True,
-    "bake_anim_use_nla_strips": False,
-    "bake_anim_force_startend_keying": True,
+# The variant export's skeleton settings plus every clip the rig can play, each sampled per frame.
+_GLB_OPTIONS: dict[str, Any] = {
+    **RIG_GLB_OPTIONS,
+    "export_animations": True,
+    "export_animation_mode": "ACTIONS",
+    "export_force_sampling": True,
+    "export_optimize_animation_size": False,
 }
 
 
 def export_rigged(collection_name: str, out_dir: str) -> dict[str, Any]:
-    """Write SM_<Name>.fbx, its material PNGs, and nmg-animations.json into out_dir."""
+    """Write <Name>.glb, its material PNGs, and nmg-animations.json into out_dir."""
     armature = bpy.data.objects.get(f"SK_{collection_name}")
     collection = bpy.data.collections.get(collection_name)
     if armature is None or armature.type != "ARMATURE" or collection is None:
@@ -70,12 +62,12 @@ def _write(
     )
     textures = _write_textures(meshes, out_dir)
 
-    fbx_path = out_dir / f"SM_{collection.name}.fbx"
+    glb_path = out_dir / glb_name(collection.name)
     original_name = armature.name
     armature.name = _EXPORT_ARMATURE_NAME
     try:
         _select_only([armature, *meshes], armature)
-        bpy.ops.export_scene.fbx(filepath=str(fbx_path), **_FBX_OPTIONS)
+        bpy.ops.export_scene.gltf(filepath=str(glb_path), **_GLB_OPTIONS)
     finally:
         armature.name = original_name
 
@@ -84,8 +76,8 @@ def _write(
     sidecar = {
         "asset": collection.name,
         "armature": armature.name,
-        "skeleton": "ue5_manny",
-        "fbx": fbx_path.name,
+        "skeleton": "humanoid",
+        "glb": glb_path.name,
         "bones": list(MANNY_BONE_NAMES),
         "clips": [clips[name] for name in sorted(clips)],
     }
@@ -93,7 +85,7 @@ def _write(
     return ok(
         asset=collection.name,
         armature=armature.name,
-        fbx=str(fbx_path),
+        glb=str(glb_path),
         sidecar=str(sidecar_path),
         textures=[str(path) for path in textures],
         clips=sorted(clips),

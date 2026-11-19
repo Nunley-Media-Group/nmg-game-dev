@@ -3,14 +3,14 @@
   "tools": [
     {
       "name": "finalize_asset",
-      "description": "Finalize an authored collection, or a batch of requests, through every step, exporting one animation FBX per rig clip and importing the clips as AnimSequences, then import it into Unreal. Pass exactly one of collection (with export_root) or requests, a list of finalize requests that run one at a time in order under one job lock; the top-level options fill in any key a request omits. fail_fast skips the rest of a batch after a failure, otherwise the rest still run. wait_for_lock waits for another finalize job to release the lock, for at most lock_wait_seconds, instead of failing with finalize.job_running. pie_mode wait (default) or refuse: an import waits up to pie_wait_seconds for Play In Editor to end, or fails with import_ue.editor_busy. Unreal import timeouts are retried with back-off (NMG_GAME_DEV_UE_RETRIES default 4, NMG_GAME_DEV_UE_RETRY_DELAY_S default 20). compatible_with lists <Category>/<Name> characters whose skeleton the clips may also play on. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150), and for a batch result.batch lists each collection's state with succeeded, failed, and skipped counts.",
+      "description": "Finalize an authored collection, or a batch of requests, through every step into the Godot project: exports .glb Desktop and Mobile variants under export_root (default <project>/game/assets), runs godot --headless --import once and probes each variant against its nmg-asset.json (import_godot), and imports one animation .glb per rig clip as a Godot animation library (import_anims). Failures carry a code and remediation, e.g. godot.not_found, import_godot.project_missing, import_godot.import_failed, import_godot.mismatch, import_godot.terrain_height_mismatch. Pass exactly one of collection or requests, a list of finalize requests that run one at a time in order under one job lock; the top-level options fill in any key a request omits. fail_fast skips the rest of a batch after a failure, otherwise the rest still run. wait_for_lock waits for another finalize job to release the lock, for at most lock_wait_seconds, instead of failing with finalize.job_running. compatible_with lists <Category>/<Name> characters whose Desktop skeleton must hold every bone the clips animate. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150), and for a batch result.batch lists each collection's state with succeeded, failed, and skipped counts.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"]},
-          "export_root": {"type": "string"},
+          "export_root": {"type": ["string", "null"], "description": "Directory the variants are written under, inside the Godot project. Defaults to <project>/game/assets."},
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
           "material_variants_path": {"type": ["string", "null"]},
@@ -19,13 +19,11 @@
           "requests": {
             "type": ["array", "null"],
             "items": {"type": "object"},
-            "description": "A batch: finalize request objects with the collection keys (collection, category, asset_class, export_root, blend, budgets_path, device, pie_mode, pie_wait_seconds, compatible_with, material_variants_path). Exclusive with collection."
+            "description": "A batch: finalize request objects with the collection keys (collection, category, asset_class, export_root, blend, budgets_path, device, compatible_with, material_variants_path). Exclusive with collection."
           },
           "fail_fast": {"type": "boolean", "default": false},
           "wait_for_lock": {"type": "boolean", "default": false},
           "lock_wait_seconds": {"type": ["number", "null"], "minimum": 0},
-          "pie_mode": {"type": "string", "enum": ["wait", "refuse"], "default": "wait"},
-          "pie_wait_seconds": {"type": "number", "minimum": 0, "default": 600},
           "compatible_with": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$"}, "default": []}
         },
         "required": []
@@ -33,15 +31,15 @@
     },
     {
       "name": "run_finalize_step",
-      "description": "Run one finalize step (validate, bake, variants, export, export_anims, reimport, import_ue, or import_anims) through the same implementation finalize_asset uses. Returns {job_id, status} at once, or the finished result within wait_seconds (0-150). wait_for_lock and lock_wait_seconds bound the wait for another job's lock, and the pie options behave as in finalize_asset: import_ue fails with import_ue.editor_busy when Play In Editor stays on. Unreal import timeouts are retried with back-off (NMG_GAME_DEV_UE_RETRIES default 4, NMG_GAME_DEV_UE_RETRY_DELAY_S default 20).",
+      "description": "Run one finalize step (validate, bake, variants, export, export_anims, reimport, import_godot, or import_anims) through the same implementation finalize_asset uses; the steps it depends on run first, from the cache when they are there. export_root defaults to <project>/game/assets. Returns {job_id, status} at once, or the finished result within wait_seconds (0-150). wait_for_lock and lock_wait_seconds bound the wait for another job's lock.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "step": {"type": "string", "enum": ["validate", "bake", "variants", "export", "export_anims", "reimport", "import_ue", "import_anims"]},
+          "step": {"type": "string", "enum": ["validate", "bake", "variants", "export", "export_anims", "reimport", "import_godot", "import_anims"]},
           "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
           "asset_class": {"type": "string", "enum": ["small_prop", "standard_prop", "hero_prop", "character", "environment_piece", "terrain"]},
-          "export_root": {"type": "string"},
+          "export_root": {"type": ["string", "null"], "description": "Directory the variants are written under, inside the Godot project. Defaults to <project>/game/assets."},
           "blend": {"type": ["string", "null"]},
           "budgets_path": {"type": ["string", "null"]},
           "material_variants_path": {"type": ["string", "null"]},
@@ -49,11 +47,9 @@
           "wait_seconds": {"type": "number", "minimum": 0, "maximum": 150, "default": 0},
           "wait_for_lock": {"type": "boolean", "default": false},
           "lock_wait_seconds": {"type": ["number", "null"], "minimum": 0},
-          "pie_mode": {"type": "string", "enum": ["wait", "refuse"], "default": "wait"},
-          "pie_wait_seconds": {"type": "number", "minimum": 0, "default": 600},
           "compatible_with": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$"}, "default": []}
         },
-        "required": ["step", "collection", "export_root"]
+        "required": ["step", "collection"]
       }
     },
     {
@@ -78,7 +74,7 @@
     },
     {
       "name": "import_audio",
-      "description": "Import a saved ElevenLabs sound effect or music file into Unreal as a SoundWave. Stores a 16-bit WAV under SourceArt/Audio/<SFX|Music>/ and imports /Game/Audio/<SFX|Music>/SW_<name>. Returns the result, or an error object.",
+      "description": "Import a saved ElevenLabs sound effect or music file into the Godot project. Stores a 16-bit WAV under SourceArt/Audio/<SFX|Music>/. A sound effect is copied to game/assets/Audio/<name>.wav and imported as an AudioStreamWAV; music is encoded with ffmpeg to game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis (looping when loop is true). The result names godot_asset and imported_to_godot; without Godot it reports imported_to_godot false with a warning. Returns the result, or an error object (e.g. audio.ffmpeg_not_found).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -103,12 +99,13 @@
     },
     {
       "name": "list_material_variants",
-      "description": "List the material variants Unreal holds for a finalized asset, for Desktop and Mobile. Returns rows of {name, material, desktop, mobile} sorted by material then name; an asset with none, or not in Content, returns []. A failure returns an error object.",
+      "description": "List a finalized asset's material variants for Desktop and Mobile from the files finalize wrote, without starting Godot. Reads <export_root>/<Category>/<Name>/nmg-variants.json (export_root defaults to <project>/game/assets) and returns rows of {name, material, desktop, mobile} sorted by material then name, where desktop and mobile are the res:// path of the variant's .tres material or null. An asset with no material variants returns []; a missing or invalid sidecar returns finalize.material_variants_failed.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
-          "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"}
+          "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "export_root": {"type": ["string", "null"]}
         },
         "required": ["category", "collection"]
       }

@@ -1,4 +1,4 @@
-"""Target expansion and the environment preflight (#6, FR1, FR2, AC9)."""
+"""Target expansion and the environment preflight (#6, FR1, FR2, AC9; #249 FR9)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,9 @@ from nmg_game_dev.ship.targets import REQUIRED_ENV, expand_target, preflight_env
 def test_groups_expand_in_design_order() -> None:
     assert expand_target("desktop") == ("macos", "windows")
     assert expand_target("mobile") == ("ios", "android")
-    assert expand_target("all") == ("macos", "windows", "ios", "android")
+    assert expand_target("all") == ("macos", "windows", "ios", "android", "web")
     assert expand_target("ios") == ("ios",)
+    assert expand_target("web") == ("web",)
 
 
 def test_unknown_target_is_a_ship_error() -> None:
@@ -37,7 +38,22 @@ def test_preflight_names_each_missing_variable_and_no_value() -> None:
 
 def test_preflight_passes_when_every_variable_is_set() -> None:
     env = {name: "placeholder" for names in REQUIRED_ENV.values() for name in names}
-    preflight_env(("macos", "ios", "android", "windows"), env)
+    preflight_env(("macos", "ios", "android", "windows", "web"), env)
+
+
+def test_windows_and_web_need_no_variables() -> None:
+    assert REQUIRED_ENV["windows"] == ()
+    assert REQUIRED_ENV["web"] == ()
+    preflight_env(("windows", "web"), {})
+    assert not any(
+        name.startswith("WINDOWS_BUILD_") for names in REQUIRED_ENV.values() for name in names
+    )
+
+
+def test_ios_needs_the_profile_and_the_team() -> None:
+    assert REQUIRED_ENV["ios"] == ("IOS_PROVISIONING_PROFILE", "IOS_TEAM_ID")
+    with pytest.raises(ShipError, match="IOS_TEAM_ID"):
+        preflight_env(("ios",), {"IOS_PROVISIONING_PROFILE": "Dogfood.mobileprovision"})
 
 
 def test_preflight_treats_an_empty_variable_as_missing() -> None:

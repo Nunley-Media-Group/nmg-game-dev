@@ -1,6 +1,7 @@
 # File: tests/bdd/features/design.feature
-# Generated from: specs/112-drive-asset-work-and-unreal-scaffolding-from-a-consumer-project-s-markdown-design-docs/requirements.md
-Feature: Markdown design docs drive finalization and Unreal scaffolding
+# Generated from: the #112 requirements (markdown design docs)
+# Updated for: the #249 requirements (AC7, design scaffolding writes Godot files)
+Feature: Markdown design docs drive finalization and Godot scaffolding
 
   @SCN001
   Scenario: Design docs parse into a sorted backlog
@@ -31,15 +32,16 @@ Feature: Markdown design docs drive finalization and Unreal scaffolding
     And the Crate entry's status is finalized
 
   @SCN005
-  Scenario: Regions, missions, and systems are scaffolded in Unreal
+  Scenario: Regions, missions, and systems are scaffolded as Godot files
     Given planned entries OldTown (region), FirstLight (mission in OldTown), and Stamina (system)
-    When design scaffold runs against the editor
-    Then it creates /Game/Levels/OldTown/L_OldTown, /Game/Missions/FirstLight/DA_FirstLight, and /Game/Systems/Stamina/BPC_Stamina
+    When design scaffold runs against the Godot project
+    Then it creates game/levels/OldTown/OldTown.tscn, game/missions/FirstLight.tres, and game/systems/Stamina/stamina.gd
     And the three entries are scaffolded
+    And a second scaffold leaves every file unchanged
 
   @SCN006
   Scenario: Existing scaffold targets are left alone
-    Given /Game/Levels/OldTown/L_OldTown already exists
+    Given game/levels/OldTown/OldTown.tscn already exists
     When design scaffold runs
     Then it prints unchanged for OldTown without modifying the level
     And the other entries still scaffold

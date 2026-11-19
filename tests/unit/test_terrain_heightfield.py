@@ -306,39 +306,58 @@ def test_reduce_layers_keeps_every_layer_when_the_limit_allows(hf: ModuleType) -
     assert reduced == [[0.5, 0.0], [0.5, 1.0]]
 
 
-def test_sample_points_on_a_five_by_five_grid_at_two_metres(hf: ModuleType) -> None:
-    n = 5
-    heights = [float(row * 10 + col) for row in range(n) for col in range(n)]
+def test_chunk_quads_divide_every_valid_size(hf: ModuleType) -> None:
+    assert hf.CHUNK_QUADS == 63
+    assert all((size - 1) % hf.CHUNK_QUADS == 0 for size in hf.VALID_SIZES)
 
-    points = hf.sample_points(heights, n, 2.0)
 
-    assert len(points) == len(hf.SAMPLE_POINT_NAMES) == 11
-    expected = [
-        [-4.0, 4.0, 0.0],  # nw (row 0, col 0)
-        [4.0, 4.0, 4.0],  # ne
-        [-4.0, -4.0, 40.0],  # sw
-        [4.0, -4.0, 44.0],  # se
-        [0.0, 4.0, 2.0],  # n
-        [0.0, -4.0, 42.0],  # s
-        [-4.0, 0.0, 20.0],  # w
-        [4.0, 0.0, 24.0],  # e
-        [0.0, 0.0, 22.0],  # center
-        [-4.0, 4.0, 0.0],  # min (the first vertex)
-        [4.0, -4.0, 44.0],  # max (the last vertex)
+def test_chunk_file_names_are_row_major(hf: ModuleType) -> None:
+    assert hf.chunk_file_names("Hills", 127) == [
+        "Hills_Chunk_0_0.glb",
+        "Hills_Chunk_0_1.glb",
+        "Hills_Chunk_1_0.glb",
+        "Hills_Chunk_1_1.glb",
     ]
-    assert points == expected
+    assert len(hf.chunk_file_names("Hills", 2017)) == 32 * 32
 
 
-def test_sample_points_span_the_desktop_grid_in_blender_space(hf: ModuleType) -> None:
-    n = 2017
-    heights = [0.0] * (n * n)
-    heights[5 * n + 7] = 9.0
+def test_chunk_file_names_reject_a_size_off_the_chunk_grid(hf: ModuleType) -> None:
+    with pytest.raises(ValueError, match="multiple of 63"):
+        hf.chunk_file_names("Hills", 100)
 
-    points = hf.sample_points(heights, n, 1.0)
 
-    assert points[hf.SAMPLE_POINT_NAMES.index("nw")] == [-1008.0, 1008.0, 0.0]
-    assert points[hf.SAMPLE_POINT_NAMES.index("se")] == [1008.0, -1008.0, 0.0]
-    assert points[hf.SAMPLE_POINT_NAMES.index("max")] == [-1001.0, 1003.0, 9.0]
+def test_splat_pixels_put_layer_i_in_channel_i(hf: ModuleType) -> None:
+    pixels = hf.splat_pixels([bytes([255, 0]), bytes([0, 200]), bytes([0, 55])])
+
+    assert pixels == bytes([255, 0, 0, 0, 0, 200, 55, 0])
+
+
+def test_splat_pixels_reject_more_than_four_layers(hf: ModuleType) -> None:
+    with pytest.raises(ValueError, match="at most 4"):
+        hf.splat_pixels([bytes([51])] * 5)
+
+
+def test_png_rgba8_round_trips(hf: ModuleType, tmp_path: Path) -> None:
+    rng = random.Random(6)
+    width, height = 5, 3
+    data = bytes(rng.randrange(256) for _ in range(width * height * 4))
+    path = tmp_path / "splat.png"
+
+    hf.write_png_rgba8(data, width, height, path)
+    image = hf.read_png_rgba8(path)
+
+    assert (image.width, image.height, image.bit_depth) == (width, height, 8)
+    assert image.samples == data
+    with pytest.raises(ValueError, match="grayscale"):
+        hf.read_png_gray(path)
+
+
+def test_rgba_reader_rejects_a_grayscale_png(hf: ModuleType, tmp_path: Path) -> None:
+    path = tmp_path / "gray.png"
+    hf.write_png_gray8(bytes(4), 2, 2, path)
+
+    with pytest.raises(ValueError, match="RGBA"):
+        hf.read_png_rgba8(path)
 
 
 def test_png_gray8_round_trips(hf: ModuleType, tmp_path: Path) -> None:

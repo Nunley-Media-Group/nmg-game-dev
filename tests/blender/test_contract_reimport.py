@@ -75,6 +75,18 @@ def test_ac3_deleted_texture_fails_naming_the_file(core: Any, exported: tuple[Pa
     assert "T_Crate_Body_BC.png" in missing[0]["message"]
 
 
+def test_ac3_missing_glb_raises_glb_missing(core: Any, exported: tuple[Path, Path]) -> None:
+    variant_root, pre_report = exported
+    (variant_root / "Desktop" / "Crate.glb").unlink()
+    report_data = json.loads(pre_report.read_text(encoding="utf-8"))
+    clear_scene()
+
+    with pytest.raises(core.ContractError) as raised:
+        core.reimport_check(variant_root / "Desktop", report_data)
+
+    assert raised.value.code == "reimport.glb_missing"
+
+
 def test_ac3_reimport_refuses_a_session_scene_with_meshes(
     core: Any, exported: tuple[Path, Path]
 ) -> None:
@@ -108,7 +120,7 @@ def rigged_exported(core: Any, enabled_addon: str, tmp_path: Path) -> tuple[Path
     return tmp_path / "Characters" / "Hero", report_file
 
 
-def test_scn005_reimport_imports_every_lod_file_and_passes(
+def test_scn005_reimport_imports_the_skinned_glb_and_passes(
     core: Any, rigged_exported: tuple[Path, Path]
 ) -> None:
     variant_root, pre_report = rigged_exported
@@ -117,7 +129,8 @@ def test_scn005_reimport_imports_every_lod_file_and_passes(
 
     assert report["kind"] == "reimport"
     assert report["passed"], report["findings"]
-    assert {"SM_Hero", "SM_Hero_LOD1", "SM_Hero_LOD2"} <= set(report["snapshot"])
+    assert {"SM_Hero", "Armature"} <= set(report["snapshot"])
+    assert not [name for name in report["snapshot"] if "_LOD" in name]
 
 
 def test_scn005_mesh_exported_without_its_skin_is_reported(
@@ -130,8 +143,12 @@ def test_scn005_mesh_exported_without_its_skin_is_reported(
     bpy.ops.object.select_all(action="DESELECT")
     root.select_set(True)
     bpy.context.view_layer.objects.active = root
-    bpy.ops.export_scene.fbx(
-        filepath=str(bare / "SM_Hero.fbx"), use_selection=True, object_types={"MESH"}
+    bpy.ops.export_scene.gltf(
+        filepath=str(bare / "Hero.glb"),
+        export_format="GLB",
+        use_selection=True,
+        export_skins=False,
+        export_animations=False,
     )
     for image in ("T_Hero_Body_BC", "T_Hero_Body_N", "T_Hero_Body_ORM"):
         shutil.copy(variant_root / "Desktop" / f"{image}.png", bare / f"{image}.png")

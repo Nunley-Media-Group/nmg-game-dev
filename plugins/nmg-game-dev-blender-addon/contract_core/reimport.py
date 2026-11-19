@@ -1,6 +1,6 @@
 """Re-import check: compare an exported variant with the report written before export.
 
-reimport_check imports the FBX into the calling process, so that process must be fresh (no
+reimport_check imports the variant's GLB into the calling process, so that process must be fresh (no
 meshes in the scene). Sessions call run_isolated, which spawns a fresh headless Blender with
 scripts/blender/contract_entry.py and reads back the report it writes.
 """
@@ -33,7 +33,7 @@ _VARIANTS = ("desktop", "mobile")
 def reimport_check(
     variant_dir: str | Path, pre_report: str | Path | Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Import SM_<Name>.fbx from variant_dir and compare it with pre_report. Fresh process only."""
+    """Import <Name>.glb from variant_dir and compare it with pre_report. Fresh process only."""
     folder = Path(variant_dir)
     variant = folder.name.lower()
     if variant not in _VARIANTS:
@@ -44,17 +44,17 @@ def reimport_check(
         )
     pre = _load_pre_report(pre_report)
     asset = pre["asset"]
-    fbx = folder / f"SM_{asset}.fbx"
-    if not fbx.is_file():
+    glb = folder / f"{asset}.glb"
+    if not glb.is_file():
         raise ContractError(
-            "reimport.fbx_missing",
-            f"{fbx} does not exist.",
+            "reimport.glb_missing",
+            f"{glb} does not exist.",
             "Export the variant before running the re-import check.",
         )
     if any(obj.type == "MESH" for obj in bpy.data.objects):
         raise ContractError(
             "reimport.session_not_fresh",
-            "The scene already holds meshes, so the imported FBX would mix with them.",
+            "The scene already holds meshes, so the imported GLB would mix with them.",
             "Run the check with run_isolated(), which spawns a fresh headless Blender process.",
         )
 
@@ -66,9 +66,8 @@ def reimport_check(
     rigged = _is_rigged(pre, asset)
     findings = _texture_findings(asset, folder, expected)
 
-    for path in _variant_fbx_files(folder, asset):
-        bpy.ops.import_scene.fbx(filepath=str(path))
-    actual_objects = list(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=str(glb), disable_bone_shape=True)
+    actual_objects = list(bpy.context.scene.objects)
     actual_meshes = {obj.name: obj for obj in actual_objects if obj.type == "MESH"}
     actual_snapshot = {
         obj.name: object_snapshot(
@@ -192,7 +191,7 @@ def _texture_findings(
             finding(
                 rule,
                 path.name,
-                f"{path.name} is missing from {folder}; the FBX needs it beside the file.",
+                f"{path.name} is missing from {folder}; the GLB needs it beside the file.",
             )
         )
     return findings
@@ -209,7 +208,7 @@ def _name_findings(
             finding(
                 "reimport.name_mismatch",
                 name,
-                f"The pre-export report lists mesh {name}, which the FBX does not contain.",
+                f"The pre-export report lists mesh {name}, which the GLB does not contain.",
             )
         )
     for name in sorted(set(actual_meshes) - set(expected_meshes)):
@@ -217,7 +216,7 @@ def _name_findings(
             finding(
                 "reimport.name_mismatch",
                 name,
-                f"The FBX contains mesh {name}, which the pre-export report does not list.",
+                f"The GLB contains mesh {name}, which the pre-export report does not list.",
             )
         )
     materials = sorted(
@@ -230,7 +229,7 @@ def _name_findings(
                 finding(
                     "reimport.name_mismatch",
                     name,
-                    f"Material {name} from the pre-export report is missing from the FBX.",
+                    f"Material {name} from the pre-export report is missing from the GLB.",
                 )
             )
     return findings
@@ -307,13 +306,6 @@ def _is_rigged(pre: Mapping[str, Any], asset: str) -> bool:
     """True when the pre-export report holds the armature SK_<Name> (a rigged character)."""
     entry = pre["snapshot"].get(f"SK_{asset}")
     return isinstance(entry, dict) and entry.get("type") == "ARMATURE"
-
-
-def _variant_fbx_files(folder: Path, asset: str) -> list[Path]:
-    """SM_<Name>.fbx, then each rigged LOD file that exists, in LOD order."""
-    files = [folder / f"SM_{asset}.fbx"]
-    files += [folder / f"SM_{asset}_LOD{level}.fbx" for level in (1, 2)]
-    return [path for path in files if path.is_file()]
 
 
 def _skin_findings(

@@ -1,8 +1,8 @@
 """Per-clip animation probe and export for the finalize ``export_anims`` step (#138).
 
 ``probe`` lists the clips held by ``SK_<Name>`` with a content hash for each, so the host can
-decide which clips miss its cache.  ``export_clips`` writes one armature-only FBX per requested
-clip, ``A_<Name>_<Clip>.fbx``, holding exactly that clip.  Both touch Blender data and run only
+decide which clips miss its cache.  ``export_clips`` writes one armature-only GLB per requested
+clip, ``A_<Name>_<Clip>.glb``, holding exactly that clip.  Both touch Blender data and run only
 inside the headless ``finalize_entry.py`` process.
 
 The clip set is the rig's provenance clips that resolve to actions, plus every action assigned to
@@ -21,23 +21,27 @@ from typing import Any, Final
 import bpy
 
 from ..variants_core.assets import ARMATURE_EXPORT_NAME, asset_armature, require_armature_name_free
-from ..variants_core.export import _RIG_FBX_OPTIONS
+from ..variants_core.export import RIG_GLB_OPTIONS
 
 PROVENANCE_KEY: Final = "nmg_animations"
 CLIP_NAME_PATTERN: Final = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 ANIMATIONS_DIR: Final = "Animations"
 
-# The rigged mesh export's armature and axis settings, so a clip rides the same skeleton as the
-# mesh.  Only the baking and the object types differ.  Imported, never copied, so they cannot drift.
+# The rigged mesh export's skeleton and axis settings, so a clip rides the same skeleton as the
+# mesh.  Only the animation settings differ: the armature's one assigned action, sampled on every
+# frame with every bone kept, and slid so its first key is at time 0: Godot keeps key times as
+# written, so its animation length times fps is then frame_end - frame_start.  Imported, never
+# copied, so they cannot drift.
 ANIM_EXPORT_OPTIONS: Final[dict[str, Any]] = {
-    **_RIG_FBX_OPTIONS,
-    "object_types": {"ARMATURE"},
-    "bake_anim": True,
-    "bake_anim_use_all_actions": False,
-    "bake_anim_use_nla_strips": False,
-    "bake_anim_use_all_bones": True,
-    "bake_anim_force_startend_keying": True,
-    "bake_anim_simplify_factor": 0.0,
+    **RIG_GLB_OPTIONS,
+    "export_animations": True,
+    "export_animation_mode": "ACTIVE_ACTIONS",
+    "export_force_sampling": True,
+    "export_frame_range": False,
+    "export_anim_slide_to_zero": True,
+    "export_optimize_animation_size": False,
+    "export_optimize_animation_keep_anim_armature": True,
+    "export_bake_animation": False,
 }
 
 
@@ -119,7 +123,7 @@ def clip_hash(
     action: bpy.types.Action,
     provenance: Mapping[str, Any] | None,
 ) -> str:
-    """Return the SHA-256 of everything a clip's exported FBX depends on.
+    """Return the SHA-256 of everything a clip's exported GLB depends on.
 
     The payload is the clip name, every F-curve through the action's slots (keyframe points,
     handles, interpolation, and modifiers), the rig's bones with parents and rest matrices, the
@@ -143,7 +147,7 @@ def export_clips(
     names: Sequence[str],
     out_dir: Path,
 ) -> list[dict[str, Any]]:
-    """Write ``A_<Name>_<Clip>.fbx`` for each named clip into ``out_dir`` and describe each one.
+    """Write ``A_<Name>_<Clip>.glb`` for each named clip into ``out_dir`` and describe each one.
 
     Each record is ``{name, file, frame_start, frame_end, frame_count, fps, source}``.  ``source``
     is the clip's recorded provenance source, or ``"authored"``.  An invalid name raises before
@@ -177,7 +181,7 @@ def export_clips(
     out_dir.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
     for name in names:
-        file_name = f"A_{collection_name}_{name}.fbx"
+        file_name = f"A_{collection_name}_{name}.glb"
         measured = _export_one(rig, actions[name], out_dir / file_name)
         entry = provenance.get(name)
         source = entry.get("source") if entry is not None else None
@@ -217,7 +221,7 @@ def _export_one(
             data.action_slot = slot
         scene.frame_start, scene.frame_end = frame_start, frame_end
         _select_only([rig])
-        bpy.ops.export_scene.fbx(filepath=str(path), **ANIM_EXPORT_OPTIONS)
+        bpy.ops.export_scene.gltf(filepath=str(path), **ANIM_EXPORT_OPTIONS)
     finally:
         scene.frame_start, scene.frame_end = saved_range
         data.action = saved_action

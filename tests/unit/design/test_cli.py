@@ -1,22 +1,21 @@
-"""Exit codes and printed lines of the design sync and scaffold commands (AC1-AC3, AC5, AC6).
+"""Exit codes and printed lines of the design sync and scaffold commands (#112, #249).
 
-Every test passes ``--project`` as ``tmp_path``, and scaffold tests pass a fake editor, so no test
-touches the real repo or a live Unreal editor.
+Every test passes ``--project`` as ``tmp_path``, so no test touches the real repo.
 """
 
 from __future__ import annotations
 
 import io
-import json
+import subprocess
+import sys
 from pathlib import Path
-from typing import Any
+
+import pytest
 
 from nmg_game_dev.design.__main__ import main
 from nmg_game_dev.design.paths import backlog_path
-from nmg_game_dev.pipeline.errors import PipelineError
 
-UNREACHABLE = "mcp.unreal.unreachable"
-REGION_PATH = "/Game/Levels/OldTown/L_OldTown"
+REGION_FILE = "game/levels/OldTown/OldTown.tscn"
 
 REGION = """\
 ---
@@ -35,28 +34,9 @@ category: Props
 """
 
 
-class FakeEditor:
-    """Stands in for the Unreal MCP client: answers every call with one fixed ``NMG_RESULT``."""
-
-    def __init__(
-        self,
-        result: dict[str, Any] | None = None,
-        raises: PipelineError | None = None,
-    ) -> None:
-        self.calls = 0
-        self._result = result or {"ok": True, "created": True, "path": REGION_PATH, "error": None}
-        self._raises = raises
-
-    def execute_python_code(self, code: str, *, timeout: float | None = None) -> str:
-        self.calls += 1
-        if self._raises is not None:
-            raise self._raises
-        return f"NMG_RESULT {json.dumps(self._result)}\n"
-
-
-def _cli(argv: list[str], editor: FakeEditor | None = None) -> tuple[int, str, str]:
+def _cli(argv: list[str]) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
-    code = main(argv, client=editor, stdout=out, stderr=err)
+    code = main(argv, stdout=out, stderr=err)
     return code, out.getvalue(), err.getvalue()
 
 
@@ -113,55 +93,75 @@ def test_sync_without_a_design_directory_exits_1_with_dir_missing(tmp_path: Path
     assert not backlog_path(tmp_path).exists()
 
 
+def _godot_project(root: Path) -> None:
+    (root / "game").mkdir(parents=True, exist_ok=True)
+    (root / "game" / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+
 def test_scaffold_exits_0_when_every_item_scaffolds(tmp_path: Path) -> None:
     _write(tmp_path, "regions/old-town.md", REGION)
     _sync(tmp_path)
-    editor = FakeEditor()
+    _godot_project(tmp_path)
 
-    code, out, err = _cli(["scaffold", "--project", str(tmp_path)], editor)
+    code, out, err = _cli(["scaffold", "--project", str(tmp_path)])
 
     assert code == 0
-    assert out == f"created region OldTown: {REGION_PATH}\n"
+    assert out == f"created region OldTown: {REGION_FILE}\n"
     assert err == ""
-    assert editor.calls == 1
+    assert (tmp_path / REGION_FILE).is_file()
 
 
 def test_scaffold_exits_1_when_an_item_fails(tmp_path: Path) -> None:
     _write(tmp_path, "regions/old-town.md", REGION)
     _sync(tmp_path)
-    failed = {"ok": False, "created": False, "path": REGION_PATH, "error": "RuntimeError: boom"}
+    _godot_project(tmp_path)
+    (tmp_path / "game" / "levels").write_text("not a folder", encoding="utf-8")
 
-    code, out, _err = _cli(["scaffold", "--project", str(tmp_path)], FakeEditor(result=failed))
+    code, out, _err = _cli(["scaffold", "--project", str(tmp_path)])
 
     assert code == 1
-    assert out == "error design.scaffold_failed OldTown: RuntimeError: boom\n"
+    assert out.startswith(f"error design.scaffold_failed OldTown: {REGION_FILE}: ")
 
 
-def test_scaffold_exits_2_when_the_editor_is_unreachable(tmp_path: Path) -> None:
+def test_scaffold_exits_1_when_the_godot_project_is_missing(tmp_path: Path) -> None:
     _write(tmp_path, "regions/old-town.md", REGION)
     _sync(tmp_path)
-    unreachable = PipelineError(
-        UNREACHABLE,
-        "Unreal MCP is unreachable at http://127.0.0.1:55557/mcp",
-        "Start the Unreal editor, then rerun scaffold",
-        "unreal_mcp",
-    )
 
-    code, out, err = _cli(["scaffold", "--project", str(tmp_path)], FakeEditor(raises=unreachable))
+    code, out, err = _cli(["scaffold", "--project", str(tmp_path)])
 
-    assert code == 2
+    assert code == 1
     assert out == ""
-    assert "ERROR [mcp.unreal.unreachable] Unreal MCP is unreachable" in err
-    assert "Remediation: Start the Unreal editor, then rerun scaffold" in err
+    assert "ERROR [design.godot_project_missing] " in err
+    assert "Remediation: Run /onboard-consumer" in err
+    assert not (tmp_path / "game").exists()
 
 
 def test_scaffold_exits_1_with_a_message_when_the_backlog_is_missing(tmp_path: Path) -> None:
     _write(tmp_path, "regions/old-town.md", REGION)
-    editor = FakeEditor()
+    _godot_project(tmp_path)
 
-    code, _out, err = _cli(["scaffold", "--project", str(tmp_path)], editor)
+    code, _out, err = _cli(["scaffold", "--project", str(tmp_path)])
 
     assert code == 1
     assert "does not exist" in err
     assert "python -m nmg_game_dev.design sync" in err
-    assert editor.calls == 0
+    assert sorted(p.name for p in (tmp_path / "game").iterdir()) == ["project.godot"]
+
+
+def test_scaffold_has_no_url_option(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as caught:
+        _cli(["scaffold", "--project", str(tmp_path), "--url", "http://127.0.0.1:1/mcp"])
+    assert caught.value.code == 2
+
+
+def test_the_module_runs_as_a_script(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "nmg_game_dev.design", "scaffold", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0
+    assert "--project" in result.stdout
+    assert "--url" not in result.stdout

@@ -12,7 +12,9 @@ _OP_NAME = "nmggamedev.optimize_mobile"
 class NMGGAMEDEV_OT_optimize_mobile(bpy.types.Operator):
     bl_idname = "nmggamedev.optimize_mobile"
     bl_label = "Optimize for Mobile variant"
-    bl_description = "Rebuild <Name>_Mobile: decimate to budget with LOD1 and LOD2"
+    bl_description = (
+        "Rebuild <Name>_Mobile: copy the Desktop asset and decimate it to the Mobile budget"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     collection_name: bpy.props.StringProperty(  # type: ignore[valid-type]
@@ -45,6 +47,6 @@ class NMGGAMEDEV_OT_optimize_mobile(bpy.types.Operator):
         store_last_result(context, result)
         log_operator_result(
             _OP_NAME,
-            f"LOD0 {result['tris']} triangles, {result['lod_levels']} LOD level(s)",
+            f"Mobile {result['tris']} triangles",
         )
         return {"FINISHED"}
