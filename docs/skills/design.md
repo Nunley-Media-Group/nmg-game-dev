@@ -70,7 +70,7 @@ error <code> <source>: <field> — <message>
 
 | Type | File | Contents |
 |------|------|----------|
-| `region` | `game/levels/<Name>/<Name>.tscn` | `Marker3D` `PlayerSpawn`, `DirectionalLight3D`, `WorldEnvironment`, and a 200 m ground plane, or an instance of the finalized terrain scene the region's `terrain` names |
+| `region` | `game/levels/<Name>/<Name>.tscn` | `Marker3D` `PlayerSpawn`, `DirectionalLight3D`, `WorldEnvironment`, and a 200 m ground plane, or an `NmgVariantScene` that loads the platform's variant of the finalized terrain scene the region's `terrain` names |
 | `mission` | `game/missions/<Name>.tres` | An `NmgMissionDefinition` resource with `mission_name`, `act`, `region`, `depends_on`, and `design_doc_path` |
 | `system` | `game/systems/<Name>/<snake_name>.gd` | A component script, `class_name <Name>Component` / `extends Node` |
 

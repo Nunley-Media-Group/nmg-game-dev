@@ -573,8 +573,9 @@ class FinalizeGodot(FakeGodotRunner):
       export matches.  ``mesh_edits`` maps a variant (``Desktop``/``Mobile``) to a function that
       changes the echoed meshes, to script a mismatch.
     - ``probe_anims.gd`` measures each requested clip as ``frame_count`` 9 (frames 1 to 10 at 30
-      fps) or ``frame_counts[name]``, animating ``clip_bones`` (default ``["root"]``), and absent
-      when listed in ``missing_clips``.  A skeleton scene is found when its file exists, with
+      fps, slid to start at time 0, so ``frame_end - frame_start``) or ``frame_counts[name]``,
+      animating ``clip_bones`` (default ``["root"]``), and absent when listed in
+      ``missing_clips``.  A skeleton scene is found when its file exists, with
       ``skeleton_bones[<res path>]`` (default ``["root"]``) as its bones.
     - ``probe_terrain.gd`` lists one ``Mesh`` node per chunk, and for a scene reports the chunk
       instances and the ``map_data`` range it reads back from the written ``.tscn``; the mesh range

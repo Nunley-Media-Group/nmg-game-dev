@@ -273,7 +273,9 @@
           "src/nmg_game_dev/ship/**",
           "scripts/sign-macos.sh",
           "scripts/notarize-macos.sh",
-          "scripts/ship-smoke.sh"
+          "scripts/ship-smoke.sh",
+          "src/nmg_game_dev/godot/presets.py",
+          "tests/godot/**"
         ]
       },
       "config": {

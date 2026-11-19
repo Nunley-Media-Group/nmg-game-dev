@@ -18,6 +18,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - The `addons/nmg_game_dev` Godot runtime add-on (`NmgAssets.resolve_variant_path`, `NmgMissionDefinition`, the terrain splat shader) with a headless test runner, and the `gate-godot-headless` validation. (#249)
 - `/convert-to-godot` (`python -m nmg_game_dev.convert`) re-finalizes every asset from its Blender source, imports audio, re-scaffolds the design backlog, replaces the Unreal hooks, writes `godot-conversion-report.md`, resumes after a partial failure, and deletes the Unreal project only after every item converts. (#249)
+- `NmgVariantScene` in the add-on loads a split asset's Desktop or Mobile scene at run time; `/design` uses it for a region's terrain, so mobile and web builds keep their terrain. `/convert-to-godot` takes `--models-dir`, and every headless Godot run is bounded by `NMG_GODOT_TIMEOUT_S` (default 900 s) so a stalled Godot fails with a remediation instead of hanging. (#249)
 
 ### Removed
 

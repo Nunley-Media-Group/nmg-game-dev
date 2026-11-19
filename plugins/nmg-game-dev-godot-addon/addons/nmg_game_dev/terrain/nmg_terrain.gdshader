@@ -1,10 +1,11 @@
 // Four-layer splat shader for finalized terrain (nmg-game-dev).
 //
-// splat is the RGBA weightmap T_<Name>_Splat.png: layer i is weighted by channel i. Each layer has
+// splat is the RGBA weightmap T_<Name>_Splat.png: layer i is weighted by channel i. The weights
+// are linear data, so splat is not declared source_color (that would sRGB-decode them). Each layer has
 // base color (BC), normal (N), and occlusion-roughness-metallic (ORM) textures, tiled by uv_scale.
 shader_type spatial;
 
-uniform sampler2D splat : source_color, filter_linear, repeat_disable;
+uniform sampler2D splat : filter_linear, repeat_disable;
 
 uniform sampler2D layer0_bc : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D layer0_n : hint_normal, filter_linear_mipmap, repeat_enable;

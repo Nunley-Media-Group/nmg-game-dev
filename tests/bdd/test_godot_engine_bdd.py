@@ -18,7 +18,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from pytest_bdd import given, parsers, scenario, then, when
@@ -43,7 +43,7 @@ from tests.finalize_fakes import (
     TerrainStepRunner,
     asset_meshes,
 )
-from tests.godot_fakes import FakeGodotRunner
+from tests.godot_fakes import FakeGodotRunner, forbid_godot
 from tests.onboard_fakes import snapshot
 from tests.ship_fakes import APP, ShipSandbox, make_sandbox, write_mobile_report
 from tests.unit.audio.conftest import FakeFfmpeg, audio_probe, fake_godot
@@ -58,7 +58,6 @@ BLENDER_STEPS = list(STEP_ORDER[:6])
 RUN = {"name": "Run", "hash": "hash-run"}
 IDLE = {"name": "Idle", "hash": "hash-idle"}
 WALK = {"name": "Walk", "hash": "hash-walk"}
-CRATE_RES = "res://assets/Props/Crate/Crate.glb"
 # The repository guard (T015). Its module name spells the retired engine, which this file may not,
 # so it is found by pattern.
 engine_guard = importlib.import_module(
@@ -332,9 +331,21 @@ def _import_matches(state: dict[str, Any]) -> None:
     "the steps ran in the order validate, bake, variants, export, export_anims, reimport, import_godot, import_anims"
 )
 def _step_order(state: dict[str, Any]) -> None:
-    assert [step.step for step in state["result"].steps] == list(STEP_ORDER)
-    # The Blender steps, then import_godot: one headless import and one probe per variant.
-    assert state["events"] == [*BLENDER_STEPS, "import", "probe_asset.gd", "probe_asset.gd"]
+    # The literal order AC1 names, not STEP_ORDER itself, so reordering the pipeline fails here.
+    order = [
+        "validate",
+        "bake",
+        "variants",
+        "export",
+        "export_anims",
+        "reimport",
+        "import_godot",
+        "import_anims",
+    ]
+    assert [step.step for step in state["result"].steps] == order
+    # As observed by the step runner and the Godot fake: the six Blender steps, then
+    # import_godot's one headless import and one probe per variant.
+    assert state["events"] == [*order[:6], "import", "probe_asset.gd", "probe_asset.gd"]
 
 
 # --- SCN002 --------------------------------------------------------------------------------------
@@ -607,14 +618,14 @@ def _finalized_with_variants(state: dict[str, Any]) -> None:
 
 
 @when("list_material_variants runs")
-def _list_variants(state: dict[str, Any]) -> None:
-    godot = FakeGodotRunner()
-    state["godot"] = godot
+def _list_variants(state: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    # Any attempt to resolve or start Godot (or any process) fails the scenario.
+    forbid_godot(monkeypatch)
+    state["no_process_guard"] = True
     state["rows"] = list_material_variants(
         category="Props",
         collection="Crate",
         export_root=str(state["tmp"] / "game" / "assets"),
-        godot=godot,
     )
 
 
@@ -634,7 +645,10 @@ def _variant_rows(state: dict[str, Any]) -> None:
 
 @then("no Godot process was started")
 def _no_godot(state: dict[str, Any]) -> None:
-    assert state["godot"].calls == []
+    # The When step ran with resolve_godot, SubprocessGodotRunner.run, subprocess.run, and
+    # subprocess.Popen all raising, so reaching here with rows means none of them was called.
+    assert state["no_process_guard"] is True
+    assert isinstance(state["rows"], list) and state["rows"]
 
 
 # --- SCN007 --------------------------------------------------------------------------------------
@@ -725,57 +739,68 @@ def _second_scaffold(state: dict[str, Any]) -> None:
 
 @given("the nmg_game_dev add-on")
 def _the_addon(state: dict[str, Any]) -> None:
-    for rel in ("nmg_assets.gd", "tests/run_tests.gd", "tests/test_nmg_assets.gd"):
+    for rel in (
+        "nmg_assets.gd",
+        "tests/run_tests.gd",
+        "tests/nmg_log_capture.gd",
+        "tests/test_nmg_assets.gd",
+    ):
         assert (ADDON / rel).is_file(), rel
-    state["assets_gd"] = (ADDON / "nmg_assets.gd").read_text(encoding="utf-8")
-    state["tests_gd"] = (ADDON / "tests" / "test_nmg_assets.gd").read_text(encoding="utf-8")
-    state["runner_gd"] = (ADDON / "tests" / "run_tests.gd").read_text(encoding="utf-8")
 
 
 @when(
     'the add-on\'s headless test runner resolves "res://assets/Props/Crate/Crate.glb" for desktop, for mobile, and a malformed path'
 )
 def _addon_runner(state: dict[str, Any]) -> None:
-    passing = state["tmp"] / "gate-pass"
-    failing = state["tmp"] / "gate-fail"
-    state["gate_pass"] = _run_gate(_gate_env(passing))
-    state["gate_fail"] = _run_gate({**_gate_env(failing), "FAKE_GODOT_MODE": "tests_fail"})
-    state["gate_logs"] = [passing / "godot.jsonl", failing / "godot.jsonl"]
+    runs = {
+        "pass": {},
+        "fail": {"FAKE_GODOT_MODE": "tests_fail"},
+        "missing_routing": {"FAKE_GODOT_MODE": "tests_missing_routing"},
+        "script_error": {"FAKE_GODOT_MODE": "tests_script_error"},
+    }
+    state["gate"] = {}
+    for label, extra in runs.items():
+        root = state["tmp"] / f"gate-{label}"
+        state["gate"][label] = (_run_gate({**_gate_env(root), **extra}), root / "godot.jsonl")
+
+
+# The add-on tests the gate requires a PASS line for: Desktop routing, Mobile routing, and a
+# malformed path returned unchanged with exactly one NmgAssets warning (captured by the runner's
+# logger, nmg_log_capture.gd). The GDScript itself runs under real Godot in gate-godot-headless.
+_ROUTING_TESTS: Final = (
+    "test_nmg_assets.gd::test_desktop_variant",
+    "test_nmg_assets.gd::test_mobile_variant",
+    "test_nmg_assets.gd::test_malformed_path_is_unchanged_with_a_warning",
+)
 
 
 @then("it returns the Desktop path, the Mobile path, and the unchanged path with a warning")
 def _addon_routes(state: dict[str, Any]) -> None:
-    tests_gd: str = state["tests_gd"]
-    assert f'const CRATE: String = "{CRATE_RES}"' in tests_gd
-    assert (
-        'check_eq(_resolve(CRATE, false), "res://assets/Props/Crate/Desktop/Crate.glb", "desktop")'
-        in tests_gd
-    )
-    assert (
-        'check_eq(_resolve(CRATE, true), "res://assets/Props/Crate/Mobile/Crate.glb", "mobile")'
-        in tests_gd
-    )
-    # Malformed shapes come back unchanged: a bare file, a stem that is not the folder.
-    assert 'check_eq(_resolve("Crate.glb", false), "Crate.glb", "bare file")' in tests_gd
-    assert "func test_stem_not_matching_folder_is_unchanged() -> void:" in tests_gd
-    assert re.search(r"push_warning\(\"NmgAssets: .*unchanged", state["assets_gd"])
+    passing, log = state["gate"]["pass"]
+    assert passing.returncode == 0, passing.stderr
+    for test in _ROUTING_TESTS:
+        assert f"PASS {test}" in passing.stdout.splitlines()
+    # Without the malformed-path-with-warning test passing, the gate fails and names it.
+    missing, _log = state["gate"]["missing_routing"]
+    assert missing.returncode == 5
+    assert f"no PASS line for {_ROUTING_TESTS[2]}" in missing.stderr
     # The gate ran the add-on's runner through Godot headless, after the import.
-    calls = [json.loads(line) for line in state["gate_logs"][0].read_text("utf-8").splitlines()]
+    calls = [json.loads(line) for line in log.read_text("utf-8").splitlines()]
     commands = [call["argv"][call["argv"].index("--path") + 2 :] for call in calls]
+    assert commands[0] == ["--import"]
     assert commands[1] == ["-s", "res://addons/nmg_game_dev/tests/run_tests.gd"]
     assert calls[1]["argv"][:3] == ["--headless", "--audio-driver", "Dummy"]
 
 
 @then('it prints "N passed, M failed" and exits non-zero on any failure')
 def _addon_summary(state: dict[str, Any]) -> None:
-    runner_gd: str = state["runner_gd"]
-    assert 'print("%d passed, %d failed" % [passed, failed])' in runner_gd
-    assert "quit(1 if failed > 0 or passed == 0 else 0)" in runner_gd
-    passing, failing = state["gate_pass"], state["gate_fail"]
-    assert passing.returncode == 0, passing.stderr
-    assert "gate-godot-headless: import, add-on tests, and probe passed" in passing.stdout
-    assert failing.returncode == 5
-    assert "add-on tests failed" in failing.stderr
+    passing, _log = state["gate"]["pass"]
+    assert f"{len(_ROUTING_TESTS)} passed, 0 failed" in passing.stdout.splitlines()
+    assert "gate-godot-headless: import, add-on tests, and probes passed" in passing.stdout
+    for label in ("fail", "script_error"):
+        failing, _log = state["gate"][label]
+        assert failing.returncode == 5, label
+        assert "add-on tests failed" in failing.stderr
 
 
 # --- SCN009 --------------------------------------------------------------------------------------

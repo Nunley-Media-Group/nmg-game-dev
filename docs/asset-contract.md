@@ -120,7 +120,10 @@ out of scope.
   `albedo_texture` is the variant base colour, whose `normal_texture` and ORM channels use the main
   set, and whose `albedo_color` is the `Tint` value (white by default). A parameter-only variant has
   no texture, so its material uses the main base colour. `nmg-variants.json` records each variant's
-  `material_resource`.
+  `material_resource`. Both variant folders are checked before any `.tres` is written, so a broken
+  Mobile export leaves the Desktop materials as they were. A `.tres` an earlier finalize wrote for a
+  variant that is no longer declared is removed; the folder's `.nmg-material-variants.json` lists
+  what finalize wrote, so a material you made by hand in the folder is never removed.
 - **Validation.** `validate` fails with a `material_variant.*` finding before anything is baked
   or exported: `material_variant.name` (not PascalCase letters and digits, or `<Part>_<Variant>`
   names another part), `material_variant.duplicate`, `material_variant.material_missing` (not a
@@ -394,7 +397,9 @@ Each variant folder `<Category>/<Name>/<Variant>/`, where `<Variant>` is `Deskto
   LODs on import (`meshes/generate_lods`).
 - `T_<Name>_Splat.png`: an 8-bit RGBA weightmap. Layer *i* of the variant is channel *i*, the weights
   are normalized per vertex, and the channels sum to exactly 255 at every pixel. A terrain with more
-  than 4 layers fails with `variants.terrain_layers_unsupported`.
+  than 4 layers fails the `export` step with `export.terrain_layers_unsupported` before anything is
+  written (the terrain exporter raises `variants.terrain_layers_unsupported`, and the step reports
+  it under its own `export.` prefix like every finalize step error).
 - `T_<Name>_<L>_BC.png`, `T_<Name>_<L>_N.png`, and `T_<Name>_<L>_ORM.png`: each layer's tiling texture
   set, at the variant's texture maximum (2048 px Desktop, 1024 px Mobile).
 - `T_<Name>_Height.png`: the heightmap as a 16-bit grayscale PNG at the variant's size, kept for the

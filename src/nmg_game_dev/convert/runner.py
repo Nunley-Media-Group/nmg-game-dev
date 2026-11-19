@@ -2,11 +2,13 @@
 
 ``run_convert`` composes the other stages through injected collaborators:
 
-1. **Guards, before any write.** ``convert.not_unreal`` when the root has no ``*.uproject``. When
-   no state file exists, ``convert.dirty_worktree`` when ``git status --porcelain`` prints anything
-   (or fails). A state file means the run is a resume.
+1. **Guards, before any write.** When no state file exists, ``convert.not_unreal`` when the root
+   has no ``*.uproject`` and ``convert.dirty_worktree`` when ``git status --porcelain`` prints
+   anything (or fails). A state file means the run is a resume, which skips both: a resume after a
+   deletion that stopped part way has already lost its ``.uproject``.
 2. **Preflight:** ``godot.not_found`` and ``finalize.blender_not_found``.
-3. **Dry run:** print ``PLAN convert <item>`` and ``PLAN delete <path>`` lines and return without
+3. **Dry run:** print ``PLAN convert <item>`` (or ``PLAN fail <item> [<code>]`` for an item
+   discovery already knows will fail) and ``PLAN delete <path>`` lines and return without
    writing.
 4. **Onboard**, then each item not already done: re-finalize each asset from its Blender source
    into ``game/assets``, import each WAV, and re-scaffold the scaffolded backlog entries. A failure
@@ -14,10 +16,12 @@
    state file is written after each item succeeds.
 5. **Hooks and settings:** remove every SessionStart hook whose command contains
    ``start-unreal-mcp.sh`` (dropping emptied groups) and every ``env`` key starting with ``UE_``
-   from ``.claude/settings.json``.
-6. **Report:** write ``godot-conversion-report.md``.
-7. **Deletions, only with zero failures:** ``git rm -r -q --ignore-unmatch -- <deletions>``, then
-   remove any untracked remainder of those paths and the state file.
+   from ``.claude/settings.json`` and ``.claude/settings.local.json``. A file that is not valid
+   JSON is a ``convert.settings_invalid`` failure, recorded like any item.
+6. **Deletions, only with zero failures:** ``git rm -r -q --ignore-unmatch -- <deletions>``, then
+   remove any untracked remainder of those paths and the state file. A failure is recorded as
+   ``deletions`` and the state file stays, so a rerun resumes and finishes them.
+7. **Report:** write ``godot-conversion-report.md`` with the final outcome, deletions included.
 """
 
 from __future__ import annotations
@@ -48,6 +52,7 @@ from nmg_game_dev.pipeline.errors import PipelineError
 UNREAL_HOOK: Final = "start-unreal-mcp.sh"
 UNREAL_ENV_PREFIX: Final = "UE_"
 SETTINGS_REL: Final = Path(".claude") / "settings.json"
+SETTINGS_FILES: Final = (SETTINGS_REL, Path(".claude") / "settings.local.json")
 EXPORT_ROOT: Final = Path("game") / "assets"
 ITEM_FAILED: Final = "convert.item_failed"
 
@@ -109,11 +114,12 @@ class ConvertResult:
 # --- Default collaborators (imported lazily so this module loads without them) -------------------
 
 
-def default_onboard(root: Path) -> object:
+def default_onboard(root: Path, models_dir: Path | None = None) -> object:
+    """Onboard ``root``; ``models_dir`` is ``--models-dir`` (else ``TEXTURE_GEN_MODELS_DIR``)."""
     from nmg_game_dev.onboard.paths import framework_root
     from nmg_game_dev.onboard.runner import run_onboard
 
-    return run_onboard(root, framework=framework_root(os.environ))
+    return run_onboard(root, framework=framework_root(os.environ), models_dir=models_dir)
 
 
 def default_finalize(item: AssetItem, export_root: Path) -> object:
@@ -133,12 +139,17 @@ def default_finalize(item: AssetItem, export_root: Path) -> object:
 
 
 def default_import_wav(root: Path, item: AudioItem) -> object:
-    from nmg_game_dev.audio.godot_import import import_ogg, import_wav
+    """Import ``item``, or re-check the import an interrupted earlier run already installed."""
+    from nmg_game_dev.audio.godot_import import import_ogg, import_wav, installed_result
     from nmg_game_dev.godot.binary import resolve_godot
     from nmg_game_dev.godot.runner import SubprocessGodotRunner
 
     runner = SubprocessGodotRunner(resolve_godot())
-    if item.kind == "Music":
+    kind = "music" if item.kind == "Music" else "sfx"
+    installed = installed_result(root, kind, item.name, item.loop, runner)
+    if installed is not None:
+        return installed
+    if kind == "music":
         return import_ogg(root, item.wav, item.name, item.loop, runner)
     return import_wav(root, item.wav, item.name, item.loop, runner)
 
@@ -170,6 +181,8 @@ def default_preflight() -> object:
 
 
 def _guard(root: Path, git: Runner, resume: bool) -> None:
+    if resume:
+        return
     if not any(path.is_file() for path in root.glob("*.uproject")):
         raise convert_error(
             "convert.not_unreal",
@@ -177,8 +190,6 @@ def _guard(root: Path, git: Runner, resume: bool) -> None:
             "Run /convert-to-godot from the root of the Unreal consumer project (the folder "
             "holding its .uproject), or pass --project.",
         )
-    if resume:
-        return
     status = git(["git", "-C", str(root), "status", "--porcelain"], None)
     if status.returncode != 0:
         raise convert_error(
@@ -275,10 +286,21 @@ def _convert_item(root: Path, item: Item, finalize: Finalize, import_wav: Import
 
 
 def replace_settings(path: Path) -> bool:
-    """Drop the Unreal SessionStart hooks and ``UE_*`` env keys; return whether the file changed."""
+    """Drop the Unreal SessionStart hooks and ``UE_*`` env keys; return whether the file changed.
+
+    Raises ``convert.settings_invalid`` when the file cannot be read or is not valid JSON.
+    """
     if not path.is_file():
         return False
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise convert_error(
+            "convert.settings_invalid",
+            f"{path} cannot be read as JSON: {error}",
+            f"Fix the JSON in {path.name} (or restore it from git), then rerun /convert-to-godot "
+            "to remove its Unreal hooks and UE_* env keys.",
+        ) from error
     if not isinstance(data, dict):
         return False
     changed = False
@@ -367,7 +389,11 @@ def run_convert(
 
     if dry_run:
         for item in pending:
-            print(f"PLAN convert {item.key}", file=stream)
+            problem = item.problem if isinstance(item, AssetItem) else None
+            if problem is not None:
+                print(f"PLAN fail {item.key} [{problem.code}]: {problem.message}", file=stream)
+            else:
+                print(f"PLAN convert {item.key}", file=stream)
         for path in plan.deletions:
             print(f"PLAN delete {path}", file=stream)
         return result
@@ -395,39 +421,37 @@ def run_convert(
         if scaffolds:
             _run_scaffolds(root, scaffolds, scaffold, state, result, stream)
 
-    if replace_settings(root / SETTINGS_REL):
-        print(
-            f"updated {SETTINGS_REL.as_posix()}: removed the Unreal hooks and UE_* env", file=stream
-        )
+    for rel in SETTINGS_FILES:
+        try:
+            changed = replace_settings(root / rel)
+        except PipelineError as error:
+            _record(result, _failure(f"settings:{rel.as_posix()}", error), stream)
+            continue
+        if changed:
+            print(f"updated {rel.as_posix()}: removed the Unreal hooks and UE_* env", file=stream)
 
-    deleted = not result.failures
-    result.report = write_report(
-        root,
-        render_report(
-            result.converted, result.failures, plan.manual_port, plan.deletions, deleted=deleted
-        ),
-    )
-    if deleted:
+    deletion_error: str | None = None
+    if not result.failures:
         try:
             _delete(root, plan.deletions, git)
         except (PipelineError, OSError) as error:
             failure = _failure("deletions", error)
-            result.failures.append(failure)
-            write_report(
-                root,
-                render_report(
-                    result.converted,
-                    result.failures,
-                    plan.manual_port,
-                    plan.deletions,
-                    deleted=False,
-                    deletion_error=failure.message,
-                ),
-            )
-            print(f"failed deletions [{failure.code}]: {failure.message}", file=stream)
-            return result
-        result.deleted = True
-        for path in plan.deletions:
-            print(f"deleted {path}", file=stream)
+            deletion_error = failure.message
+            _record(result, failure, stream)
+        else:
+            result.deleted = True
+            for path in plan.deletions:
+                print(f"deleted {path}", file=stream)
+    result.report = write_report(
+        root,
+        render_report(
+            result.converted,
+            result.failures,
+            plan.manual_port,
+            plan.deletions,
+            deleted=result.deleted,
+            deletion_error=deletion_error,
+        ),
+    )
     print(f"report {result.report.name}", file=stream)
     return result

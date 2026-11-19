@@ -359,11 +359,18 @@ def test_a_region_instances_its_finalized_terrain_scene(tmp_path: Path) -> None:
     assert _texts(report) == [f"created region OldTown: {REGION_FILE}"], "terrain is not scaffolded"
     text = (root / REGION_FILE).read_text(encoding="utf-8")
     _assert_well_formed_scene(text)
+    # The region names the terrain variant-free and loads it through NmgVariantScene, so the
+    # Mobile/Web presets (which drop every Desktop/ folder) never leave a dangling reference.
     assert (
-        '[ext_resource type="PackedScene" path="res://assets/Terrain/Hills/Desktop/Hills.tscn" '
+        '[ext_resource type="Script" path="res://addons/nmg_game_dev/nmg_variant_scene.gd" '
         'id="1_terrain"]'
     ) in text
-    assert '[node name="Hills" parent="." instance=ExtResource("1_terrain")]' in text
+    assert (
+        '[node name="Hills" type="Node3D" parent="."]\n'
+        'script = ExtResource("1_terrain")\n'
+        'scene_path = "res://assets/Terrain/Hills/Hills.tscn"'
+    ) in text
+    assert "/Desktop/" not in text and "/Mobile/" not in text
     assert "PlaneMesh" not in text
     assert "StaticBody3D" not in text
     assert {"PlayerSpawn", "DirectionalLight3D", "WorldEnvironment"} <= set(_nodes(text))
@@ -478,3 +485,29 @@ def test_missing_backlog_raises_before_anything_is_written(tmp_path: Path) -> No
         _run(tmp_path)
 
     assert not (tmp_path / "game").exists()
+
+
+@pytest.mark.parametrize("bad", ["../../../escaped", "lower", "Old Town", "Old/Town", "OldTown\n"])
+def test_an_asset_name_that_is_not_pascal_case_fails_that_entry_and_writes_nothing_outside(
+    tmp_path: Path, bad: str
+) -> None:
+    """Review F7: asset_name becomes a path and a class name, so it must be PascalCase."""
+    root = _full_project(tmp_path)
+    path = backlog_path(root)
+    updated = [
+        dataclasses.replace(entry, asset_name=bad) if entry.asset_name == "Inventory" else entry
+        for entry in backlog.load(path)
+    ]
+    backlog.write_atomic(path, backlog.dump(updated))
+    before = {item for item in tmp_path.rglob("*") if "game" not in item.parts}
+
+    report = _run(root)
+
+    assert report.failed is True
+    errors = [line for line in report.lines if line.status == "error"]
+    assert [line.code for line in errors] == ["design.scaffold_failed"]
+    assert "is not PascalCase" in errors[0].detail
+    assert {item for item in tmp_path.rglob("*") if "game" not in item.parts} == before
+    assert not list((root / "game" / "systems").rglob("*.gd"))
+    # The other entries still scaffold.
+    assert any(line.status == "created" for line in report.lines)

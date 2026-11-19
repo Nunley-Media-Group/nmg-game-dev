@@ -7,11 +7,13 @@ whose export writes the artifact, and every other tool is a shim that records it
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 import pytest
 
+from nmg_game_dev.godot.project import parse_config
 from nmg_game_dev.godot.runner import CommandResult
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.ship import runner as ship_runner
@@ -19,6 +21,7 @@ from nmg_game_dev.ship.__main__ import main as ship_main
 from nmg_game_dev.ship.artifacts import artifact_sha256
 from nmg_game_dev.ship.errors import ShipError
 from nmg_game_dev.ship.runner import (
+    EXPORT_TIMEOUT_S,
     WEB_PACK_LIMIT,
     app_name,
     patch_preset_options,
@@ -298,8 +301,21 @@ def test_android_keystore_reaches_only_the_export_child(
     ]
     assert all(env is None for env in others)
     output = _output(capsys)
+    # No keystore value is printed: path, alias, and password are all masked.
     assert _KEYSTORE_PASSWORD not in output
-    assert "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=***" in output
+    assert sandbox.env["ANDROID_KEYSTORE"] not in output
+    assert "release-key" not in output
+    for name in ("PATH", "USER", "PASSWORD"):
+        assert f"GODOT_ANDROID_KEYSTORE_RELEASE_{name}=***" in output
+
+
+def test_exports_get_the_long_export_timeout_and_gates_the_default(sandbox: ShipSandbox) -> None:
+    sandbox.ship("android")
+    for call, timeout in zip(sandbox.godot.calls, sandbox.godot.timeouts, strict=True):
+        if call[0] == "--export-release":
+            assert timeout == EXPORT_TIMEOUT_S
+        else:
+            assert timeout is None, call
 
 
 def test_android_alias_defaults_to_upload(sandbox: ShipSandbox) -> None:
@@ -355,6 +371,21 @@ def test_an_unreadable_profile_stops_before_the_ios_export(sandbox: ShipSandbox)
     assert caught.value.code == "ship.ios_profile_invalid"
     assert sandbox.exports() == []
     assert presets.read_bytes() == original
+
+
+def test_patch_preset_options_escapes_quotes_and_backslashes() -> None:
+    text = '[preset.1]\n\nname="iOS"\n\n[preset.1.options]\n\napplication/app_store_team_id=""\n'
+    patched = patch_preset_options(text, 1, {"application/app_store_team_id": 'AB"C\\D'})
+    assert 'application/app_store_team_id="AB\\"C\\\\D"\n' in patched
+    assert read_back(patched) == 'AB"C\\D'
+
+
+def read_back(text: str) -> str:
+    """The team id Godot would read back from the patched preset text."""
+    raw = parse_config(text)[("preset.1.options", "application/app_store_team_id")]
+    value = json.loads(raw)
+    assert isinstance(value, str)
+    return value
 
 
 def test_patch_preset_options_replaces_only_the_named_section() -> None:
@@ -468,6 +499,8 @@ def test_dry_run_prints_every_command_and_runs_no_godot(
     assert "--export-release macOS" in output
     assert "--export-release 'Windows Desktop'" in output
     assert "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=***" in output
+    assert "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=***" in output
+    assert "GODOT_ANDROID_KEYSTORE_RELEASE_USER=***" in output
     assert _KEYSTORE_PASSWORD not in output
     assert _APP_PASSWORD not in output
     assert "DRY-RUN: security cms -D -i" in output

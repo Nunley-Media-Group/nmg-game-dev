@@ -350,11 +350,14 @@ def _scn_scaffold(state: dict[str, Any]) -> None:
     state["text"] = (state["root"] / REGION_SCENE).read_text(encoding="utf-8")
 
 
-@then("the level instances the terrain's Desktop scene and has no ground plane")
+@then("the level loads the terrain's platform variant and has no ground plane")
 def _scn005_instances(state: dict[str, Any]) -> None:
     text = state["text"]
-    assert 'path="res://assets/Terrain/Hills/Desktop/Hills.tscn"' in text
-    assert '[node name="Hills" parent="." instance=ExtResource(' in text
+    # Variant-free: NmgVariantScene resolves Desktop/ or Mobile/ at run time (#249 review F2).
+    assert 'path="res://addons/nmg_game_dev/nmg_variant_scene.gd"' in text
+    assert '[node name="Hills" type="Node3D" parent="."]' in text
+    assert 'scene_path = "res://assets/Terrain/Hills/Hills.tscn"' in text
+    assert "/Desktop/" not in text and "/Mobile/" not in text
     assert "PlaneMesh" not in text
 
 

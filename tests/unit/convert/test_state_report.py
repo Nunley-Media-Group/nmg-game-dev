@@ -51,7 +51,7 @@ def test_report_lists_every_section() -> None:
     assert "## Converted\n\n- `asset:Props/Crate`\n" in text
     assert "| `audio:SFX/Click` | `audio.import_failed` | Re-export \\| the WAV. |" in text
     assert "| `Source/Game/Game.cpp` | C++ game code |" in text
-    assert text.endswith("## Deletions\n\nkept: 1 items failed\n")
+    assert text.endswith("## Deletions\n\nkept: 1 item failed\n")
 
 
 def test_report_records_done_deletions_and_empty_sections() -> None:

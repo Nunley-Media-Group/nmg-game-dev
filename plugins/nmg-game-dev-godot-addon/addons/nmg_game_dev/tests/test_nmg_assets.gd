@@ -12,12 +12,33 @@ func _resolve(path: String, mobile: bool) -> String:
 	return resolved
 
 
+## Resolve a malformed path and check it comes back unchanged with exactly one NmgAssets warning.
+func _check_unchanged_with_warning(path: String, mobile: bool, label: String) -> void:
+	take_warnings()
+	check_eq(_resolve(path, mobile), path, label)
+	var warnings: PackedStringArray = take_warnings()
+	check_eq(warnings.size(), 1, "%s: warnings logged" % label)
+	if warnings.size() == 1:
+		check(
+			warnings[0].contains("NmgAssets:") and warnings[0].contains("unchanged"),
+			"%s: warning text %s" % [label, warnings[0]],
+		)
+
+
 func test_desktop_variant() -> void:
+	take_warnings()
 	check_eq(_resolve(CRATE, false), "res://assets/Props/Crate/Desktop/Crate.glb", "desktop")
+	check_eq(take_warnings().size(), 0, "desktop: no warning")
 
 
 func test_mobile_variant() -> void:
+	take_warnings()
 	check_eq(_resolve(CRATE, true), "res://assets/Props/Crate/Mobile/Crate.glb", "mobile")
+	check_eq(take_warnings().size(), 0, "mobile: no warning")
+
+
+func test_malformed_path_is_unchanged_with_a_warning() -> void:
+	_check_unchanged_with_warning("res://assets/Props/Crate/Barrel.glb", true, "malformed")
 
 
 func test_resolve_variant_path_matches_the_running_platform() -> void:
@@ -36,24 +57,24 @@ func test_other_extensions_route_too() -> void:
 
 
 func test_empty_path_is_unchanged() -> void:
-	check_eq(_resolve("", true), "", "empty")
+	_check_unchanged_with_warning("", true, "empty")
 
 
 func test_path_with_desktop_folder_is_unchanged() -> void:
 	var path: String = "res://assets/Props/Crate/Desktop/Crate.glb"
-	check_eq(_resolve(path, true), path, "already Desktop")
+	_check_unchanged_with_warning(path, true, "already Desktop")
 
 
 func test_path_with_mobile_folder_is_unchanged() -> void:
 	var path: String = "res://assets/Props/Crate/Mobile/Crate.glb"
-	check_eq(_resolve(path, false), path, "already Mobile")
+	_check_unchanged_with_warning(path, false, "already Mobile")
 
 
 func test_path_without_parent_folder_is_unchanged() -> void:
-	check_eq(_resolve("Crate.glb", false), "Crate.glb", "bare file")
-	check_eq(_resolve("res://Crate.glb", false), "res://Crate.glb", "file at res root")
+	_check_unchanged_with_warning("Crate.glb", false, "bare file")
+	_check_unchanged_with_warning("res://Crate.glb", false, "file at res root")
 
 
 func test_stem_not_matching_folder_is_unchanged() -> void:
 	var path: String = "res://assets/Props/Crate/Barrel.glb"
-	check_eq(_resolve(path, true), path, "stem differs from folder")
+	_check_unchanged_with_warning(path, true, "stem differs from folder")

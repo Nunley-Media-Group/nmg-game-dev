@@ -329,6 +329,8 @@ def test_tech_gate_table_ship_smoke_paths_match_the_manifest() -> None:
         "scripts/sign-macos.sh",
         "scripts/notarize-macos.sh",
         "scripts/ship-smoke.sh",
+        "src/nmg_game_dev/godot/presets.py",
+        "tests/godot/**",
     ]
 
 

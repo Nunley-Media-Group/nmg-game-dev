@@ -8,13 +8,14 @@ Unreal files only after every item converted.
 ## Command
 
 ```
-python -m nmg_game_dev.convert [--project DIR] [--dry-run] [--json]
+python -m nmg_game_dev.convert [--project DIR] [--models-dir DIR] [--dry-run] [--json]
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `--project DIR` | Consumer root. Default: `CLAUDE_PROJECT_DIR` when set, else the working directory. |
-| `--dry-run` | Print the plan (`PLAN convert <item>`, `PLAN delete <path>`) and write nothing. |
+| `--models-dir DIR` | The texture models folder onboarding checks. Default: `TEXTURE_GEN_MODELS_DIR`. |
+| `--dry-run` | Print the plan (`PLAN convert <item>`, `PLAN fail <item> [<code>]` for an item already known to fail, `PLAN delete <path>`) and write nothing. |
 | `--json` | Also print the result as JSON: converted, failed, manual port, deletions, deleted. |
 
 Exit codes: `0` every item converted (or the dry run planned it), `1` a guard or item failure, `2` an
@@ -31,7 +32,8 @@ argument error.
 
 It also onboards the project first (see `skills/onboard-consumer/SKILL.md`), removes every
 SessionStart hook whose command runs `start-unreal-mcp.sh` (and any hook group left empty) and every
-`env` key starting with `UE_` from `.claude/settings.json`, and keeps every other setting.
+`env` key starting with `UE_` from `.claude/settings.json` and `.claude/settings.local.json`, and
+keeps every other setting.
 
 ## What it leaves for you
 
@@ -45,27 +47,32 @@ Port these to Godot by hand. Blueprints, levels, and C++ are out of scope.
 
 ## Flow
 
-1. **Guards, before any write.** `convert.not_unreal` when the root has no `*.uproject`. Unless a
-   conversion is being resumed, `convert.dirty_worktree` when `git status --porcelain` prints
+1. **Guards, before any write.** Unless a conversion is being resumed, `convert.not_unreal` when
+   the root has no `*.uproject`, and `convert.dirty_worktree` when `git status --porcelain` prints
    anything.
 2. **Preflight.** `godot.not_found` or `finalize.blender_not_found` when either tool is missing.
 3. **Dry run** stops here, after printing the plan.
 4. **Convert.** Onboard, then each item that is not done yet. A failure is recorded with its error
    code and remediation, and the other items still run. Each success is written to
    `game/.nmg-convert.json` (`{"version": 1, "done": [...]}`) at once.
-5. **Hooks and settings** are replaced in `.claude/settings.json`.
-6. **Report.** `godot-conversion-report.md` at the project root has four sections: Converted,
-   Failed (item, code, remediation), Manual port (path, reason), and Deletions.
-7. **Deletions, only when nothing failed.** `git rm -r -q --ignore-unmatch -- Content Source Config
+5. **Hooks and settings** are replaced in `.claude/settings.json` and `.claude/settings.local.json`.
+   A file that is not valid JSON fails as `convert.settings_invalid`, like any item.
+6. **Deletions, only when nothing failed.** `git rm -r -q --ignore-unmatch -- Content Source Config
    Plugins <name>.uproject scripts/start-unreal-mcp.sh` (those that exist), then any untracked
    remainder of those paths and the state file are removed. The deletions are staged for you to
-   review and commit.
+   review and commit. If removing them fails, the state file stays, so a rerun resumes (even with
+   the `.uproject` already gone) and finishes them.
+7. **Report.** `godot-conversion-report.md` at the project root has four sections: Converted,
+   Failed (item, code, remediation), Manual port (path, reason), and Deletions, which records the
+   final outcome.
 
 ## Resuming
 
-When any item fails, nothing is deleted, the Deletions section reads `kept: N items failed`, and the
-command exits 1. Fix each failure using its remediation and run the command again. The rerun reads
-`game/.nmg-convert.json`, skips the clean-tree check, and converts only the items that are not done.
+When any item fails, nothing is deleted, the Deletions section reads `kept: N item(s) failed`, and
+the command exits 1. Fix each failure using its remediation and run the command again. The rerun
+reads `game/.nmg-convert.json`, skips the `.uproject` and clean-tree checks, and converts only the
+items that are not done. A sound an interrupted run already imported is checked again and counted
+as done rather than failing `audio.asset_exists`.
 
 ## Error codes
 
@@ -79,6 +86,7 @@ command exits 1. Fix each failure using its remediation and run the command agai
 | `convert.backlog_invalid` | `docs/design/backlog.json` is unreadable | Run `/design sync`, then rerun |
 | `convert.scaffold_not_run` | The scaffold produced no line for an entry | Run `/design sync`, then rerun |
 | `convert.item_failed` | An unexpected error in one item | Fix the cause in the message, then rerun |
+| `convert.settings_invalid` | `.claude/settings.json` or `.claude/settings.local.json` is not valid JSON | Fix the JSON or restore it from git, then rerun |
 | `convert.delete_failed` | `git rm` failed | Resolve the git error, then rerun |
 | `convert.state_invalid` | `game/.nmg-convert.json` is unreadable | Delete it and restart from a clean tree |
 

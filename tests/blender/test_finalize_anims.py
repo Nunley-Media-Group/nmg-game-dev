@@ -129,6 +129,35 @@ def test_one_armature_only_glb_per_clip_and_each_reimports_as_one_clip(
         assert round(end - start) + 1 == record["frame_count"], record["name"]
 
 
+def _glb_animation_times(path: Path) -> tuple[float, float]:
+    """Return the earliest and latest key time across every animation sampler in ``path``."""
+    import struct
+
+    data = path.read_bytes()
+    (length,) = struct.unpack_from("<I", data, 12)
+    document = json.loads(data[20 : 20 + length])
+    inputs = [
+        document["accessors"][sampler["input"]]
+        for animation in document["animations"]
+        for sampler in animation["samplers"]
+    ]
+    return min(item["min"][0] for item in inputs), max(item["max"][0] for item in inputs)
+
+
+def test_a_clip_starting_after_frame_0_is_slid_to_time_0(
+    scene_with_clips: Any, tmp_path: Path
+) -> None:
+    # #249 AC3: Godot keeps key times as written, so a clip keyed from frame 1 to 10 must start at
+    # time 0 and last (frame_end - frame_start) / fps, the length import_anims expects.
+    out = tmp_path / "Animations"
+    (record,) = scene_with_clips.export_clips(_COLLECTION, ["Idle"], out)
+    start, end = _glb_animation_times(out / record["file"])
+
+    assert start == pytest.approx(0.0, abs=1e-6)
+    expected = (record["frame_end"] - record["frame_start"]) / record["fps"]
+    assert end == pytest.approx(expected, abs=1e-4)
+
+
 def test_the_sidecar_fields_match_the_exported_actions_and_sources(
     scene_with_clips: Any, tmp_path: Path
 ) -> None:

@@ -41,11 +41,14 @@ if rest[:1] == ["-s"] and "--" in rest:
 with open(os.environ["FAKE_GODOT_LOG"], "a") as log:
     log.write(json.dumps(record) + "\n")
 mode = os.environ.get("FAKE_GODOT_MODE", "")
+if mode == "hang":
+    import time
+    time.sleep(30)
 if rest == ["--import"]:
     if not (project / "project.godot").is_file() or not (
         project / "addons/nmg_game_dev/plugin.cfg"
-    ).is_file():
-        print("ERROR: fixture or add-on was not copied")
+    ).is_file() or not (project / "Beep.wav").is_file():
+        print("ERROR: fixture, add-on, or Beep.wav was not copied")
         sys.exit(0)
     if mode == "import_error":
         print("ERROR: Failed loading resource: res://Crate.glb")
@@ -59,7 +62,32 @@ if rest[:2] == ["-s", "res://addons/nmg_game_dev/tests/run_tests.gd"]:
         sys.exit(0)
     if mode == "tests_no_summary":
         sys.exit(0)
-    print("PASS test_nmg_assets.gd::test_desktop_variant\n9 passed, 0 failed")
+    required = ["test_desktop_variant", "test_mobile_variant",
+                "test_malformed_path_is_unchanged_with_a_warning"]
+    if mode == "tests_missing_routing":
+        required = required[:2]
+    for name in required:
+        print(f"PASS test_nmg_assets.gd::{name}")
+    print(f"{len(required)} passed, 0 failed")
+    sys.exit(0)
+if rest[:1] == ["--check-only"]:
+    if mode == "check_error" and rest[2].endswith("probe_audio.gd"):
+        print("SCRIPT ERROR: Parse Error: Unexpected identifier")
+        sys.exit(1)
+    sys.exit(0)
+if rest[:1] == ["-s"] and not rest[1].endswith("probe_asset.gd"):
+    name = rest[1].rsplit("/", 1)[-1]
+    params = record["params"]
+    if name == "probe_anims.gd":
+        result = {"clips": {}, "skeletons": {glb: {"found": True, "bones": []}
+                                            for glb in params["skeletons"]}}
+    elif name == "probe_terrain.gd":
+        result = {"meshes": {glb: ["Crate"] for glb in params["glbs"]}}
+    else:
+        result = {"class": "AudioStreamWAV", "loop_mode": 0}
+        if mode == "smoke_shape":
+            result = {"class": "AudioStreamOggVorbis", "loop": False}
+    print("NMG_RESULT " + json.dumps(result))
     sys.exit(0)
 if rest[:1] == ["-s"]:
     if mode == "probe_none":
@@ -91,7 +119,18 @@ if os.environ.get("FAKE_CURL_OFFLINE"):
     sys.stderr.write("curl: (6) Could not resolve host\n")
     sys.exit(6)
 if "-o" in args:
-    Path(args[args.index("-o") + 1]).write_bytes(b"PK fake zip")
+    out = Path(args[args.index("-o") + 1])
+    if out.name == "SHA512-SUMS.txt":
+        import hashlib
+        tag = os.environ.get("FAKE_TAG", "4.9-stable")
+        digest = hashlib.sha512(b"PK fake zip").hexdigest()
+        if os.environ.get("FAKE_BAD_SUM"):
+            digest = "0" * 128
+        suffixes = ("macos.universal", "linux.x86_64")
+        lines = [f"{digest}  Godot_v{tag}_{suffix}.zip" for suffix in suffixes]
+        out.write_text("\n".join(lines) + "\n")
+    else:
+        out.write_bytes(b"PK fake zip")
     sys.exit(0)
 print(json.dumps({"tag_name": os.environ.get("FAKE_TAG", "4.9-stable")}))
 """
@@ -201,7 +240,7 @@ def test_godot_bin_wins_over_path_and_download(gate: Gate) -> None:
     calls = gate.godot_calls()
     assert {call["self"] for call in calls} == {str(explicit)}
     assert gate.curl_calls() == []
-    assert "gate-godot-headless: import, add-on tests, and probe passed" in result.stdout
+    assert "gate-godot-headless: import, add-on tests, and probes passed" in result.stdout
 
 
 def test_godot_bin_that_is_not_executable_exits_2(gate: Gate) -> None:
@@ -231,6 +270,9 @@ def test_download_fetches_the_latest_macos_release_into_the_cache(gate: Gate) ->
         f"https://github.com/godotengine/godot/releases/download/{TAG}/"
         f"Godot_v{TAG}_macos.universal.zip"
     ) in curl[1]
+    assert (
+        f"https://github.com/godotengine/godot/releases/download/{TAG}/SHA512-SUMS.txt" in (curl[2])
+    )
     assert {call["self"] for call in gate.godot_calls()} == {str(binary)}
     assert not list((gate.cache / TAG).glob("*.zip"))
 
@@ -267,6 +309,22 @@ def test_offline_without_a_cache_exits_3(gate: Gate) -> None:
     assert gate.godot_calls() == []
 
 
+def test_a_download_that_fails_its_checksum_exits_3_and_caches_nothing(gate: Gate) -> None:
+    result = gate.run(FAKE_BAD_SUM="1")
+    assert result.returncode == 3
+    assert "does not match its SHA-512" in result.stderr
+    assert gate.godot_calls() == []
+    assert not (gate.cache / TAG).exists()
+    assert [path.name for path in gate.cache.iterdir()] == []
+
+
+def test_a_release_tag_that_is_not_a_stable_version_exits_3(gate: Gate) -> None:
+    result = gate.run(FAKE_TAG="../../escape")
+    assert result.returncode == 3
+    assert "is not a stable version" in result.stderr
+    assert gate.godot_calls() == []
+
+
 def test_unsupported_os_exits_3(gate: Gate) -> None:
     result = gate.run(FAKE_OS="FreeBSD")
     assert result.returncode == 3
@@ -286,6 +344,19 @@ def test_steps_run_import_then_addon_tests_then_probe(gate: Gate) -> None:
     assert commands[2][:3] == ["-s", "res://.godot/nmg_probes/probe_asset.gd", "--"]
     assert calls[2]["params"] == {"glb": "res://Crate.glb"}
     assert calls[2]["probe_exists"] is True
+    # Every probe script parses, then the anims, terrain, and audio probes smoke-run.
+    probes = sorted(path.name for path in (REPO_ROOT / "src/nmg_game_dev/godot/gd").glob("*.gd"))
+    checked = [command for command in commands if command[:1] == ["--check-only"]]
+    assert checked == [["--check-only", "-s", f"res://.godot/nmg_probes/{name}"] for name in probes]
+    smoke = {
+        call["argv"][call["argv"].index("-s") + 1].rsplit("/", 1)[-1]: call["params"]
+        for call in calls[3 + len(probes) :]
+    }
+    assert smoke == {
+        "probe_anims.gd": {"clips": [], "skeletons": ["res://Crate.glb"]},
+        "probe_terrain.gd": {"mode": "meshes", "glbs": ["res://Crate.glb"]},
+        "probe_audio.gd": {"stream": "res://Beep.wav"},
+    }
     for call in calls:
         assert call["argv"][:3] == ["--headless", "--audio-driver", "Dummy"]
     projects = {call["argv"][call["argv"].index("--path") + 1] for call in calls}
@@ -301,7 +372,9 @@ def test_import_failure_exits_4(gate: Gate, mode: str) -> None:
     assert len(gate.godot_calls()) == 1
 
 
-@pytest.mark.parametrize("mode", ["tests_fail", "tests_script_error", "tests_no_summary"])
+@pytest.mark.parametrize(
+    "mode", ["tests_fail", "tests_script_error", "tests_no_summary", "tests_missing_routing"]
+)
 def test_addon_test_failure_exits_5(gate: Gate, mode: str) -> None:
     result = gate.run(FAKE_GODOT_MODE=mode, **gate.with_path_godot())
     assert result.returncode == 5
@@ -321,6 +394,26 @@ def test_probe_mismatch_exits_7(gate: Gate, mode: str) -> None:
     result = gate.run(FAKE_GODOT_MODE=mode, **gate.with_path_godot())
     assert result.returncode == 7
     assert "differs from tests/godot/fixture/expected-probe.json" in result.stderr
+
+
+def test_a_probe_that_fails_check_only_exits_8(gate: Gate) -> None:
+    result = gate.run(FAKE_GODOT_MODE="check_error", **gate.with_path_godot())
+    assert result.returncode == 8
+    assert "probe_audio.gd failed --check-only" in result.stderr
+    assert "Remediation:" in result.stderr
+
+
+def test_a_smoke_probe_with_the_wrong_result_shape_exits_9(gate: Gate) -> None:
+    result = gate.run(FAKE_GODOT_MODE="smoke_shape", **gate.with_path_godot())
+    assert result.returncode == 9
+    assert "probe_audio.gd smoke run failed" in result.stderr
+
+
+def test_a_stalled_godot_fails_with_exit_10_after_the_timeout(gate: Gate) -> None:
+    result = gate.run(FAKE_GODOT_MODE="hang", GODOT_GATE_TIMEOUT="1", **gate.with_path_godot())
+    assert result.returncode == 10
+    assert "the fixture import did not finish within 1 s" in result.stderr
+    assert "quarantined" in result.stderr
 
 
 def test_probe_floats_within_tolerance_pass(gate: Gate) -> None:
@@ -352,6 +445,7 @@ def test_addon_ships_the_designed_files() -> None:
         "nmg_mission_definition.gd",
         "terrain/nmg_terrain.gdshader",
         "tests/run_tests.gd",
+        "tests/nmg_log_capture.gd",
         "tests/test_nmg_assets.gd",
         "tests/test_mission_definition.gd",
     ):

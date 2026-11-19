@@ -376,10 +376,10 @@ def _(blender_mcp):
 | `repository.format` | anything | `uv run ruff format --check .` | — |
 | `repository.types` | anything | `uv run mypy src tests` | — |
 | `gate-blender-headless` | `plugins/nmg-game-dev-blender-addon/**`, `tests/blender/**`, `scripts/blender/**`, `scripts/run-blender-tests.sh` | `scripts/run-blender-tests.sh` (headless Blender pytest) | Blender 5.2. When it is not at `/Applications/Blender.app`, export `BLENDER_APP` (or `BLENDER_BIN`) in `~/.zshenv`; the gate forwards only those two variables |
-| `gate-godot-headless` | `plugins/nmg-game-dev-godot-addon/**`, `src/nmg_game_dev/godot/**`, `tests/godot/**`, `scripts/run-godot-tests.sh` | `scripts/run-godot-tests.sh`: imports the `tests/godot/fixture/` project with the add-on (`--import`, no `ERROR:` lines), runs the add-on's `tests/run_tests.gd`, and checks `probe_asset.gd` on the fixture `Crate.glb` against `expected-probe.json` | Godot 4 via `GODOT_BIN` or `godot` on `PATH`; otherwise the script downloads the latest stable release into the git-ignored `.cache/godot/` and reuses it. The gate forwards only `GODOT_BIN` |
+| `gate-godot-headless` | `plugins/nmg-game-dev-godot-addon/**`, `src/nmg_game_dev/godot/**`, `tests/godot/**`, `scripts/run-godot-tests.sh` | `scripts/run-godot-tests.sh`: imports the `tests/godot/fixture/` project with the add-on (`--import`, no `ERROR:` lines), runs the add-on's `tests/run_tests.gd` (requiring the variant-routing tests to pass), checks `probe_asset.gd` on the fixture `Crate.glb` against `expected-probe.json`, runs `--check-only` on every `src/nmg_game_dev/godot/gd/*.gd`, and smoke-runs the anims, terrain, and audio probes. Every Godot run is bounded by `GODOT_GATE_TIMEOUT` (default 300 s) | Godot 4 via `GODOT_BIN` or `godot` on `PATH`; otherwise the script downloads the latest stable release, checked against its `SHA512-SUMS.txt`, into the git-ignored `.cache/godot/` and reuses it. The gate forwards only `GODOT_BIN` |
 | `gate-mcp-schema` | `mcp-servers/**`, `scripts/validate-mcp-tools.py` | `uv run python scripts/validate-mcp-tools.py` | — |
 | `gate-shellcheck` | `scripts/**.sh` | `shellcheck -S style` on every `scripts/**.sh` (through `find -exec`) | shellcheck |
-| `gate-ship-smoke` | `skills/ship/**`, `src/nmg_game_dev/ship/**`, `scripts/sign-macos.sh`, `scripts/notarize-macos.sh`, `scripts/ship-smoke.sh` | `scripts/ship-smoke.sh`: a dry-run `/ship all` of `tests/godot/fixture/project.godot` with placeholder credentials; no Godot export runs | — |
+| `gate-ship-smoke` | `skills/ship/**`, `src/nmg_game_dev/ship/**`, `scripts/sign-macos.sh`, `scripts/notarize-macos.sh`, `scripts/ship-smoke.sh`, `src/nmg_game_dev/godot/presets.py`, `tests/godot/**` | `scripts/ship-smoke.sh`: a dry-run `/ship all` of `tests/godot/fixture/project.godot` with placeholder credentials; no Godot export runs | — |
 | `plugin.validate` | `.claude-plugin/**`, `.mcp.json`, `skills/**`, `agents/**`, `commands/**`, `hooks/**`, `templates/consumer/**` | `claude plugin validate .` | — |
 | `plugin.session-smoke` | the same paths as `plugin.validate` | extension `project.plugin-session-smoke`: loads this checkout with `--plugin-dir` and checks that its MCP servers connect | Herdr |
 
@@ -416,6 +416,7 @@ Windows and web exports run locally and need no extra variables.
 | `NMG_GAME_DEV_CACHE_DIR` | Override the finalize cache root (`by-key/`, `runs/`, and `jobs/` live under it) |
 | `NMG_GAME_DEV_TEXTURE_DIR` | Override the generated-texture root (default `SourceArt/Textures/Generated`) |
 | `TEXTURE_GEN_BLENDER_RESERVE_GB` | RAM kept free for Blender when checking whether a texture model fits (default 8) |
+| `NMG_GODOT_TIMEOUT_S` | Seconds any headless Godot run may take before it is stopped (default 900; `/ship` exports allow 3600) |
 | `NMG_GAME_DEV_LOG_LEVEL` | `debug` / `info` / `warn` / `error` |
 
 ---

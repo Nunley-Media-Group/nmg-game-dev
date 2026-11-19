@@ -1,9 +1,13 @@
 """Material variants as Godot ``StandardMaterial3D`` resources (#148, #249 FR6).
 
-``import_godot`` calls ``write_variant_materials`` once per variant folder. It writes
-``M_<Name>_<Part>_<Variant>.tres`` for each declared material variant and removes any such file
-whose variant is no longer declared. ``list_material_variants`` reads them back from the files
-finalize wrote (``nmg-variants.json`` plus the ``.tres`` files), so listing never starts Godot.
+``import_godot`` calls ``plan_variant_materials`` for both variant folders (which validates every
+declared entry and renders its text without writing), then ``write_planned`` for each. Writing puts
+``M_<Name>_<Part>_<Variant>.tres`` in place for each declared material variant and removes a
+``.tres`` it wrote on an earlier run whose variant is no longer declared; the names it wrote are
+kept in the folder's ``.nmg-material-variants.json``, so a hand-made ``.tres`` is never removed.
+A malformed entry raises ``import_godot.mismatch``. ``list_material_variants`` reads them back
+from the files finalize wrote (``nmg-variants.json`` plus the ``.tres`` files), so listing never
+starts Godot.
 
 Each variant entry in ``nmg-variants.json`` (``material_variants.desktop`` / ``.mobile``) carries
 ``name``, ``material`` (``M_<Name>_<Part>``), ``base_color`` (the variant's
@@ -26,8 +30,51 @@ from .project import find_project, godot_string, res_path
 
 VARIANT_FOLDERS: Final = ("Desktop", "Mobile")
 SIDECAR: Final = "nmg-variants.json"
+WRITTEN_MANIFEST: Final = ".nmg-material-variants.json"
+"""The ``.tres`` names finalize wrote into a variant folder: the only ones it may remove."""
 _FAILED: Final = "finalize.material_variants_failed"
 _WHITE: Final = (1.0, 1.0, 1.0, 1.0)
+_ENTRY_REMEDIATION: Final = (
+    "Fix the material variant in the asset's material variant declaration (each needs a name, a "
+    "material named M_<Name>_<Part>, and an optional Tint of 3 or 4 numbers), then rerun export."
+)
+
+
+def _invalid_entry(detail: str) -> PipelineError:
+    return PipelineError(
+        code="import_godot.mismatch",
+        message=f"A declared material variant is malformed: {detail}",
+        remediation=_ENTRY_REMEDIATION,
+        stage="import_godot",
+    )
+
+
+def check_entry(entry: Mapping[str, Any]) -> None:
+    """Raise ``import_godot.mismatch`` unless ``entry`` has the fields writing a ``.tres`` reads."""
+    for field in ("name", "material"):
+        value = entry.get(field)
+        if not isinstance(value, str) or not value:
+            raise _invalid_entry(f"{field} must be a non-empty string in {dict(entry)}")
+    base_color = entry.get("base_color")
+    if base_color is not None and not isinstance(base_color, str):
+        raise _invalid_entry(f"base_color must be a file name or null in {dict(entry)}")
+    parameters = entry.get("parameters")
+    if parameters is None:
+        return
+    if not isinstance(parameters, dict):
+        raise _invalid_entry(f"parameters must be an object in {dict(entry)}")
+    tint = cast(dict[str, object], parameters).get("Tint")
+    if tint is None:
+        return
+    if (
+        not isinstance(tint, list)
+        or len(tint) not in (3, 4)
+        or not all(
+            isinstance(item, (int, float)) and not isinstance(item, bool)
+            for item in cast(list[object], tint)
+        )
+    ):
+        raise _invalid_entry(f"Tint must be 3 or 4 numbers in {dict(entry)}")
 
 
 def resource_name(entry: Mapping[str, Any]) -> str:
@@ -107,29 +154,66 @@ def render_material(
     return "\n".join(lines)
 
 
+def plan_variant_materials(
+    project: Path,
+    folder: Path,
+    name: str,
+    entries: Sequence[Mapping[str, Any]],
+) -> list[tuple[Path, str]]:
+    """Validate every entry and return each ``.tres`` path with its text. Writes nothing."""
+    planned: list[tuple[Path, str]] = []
+    for entry in entries:
+        check_entry(entry)
+        planned.append(
+            (folder / resource_name(entry), render_material(project, folder, name, entry))
+        )
+    return planned
+
+
+def write_planned(folder: Path, planned: Sequence[tuple[Path, str]]) -> list[Path]:
+    """Write the planned ``.tres`` files and remove the ones an earlier run wrote but no longer
+    declares. Returns the written paths.
+
+    Only names listed in ``.nmg-material-variants.json`` are candidates for removal, so a
+    ``.tres`` someone made by hand in the folder stays.
+    """
+    written: list[Path] = []
+    for path, text in planned:
+        if not path.is_file() or path.read_text(encoding="utf-8") != text:
+            path.write_text(text, encoding="utf-8")
+        written.append(path)
+    keep = {path.name for path in written}
+    manifest = folder / WRITTEN_MANIFEST
+    for stale in sorted(set(_written_before(manifest)) - keep):
+        (folder / stale).unlink(missing_ok=True)
+    if written or manifest.exists():
+        manifest.write_text(json.dumps(sorted(keep), indent=2) + "\n", encoding="utf-8")
+    return written
+
+
 def write_variant_materials(
     project: Path,
     folder: Path,
     name: str,
     entries: Sequence[Mapping[str, Any]],
 ) -> list[Path]:
-    """Write one ``.tres`` per entry into ``folder`` and remove undeclared variant ``.tres`` files.
+    """Validate, then write one ``.tres`` per entry into ``folder`` (see ``write_planned``)."""
+    return write_planned(folder, plan_variant_materials(project, folder, name, entries))
 
-    Only ``M_<Name>_*.tres`` files are candidates for removal: finalize never writes the main
-    materials as ``.tres`` (they live inside the ``.glb``). Returns the written paths.
-    """
-    written: list[Path] = []
-    for entry in entries:
-        path = folder / resource_name(entry)
-        text = render_material(project, folder, name, entry)
-        if not path.is_file() or path.read_text(encoding="utf-8") != text:
-            path.write_text(text, encoding="utf-8")
-        written.append(path)
-    keep = set(written)
-    for stale in sorted(folder.glob(f"M_{name}_*.tres")):
-        if stale not in keep:
-            stale.unlink()
-    return written
+
+def _written_before(manifest: Path) -> list[str]:
+    """The ``.tres`` names an earlier run wrote; an unreadable manifest lists none."""
+    try:
+        data: Any = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [
+        Path(item).name
+        for item in cast(list[object], data)
+        if isinstance(item, str) and item.endswith(".tres")
+    ]
 
 
 def list_material_variants(export_root: Path, category: str, name: str) -> list[dict[str, Any]]:
@@ -210,9 +294,12 @@ def _num(value: float) -> str:
 
 
 __all__ = [
+    "check_entry",
     "list_material_variants",
+    "plan_variant_materials",
     "render_material",
     "resource_name",
     "sidecar_entries",
+    "write_planned",
     "write_variant_materials",
 ]

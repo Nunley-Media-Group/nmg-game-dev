@@ -251,6 +251,40 @@ def test_renderer_drift_is_reported_then_refreshed(
     assert again["godot_project"].status == "unchanged"
 
 
+def test_other_editor_plugins_are_not_drift_and_survive_refresh(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """Review F8: [editor_plugins] enabled is checked by membership, and refresh merges."""
+    install(consumer, framework, models, env)
+    project = consumer / "game" / "project.godot"
+    ours = '"res://addons/nmg_game_dev/plugin.cfg"'
+    other = '"res://addons/dialogue/plugin.cfg"'
+    text = project.read_text(encoding="utf-8")
+    with_other = text.replace(
+        f"enabled=PackedStringArray({ours})", f"enabled=PackedStringArray({other}, {ours})"
+    )
+    assert with_other != text
+    project.write_text(with_other, encoding="utf-8")
+
+    again = {r.name: r for r in install(consumer, framework, models, env)}
+    assert again["godot_project"].status == "unchanged"
+    assert project.read_text(encoding="utf-8") == with_other
+
+    # Without nmg_game_dev it is drift; refresh adds it and keeps the other plugin enabled.
+    project.write_text(
+        text.replace(f"enabled=PackedStringArray({ours})", f"enabled=PackedStringArray({other})"),
+        encoding="utf-8",
+    )
+    drifted = {r.name: r for r in install(consumer, framework, models, env)}
+    assert drifted["godot_project"].status == "drift"
+    assert "[editor_plugins] enabled" in drifted["godot_project"].detail
+    refreshed = {r.name: r for r in install(consumer, framework, models, env, refresh=True)}
+    assert refreshed["godot_project"].status == "refreshed"
+    assert read_config(project)[("editor_plugins", "enabled")] == (
+        f"PackedStringArray({other}, {ours})"
+    )
+
+
 def test_preset_drift_is_reported_then_refreshed(
     consumer: Path, framework: Path, models: Path, env: dict[str, str]
 ) -> None:

@@ -8,17 +8,26 @@
 #   1. GODOT_BIN, which must be executable.
 #   2. godot on PATH.
 #   3. The latest stable release from GitHub (the tag of
-#      https://api.github.com/repos/godotengine/godot/releases/latest), unpacked into
+#      https://api.github.com/repos/godotengine/godot/releases/latest, which must look like
+#      4.x-stable), checked against the release's SHA512-SUMS.txt, unpacked into
 #      .cache/godot/<tag>/ (git-ignored; GODOT_CACHE_DIR overrides the .cache/godot folder) and
 #      reused on later runs. Without network access the newest cached copy is used.
 #
 # Steps, in a mktemp -d copy of tests/godot/fixture/ with the add-on installed at
-# addons/nmg_game_dev:
+# addons/nmg_game_dev and a generated 0.1 s mono WAV at res://Beep.wav:
 #   1. godot --headless --import must exit 0 and print no ERROR: line.
-#   2. res://addons/nmg_game_dev/tests/run_tests.gd must exit 0, print "N passed, 0 failed", and
-#      print no ERROR: or SCRIPT ERROR: line.
+#   2. res://addons/nmg_game_dev/tests/run_tests.gd must exit 0, print "N passed, 0 failed", print
+#      no ERROR: or SCRIPT ERROR: line, and print a PASS line for each variant-routing test in
+#      required_tests (desktop, mobile, and the malformed path with its warning).
 #   3. src/nmg_game_dev/godot/gd/probe_asset.gd on res://Crate.glb must print an NMG_RESULT line
 #      that matches tests/godot/fixture/expected-probe.json (floats within 0.001).
+#   4. Every src/nmg_game_dev/godot/gd/*.gd must pass godot --check-only.
+#   5. probe_anims.gd (Crate.glb as a skeleton scene), probe_terrain.gd (Crate.glb in meshes mode)
+#      and probe_audio.gd (res://Beep.wav) must each print the NMG_RESULT shape the Python side
+#      reads.
+#
+# Every Godot run is bounded by GODOT_GATE_TIMEOUT seconds (default 300), so a Godot that stalls
+# fails the gate instead of hanging it.
 #
 # Exit codes:
 #   0  every step passed
@@ -28,13 +37,23 @@
 #   5  the add-on tests failed
 #   6  the probe failed or printed no NMG_RESULT line
 #   7  the probe result differs from expected-probe.json
+#   8  a probe script failed --check-only
+#   9  a probe smoke run failed or printed the wrong result shape
+#   10 a Godot run exceeded GODOT_GATE_TIMEOUT
 # Each failure prints ERROR: and Remediation: lines on stderr.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture="$repo_root/tests/godot/fixture"
 addon="$repo_root/plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev"
-probe="$repo_root/src/nmg_game_dev/godot/gd/probe_asset.gd"
+probes="$repo_root/src/nmg_game_dev/godot/gd"
+probe="$probes/probe_asset.gd"
+gate_timeout="${GODOT_GATE_TIMEOUT:-300}"
+required_tests=(
+  "test_nmg_assets.gd::test_desktop_variant"
+  "test_nmg_assets.gd::test_mobile_variant"
+  "test_nmg_assets.gd::test_malformed_path_is_unchanged_with_a_warning"
+)
 cache_root="${GODOT_CACHE_DIR:-$repo_root/.cache/godot}"
 latest_url="https://api.github.com/repos/godotengine/godot/releases/latest"
 
@@ -45,11 +64,12 @@ die() {
   exit "$code"
 }
 
+# The Godot executable inside an unpacked release folder; the tag defaults to the folder name.
 cached_binary() {
-  local dir="$1"
+  local dir="$1" tag="${2:-$(basename "$1")}"
   case "$(uname -s)" in
     Darwin) printf '%s\n' "$dir/Godot.app/Contents/MacOS/Godot" ;;
-    *) printf '%s\n' "$dir/Godot_v$(basename "$dir")_linux.x86_64" ;;
+    *) printf '%s\n' "$dir/Godot_v${tag}_linux.x86_64" ;;
   esac
 }
 
@@ -63,8 +83,17 @@ newest_cached() {
   cached_binary "$cache_root/$newest"
 }
 
+# Print the SHA-512 of a file (shasum on macOS, sha512sum elsewhere).
+sha512_of() {
+  if command -v sha512sum >/dev/null 2>&1; then
+    sha512sum "$1" | cut -d ' ' -f 1
+  else
+    shasum -a 512 "$1" | cut -d ' ' -f 1
+  fi
+}
+
 download_godot() {
-  local tag asset dest zip binary
+  local tag asset dest zip binary sums expected staging
   if ! tag="$(curl -fsSL "$latest_url" | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])')" || [[ -z "$tag" ]]; then
     if binary="$(newest_cached)"; then
       printf 'WARNING: could not query the latest Godot release; using %s\n' "$binary" >&2
@@ -73,6 +102,8 @@ download_godot() {
     fi
     die 3 "Install Godot 4 or set GODOT_BIN, or rerun with network access to GitHub." "could not query the latest Godot release from $latest_url"
   fi
+  [[ "$tag" =~ ^[0-9]+(\.[0-9]+)*-stable$ ]] \
+    || die 3 "Install Godot 4 and set GODOT_BIN, or rerun later." "the latest Godot release tag is not a stable version: $tag"
   case "$(uname -s)" in
     Darwin) asset="Godot_v${tag}_macos.universal.zip" ;;
     Linux) asset="Godot_v${tag}_linux.x86_64.zip" ;;
@@ -84,14 +115,36 @@ download_godot() {
     printf '%s\n' "$binary"
     return 0
   fi
-  mkdir -p "$dest"
-  zip="$dest/$asset"
+  # Download and unpack into a private staging folder, check the archive against the release's
+  # SHA512-SUMS.txt, then move it into place in one step, so a parallel run never sees a half
+  # unpacked copy and a tampered download never runs.
+  mkdir -p "$cache_root"
+  staging="$(mktemp -d "$cache_root/.download.XXXXXX")"
+  zip="$staging/$asset"
+  sums="$staging/SHA512-SUMS.txt"
   printf 'Downloading %s into %s\n' "$asset" "$dest" >&2
   curl -fsSL -o "$zip" "https://github.com/godotengine/godot/releases/download/${tag}/${asset}" \
-    || die 3 "Check network access to GitHub, or install Godot 4 and set GODOT_BIN." "could not download $asset"
-  unzip -q -o "$zip" -d "$dest" \
-    || die 3 "Delete $dest and rerun, or install Godot 4 and set GODOT_BIN." "could not unpack $asset"
-  rm -f "$zip"
+    || { rm -rf "$staging"; die 3 "Check network access to GitHub, or install Godot 4 and set GODOT_BIN." "could not download $asset"; }
+  curl -fsSL -o "$sums" "https://github.com/godotengine/godot/releases/download/${tag}/SHA512-SUMS.txt" \
+    || { rm -rf "$staging"; die 3 "Check network access to GitHub, or install Godot 4 and set GODOT_BIN." "could not download SHA512-SUMS.txt for $tag"; }
+  expected="$(awk -v name="$asset" '$2 == name { print $1 }' "$sums")"
+  if [[ -z "$expected" || "$(sha512_of "$zip")" != "$expected" ]]; then
+    rm -rf "$staging"
+    die 3 "Rerun to download again, or install Godot 4 and set GODOT_BIN." "$asset does not match its SHA-512 in SHA512-SUMS.txt"
+  fi
+  unzip -q -o "$zip" -d "$staging/unpacked" \
+    || { rm -rf "$staging"; die 3 "Rerun, or install Godot 4 and set GODOT_BIN." "could not unpack $asset"; }
+  if [[ ! -x "$(cached_binary "$staging/unpacked" "$tag")" ]]; then
+    rm -rf "$staging"
+    die 3 "Rerun, or install Godot 4 and set GODOT_BIN." "the download did not contain $(basename "$binary")"
+  fi
+  # Another run may have finished first; either copy is the same verified release. A folder left
+  # by an interrupted older download holds no binary and is replaced.
+  if [[ ! -x "$binary" ]]; then
+    rm -rf "$dest"
+    mv "$staging/unpacked" "$dest" 2>/dev/null || true
+  fi
+  rm -rf "$staging"
   [[ -x "$binary" ]] || die 3 "Delete $dest and rerun, or install Godot 4 and set GODOT_BIN." "the download did not contain $binary"
   printf '%s\n' "$binary"
 }
@@ -123,14 +176,49 @@ cp -R "$fixture/." "$project/"
 mkdir -p "$project/addons"
 cp -R "$addon" "$project/addons/nmg_game_dev"
 
+python3 - "$project/Beep.wav" <<'PY'
+import struct
+import sys
+import wave
+
+with wave.open(sys.argv[1], "wb") as handle:
+    handle.setnchannels(1)
+    handle.setsampwidth(2)
+    handle.setframerate(22050)
+    handle.writeframes(b"".join(struct.pack("<h", (i % 50) * 400 - 10000) for i in range(2205)))
+PY
+
+# Run Godot headless in the temp project, killing it after gate_timeout seconds (exit 124).
 run_godot() {
-  "$godot" --headless --audio-driver Dummy --path "$project" "$@" 2>&1
+  python3 - "$gate_timeout" "$godot" --headless --audio-driver Dummy --path "$project" "$@" <<'PY'
+import subprocess
+import sys
+
+limit = float(sys.argv[1])
+try:
+    done = subprocess.run(sys.argv[2:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=limit)
+except subprocess.TimeoutExpired as error:
+    sys.stdout.write((error.stdout or b"").decode("utf-8", "replace"))
+    print(f"NMG_GATE_TIMEOUT after {limit:g} s")
+    sys.exit(124)
+sys.stdout.write(done.stdout.decode("utf-8", "replace"))
+sys.exit(done.returncode)
+PY
+}
+
+# Fail with exit 10 when the last Godot run hit the timeout.
+check_timeout() {
+  local status="$1" what="$2"
+  if (( status == 124 )); then
+    die 10 "Check that Godot starts headless on this host (for example, that macOS has not quarantined it), or raise GODOT_GATE_TIMEOUT." "$what did not finish within $gate_timeout s"
+  fi
 }
 
 # 1. Import the fixture project.
 status=0
 output="$(run_godot --import)" || status=$?
 printf '%s\n' "$output"
+check_timeout "$status" "the fixture import"
 if (( status != 0 )) || grep -q '^ERROR:' <<<"$output"; then
   first="$(grep -m 1 '^ERROR:' <<<"$output" || true)"
   die 4 "Read the import output above and fix the fixture or the add-on, then rerun." "fixture import failed (exit $status) ${first}"
@@ -140,11 +228,17 @@ fi
 status=0
 output="$(run_godot -s res://addons/nmg_game_dev/tests/run_tests.gd)" || status=$?
 printf '%s\n' "$output"
+check_timeout "$status" "the add-on tests"
 if (( status != 0 )) \
   || grep -qE '^(SCRIPT )?ERROR:' <<<"$output" \
   || ! grep -qE '^[0-9]+ passed, 0 failed$' <<<"$output"; then
   die 5 "Fix the failing add-on test or script error reported above, then rerun." "add-on tests failed (exit $status)"
 fi
+for test in "${required_tests[@]}"; do
+  if ! grep -qxF "PASS $test" <<<"$output"; then
+    die 5 "Restore the variant-routing test $test in the add-on's tests/test_nmg_assets.gd, then rerun." "add-on tests failed: no PASS line for $test"
+  fi
+done
 
 # 3. Probe the fixture Crate.glb and compare with the expected result.
 probe_dir="$project/.godot/nmg_probes"
@@ -155,6 +249,7 @@ printf '{"glb": "res://Crate.glb"}\n' >"$params"
 status=0
 output="$(run_godot -s res://.godot/nmg_probes/probe_asset.gd -- "$params")" || status=$?
 printf '%s\n' "$output"
+check_timeout "$status" "probe_asset.gd"
 result="$(grep '^NMG_RESULT ' <<<"$output" | tail -n 1 || true)"
 if (( status != 0 )) || [[ -z "$result" ]]; then
   die 6 "Read the probe output above; check that the fixture imported and probe_asset.gd parses." "probe_asset.gd failed (exit $status) or printed no NMG_RESULT line"
@@ -201,4 +296,39 @@ then
   die 7 "Fix the probe or the importer, or regenerate the fixture with tests/godot/make_crate_glb.py and update expected-probe.json." "the probe result differs from tests/godot/fixture/expected-probe.json"
 fi
 
-echo "gate-godot-headless: import, add-on tests, and probe passed"
+# 4. Every probe script must parse.
+for source in "$probes"/*.gd; do
+  name="$(basename "$source")"
+  cp "$source" "$probe_dir/$name"
+  status=0
+  output="$(run_godot --check-only -s "res://.godot/nmg_probes/$name")" || status=$?
+  printf '%s\n' "$output"
+  check_timeout "$status" "--check-only $name"
+  if (( status != 0 )) || grep -qE '^(SCRIPT |Parse )?ERROR:' <<<"$output"; then
+    die 8 "Fix the GDScript error in src/nmg_game_dev/godot/gd/$name reported above, then rerun." "$name failed --check-only (exit $status)"
+  fi
+done
+
+# 5. Smoke-run the other probes and check each result has the shape the Python side reads.
+smoke() {
+  local name="$1" params_json="$2" check="$3" params_file result
+  params_file="$probe_dir/${name%.gd}.params.json"
+  printf '%s\n' "$params_json" >"$params_file"
+  status=0
+  output="$(run_godot -s "res://.godot/nmg_probes/$name" -- "$params_file")" || status=$?
+  printf '%s\n' "$output"
+  check_timeout "$status" "$name"
+  result="$(grep '^NMG_RESULT ' <<<"$output" | tail -n 1 || true)"
+  if (( status != 0 )) || [[ -z "$result" ]] \
+    || ! python3 -c "import json, sys; r = json.loads(sys.argv[1]); sys.exit(0 if ($check) else 1)" "${result#NMG_RESULT }"; then
+    die 9 "Fix src/nmg_game_dev/godot/gd/$name so its NMG_RESULT matches what src/nmg_game_dev/godot/ reads, then rerun." "$name smoke run failed (exit $status) or printed the wrong result shape"
+  fi
+}
+smoke probe_anims.gd '{"clips": [], "skeletons": ["res://Crate.glb"]}' \
+  'r["clips"] == {} and r["skeletons"]["res://Crate.glb"]["found"] is True and isinstance(r["skeletons"]["res://Crate.glb"]["bones"], list)'
+smoke probe_terrain.gd '{"mode": "meshes", "glbs": ["res://Crate.glb"]}' \
+  'isinstance(r["meshes"]["res://Crate.glb"], list) and len(r["meshes"]["res://Crate.glb"]) >= 1'
+smoke probe_audio.gd '{"stream": "res://Beep.wav"}' \
+  'r["class"] == "AudioStreamWAV" and isinstance(r["loop_mode"], int)'
+
+echo "gate-godot-headless: import, add-on tests, and probes passed"

@@ -69,6 +69,63 @@ def test_a_probe_without_a_meshes_list_is_import_failed(tmp_path: Path) -> None:
     assert info.value.code == "import_godot.import_failed"
 
 
+_RED: dict[str, Any] = {
+    "name": "Red",
+    "material": "M_Crate_Body",
+    "base_color": None,
+    "parameters": {},
+}
+
+
+def test_a_broken_mobile_variant_changes_no_desktop_material(tmp_path: Path) -> None:
+    """Review F20: both variants are checked before any .tres is written or removed."""
+    godot = FinalizeGodot(tmp_path)
+    folders = _variants(tmp_path)
+    (folders["Mobile"] / "Crate.glb").unlink()
+    old = folders["Desktop"] / "M_Crate_Body_Blue.tres"
+    old.write_text("written by an earlier run", encoding="utf-8")
+    (folders["Desktop"] / ".nmg-material-variants.json").write_text('["M_Crate_Body_Blue.tres"]')
+    sidecar = {"material_variants": {"desktop": [_RED], "mobile": [_RED]}}
+
+    with pytest.raises(PipelineError) as info:
+        import_variants(godot, tmp_path, name="Crate", variant_dirs=folders, sidecar=sidecar)
+
+    assert info.value.code == "import_godot.mismatch"
+    assert not (folders["Desktop"] / "M_Crate_Body_Red.tres").exists()
+    assert old.read_text(encoding="utf-8") == "written by an earlier run"
+    assert godot.calls == []
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"name": "Red"},
+        {"material": "M_Crate_Body"},
+        {"name": 3, "material": "M_Crate_Body"},
+        {**_RED, "parameters": {"Tint": ["red", 0, 0]}},
+        {**_RED, "parameters": {"Tint": [1, 0]}},
+        {**_RED, "parameters": "Tint"},
+        {**_RED, "base_color": 7},
+    ],
+)
+def test_a_malformed_material_variant_is_a_coded_mismatch(
+    tmp_path: Path, entry: dict[str, Any]
+) -> None:
+    """Review F21: no bare KeyError or ValueError; nothing is written."""
+    godot = FinalizeGodot(tmp_path)
+    folders = _variants(tmp_path)
+    sidecar = {"material_variants": {"desktop": [entry], "mobile": []}}
+
+    with pytest.raises(PipelineError) as info:
+        import_variants(godot, tmp_path, name="Crate", variant_dirs=folders, sidecar=sidecar)
+
+    assert info.value.code == "import_godot.mismatch"
+    assert "malformed" in info.value.message
+    assert info.value.remediation
+    assert not list(folders["Desktop"].glob("*.tres"))
+    assert godot.calls == []
+
+
 def _mesh(**changes: Any) -> dict[str, Any]:
     mesh: dict[str, Any] = {
         "name": "Crate",
@@ -106,3 +163,12 @@ def test_compare_meshes_names_the_mesh_and_field(
 def test_compare_meshes_allows_a_millimetre() -> None:
     near = _mesh(bounds={"min": [0.0009, 0.0, 0.0], "max": [1.0, 0.9991, 1.0]})
     compare_meshes("Desktop", [_mesh()], [near])
+
+
+def test_blender_names_match_the_node_names_godot_gives_them() -> None:
+    """Review F34: Godot replaces . : @ / " % in node names; the sidecar keeps Blender names."""
+    expected = [_mesh(name="Crate.001"), _mesh(name='Lid:"a"@b/c%')]
+    measured = [_mesh(name="Crate_001"), _mesh(name="Lid__a__b_c_")]
+    compare_meshes("Desktop", expected, measured)
+    with pytest.raises(PipelineError):
+        compare_meshes("Desktop", [_mesh(name="Crate.001")], [_mesh(name="Crate_002")])

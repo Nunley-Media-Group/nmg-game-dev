@@ -186,7 +186,6 @@ def list_material_variants(
     category: str,
     collection: str,
     export_root: str | Path | None = None,
-    godot: GodotRunner | None = None,
 ) -> list[dict[str, Any]] | dict[str, Any]:
     """List a finalized asset's material variants from the files finalize wrote (#148, #249 FR6).
 
@@ -195,10 +194,8 @@ def list_material_variants(
     rows of ``{name, material, desktop, mobile}`` sorted by material, then name, where
     ``desktop``/``mobile`` is the ``res://`` path of the ``.tres`` or ``None``.  An asset with no
     material variants returns ``[]``.  A missing or invalid sidecar returns ``{"error": ...}`` with
-    ``finalize.material_variants_failed``.  ``godot`` is accepted so callers can pass their runner,
-    but the listing never starts Godot, so it is never called.
+    ``finalize.material_variants_failed``.  The listing never starts Godot.
     """
-    del godot  # The listing is file-only by design.
     if not _PASCAL.fullmatch(category) or not _PASCAL.fullmatch(collection):
         return {
             "error": {

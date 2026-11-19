@@ -154,6 +154,10 @@ def read_png_gray16(path: Path) -> tuple[int, int, list[int]]:
         raise ValueError(f"{path} is not a non-interlaced 16-bit grayscale PNG")
     raw = zlib.decompress(bytes(compressed))
     stride = width * 2
+    if len(raw) < height * (1 + stride):
+        raise ValueError(
+            f"{path} is truncated: {len(raw)} bytes of pixel data, expected {height * (1 + stride)}"
+        )
     rows: list[bytes] = []
     previous = bytearray(stride)
     offset = 0
@@ -195,7 +199,7 @@ def decode_heights(path: Path, terrain: TerrainVariant) -> list[float]:
     """Decode ``T_<Name>_Height.png`` into ``heightmap_px²`` heights in metres, row-major."""
     try:
         width, height, codes = read_png_gray16(path)
-    except (OSError, ValueError, zlib.error, struct.error) as error:
+    except (OSError, ValueError, IndexError, zlib.error, struct.error) as error:
         raise _export_error(f"the heightmap {path} cannot be read: {error}") from error
     if width != terrain.heightmap_px or height != terrain.heightmap_px:
         raise _export_error(

@@ -2,7 +2,9 @@
 
 ``import_variants`` lands both exported variants in the Godot project:
 
-1. Writes each variant's material-variant ``.tres`` files (``material_variants.py``).
+1. Checks both variants (sidecar, ``.glb``, and every declared material variant) before writing
+   anything, then writes each variant's material-variant ``.tres`` files
+   (``material_variants.py``).
 2. Runs ``godot --headless --import`` once for the project.
 3. Runs ``probe_asset.gd`` once per variant on ``<Variant>/<Name>.glb``.
 4. Compares the probe with that variant's ``nmg-asset.json`` ``meshes``: the same mesh names,
@@ -19,7 +21,7 @@ from typing import Any, Final, NoReturn, cast
 
 from nmg_game_dev.pipeline.errors import PipelineError
 
-from .material_variants import sidecar_entries, write_variant_materials
+from .material_variants import plan_variant_materials, sidecar_entries, write_planned
 from .project import res_path
 from .runner import GodotRunner, import_project, run_probe
 
@@ -49,7 +51,7 @@ def import_variants(
     ``sidecar`` is the parsed ``nmg-variants.json`` (its ``material_variants`` lists are used).
     """
     expected: dict[str, list[dict[str, Any]]] = {}
-    materials: dict[str, list[str]] = {}
+    planned: dict[str, list[tuple[Path, str]]] = {}
     for variant in VARIANTS:
         folder = variant_dirs[variant]
         expected[variant] = _expected_meshes(folder / ASSET_SIDECAR, variant)
@@ -61,10 +63,17 @@ def import_variants(
                 remediation="Rerun the export step so both variants hold <Name>.glb.",
                 stage=_STAGE,
             )
-        written = write_variant_materials(
+        planned[variant] = plan_variant_materials(
             project, folder, name, sidecar_entries(sidecar or {}, variant)
         )
-        materials[variant] = [res_path(project, path) for path in written]
+    # Both variants are valid: only now does anything in the project change.
+    materials = {
+        variant: [
+            res_path(project, path)
+            for path in write_planned(variant_dirs[variant], planned[variant])
+        ]
+        for variant in VARIANTS
+    }
 
     import_project(runner, project, timeout=timeout)
 
@@ -89,14 +98,29 @@ def import_variants(
     return results
 
 
+_INVALID_NODE_CHARS: Final = '.:@/"%'
+
+
+def node_name(name: str) -> str:
+    """Return ``name`` as Godot's glTF importer names the node (invalid characters become ``_``)."""
+    for char in _INVALID_NODE_CHARS:
+        name = name.replace(char, "_")
+    return name
+
+
 def compare_meshes(
     variant: str,
     expected: Sequence[Mapping[str, Any]],
     measured: Sequence[Mapping[str, Any]],
 ) -> None:
-    """Raise ``import_godot.mismatch`` naming the mesh and field at the first difference."""
-    wanted = {str(mesh["name"]): mesh for mesh in expected}
-    found = {str(mesh["name"]): mesh for mesh in measured}
+    """Raise ``import_godot.mismatch`` naming the mesh and field at the first difference.
+
+    Names are compared as Godot node names: Godot's glTF importer replaces the characters a node
+    name cannot hold (``. : @ / " %``) with ``_``, while the sidecar keeps the Blender names, so
+    ``Crate.001`` in ``nmg-asset.json`` matches the imported ``Crate_001``.
+    """
+    wanted = {node_name(str(mesh["name"])): mesh for mesh in expected}
+    found = {node_name(str(mesh["name"])): mesh for mesh in measured}
     missing = sorted(set(wanted) - set(found))
     if missing:
         _mismatch(variant, missing[0], "name", "present in the import", "missing")

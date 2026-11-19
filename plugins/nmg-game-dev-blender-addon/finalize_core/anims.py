@@ -29,13 +29,16 @@ ANIMATIONS_DIR: Final = "Animations"
 
 # The rigged mesh export's skeleton and axis settings, so a clip rides the same skeleton as the
 # mesh.  Only the animation settings differ: the armature's one assigned action, sampled on every
-# frame with every bone kept.  Imported, never copied, so they cannot drift.
+# frame with every bone kept, and slid so its first key is at time 0: Godot keeps key times as
+# written, so its animation length times fps is then frame_end - frame_start.  Imported, never
+# copied, so they cannot drift.
 ANIM_EXPORT_OPTIONS: Final[dict[str, Any]] = {
     **RIG_GLB_OPTIONS,
     "export_animations": True,
     "export_animation_mode": "ACTIVE_ACTIONS",
     "export_force_sampling": True,
     "export_frame_range": False,
+    "export_anim_slide_to_zero": True,
     "export_optimize_animation_size": False,
     "export_optimize_animation_keep_anim_armature": True,
     "export_bake_animation": False,

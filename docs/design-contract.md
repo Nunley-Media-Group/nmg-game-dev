@@ -37,7 +37,7 @@ Wooden crate by the harbor gate. Free text.
 | `act` | no | all | Integer, 1 or more. |
 | `depends_on` | no | all | List of other entries' `name` values. |
 | `region` | no | `mission` | The `name` of a `region` entry. |
-| `terrain` | no | `region` | The `name` of an `environment` entry whose `asset_class` is `terrain`. The region's ground is that terrain's Desktop scene (section 8). |
+| `terrain` | no | `region` | The `name` of an `environment` entry whose `asset_class` is `terrain`. The region's ground is that terrain's scene, loaded for each platform's variant (section 8). |
 
 The types `character`, `vehicle`, `prop`, and `environment` are asset types. Finalize turns them
 into assets. The types `region`, `mission`, and `system` are scaffolded as Godot files (section 6).
@@ -176,7 +176,9 @@ error design.unknown_reference <asset_name>: <message>
 
 `skipped` is printed for `orphaned` entries. `created` and `unchanged` both mean the item is now
 `scaffolded`. A region whose `terrain` names no terrain entry is reported with `design.unknown_reference`,
-writes nothing, and does not stop the other items.
+writes nothing, and does not stop the other items. An entry whose `asset_name` is not PascalCase (a
+hand-edited backlog) is reported with `design.scaffold_failed` the same way, because the name becomes
+a file path and a class name.
 
 ## 7. Exit codes
 
@@ -195,10 +197,14 @@ writes nothing, and does not stop the other items.
 | `mission` | `game/missions/<Name>.tres` | An `NmgMissionDefinition` resource (the add-on's `res://addons/nmg_game_dev/nmg_mission_definition.gd`) with `mission_name`, `act`, `region`, `depends_on` (`Array[StringName]`), and `design_doc_path` from the entry. `act` is 0 when it is absent. `region` and `depends_on` hold asset names. |
 | `system` | `game/systems/<Name>/<snake_name>.gd` | A component script: `class_name <Name>Component` and `extends Node`, where `<snake_name>` is the snake_case form of `<Name>`. |
 
-A region with a `terrain` field instances the named terrain's Desktop scene,
-`res://assets/<Category>/<Name>/Desktop/<Name>.tscn`, where `<Category>` and `<Name>` are the terrain
-entry's. It gets no flat plane. A region without `terrain`, or whose terrain scene does not exist yet,
-gets the flat ground: a `MeshInstance3D` with a 200 m `PlaneMesh` and a `StaticBody3D` with a
+A region with a `terrain` field, once that terrain is finalized (its
+`res://assets/<Category>/<Name>/Desktop/<Name>.tscn` exists), gets an `NmgVariantScene` node (the
+add-on's `res://addons/nmg_game_dev/nmg_variant_scene.gd`) named `<Name>` whose `scene_path` is the
+variant-free `res://assets/<Category>/<Name>/<Name>.tscn`, where `<Category>` and `<Name>` are the
+terrain entry's. At run time it loads the variant `NmgAssets.resolve_variant_path` picks (Mobile on
+mobile and web, Desktop elsewhere), so the region never hard-links a `Desktop/` or `Mobile/` path
+that an export preset drops. It gets no flat plane. A region without `terrain`, or whose terrain
+scene does not exist yet, gets the flat ground: a `MeshInstance3D` with a 200 m `PlaneMesh` and a `StaticBody3D` with a
 `BoxShape3D`.
 
 Mission resources need the `addons/nmg_game_dev` add-on, which `/onboard-consumer` installs into

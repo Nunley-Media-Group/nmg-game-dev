@@ -13,8 +13,9 @@ import pytest
 
 from nmg_game_dev.audio import import_ogg, import_wav
 from nmg_game_dev.audio.errors import AudioError
-from nmg_game_dev.audio.godot_import import ogg_import_text, wav_import_text
+from nmg_game_dev.audio.godot_import import installed_result, ogg_import_text, wav_import_text
 from nmg_game_dev.godot.runner import CommandResult
+from nmg_game_dev.pipeline.errors import PipelineError
 from tests.godot_fakes import FakeGodotRunner
 from tests.unit.audio.conftest import OGG_STUB, FakeFfmpeg
 
@@ -171,3 +172,46 @@ def test_an_existing_import_file_blocks_the_import(project: Path, wav: Path) -> 
     assert caught.value.code == "audio.asset_exists"
     assert sidecar.read_text(encoding="utf-8") == "keep"
     assert not (project / "game" / "assets" / "Audio" / "Door.wav").exists()
+
+
+# --- installed_result: resuming after an interrupted conversion (#249 review F6) ----------------
+
+
+def test_installed_result_is_none_before_any_import(project: Path) -> None:
+    assert installed_result(project, "sfx", "Door", False, None) is None
+
+
+def test_installed_result_rechecks_an_earlier_import(
+    project: Path, wav: Path, godot: FakeGodotRunner
+) -> None:
+    import_wav(project, wav, "Door", True, None)
+    # Godot rewrites the rest of the .import file on import; only importer and loop must match.
+    import_file = project / "game" / "assets" / "Audio" / "Door.wav.import"
+    import_file.write_text(
+        import_file.read_text(encoding="utf-8") + '\n[gen]\nuid="uid://abc"\n', encoding="utf-8"
+    )
+
+    result = installed_result(project, "sfx", "Door", True, godot)
+
+    assert result == {
+        "godot_asset": "res://assets/Audio/Door.wav",
+        "game_asset": str(project / "game" / "assets" / "Audio" / "Door.wav"),
+        "imported_to_godot": True,
+    }
+    assert godot.count("--import") == 1
+    assert len(godot.probe_calls("probe_audio.gd")) == 1
+
+
+def test_installed_result_ignores_a_different_loop_setting(project: Path, wav: Path) -> None:
+    import_wav(project, wav, "Door", True, None)
+    assert installed_result(project, "sfx", "Door", False, None) is None
+
+
+def test_installed_result_with_a_failed_recheck_raises(
+    project: Path, wav: Path, godot: FakeGodotRunner
+) -> None:
+    import_wav(project, wav, "Door", False, None)
+    godot.import_errors = True
+    with pytest.raises(PipelineError) as raised:
+        installed_result(project, "sfx", "Door", False, godot)
+    assert raised.value.code == "audio.import_failed"

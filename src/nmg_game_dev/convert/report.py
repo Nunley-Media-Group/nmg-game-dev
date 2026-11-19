@@ -1,8 +1,8 @@
 """The conversion report: ``godot-conversion-report.md`` at the consumer root (#249 FR11, AC12).
 
 Sections, in order: Converted (every item done so far, including earlier runs), Failed (item, code,
-remediation), Manual port (path, reason), and Deletions (the removed paths, or "kept: N items
-failed").
+remediation), Manual port (path, reason), and Deletions (the removed paths, "failed: <error>"
+when removing them failed, or "kept: N item(s) failed").
 """
 
 from __future__ import annotations
@@ -63,7 +63,8 @@ def render_report(
             "done: " + (", ".join(f"`{path}`" for path in deletions) or "nothing to delete")
         )
     else:
-        lines.append(f"kept: {len(failures)} items failed")
+        count = len(failures)
+        lines.append(f"kept: {count} item{'' if count == 1 else 's'} failed")
     return "\n".join(lines) + "\n"
 
 

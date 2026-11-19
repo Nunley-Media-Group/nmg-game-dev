@@ -26,11 +26,13 @@ The full reference is `docs/skills/convert-to-godot.md`.
 1. **Check the tree.** The project must be a git repository with a clean working tree and a
    `.uproject` at its root. Godot 4 (`GODOT_BIN`, `godot` on PATH, or `/Applications/Godot.app`)
    and Blender (`BLENDER_BIN` or `BLENDER_APP`) must be installed, and ffmpeg (`FFMPEG_BIN` or PATH)
-   when the project has music. Onboarding needs `TEXTURE_GEN_MODELS_DIR`.
+   when the project has music. Onboarding needs `TEXTURE_GEN_MODELS_DIR`, or pass
+   `--models-dir <volume>/nmg-texture-models` to every command below.
 
 2. **Dry run and confirm.** Run
    `uv run --project "${CLAUDE_PLUGIN_ROOT}" python -m nmg_game_dev.convert --project "$CLAUDE_PROJECT_DIR" --dry-run`.
-   It prints one `PLAN convert <item>` line per asset, audio file, and scaffold, and one
+   It prints one `PLAN convert <item>` line per asset, audio file, and scaffold (`PLAN fail <item>
+   [<code>]` for an asset already known to fail, such as one with no Blender source), and one
    `PLAN delete <path>` line per Unreal path, and writes nothing. Show the plan and ask the developer
    with `AskUserQuestion` whether to convert. The conversion deletes the Unreal files once every item
    succeeds, so never run it without that confirmation.
@@ -46,7 +48,8 @@ The full reference is `docs/skills/convert-to-godot.md`.
 
 5. **On failure, fix and rerun.** Exit 1 with failed items means no Unreal file was deleted. Apply
    each failure's remediation, then rerun the same command. The rerun skips the items recorded in
-   `game/.nmg-convert.json` and retries only the rest, so the clean-tree check does not apply to it.
+   `game/.nmg-convert.json` and retries only the rest, so the `.uproject` and clean-tree checks do
+   not apply to it.
 
 6. **Commit.** Once the run exits 0, the deletions are staged. Ask the developer to review
    `git status` and commit the conversion.
@@ -66,6 +69,10 @@ The full reference is `docs/skills/convert-to-godot.md`.
 - `audio.ffmpeg_not_found` → install ffmpeg or set `FFMPEG_BIN`, then rerun to import the music.
 - `onboard.*` → follow the onboarding remediation (see `/onboard-consumer`), then rerun.
 - Any finalize, audio, or `design.*` code → follow the remediation in the report row, then rerun.
+- `convert.settings_invalid` → fix the JSON in `.claude/settings.json` or
+  `.claude/settings.local.json` (or restore it from git), then rerun.
+- `onboard.models_dir_missing` → rerun with `--models-dir <volume>/nmg-texture-models`, or set
+  `TEXTURE_GEN_MODELS_DIR`.
 - `convert.delete_failed` → resolve the git error, then rerun to finish the deletions.
 - `convert.state_invalid` → delete `game/.nmg-convert.json` and restart from a clean tree.
 

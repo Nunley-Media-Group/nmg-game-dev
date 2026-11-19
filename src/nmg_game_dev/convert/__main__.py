@@ -1,4 +1,6 @@
-"""CLI: ``python -m nmg_game_dev.convert [--project DIR] [--dry-run] [--json]`` (#249 FR11).
+"""CLI: ``python -m nmg_game_dev.convert [--project DIR] [--models-dir DIR] [--dry-run] [--json]``.
+
+#249 FR11.
 
 Exit 0 when every item converted (or a dry run planned it), 1 on a guard or item failure, and 2 on
 an argument error. A guard failure prints ``ERROR [<code>]: …`` and ``Remediation: …`` to stderr.
@@ -14,7 +16,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from nmg_game_dev.convert.runner import run_convert
+from nmg_game_dev.convert.runner import default_onboard, run_convert
 from nmg_game_dev.pipeline.errors import PipelineError
 
 
@@ -28,6 +30,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="The consumer root. Default: CLAUDE_PROJECT_DIR when set, else the working directory.",
+    )
+    parser.add_argument(
+        "--models-dir",
+        type=Path,
+        default=None,
+        help="The texture models folder onboarding checks. Default: TEXTURE_GEN_MODELS_DIR.",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="Print the planned conversions and deletions only."
@@ -52,7 +60,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: --project {project} is not a directory", file=sys.stderr)
         return 2
     try:
-        result = run_convert(project, dry_run=args.dry_run)
+        models_dir: Path | None = args.models_dir
+        result = run_convert(
+            project,
+            dry_run=args.dry_run,
+            onboard=lambda root: default_onboard(root, models_dir=models_dir),
+        )
     except PipelineError as error:
         print(f"ERROR [{error.code}]: {error.message}", file=sys.stderr)
         print(f"Remediation: {error.remediation}", file=sys.stderr)

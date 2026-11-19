@@ -7,15 +7,19 @@ Targets:
 
 - region: scene ``game/levels/<Name>/<Name>.tscn`` with a ``Node3D`` root, a ``Marker3D``
   ``PlayerSpawn``, a ``DirectionalLight3D``, and a ``WorldEnvironment``. When the region's
-  ``terrain`` names a terrain entry whose finalized Desktop scene
-  ``game/assets/<Category>/<Name>/Desktop/<Name>.tscn`` exists, the region instances that scene.
+  ``terrain`` names a terrain entry that has been finalized (its
+  ``game/assets/<Category>/<Name>/Desktop/<Name>.tscn`` exists), the region gets an
+  ``NmgVariantScene`` node whose ``scene_path`` is the variant-free
+  ``res://assets/<Category>/<Name>/<Name>.tscn``, so each platform loads its own variant at run time
+  and the scene never hard-links a ``Desktop/`` or ``Mobile/`` path the export presets drop.
   Otherwise it gets a 200 m ground: a ``PlaneMesh`` on a ``StaticBody3D`` with a ``BoxShape3D``.
 - mission: ``NmgMissionDefinition`` resource ``game/missions/<Name>.tres``.
 - system: component script ``game/systems/<Name>/<snake_name>.gd`` (``<Name>Component``).
 
 An existing file is reported ``unchanged`` and is still marked ``scaffolded``. A region whose
-``terrain`` names no terrain entry is a ``design.unknown_reference`` item, and an ``OSError`` on one
-entry is a ``design.scaffold_failed`` item; neither stops the others. A missing
+``terrain`` names no terrain entry is a ``design.unknown_reference`` item; an entry whose asset name
+is not PascalCase (it becomes a path and a class name) and an ``OSError`` on one entry are
+``design.scaffold_failed`` items; none of them stops the others. A missing
 ``game/project.godot`` raises ``design.godot_project_missing`` before anything is written. The
 backlog is written once, in a ``finally``, so the entries that did scaffold stay marked.
 """
@@ -32,7 +36,7 @@ from nmg_game_dev.godot.project import PROJECT_FILE, godot_string
 from nmg_game_dev.pipeline.errors import PipelineError
 
 from . import backlog
-from .model import Entry
+from .model import PASCAL_CASE, Entry
 from .paths import backlog_path
 
 SCAFFOLD_TYPES: Final = ("region", "mission", "system")
@@ -41,6 +45,7 @@ UNKNOWN_REFERENCE: Final = "design.unknown_reference"
 PROJECT_MISSING: Final = "design.godot_project_missing"
 GAME_DIR: Final = "game"
 MISSION_SCRIPT: Final = "res://addons/nmg_game_dev/nmg_mission_definition.gd"
+VARIANT_SCENE_SCRIPT: Final = "res://addons/nmg_game_dev/nmg_variant_scene.gd"
 GROUND_SIZE_M: Final = 200
 
 
@@ -81,9 +86,17 @@ class Terrain:
     asset_name: str
 
     def scene(self) -> Path:
-        """The terrain's finalized Desktop scene, relative to the Godot project."""
+        """The terrain's finalized Desktop scene, relative to the Godot project.
+
+        Its existence marks the terrain as finalized; regions never reference it directly.
+        """
         name = self.asset_name
         return Path("assets") / self.category / name / "Desktop" / f"{name}.tscn"
+
+    def variant_free_path(self) -> str:
+        """The ``res://`` path ``NmgAssets.resolve_variant_path`` routes to either variant."""
+        name = self.asset_name
+        return f"res://assets/{self.category}/{name}/{name}.tscn"
 
 
 def run_scaffold(
@@ -124,6 +137,14 @@ def run_scaffold(
             if entry.status == "orphaned":
                 report.lines.append(
                     ScaffoldLine("skipped", entry.type, entry.asset_name, entry.source)
+                )
+                continue
+            if not PASCAL_CASE.fullmatch(entry.asset_name):
+                _record_failure(
+                    report,
+                    entry,
+                    f"asset_name {entry.asset_name!r} is not PascalCase, so it cannot name a "
+                    "Godot file or class",
                 )
                 continue
             terrain = entry.fields.get("terrain")
@@ -199,11 +220,11 @@ def _render(
 
 
 def region_scene(name: str, terrain: Terrain | None) -> str:
-    """Return the ``.tscn`` text for region ``name``, instancing ``terrain`` when given."""
+    """Return the ``.tscn`` text for region ``name``, loading ``terrain``'s variant when given."""
     blocks = ["[gd_scene format=3]"]
     if terrain is not None:
-        res = "res://" + terrain.scene().as_posix()
-        blocks.append(f'[ext_resource type="PackedScene" path={godot_string(res)} id="1_terrain"]')
+        script = godot_string(VARIANT_SCENE_SCRIPT)
+        blocks.append(f'[ext_resource type="Script" path={script} id="1_terrain"]')
     blocks.extend(
         [
             '[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]',
@@ -241,7 +262,9 @@ def region_scene(name: str, terrain: Terrain | None) -> str:
     )
     if terrain is not None:
         blocks.append(
-            f'[node name="{terrain.asset_name}" parent="." instance=ExtResource("1_terrain")]'
+            f'[node name="{terrain.asset_name}" type="Node3D" parent="."]\n'
+            'script = ExtResource("1_terrain")\n'
+            f"scene_path = {godot_string(terrain.variant_free_path())}"
         )
     else:
         blocks.extend(

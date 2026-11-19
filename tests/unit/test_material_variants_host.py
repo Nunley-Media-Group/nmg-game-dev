@@ -2,8 +2,8 @@
 
 Material variants (#148) land in the Godot project as ``M_<Name>_<Part>_<Variant>.tres``
 ``StandardMaterial3D`` files that ``import_godot`` writes into each variant folder (#249). The
-listing reads only ``nmg-variants.json`` and those files, so it never starts Godot: a
-``FakeGodotRunner`` passed to it records no call.
+listing reads only ``nmg-variants.json`` and those files, so it never starts Godot: the listing
+tests make resolving or starting Godot (or any process) fail.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from nmg_game_dev.godot.material_variants import (
 from nmg_game_dev.pipeline import FinalizeClients, FinalizeRequest, PipelineError, finalize
 from nmg_game_dev.pipeline.steps import _STEP_VERSION, STEP_ORDER, settings_hash
 from tests.finalize_fakes import FakeStepRunner, FinalizeGodot
-from tests.godot_fakes import FakeGodotRunner
+from tests.godot_fakes import forbid_godot
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RED = {"name": "Red", "material": "M_Crate_Body", "base_color": "Red.png"}
@@ -329,6 +329,21 @@ def test_removing_a_variant_deletes_only_its_stale_material(tmp_path: Path) -> N
     assert (folder / "M_Other_Body_Red.tres").is_file()
 
 
+def test_a_hand_made_material_in_the_folder_is_never_removed(tmp_path: Path) -> None:
+    """Review F20: only .tres files finalize wrote (its manifest) are stale candidates."""
+    folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
+    folder.mkdir(parents=True)
+    hand_made = folder / "M_Crate_Body_Custom.tres"
+    hand_made.write_text("made in the Godot editor", encoding="utf-8")
+    write_variant_materials(tmp_path / "game", folder, "Crate", [RED_ENTRY, BLUE_ENTRY])
+
+    write_variant_materials(tmp_path / "game", folder, "Crate", [])
+
+    assert hand_made.read_text(encoding="utf-8") == "made in the Godot editor"
+    assert not (folder / "M_Crate_Body_Red.tres").exists()
+    assert not (folder / "M_Crate_Body_Blue.tres").exists()
+
+
 def test_rewriting_the_same_declaration_leaves_the_file_unchanged(tmp_path: Path) -> None:
     folder = _game(tmp_path / "game") / "Props" / "Crate" / "Desktop"
     folder.mkdir(parents=True)
@@ -437,7 +452,7 @@ def test_listing_after_finalize_returns_the_written_materials(tmp_path: Path) ->
 
 
 def test_listing_returns_sorted_rows_with_paths_only_for_existing_materials(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     export_root = _game(tmp_path / "game")
     _finalized(
@@ -450,10 +465,10 @@ def test_listing_returns_sorted_rows_with_paths_only_for_existing_materials(
             "Mobile/M_Crate_Lid_Red.tres",
         ),
     )
-    godot = FakeGodotRunner()
+    forbid_godot(monkeypatch)
 
     rows = list_material_variants(
-        category="Props", collection="Crate", export_root=str(export_root), godot=godot
+        category="Props", collection="Crate", export_root=str(export_root)
     )
 
     assert rows == [
@@ -471,7 +486,6 @@ def test_listing_returns_sorted_rows_with_paths_only_for_existing_materials(
             "mobile": "res://assets/Props/Crate/Mobile/M_Crate_Lid_Red.tres",
         },
     ]
-    assert godot.calls == []
 
 
 def test_listing_an_asset_without_material_variants_is_empty(tmp_path: Path) -> None:
@@ -545,13 +559,14 @@ def test_a_material_outside_any_godot_project_is_material_variants_failed(
     assert raised.value.code == "finalize.material_variants_failed"
 
 
-def test_the_mcp_tool_refuses_a_name_that_is_not_pascal_case(tmp_path: Path) -> None:
-    godot = FakeGodotRunner()
-    response = list_material_variants(category="props", collection="Crate", godot=godot)
+def test_the_mcp_tool_refuses_a_name_that_is_not_pascal_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_godot(monkeypatch)
+    response = list_material_variants(category="props", collection="Crate")
 
     assert isinstance(response, dict)
     assert response["error"]["code"] == "finalize.invalid_request"
-    assert godot.calls == []
 
 
 def test_the_cli_lists_the_rows_as_json(tmp_path: Path) -> None:

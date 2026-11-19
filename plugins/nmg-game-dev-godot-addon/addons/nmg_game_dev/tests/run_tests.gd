@@ -5,11 +5,18 @@ extends SceneTree
 ## Loads every tests/test_*.gd beside this script, calls each test_* method on a fresh instance,
 ## prints one PASS/FAIL line per method and then "N passed, M failed". Exits 1 on any failure, or
 ## when no test ran.
+##
+## A method fails when a check recorded a failure, or when the engine logged an error while it ran
+## (a GDScript runtime error aborts the method without recording anything, so the log is the only
+## evidence). Warnings are kept for the test to read through take_warnings().
 
 const TEST_PREFIX: String = "test_"
+const LogCapture: GDScript = preload("res://addons/nmg_game_dev/tests/nmg_log_capture.gd")
 
 
 func _initialize() -> void:
+	var capture: Logger = LogCapture.new()
+	OS.add_logger(capture)
 	var tests_dir: String = (get_script() as Script).resource_path.get_base_dir()
 	var passed: int = 0
 	var failed: int = 0
@@ -21,9 +28,13 @@ func _initialize() -> void:
 			continue
 		for method_name: String in _test_methods(script):
 			var instance: Object = script.new()
+			instance.set("log_capture", capture)
+			capture.call("take_errors")
+			capture.call("take_warnings")
 			instance.call(method_name)
 			var failures: Array = instance.get("failures")
-			if failures.is_empty():
+			var errors: PackedStringArray = capture.call("take_errors")
+			if failures.is_empty() and errors.is_empty():
 				passed += 1
 				print("PASS %s::%s" % [file_name, method_name])
 			else:
@@ -31,6 +42,9 @@ func _initialize() -> void:
 				print("FAIL %s::%s" % [file_name, method_name])
 				for message: Variant in failures:
 					print("    %s" % message)
+				for message: String in errors:
+					print("    engine error: %s" % message)
+	OS.remove_logger(capture)
 	print("%d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 or passed == 0 else 0)
 

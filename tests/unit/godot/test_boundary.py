@@ -20,7 +20,12 @@ from nmg_game_dev.godot import (
     run_probe,
 )
 from nmg_game_dev.godot.presets import PRESETS
-from nmg_game_dev.godot.runner import CommandResult, SubprocessGodotRunner
+from nmg_game_dev.godot.runner import (
+    DEFAULT_TIMEOUT_S,
+    CommandResult,
+    SubprocessGodotRunner,
+    default_timeout,
+)
 from nmg_game_dev.pipeline.errors import PipelineError
 from tests.godot_fakes import FakeGodotRunner
 
@@ -117,6 +122,64 @@ def test_import_project_error_line_raises(tmp_path: Path) -> None:
         import_project(FakeGodotRunner(import_errors=True), tmp_path)
     assert raised.value.code == "import_godot.import_failed"
     assert "ERROR: Failed loading resource" in raised.value.message
+
+
+def test_import_project_error_line_on_exit_0_raises(tmp_path: Path) -> None:
+    # Godot --import commonly exits 0 when a resource fails, so the ERROR: line alone must fail.
+    runner = FakeGodotRunner()
+    runner.run = lambda *_a, **_k: CommandResult(  # type: ignore[method-assign]
+        0, stdout="Godot Engine v4\nERROR: Failed loading resource: res://broken.glb\n"
+    )
+    with pytest.raises(PipelineError) as raised:
+        import_project(runner, tmp_path, error_code="import_anims.failed")
+    assert raised.value.code == "import_anims.failed"
+    assert raised.value.message.endswith("ERROR: Failed loading resource: res://broken.glb")
+
+
+def test_import_project_timeout_reports_the_timeout(tmp_path: Path) -> None:
+    runner = FakeGodotRunner()
+    runner.run = lambda *_a, **_k: CommandResult(  # type: ignore[method-assign]
+        124, stderr="Godot did not finish within 900 s and was stopped"
+    )
+    with pytest.raises(PipelineError) as raised:
+        import_project(runner, tmp_path)
+    assert "did not finish within 900 s" in raised.value.message
+    assert "NMG_GODOT_TIMEOUT_S" in raised.value.remediation
+
+
+def test_run_probe_timeout_reports_the_timeout(tmp_path: Path) -> None:
+    runner = FakeGodotRunner(
+        {
+            "probe_asset.gd": CommandResult(
+                124, stderr="Godot did not finish within 5 s and was stopped"
+            )
+        }
+    )
+    with pytest.raises(PipelineError) as raised:
+        run_probe(runner, tmp_path, "probe_asset.gd", {}, error_code="import_godot.mismatch")
+    assert "did not finish within 5 s" in raised.value.message
+    assert "quarantine" in raised.value.remediation
+
+
+def test_subprocess_runner_bounds_every_run_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hang = tmp_path / "godot"
+    hang.write_text("#!/bin/sh\nsleep 30\n")
+    hang.chmod(0o755)
+    monkeypatch.setenv("NMG_GODOT_TIMEOUT_S", "0.5")
+    runner = SubprocessGodotRunner(hang)
+    assert runner.timeout == 0.5
+    result = runner.run(["--import"], project=tmp_path)
+    assert result.returncode == 124
+    assert "did not finish within 0.5 s" in result.stderr
+
+
+def test_default_timeout_ignores_a_bad_override() -> None:
+    assert default_timeout({"NMG_GODOT_TIMEOUT_S": "soon"}) == DEFAULT_TIMEOUT_S
+    assert default_timeout({"NMG_GODOT_TIMEOUT_S": "-1"}) == DEFAULT_TIMEOUT_S
+    assert default_timeout({}) == DEFAULT_TIMEOUT_S
+    assert default_timeout({"NMG_GODOT_TIMEOUT_S": "60"}) == 60.0
 
 
 def test_import_project_nonzero_exit_without_error_line_raises(tmp_path: Path) -> None:

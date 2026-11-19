@@ -37,7 +37,7 @@ Feature: Terrain asset class finalized into Godot terrain scenes
   Scenario: A region with an imported terrain instances it instead of a plane
     Given a region entry whose terrain names an imported terrain entry
     When scaffold creates the region level
-    Then the level instances the terrain's Desktop scene and has no ground plane
+    Then the level loads the terrain's platform variant and has no ground plane
 
   @SCN006
   Scenario: A region without an imported terrain keeps the flat plane

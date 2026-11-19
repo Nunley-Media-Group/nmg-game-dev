@@ -40,7 +40,7 @@ from typing import Final
 
 from nmg_game_dev.godot.binary import resolve_godot
 from nmg_game_dev.godot.presets import PRESETS
-from nmg_game_dev.godot.project import parse_config, read_config
+from nmg_game_dev.godot.project import godot_string, parse_config, read_config
 from nmg_game_dev.godot.runner import CommandResult, GodotRunner, SubprocessGodotRunner
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.quality.mobile_budgets import (
@@ -69,6 +69,8 @@ WEB_PACK_LIMIT: Final = 38 * 1024 * 1024
 """Bytes: a web ``index.pck`` above this prints ``ship.web_pack_large``."""
 DEFAULT_KEYSTORE_ALIAS: Final = "upload"
 MASK: Final = "***"
+EXPORT_TIMEOUT_S: Final = 3600.0
+"""An export may run far longer than a probe; it gets its own bound."""
 
 IOS_TEAM_KEY: Final = "application/app_store_team_id"
 IOS_PROFILE_KEY: Final = "application/provisioning_profile_uuid_release"
@@ -341,7 +343,9 @@ def _export(
     shown_env: list[str],
     lines: list[str],
 ) -> None:
-    result = _godot_run(ship, args, lines, env=child_env, shown_env=shown_env)
+    result = _godot_run(
+        ship, args, lines, env=child_env, shown_env=shown_env, timeout=EXPORT_TIMEOUT_S
+    )
     if result is not None and result.returncode != 0:
         raise ShipError(
             code="ship.export_failed",
@@ -365,11 +369,8 @@ def android_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
         or DEFAULT_KEYSTORE_ALIAS,
         "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD": env.get("ANDROID_KEYSTORE_PASSWORD", ""),
     }
-    shown = [
-        f"GODOT_ANDROID_KEYSTORE_RELEASE_PATH={child['GODOT_ANDROID_KEYSTORE_RELEASE_PATH']}",
-        f"GODOT_ANDROID_KEYSTORE_RELEASE_USER={child['GODOT_ANDROID_KEYSTORE_RELEASE_USER']}",
-        f"GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD={MASK}",
-    ]
+    # No keystore value is ever printed: the path and alias are masked like the password.
+    shown = [f"{name}={MASK}" for name in child]
     return child, shown
 
 
@@ -429,7 +430,11 @@ def _profile_uuid(ship: _Ship, command: list[str]) -> str:
 
 
 def patch_preset_options(text: str, preset_index: int, values: Mapping[str, str]) -> str:
-    """Set ``values`` as strings in ``[preset.<index>.options]``; replace or append each key."""
+    """Set ``values`` as strings in ``[preset.<index>.options]``; replace or append each key.
+
+    Each value is written as an escaped Godot string literal, so a quote or backslash in an
+    environment value cannot break the file.
+    """
     lines = text.splitlines(keepends=True)
     header = f"[preset.{preset_index}.options]"
     start = next((i for i, line in enumerate(lines) if line.strip() == header), None)
@@ -446,11 +451,13 @@ def patch_preset_options(text: str, preset_index: int, values: Mapping[str, str]
     for i in range(start + 1, end):
         key = lines[i].split("=", 1)[0].strip()
         if key in pending:
-            lines[i] = f'{key}="{pending.pop(key)}"\n'
+            lines[i] = f"{key}={godot_string(pending.pop(key))}\n"
     insert_at = end
     while insert_at > start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
-    lines[insert_at:insert_at] = [f'{key}="{value}"\n' for key, value in pending.items()]
+    lines[insert_at:insert_at] = [
+        f"{key}={godot_string(value)}\n" for key, value in pending.items()
+    ]
     return "".join(lines)
 
 
@@ -478,8 +485,12 @@ def _godot_run(
     *,
     env: Mapping[str, str] | None = None,
     shown_env: Sequence[str] = (),
+    timeout: float | None = None,
 ) -> CommandResult | None:
-    """Print and run one headless Godot command; a dry run only records it and returns None."""
+    """Print and run one headless Godot command; a dry run only records it and returns None.
+
+    ``timeout`` overrides the runner's default bound (``NMG_GODOT_TIMEOUT_S``) for this command.
+    """
     argv = [
         *shown_env,
         ship.godot_display,
@@ -498,7 +509,7 @@ def _godot_run(
     print(_show("RUN:", argv))
     if ship.godot is None:  # pragma: no cover - _godot always returns a runner outside a dry run
         raise AssertionError("no Godot runner outside a dry run")
-    result = ship.godot.run(args, project=ship.project_dir, env=env)
+    result = ship.godot.run(args, project=ship.project_dir, env=env, timeout=timeout)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
     return result

@@ -30,7 +30,7 @@ from nmg_game_dev.audio.ffmpeg import (
     encode_ogg,
     resolve_ffmpeg,
 )
-from nmg_game_dev.godot.project import PROJECT_FILE, godot_string, render_config
+from nmg_game_dev.godot.project import PROJECT_FILE, godot_string, parse_config, render_config
 from nmg_game_dev.godot.runner import GodotRunner, import_project, run_probe
 
 IMPORT_FAILED: Final = "audio.import_failed"
@@ -45,11 +45,19 @@ STREAM_LOOP_FORWARD: Final = 1
 """``AudioStreamWAV.loop_mode`` values the probe reports (``LOOP_DISABLED``, ``LOOP_FORWARD``)."""
 
 _IMPORT_REMEDIATION: Final = (
-    "Read the Godot error in the message, fix the file under game/assets/Audio/, then import the "
-    "sound again. The stored WAV under SourceArt is kept."
+    "Read the Godot error in the message and fix its cause. The stored WAV under "
+    "SourceArt/Audio/ is kept, so delete it before importing the sound again under the same name, "
+    "or rerun /convert-to-godot, which imports stored WAVs directly."
 )
 
-__all__ = ["check_target", "import_ogg", "import_wav", "ogg_import_text", "wav_import_text"]
+__all__ = [
+    "check_target",
+    "import_ogg",
+    "import_wav",
+    "installed_result",
+    "ogg_import_text",
+    "wav_import_text",
+]
 
 
 def wav_import_text(res_path: str, loop: bool) -> str:
@@ -130,12 +138,16 @@ def import_wav(
     def write(tmp: Path) -> None:
         shutil.copyfile(wav, tmp)
 
-    expected = {
-        "class": "AudioStreamWAV",
-        "loop_mode": STREAM_LOOP_FORWARD if loop else STREAM_LOOP_DISABLED,
-    }
     return _install(
-        project_root, "sfx", name, target, write, wav_import_text, loop, runner, expected
+        project_root,
+        "sfx",
+        name,
+        target,
+        write,
+        wav_import_text,
+        loop,
+        runner,
+        _expected("sfx", loop),
     )
 
 
@@ -162,10 +174,60 @@ def import_ogg(
             encode_ogg(encoder, wav, encoded)
             shutil.move(str(encoded), str(tmp))
 
-    expected = {"class": "AudioStreamOggVorbis", "loop": bool(loop)}
     return _install(
-        project_root, "music", name, target, write, ogg_import_text, loop, runner, expected
+        project_root,
+        "music",
+        name,
+        target,
+        write,
+        ogg_import_text,
+        loop,
+        runner,
+        _expected("music", loop),
     )
+
+
+def installed_result(
+    project_root: Path, kind: str, name: str, loop: bool, runner: GodotRunner | None
+) -> dict[str, Any] | None:
+    """Return the result for a sound an earlier run already installed, or ``None``.
+
+    A sound counts as installed when ``game/assets/Audio/<Name>.<wav|ogg>`` exists beside a
+    ``.import`` file that selects the same importer and loop setting (Godot rewrites the rest of
+    that file on import). With a runner, the import is checked again with ``godot --import`` and
+    ``probe_audio.gd``, so a resumed conversion never trusts a half-finished one. Lets conversion
+    resume after a crash between the import and its state update instead of failing
+    ``audio.asset_exists``.
+    """
+    target = paths.game_asset(project_root, kind, name)
+    import_file = _import_file(target)
+    if not target.is_file() or not import_file.is_file():
+        return None
+    res = paths.godot_asset(kind, name)
+    text = wav_import_text(res, loop) if kind == "sfx" else ogg_import_text(res, loop)
+    wanted = parse_config(text)
+    have = parse_config(import_file.read_text(encoding="utf-8"))
+    loop_key = ("params", "edit/loop_mode") if kind == "sfx" else ("params", "loop")
+    for key in (("remap", "importer"), loop_key):
+        if have.get(key) != wanted[key]:
+            return None
+    if runner is not None:
+        _import_and_probe(runner, paths.game_project(project_root), res, _expected(kind, loop))
+    return {
+        "godot_asset": res,
+        "game_asset": str(target),
+        "imported_to_godot": runner is not None,
+    }
+
+
+def _expected(kind: str, loop: bool) -> dict[str, Any]:
+    """The probe result an imported sound must report."""
+    if kind == "sfx":
+        return {
+            "class": "AudioStreamWAV",
+            "loop_mode": STREAM_LOOP_FORWARD if loop else STREAM_LOOP_DISABLED,
+        }
+    return {"class": "AudioStreamOggVorbis", "loop": bool(loop)}
 
 
 def check_target(project_root: Path, kind: str, name: str) -> Path:

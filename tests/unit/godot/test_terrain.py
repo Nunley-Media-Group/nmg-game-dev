@@ -117,6 +117,32 @@ def test_a_heightmap_of_the_wrong_size_is_a_mismatch(tmp_path: Path) -> None:
     assert info.value.code == "import_godot.mismatch"
 
 
+def test_a_truncated_heightmap_is_a_coded_error(tmp_path: Path) -> None:
+    """Review F10: truncated or corrupt pixel data is import_godot.mismatch, not IndexError."""
+    import struct
+    import zlib
+
+    header = struct.pack(">IIBBBBB", 2, 2, 16, 0, 0, 0, 0)
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        crc = zlib.crc32(kind + body) & 0xFFFFFFFF
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", crc)
+
+    short = b"\x00\x01\x02"  # fewer bytes than 2 rows of 1 filter byte + 4 pixel bytes
+    path = tmp_path / "h.png"
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(short))
+        + chunk(b"IEND", b"")
+    )
+    with pytest.raises(PipelineError) as info:
+        decode_heights(path, TerrainVariant(2, 1.0, 10.0, 40.0, 8.0, ("A",)))
+    assert info.value.code == "import_godot.mismatch"
+    assert "truncated" in info.value.message
+    assert info.value.remediation
+
+
 def test_parse_variant_refuses_more_than_four_layers() -> None:
     entry = terrain_entry("Desktop", layers=("A", "B", "C", "D", "E"))
     with pytest.raises(PipelineError) as info:

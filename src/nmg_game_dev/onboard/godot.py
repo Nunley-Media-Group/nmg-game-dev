@@ -3,8 +3,10 @@
 ``ensure_godot_project`` creates ``<game>/project.godot`` with the Compatibility renderer for mobile
 and web, the ``nmg_game_dev`` editor plugin, and the ``NmgAssets`` autoload. On an existing file it
 adds missing keys (``refreshed``) and reports a framework key with another value as ``drift``,
-leaving it alone unless ``refresh``. ``ensure_export_presets`` writes ``<game>/export_presets.cfg``
-when missing and treats any byte difference as drift. ``find_godot`` and ``find_ffmpeg`` report the
+leaving it alone unless ``refresh``. ``[editor_plugins] enabled`` is checked by membership: other
+plugins may be enabled too, and ``refresh`` adds ``nmg_game_dev`` to the list without removing
+them. ``ensure_export_presets`` writes ``<game>/export_presets.cfg`` when missing and treats any
+byte difference as drift. ``find_godot`` and ``find_ffmpeg`` report the
 tools as found (``unchanged``) or missing (``skipped`` with a remediation); onboarding never fails
 on a missing tool.
 """
@@ -47,10 +49,36 @@ DRIFT_CHECKED: Final[dict[ConfigKey, str]] = {
 }
 """Framework-owned keys: added when missing, reported as drift when they differ."""
 
+PLUGINS_KEY: Final[ConfigKey] = ("editor_plugins", "enabled")
+"""Compared by membership: the consumer may enable other editor plugins beside nmg_game_dev."""
+
 GODOT_REMEDIATION: Final = "Install Godot 4 or set GODOT_BIN"
 FFMPEG_REMEDIATION: Final = "Install ffmpeg or set FFMPEG_BIN (needed to import music)"
 _KEY_LINE = re.compile(r"^(?P<key>[^=;\s][^=]*?)\s*=")
 _SECTION_LINE = re.compile(r"^\[(?P<name>[^\]]+)\]\s*$")
+_PACKED_STRINGS = re.compile(r"^PackedStringArray\((?P<items>.*)\)$", re.DOTALL)
+
+
+def _plugin_list(value: str) -> list[str] | None:
+    """The paths in a ``PackedStringArray("a", "b")`` literal, or ``None`` when it is not one."""
+    match = _PACKED_STRINGS.match(value.strip())
+    if match is None:
+        return None
+    try:
+        items = json.loads(f"[{match.group('items')}]")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+        return None
+    return items
+
+
+def _with_our_plugin(value: str) -> str:
+    """``value``'s plugins plus ``nmg_game_dev``'s, keeping every plugin the consumer enabled."""
+    items = _plugin_list(value) or []
+    if PLUGIN_CFG_RES not in items:
+        items.append(PLUGIN_CFG_RES)
+    return f"PackedStringArray({', '.join(godot_string(item) for item in items)})"
 
 
 def required_keys(project_name: str) -> dict[ConfigKey, str]:
@@ -115,8 +143,14 @@ def ensure_godot_project(name: str, path: Path, project_name: str, *, refresh: b
     text = path.read_text(encoding="utf-8")
     updated, added, drifted = ensure_keys(text, required_keys(project_name))
     drifted = [key for key in drifted if key in DRIFT_CHECKED]
+    current_plugins = parse_config(updated).get(PLUGINS_KEY, "")
+    if PLUGINS_KEY in drifted and PLUGIN_CFG_RES in (_plugin_list(current_plugins) or []):
+        drifted.remove(PLUGINS_KEY)  # nmg_game_dev is enabled alongside other plugins
     if drifted and refresh:
-        updated = _set_values(updated, {key: DRIFT_CHECKED[key] for key in drifted})
+        wanted = {key: DRIFT_CHECKED[key] for key in drifted}
+        if PLUGINS_KEY in wanted:
+            wanted[PLUGINS_KEY] = _with_our_plugin(current_plugins)
+        updated = _set_values(updated, wanted)
     if updated != text:
         path.write_text(updated, encoding="utf-8")
     if drifted and not refresh:
