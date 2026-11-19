@@ -8,7 +8,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Fixed
 
-- Rigged assets are measured and exported in their rest pose: validation, the Desktop re-seat, and the GLB exports read the rest shape whatever the pose bones hold, so a leftover pose no longer fails `pivot.bottom_center` or bakes into the geometry, and clip export puts every pose bone back where it was. (#236)
+- Rigged assets are measured and exported in their rest pose: validation, the Desktop re-seat, the reduce copy step, and the GLB exports read the rest shape whatever the pose bones hold, so a leftover pose no longer fails `pivot.bottom_center` or bakes into the geometry, and clip export puts every pose bone back where it was, also when it fails. Read-only (library-linked) armature data keeps its pose. (#236)
 
 ## [0.29.0] - 2026-11-19
 

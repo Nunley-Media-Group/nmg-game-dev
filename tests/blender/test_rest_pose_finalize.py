@@ -344,3 +344,75 @@ def test_scn003_make_copy_evaluates_the_rest_pose(hero: Any, enabled_addon: str)
 
     assert _largest_gap(_world_bounds(copy), rest) <= _TOLERANCE
     assert not _every_bone_at_identity()
+
+
+def test_scn005_a_failed_clip_export_puts_every_pose_bone_back(
+    hero: Any, enabled_addon: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """FR4's error clause: a clip export that fails after sampling still restores the pose."""
+    rig = bpy.data.objects[_RIG]
+    _hold_provenance_clip(rig, "Idle", (1, 10), _LIFT_PER_FRAME)
+    pose_hero(_POSE)
+    before = _pose_state()
+    anims = importlib.import_module(f"{enabled_addon}.finalize_core.anims")
+
+    def sample_then_fail(_objects: Any) -> None:
+        # Leave the bones where the clip's last frame puts them, as the exporter's sampling does.
+        # The rig carries the export name here, so it is read through the captured object.
+        bpy.context.scene.frame_set(bpy.context.scene.frame_end)
+        assert tuple(rig.pose.bones["root"].location) != before["bones"]["root"][1]
+        raise RuntimeError("forced export failure")
+
+    monkeypatch.setattr(anims, "_select_only", sample_then_fail)
+    with pytest.raises(RuntimeError, match="forced export failure"):
+        anims.export_clips(_COLLECTION, ["Idle"], tmp_path / "Animations")
+    monkeypatch.undo()
+
+    assert _pose_state() == before
+
+
+class _ReadOnlyArmatureData:
+    """Stands in for library-linked armature data: reading pose_position works, writing raises."""
+
+    @property
+    def pose_position(self) -> str:
+        return "POSE"
+
+    @pose_position.setter
+    def pose_position(self, _value: str) -> None:
+        raise AttributeError('bpy_struct: attribute "pose_position" is read-only')
+
+
+class _LinkedRig:
+    type = "ARMATURE"
+    data = _ReadOnlyArmatureData()
+
+    def as_pointer(self) -> int:
+        return id(self)
+
+
+class _LinkedSkin:
+    """A mesh stand-in skinned both to the linked rig and to the scene's real rig."""
+
+    def __init__(self, real_rig: Any) -> None:
+        self.modifiers = [
+            type("Mod", (), {"type": "ARMATURE", "object": _LinkedRig()})(),
+            type("Mod", (), {"type": "ARMATURE", "object": real_rig})(),
+        ]
+        self.parent = None
+
+
+def test_rest_pose_skips_read_only_armature_data(hero: Any, enabled_addon: str) -> None:
+    """Read-only (library-linked) armature data is skipped; an error in the block is not masked."""
+    rest_pose = importlib.import_module(f"{enabled_addon}.variants_core.rest_pose").rest_pose
+    rig = bpy.data.objects[_RIG]
+    rig.data.pose_position = "POSE"
+    skin = _LinkedSkin(rig)
+
+    with rest_pose([skin]):
+        assert rig.data.pose_position == "REST"
+    assert rig.data.pose_position == "POSE"
+
+    with pytest.raises(RuntimeError, match="inside the block"), rest_pose([skin]):
+        raise RuntimeError("inside the block")
+    assert rig.data.pose_position == "POSE"

@@ -40,19 +40,27 @@ def deforming_armatures(objects: Iterable[bpy.types.Object]) -> list[bpy.types.O
 def rest_pose(objects: Iterable[bpy.types.Object]) -> Iterator[None]:
     """Put every armature that deforms objects into REST for the block, then restore each one.
 
-    With no deforming armature this changes nothing. The view layer is updated on entry and exit,
-    so bounds and evaluated meshes read inside the block are at rest.
+    With no deforming armature this changes nothing. Armature data that cannot be written, such as
+    library-linked data, is skipped and left as it is. Only the armatures set to REST are restored,
+    so the restore never fails over an error raised inside the block. The view layer is updated on
+    entry and exit, so bounds and evaluated meshes read inside the block are at rest.
     """
-    armatures = deforming_armatures(objects)
-    saved = [(armature.data, armature.data.pose_position) for armature in armatures]
+    saved: list[tuple[bpy.types.Armature, str]] = []
     try:
-        for data, _position in saved:
-            data.pose_position = "REST"
-        if armatures:
+        for armature in deforming_armatures(objects):
+            data = armature.data
+            position = data.pose_position
+            try:
+                data.pose_position = "REST"
+            except (AttributeError, TypeError):
+                # Library-linked armature data is read-only: it keeps its pose, as before #236.
+                continue
+            saved.append((data, position))
+        if saved:
             bpy.context.view_layer.update()
         yield
     finally:
         for data, position in saved:
             data.pose_position = position
-        if armatures:
+        if saved:
             bpy.context.view_layer.update()

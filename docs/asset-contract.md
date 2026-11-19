@@ -38,6 +38,8 @@ viewport or renderer is not done.
   variants step moves its Desktop mesh data onto the origin, so both exported variants sit
   there. The root origin, static assets, and export-time validation keep the 1 mm tolerance.
   A bottom center more than 5 mm off fails validation: move the mesh data closer (#244).
+  Validation, the Desktop re-seat, the reduce copy, and export measure a rigged asset in its rest
+  pose, so a pose left on the pose bones does not affect its pivot, bounds, or mesh checks (#236).
 - Root object transforms applied: location (0,0,0), rotation (0,0,0), scale (1,1,1).
 - Child parts: rotation (0,0,0) and scale (1,1,1), with the origin at the hinge or
   axle and the location wherever that pivot sits relative to the root.
