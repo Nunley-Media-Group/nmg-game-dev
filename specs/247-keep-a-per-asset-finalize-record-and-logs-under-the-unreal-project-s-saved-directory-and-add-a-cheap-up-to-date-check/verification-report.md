@@ -3,9 +3,9 @@
 **Date**: 2026-11-19
 **Issue**: #247
 **Reviewer**: Claude (nmg-sdlc verify worker, gate phase)
-**Scope**: Pre-merge gate on the merge-queue head (default branch integrated, version 0.37.0 prepared)
+**Scope**: Pre-merge gate on the merge-queue head (default branch integrated, version 0.38.0 prepared)
 
-**Verification head**: 28d3bd44955e209702204a894733648d0e87592f
+**Verification head**: 13631c5165d31df7d9364fb8a35b6603808fbd6e
 
 ---
 
@@ -13,18 +13,18 @@
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 4 |
+| Spec Compliance | 5 |
 | Architecture (SOLID) | 4 |
 | Security | 5 |
 | Performance | 5 |
-| Testability | 3 |
+| Testability | 4 |
 | Error Handling | 5 |
-| **Overall** | 4.3 |
+| **Overall** | 4.7 |
 
-### Implementation Status: Fail
-**Total Issues**: 2 (both cause the required `repository.tests` gate to fail)
+### Implementation Status: Pass
+**Total Issues**: 0 above info (4 info notes from the review)
 
-The review of source head `0851463` passed with no findings above `info`. The pre-merge gate on the version-prepared head `28d3bd4` failed. `repository.tests` failed with 3 failed, 2620 passed and 24 skipped. Because a required local validation failed, `plugin.session-smoke` was deferred and is recorded as incomplete. Coverage is complete: 11 validations declared, 11 recorded. The deterministic ceiling from `.nmg-sdlc/verification/247.json` is `Incomplete`. The failed required result caps the status at **Fail**.
+The review of source head `e06fb7a` passed with no findings above `info`. It covered every AC, FR, design path and consumer. The head that will merge is `13631c5`, which integrates `origin/main` (`b131f7d`) and prepares version 0.38.0. The pre-merge gate on that head passed. All 9 applicable required validations passed, and 2 did not apply. Coverage is complete: 11 validations declared, 11 recorded. The deterministic ceiling in `.nmg-sdlc/verification/247.json` is `null`, so no cap applies. Both defects from the previous failed gate (the changelog-section test and the header comment naming the retired engine) are fixed: `repository.tests` now reports 2651 passed, 24 skipped and 0 failed.
 
 ---
 
@@ -41,104 +41,91 @@ The review of source head `0851463` passed with no findings above `info`. The pr
 
 ## Delivery Validation
 
-- Local verification: Not complete (repository.tests failed)
+- Local verification: Pass
 - PR evidence: Not required
 
 ---
 
 ## Acceptance Criteria Verification
 
-All rows come from the passed review record (`.nmg-sdlc/verification/247-review.md`, reviewed head `0851463`). No criterion's tests mock the path under test.
+Every row comes from the passed review record (`.nmg-sdlc/verification/247-review.md`, reviewed head `e06fb7a`, full mode). Each criterion was exercised through its real entry point: `jobs.run_job`, the CLI `main(argv)`, or the MCP tool functions. The tests replace only Blender and Godot with fakes. **No criterion's tests mock the path under test.**
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | A finished run writes a per-asset record | Pass | `src/nmg_game_dev/pipeline/records.py` record write; jobs.py `_record_run`; test_records.py, SCN001 |
-| AC2 | Logs kept beside the record | Pass | records.py staged copy + `os.replace`; test_records.py, SCN002 |
-| AC3 | Each batch item gets its own record | Pass | jobs.py `_run_item`; test_batch.py, SCN003 |
-| AC4 | A new run replaces the last record | Pass | records.py logs-dir replace; test_records.py, SCN004 |
-| AC5 | CLI check | Pass | `finalize/__main__.py` `check`; test_finalize_cli.py, SCN005 |
-| AC6 | MCP `check_finalized` | Pass | mcp_tools.py, server.py, tools.json; test_finalize_mcp_tools.py, SCN006 |
-| AC7 | Up to date = clean full run newer than source | Pass | records.py `check` with native-resource sidecar exemption; prop and terrain round-trip tests |
-| AC8 | Every other case not up to date, with reason | Pass | records.py ordered rule; SCN008 outline |
-| AC9 | Check is cheap, no side effects | Pass | test_records.py lock + tree snapshot; SCN009 |
-| AC10 | Record writing never changes a run's result | Pass | `finalize.record_not_written` warning; SCN010 |
-| AC11 | Batches can skip up-to-date assets | Pass | test_batch.py `skip_up_to_date` |
-| AC12 | Record and check documented | Partial at gate | docs/mcp/finalize.md and SKILL.md are correct, but `test_the_changelog_unreleased_section_has_the_records_bullet` fails after version preparation (see Remaining Issues) |
-| AC13 | Onboarding ignores `.nmg/` | Pass | onboard/gitignore.py; test_gitignore.py; onboarding docs |
+| AC1 | A finished run writes a per-asset record | Pass | `pipeline/records.py` `write_record` via jobs `_record_run`; test_records.py; SCN001 |
+| AC2 | Logs kept beside the record | Pass | `records._copy_logs` staging + `os.replace`; job-dir deletion test; SCN002 |
+| AC3 | Each batch item gets its own record | Pass | jobs `_run_item`; test_batch.py record-order and fail-fast tests; SCN003 |
+| AC4 | A new run replaces the last record | Pass | logs-dir replace + atomic record write; SCN004 |
+| AC5 | CLI check | Pass | `finalize/__main__.py` `check` (text/--json, exit 0/1/2); test_finalize_cli.py; SCN005 |
+| AC6 | MCP `check_finalized` | Pass | mcp_tools.py, server.py, tools.json; test_finalize_mcp_tools.py; SCN006 |
+| AC7 | Up to date = clean full run newer than source | Pass | `records.check` ordered rule; prop and terrain round-trip tests; SCN007 |
+| AC8 | Every other case not up to date, with reason | Pass | one test per reason + reachability test; SCN008 outline |
+| AC9 | Check is cheap, no side effects | Pass | lock-held + tree snapshot test; SCN009 |
+| AC10 | Record writing never changes a run's result | Pass | `finalize.record_not_written` warning; unwritable/unresolvable tests; probe for the failed-run path |
+| AC11 | Batches can skip up-to-date assets | Pass | `skip_up_to_date` in CLI/MCP/service; single collection refused; SCN011 |
+| AC12 | Record and check documented | Pass | docs/mcp/finalize.md section, SKILL.md; test_finalize_docs.py; SCN012 |
+| AC13 | Onboarding ignores `.nmg/` | Pass | onboard/gitignore.py `RECORDS_LINE`; test_gitignore.py; SCN013 |
+
+All 12 FRs (FR1-FR12), design paths DP1-DP8 and consumers C1-C7 also pass in the review record.
 
 ---
 
 ## Task Completion
 
-| Task | Description | Status | Notes |
-|------|-------------|--------|-------|
-| T001 | Records module | Complete | |
-| T002 | Records from jobs + batch skip | Complete | |
-| T003 | Check CLI, MCP tool, batch flag | Complete | |
-| T004 | Git-ignore `.nmg/` during onboarding | Complete | |
-| T005 | Documentation | Complete | |
-| T006 | Tests | Incomplete | Two new test artifacts fail on the merge head (see Remaining Issues) |
+| Task | Description | Status |
+|------|-------------|--------|
+| T001 | Records module | Complete |
+| T002 | Records from jobs + batch skip | Complete |
+| T003 | Check CLI, MCP tool, batch flag | Complete |
+| T004 | Git-ignore `.nmg/` during onboarding | Complete |
+| T005 | Documentation | Complete |
+| T006 | Tests | Complete |
 
 ---
 
 ## Architecture Assessment
 
-Scores come from the review lenses. Records live in their own module (`pipeline/records.py`), and the CLI, MCP and batch layers call that module without duplicating its logic. The check reads metadata only. Writes are atomic. Write failures turn into warnings instead of changing the run result. Testability scores 3 because the two failures below are test artifacts that break under normal delivery: one depends on changelog layout before the release, and one names the retired engine.
+The scores come from the review lenses. Records live in their own module, `pipeline/records.py`. The CLI, the MCP tool and the batch runner call that module and do not repeat its logic (SOLID 4). The check reads only metadata (`stat`, `is_file`, `json.loads`). It takes no lock and writes nothing (Performance 5). Writes are atomic: a temp file plus `os.replace`, and a staged logs directory. A failed write becomes a warning and never changes the run's result (Error Handling 5). No secrets or new external surfaces are involved (Security 5). The tests drive the real entry points with fakes for Blender and Godot. Testability is 4 because no test covers the failed-run warning path; a review probe covered it instead (I2).
 
 ---
 
 ## Steering Doc Verification Gates
 
+Every result is from `.nmg-sdlc/verification/247.json` at head `13631c5`, with a clean tree. The project declares no tiers, so every result records `tier: null` and `selection: null`. No heavy-pool slots were used.
+
 | Gate | Status | Tier / Selection | Evidence |
 |------|--------|------------------|----------|
-| repository.tests | **Fail** | null / null | 3 failed, 2620 passed, 24 skipped (`.nmg-sdlc/verification/247/repository.tests.log`) |
-| repository.lint | Pass | null / null | ruff check clean |
-| repository.format | Pass | null / null | ruff format --check clean |
-| repository.types | Pass | null / null | mypy src tests clean |
-| gate-blender-headless | Pass | null / null | scripts/run-blender-tests.sh |
-| gate-godot-headless | Pass | null / null | scripts/run-godot-tests.sh |
-| gate-mcp-schema | Pass | null / null | validate-mcp-tools.py |
+| repository.tests | Pass | null / null | 2651 passed, 24 skipped in 630.94 s (`.nmg-sdlc/verification/247/repository.tests.log`) |
+| repository.lint | Pass | null / null | `ruff check .` exited 0 |
+| repository.format | Pass | null / null | `ruff format --check .` exited 0 |
+| repository.types | Pass | null / null | `mypy src tests` exited 0 |
+| gate-blender-headless | Pass | null / null | `scripts/run-blender-tests.sh` exited 0 |
+| gate-godot-headless | Pass | null / null | `scripts/run-godot-tests.sh` exited 0 |
+| gate-mcp-schema | Pass | null / null | `validate-mcp-tools.py` exited 0 (covers the `check_finalized` server/tools.json parity) |
 | gate-shellcheck | Skipped (not applicable) | null / null | no `scripts/**.sh` changed |
 | gate-ship-smoke | Skipped (not applicable) | null / null | no ship paths changed |
-| plugin.validate | Pass | null / null | claude plugin validate . |
-| plugin.session-smoke | Incomplete | null / null | deferred until required local validations pass |
+| plugin.validate | Pass | null / null | `claude plugin validate .` exited 0 |
+| plugin.session-smoke | Pass | null / null | plugin loaded via `--plugin-dir`; nmg-game-dev:blender connected |
 
-**Gate Summary**: 7/9 applicable passed, 1 failed, 1 incomplete; 2 not applicable.
+**Gate Summary**: 9/9 applicable passed, 0 failed, 0 incomplete; 2 not applicable. Coverage: declared 11, recorded 11, complete.
 
 ---
 
 ## Fixes Applied
 
-None. The gate phase does not edit source.
+None in this phase; the gate does not edit source. Implementation fixed the two defects from the previous gate (`28d3bd4`) in `e06fb7a`, and the passed review confirmed them.
 
 ## Remaining Issues
 
-### High Priority
+None above info. The info notes from the review:
 
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
-| **Category** | Testing |
-| **Location** | `tests/unit/test_finalize_docs.py:251-256` |
-| **Issue** | `test_the_changelog_unreleased_section_has_the_records_bullet` requires the #247 bullet under `## [Unreleased]`. Version preparation moved that bullet to `## [0.37.0] - 2026-11-19`, which leaves `[Unreleased]` empty, so the test fails on the head that will merge. |
-| **Impact** | The required repository.tests gate fails, and the test would fail on main after any release. |
-| **Fix** | Find the #247 bullet in any section of the changelog (`[Unreleased]` or a released version) instead of only in `[Unreleased]`. |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
-| **Category** | Testing |
-| **Location** | `tests/bdd/features/finalize_records.feature:2` |
-| **Issue** | The header comment `# Generated from: specs/247-keep-a-per-asset-finalize-record-and-logs-under-the-unreal-project-...` contains the retired engine's name, so `tests/unit/test_no_unreal_references.py::test_no_tracked_file_references_the_retired_engine` and `tests/bdd/test_godot_engine_bdd.py::test_scn014_the_retired_engine_is_gone` fail. |
-| **Impact** | The required repository.tests gate fails. |
-| **Fix** | Shorten the header comment so it no longer names the engine, for example `# Generated from: specs/247-*/feature.gherkin` or the issue number alone. Do not add a skip to the retired-engine scan. |
-
-### Low Priority
-
-- I1 (info, from review): `check()` judges against the source `.blend` named in the record, not the batch entry's `.blend`. This is documented as a caveat in docs/mcp/finalize.md.
+- I1: With `skip_up_to_date`, the check judges the `.blend` named in the record, not the batch entry's `.blend`. This matches AC7 and is documented as a caveat in docs/mcp/finalize.md.
+- I2: No test covers the `finalize.record_not_written` warning on a failed single run or a failed batch item. A one-off probe confirmed that path behaves correctly.
+- I3: A hard kill between the log copy and the record write leaves the old record naming the new logs. The check does not read logs, so its answers are unaffected.
+- I4: The stale failed report has been replaced by this report for the current head.
 
 ---
 
 ## Recommendation
 
-**Needs fixes.** Repair the two test defects above, then run the full registered gate again on the new head.
+**Ready to merge.** All applicable required gates pass on the exact head that will merge.
