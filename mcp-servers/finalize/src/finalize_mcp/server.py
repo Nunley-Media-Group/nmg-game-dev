@@ -193,17 +193,41 @@ def list_material_variants(category: str, collection: str, export_root: str | No
 
 
 @mcp.tool(name="import_audio")
-def import_audio(file: str, name: str, kind: str, loop: bool = False) -> dict[str, Any]:
+def import_audio(
+    file: str,
+    name: str,
+    kind: str,
+    loop: bool = False,
+    max_seconds: float | None = None,
+    loudness_lufs: float | None = None,
+    loop_crossfade_ms: int | None = None,
+    finish: bool | None = None,
+) -> dict[str, Any]:
     """Import a saved ElevenLabs sound effect or music file into the Godot project.
 
     kind is "sfx" or "music"; name is PascalCase. The file (.wav, .mp3, .ogg, or .flac) is stored
-    as a 16-bit WAV under SourceArt/Audio/<SFX|Music>/. A sound effect is copied to
+    as a 16-bit WAV under SourceArt/Audio/<SFX|Music>/, and the game copy is finished first unless
+    finish is false: leading silence below -50 dBFS is trimmed, max_seconds cuts it with a 20 ms
+    fade-out, loop_crossfade_ms (default 500) crossfades a looping seam, and loudness is matched to
+    loudness_lufs (default -16 for sfx, -18 for music). A sound effect is copied to
     game/assets/Audio/<name>.wav and imported as an AudioStreamWAV; music is encoded with ffmpeg to
     game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis, looping when loop is
-    true. The result names godot_asset and imported_to_godot. A failure returns {"error": {code,
-    message, remediation, stage}}.
+    true. Settings are stored per sound and reused when omitted. The result names godot_asset,
+    imported_to_godot, finish, and settings. A failure returns {"error": {code, message,
+    remediation, stage}}.
     """
-    return _logged(_import_audio(file=file, name=name, kind=kind, loop=loop))
+    return _logged(
+        _import_audio(
+            file=file,
+            name=name,
+            kind=kind,
+            loop=loop,
+            max_seconds=max_seconds,
+            loudness_lufs=loudness_lufs,
+            loop_crossfade_ms=loop_crossfade_ms,
+            finish=finish,
+        )
+    )
 
 
 def main() -> None:

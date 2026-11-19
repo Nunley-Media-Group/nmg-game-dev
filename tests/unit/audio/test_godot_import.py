@@ -13,7 +13,12 @@ import pytest
 
 from nmg_game_dev.audio import import_ogg, import_wav
 from nmg_game_dev.audio.errors import AudioError
-from nmg_game_dev.audio.godot_import import installed_result, ogg_import_text, wav_import_text
+from nmg_game_dev.audio.godot_import import (
+    check_target,
+    installed_result,
+    ogg_import_text,
+    wav_import_text,
+)
 from nmg_game_dev.godot.runner import CommandResult
 from nmg_game_dev.pipeline.errors import PipelineError
 from tests.godot_fakes import FakeGodotRunner
@@ -215,3 +220,46 @@ def test_installed_result_with_a_failed_recheck_raises(
     with pytest.raises(PipelineError) as raised:
         installed_result(project, "sfx", "Door", False, godot)
     assert raised.value.code == "audio.import_failed"
+
+
+# --- replace (#252 AC5): a byte-identical re-import overwrites its own game copy ----------------
+
+
+def test_import_wav_with_replace_overwrites_the_game_copy(
+    project: Path, wav: Path, fixture_file: Callable[[str], Path]
+) -> None:
+    import_wav(project, wav, "Door", False, None)
+    replacement = project / "SourceArt" / "Audio" / "SFX" / "Other.wav"
+    replacement.write_bytes(fixture_file("tone.mp3").read_bytes())
+
+    import_wav(project, replacement, "Door", True, None, replace=True)
+
+    target = project / "game" / "assets" / "Audio" / "Door.wav"
+    assert target.read_bytes() == replacement.read_bytes()
+    assert target.with_name("Door.wav.import").read_text(encoding="utf-8") == WAV_LOOPING
+
+
+def test_check_target_replace_skips_the_existing_game_copy(project: Path, wav: Path) -> None:
+    import_wav(project, wav, "Door", False, None)
+
+    with pytest.raises(AudioError) as caught:
+        check_target(project, "sfx", "Door")
+    assert caught.value.code == "audio.asset_exists"
+    assert check_target(project, "sfx", "Door", replace=True) == (
+        project / "game" / "assets" / "Audio" / "Door.wav"
+    )
+
+
+def test_a_failed_replace_before_the_swap_keeps_the_earlier_game_copy(
+    project: Path, wav: Path, godot: FakeGodotRunner, ffmpeg: FakeFfmpeg
+) -> None:
+    import_ogg(project, wav, "Theme", False, godot, ffmpeg)
+    target = project / "game" / "assets" / "Audio" / "Theme.ogg"
+    broken = FakeFfmpeg(CommandResult(1, stderr="encoder failed\n"))
+
+    with pytest.raises(AudioError) as caught:
+        import_ogg(project, wav, "Theme", False, godot, broken, replace=True)
+
+    assert caught.value.code == "audio.encode_failed"
+    assert target.read_bytes() == OGG_STUB
+    assert target.with_name("Theme.ogg.import").read_text(encoding="utf-8") == OGG_ONCE

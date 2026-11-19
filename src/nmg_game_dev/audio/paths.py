@@ -19,6 +19,7 @@ from nmg_game_dev.meshy.config import project_root as _project_root
 GAME_DIR: Final = "game"
 AUDIO_DIR: Final = Path("assets") / "Audio"
 EXTENSIONS: Final[dict[str, str]] = {"sfx": ".wav", "music": ".ogg"}
+SETTINGS_FILE: Final = "audio.json"
 
 
 def project_root() -> Path:
@@ -28,6 +29,11 @@ def project_root() -> Path:
 
 def source_art(root: Path, kind: str, name: str) -> Path:
     return root / "SourceArt" / "Audio" / KINDS[kind] / f"{name}.wav"
+
+
+def settings_file(root: Path) -> Path:
+    """Return ``SourceArt/Audio/audio.json``, which keeps each sound's finishing settings (#252)."""
+    return root / "SourceArt" / "Audio" / SETTINGS_FILE
 
 
 def game_project(root: Path) -> Path:
