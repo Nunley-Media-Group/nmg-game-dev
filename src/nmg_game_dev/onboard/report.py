@@ -1,9 +1,10 @@
 """StepResult and the text report that onboarding prints (#7 FR9).
 
-Each step reports one of ``installed``, ``unchanged``, ``drift``, ``refreshed``, or ``skipped``.
-Drift leaves the item unchanged and carries the remediation ``re-run with --refresh``. ``skipped``
-means the step does not apply to this consumer (for example, no git work tree), and its detail says
-why. The command still exits 0.
+Each step reports one of ``installed``, ``unchanged``, ``drift``, ``refreshed``, ``conflict``, or
+``skipped``. Drift leaves the item unchanged and carries the remediation ``re-run with --refresh``.
+``conflict`` leaves a foreign file unchanged and carries the remediation that names what to add to
+it (the pre-commit hook, #255). ``skipped`` means the step does not apply to this consumer (for
+example, no git work tree), and its detail says why. The command still exits 0.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-Status = Literal["installed", "unchanged", "drift", "refreshed", "skipped"]
+Status = Literal["installed", "unchanged", "drift", "refreshed", "conflict", "skipped"]
 
 REFRESH_REMEDIATION = "re-run with --refresh"
 

@@ -105,7 +105,8 @@ def _onboard(ctx: dict[str, Any]) -> None:
 def _scripts_executable(ctx: dict[str, Any]) -> None:
     path = ctx["consumer"] / "scripts" / "start-blender-mcp.sh"
     assert path.is_file() and os.access(path, os.X_OK)
-    assert [p.name for p in (ctx["consumer"] / "scripts").iterdir()] == ["start-blender-mcp.sh"]
+    names = sorted(p.name for p in (ctx["consumer"] / "scripts").iterdir())
+    assert names == ["nmg_secret_scan.py", "start-blender-mcp.sh"]
 
 
 @then("only the Blender SessionStart hook is merged and the unrelated settings are unchanged")

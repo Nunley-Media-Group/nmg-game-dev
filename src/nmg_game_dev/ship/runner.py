@@ -2,7 +2,8 @@
 
 ``run_ship`` follows the design order:
 
-1. Expand the target, check the project, check the environment, resolve the build version from
+1. Expand the target, check the project, check the environment, scan the consumer's tracked files
+   for API keys (``ship.secret_found``, #255, also in a dry run), resolve the build version from
    ``--bump`` or ``--version`` (``ship.version_*``), require the version's ``CHANGELOG.md`` section
    (``ship.changelog_missing``, #254), and resolve the macOS signing identity.
 2. ``--import`` the project, so a fresh checkout without ``.godot/`` has its global class cache
@@ -58,6 +59,7 @@ from nmg_game_dev.quality.mobile_budgets import (
     MobileBudgetAudit,
     check_mobile_budgets,
 )
+from nmg_game_dev.secrets.scan import scan_tracked
 from nmg_game_dev.ship.artifacts import (
     ReleaseEntry,
     artifact_sha256,
@@ -85,6 +87,7 @@ TESTS_SCRIPT: Final = "tests/run_tests.gd"
 WEB_PACK_LIMIT: Final = 38 * 1024 * 1024
 """Bytes: a web ``index.pck`` above this prints ``ship.web_pack_large``."""
 DEFAULT_KEYSTORE_ALIAS: Final = "upload"
+SECRETS_GATE_LINE: Final = "secrets: no matches"
 MASK: Final = "***"
 EXPORT_TIMEOUT_S: Final = 3600.0
 """An export may run far longer than a probe; it gets its own bound."""
@@ -137,6 +140,7 @@ def run_ship(
     project_dir = _check_project(project).absolute()
     release_dir = release_dir.absolute()
     preflight_env(platforms, env)
+    _scan_secrets(project_dir.parent)
     plan = resolve_version(project_dir / PROJECT_FILE, bump, version)
     changelog = project_dir.parent / CHANGELOG_NAME
     changes = changelog_section(changelog, plan.new)
@@ -160,6 +164,7 @@ def run_ship(
         ],
     )
 
+    ship.gate_lines.append(SECRETS_GATE_LINE)
     _import_project(ship)
     _check_scripts(ship)
     _run_project_tests(ship)
@@ -234,6 +239,26 @@ def _godot(
             return None, "godot"
         raise
     return SubprocessGodotRunner(binary), str(binary)
+
+
+def _scan_secrets(consumer: Path) -> None:
+    """Block the build when a tracked file holds an API key (#255 FR3, AC4).
+
+    Runs before any Godot command and in a dry run too. Matches are masked in the error. A consumer
+    that is not a git work tree is scanned by a walk of every regular file under it.
+    """
+    matches = scan_tracked(consumer)
+    if not matches:
+        return
+    raise ShipError(
+        code="ship.secret_found",
+        message=f"{len(matches)} secret(s) found: " + "; ".join(m.render() for m in matches),
+        remediation=(
+            "Remove each key from the repository (keep keys in .env) or allow a false positive "
+            "in .nmg/secret-scan-allow, then rerun the ship."
+        ),
+        stage="secrets",
+    )
 
 
 def _check_presets(project_dir: Path, platforms: Sequence[Platform]) -> dict[Platform, int]:
