@@ -1,5 +1,5 @@
 # File: tests/bdd/features/finalize_records.feature
-# Generated from: specs/247-keep-a-per-asset-finalize-record-and-logs-under-the-unreal-project-s-saved-directory-and-add-a-cheap-up-to-date-check/feature.gherkin
+# Generated from: specs/247-*/feature.gherkin (issue #247)
 Feature: Per-asset finalize records and an up-to-date check
 
   @SCN001

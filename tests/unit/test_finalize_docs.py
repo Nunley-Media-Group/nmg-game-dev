@@ -248,9 +248,12 @@ def test_the_error_table_lists_the_record_not_written_warning() -> None:
     assert re.search(r"^\| `finalize\.record_not_written` \|", _text(FINALIZE_MD), re.MULTILINE)
 
 
-def test_the_changelog_unreleased_section_has_the_records_bullet() -> None:
+def test_the_changelog_has_the_records_bullet_under_added() -> None:
+    """The #247 bullet starts under [Unreleased]; version preparation moves it into a
+    released section, so read whichever section holds it."""
     text = _text(CHANGELOG_MD)
-    unreleased = text.split("## [Unreleased]", 1)[1].split("\n## ", 1)[0]
-    assert "### Added" in unreleased
-    bullets = [line for line in unreleased.splitlines() if line.startswith("- ")]
+    sections = text.split("## [Unreleased]", 1)[1].split("\n## [")
+    section = next(part for part in sections if "(#247)" in part)
+    assert "### Added" in section
+    bullets = [line for line in section.splitlines() if line.startswith("- ")]
     assert any("finalize records" in b.lower() and b.endswith("(#247)") for b in bullets)
