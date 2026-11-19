@@ -5,12 +5,12 @@
     "effort": "default"
   },
   "implement": {
-    "model": "opus",
-    "effort": "medium"
+    "model": "haiku",
+    "effort": "xhigh"
   },
   "verify": {
     "model": "opus",
-    "effort": "high"
+    "effort": "medium"
   },
   "deliver": {
     "model": "haiku",
