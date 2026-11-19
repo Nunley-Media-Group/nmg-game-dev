@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-19
+
 ### Added
 
 - Clip names are per rig, so one .blend can hold several rigged characters that each have their own `Idle`: an action named `<Clip>@SK_<Name>` exports as clip `<Clip>`, built-in and library clip import install `<Clip>@SK_<Name>` and replace only that rig's action, and finalize stops with `finalize.clip_rig_mismatch` or `finalize.clip_name_duplicate` when an action's suffix names another rig or two actions give one clip. Unsuffixed actions export as before. (#233)
