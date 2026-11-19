@@ -22,9 +22,9 @@ mobile budget gate still runs, so an over-budget Mobile asset shows up here.
 
 ## 2. Ship
 
-Ask the agent to ship the target. The ship runs the gates first: `godot --check-only` on every
-script, your `game/tests/run_tests.gd` when it exists, and the mobile budget gate for iOS, Android,
-and web. Then it exports each platform headless with its Godot preset, signs and notarizes the macOS
+Ask the agent to ship the target. The ship runs the gates first: `godot --import` (so a fresh
+clone has its class cache), `godot --check-only` on every script, your `game/tests/run_tests.gd`
+when it exists, and the mobile budget gate for iOS, Android, and web. Then it exports each platform headless with its Godot preset, signs and notarizes the macOS
 app, and writes each artifact to `release/<platform>/`. `release/RELEASE-NOTES.md` lists every
 artifact with its SHA-256.
 

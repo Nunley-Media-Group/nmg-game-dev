@@ -49,8 +49,9 @@ Developer in Claude Code
 │   • Claude Code plugin (skills + MCP configs)              │
 │   • Blender add-on (authoring tools)                       │
 │   • Godot add-on game/addons/nmg_game_dev (runtime: the    │
-│     NmgAssets variant resolver, NmgMissionDefinition,      │
-│     terrain shader) in the Godot project under game/       │
+│     NmgAssets variant resolver, the NmgVariantScene        │
+│     variant loader, NmgMissionDefinition, terrain shader)  │
+│     in the Godot project under game/                       │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -277,8 +278,10 @@ consumer's Godot project through the presets in `game/export_presets.cfg`, which
 writes. Targets are `macos`, `ios`, `android`, `windows`, `web`, and the groups `desktop`, `mobile`,
 and `all`.
 
-1. Gates: `godot --headless --check-only` on every `.gd`, `game/tests/run_tests.gd` when it exists,
-   and the mobile budget gate for `ios`, `android`, and `web`.
+1. Gates: `godot --headless --import` first (a fresh clone has no `.godot/` class cache; any
+   `ERROR:` line fails with `ship.import_failed`), then `--check-only` on every `.gd`,
+   `game/tests/run_tests.gd` when it exists, and the mobile budget gate for `ios`, `android`, and
+   `web`.
 2. Export: `godot --headless --path game --export-release "<preset>" <out>` per platform. The iOS,
    Android, and Web presets exclude every `assets/*/Desktop/*` folder; the macOS and Windows presets
    exclude every `assets/*/Mobile/*` folder.
@@ -376,7 +379,7 @@ def _(blender_mcp):
 | `repository.format` | anything | `uv run ruff format --check .` | — |
 | `repository.types` | anything | `uv run mypy src tests` | — |
 | `gate-blender-headless` | `plugins/nmg-game-dev-blender-addon/**`, `tests/blender/**`, `scripts/blender/**`, `scripts/run-blender-tests.sh` | `scripts/run-blender-tests.sh` (headless Blender pytest) | Blender 5.2. When it is not at `/Applications/Blender.app`, export `BLENDER_APP` (or `BLENDER_BIN`) in `~/.zshenv`; the gate forwards only those two variables |
-| `gate-godot-headless` | `plugins/nmg-game-dev-godot-addon/**`, `src/nmg_game_dev/godot/**`, `tests/godot/**`, `scripts/run-godot-tests.sh` | `scripts/run-godot-tests.sh`: imports the `tests/godot/fixture/` project with the add-on (`--import`, no `ERROR:` lines), runs the add-on's `tests/run_tests.gd` (requiring the variant-routing tests to pass), checks `probe_asset.gd` on the fixture `Crate.glb` against `expected-probe.json`, runs `--check-only` on every `src/nmg_game_dev/godot/gd/*.gd`, and smoke-runs the anims, terrain, and audio probes. Every Godot run is bounded by `GODOT_GATE_TIMEOUT` (default 300 s) | Godot 4 via `GODOT_BIN` or `godot` on `PATH`; otherwise the script downloads the latest stable release, checked against its `SHA512-SUMS.txt`, into the git-ignored `.cache/godot/` and reuses it. The gate forwards only `GODOT_BIN` |
+| `gate-godot-headless` | `plugins/nmg-game-dev-godot-addon/**`, `src/nmg_game_dev/godot/**`, `tests/godot/**`, `scripts/run-godot-tests.sh` | `scripts/run-godot-tests.sh`: imports the `tests/godot/fixture/` project with the add-on (`--import`, no `ERROR:` lines), runs the add-on's `tests/run_tests.gd` (requiring the variant-routing tests to pass), checks `probe_asset.gd` on the fixture `Crate.glb` against `expected-probe.json`, runs `--check-only` on every `src/nmg_game_dev/godot/gd/*.gd`, checks `probe_anims.gd` on the fixture rig and its `animation_library` clips (one authored after frame 0) and `probe_terrain.gd` on a fixture terrain scene against `expected-anims.json` and `expected-terrain.json`, and smoke-runs the terrain meshes and audio probes. Every Godot run is bounded by `GODOT_GATE_TIMEOUT` (default 300 s) | Godot 4 via `GODOT_BIN` or `godot` on `PATH`; otherwise the script downloads the latest stable release, checked against its `SHA512-SUMS.txt`, into the git-ignored `.cache/godot/` and reuses it. The gate forwards only `GODOT_BIN` |
 | `gate-mcp-schema` | `mcp-servers/**`, `scripts/validate-mcp-tools.py` | `uv run python scripts/validate-mcp-tools.py` | — |
 | `gate-shellcheck` | `scripts/**.sh` | `shellcheck -S style` on every `scripts/**.sh` (through `find -exec`) | shellcheck |
 | `gate-ship-smoke` | `skills/ship/**`, `src/nmg_game_dev/ship/**`, `scripts/sign-macos.sh`, `scripts/notarize-macos.sh`, `scripts/ship-smoke.sh`, `src/nmg_game_dev/godot/presets.py`, `tests/godot/**` | `scripts/ship-smoke.sh`: a dry-run `/ship all` of `tests/godot/fixture/project.godot` with placeholder credentials; no Godot export runs | — |

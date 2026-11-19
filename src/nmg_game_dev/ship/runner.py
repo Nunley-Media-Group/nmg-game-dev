@@ -4,16 +4,18 @@
 
 1. Expand the target, check the project, check the environment, and resolve the macOS signing
    identity.
-2. ``--check-only`` every ``.gd`` under the project, skipping ``.godot/``
+2. ``--import`` the project, so a fresh checkout without ``.godot/`` has its global class cache
+   and imported resources; a non-zero exit or any ``ERROR:`` line is ``ship.import_failed``.
+3. ``--check-only`` every ``.gd`` under the project, skipping ``.godot/``
    (``ship.script_check_failed``).
-3. ``res://tests/run_tests.gd`` when the project has one (``ship.tests_failed``).
-4. The mobile budget gate for ios, android, and web, also in a dry run.
-5. Per platform, ``--export-release "<preset>" <out>`` into ``release/<platform>/``. iOS patches
+4. ``res://tests/run_tests.gd`` when the project has one (``ship.tests_failed``).
+5. The mobile budget gate for ios, android, and web, also in a dry run.
+6. Per platform, ``--export-release "<preset>" <out>`` into ``release/<platform>/``. iOS patches
    its preset's team and provisioning UUID and restores ``export_presets.cfg`` byte-for-byte
    afterwards. Android installs the build template when ``android/build/`` is missing and passes
    the keystore only in the child environment. macOS is signed and notarized. A web ``index.pck``
    over 38 MiB prints ``ship.web_pack_large``.
-6. ``release/RELEASE-NOTES.md`` with each artifact's SHA-256.
+7. ``release/RELEASE-NOTES.md`` with each artifact's SHA-256.
 
 A failing gate or export raises ``ShipError`` and stops the run; a platform that already finished
 keeps its artifact. A dry run prints every Godot, ``security``, sign and notarize command as
@@ -128,6 +130,7 @@ def run_ship(
         run=run,
     )
 
+    _import_project(ship)
     _check_scripts(ship)
     _run_project_tests(ship)
     if any(platform in BUDGET_PLATFORMS for platform in platforms):
@@ -231,10 +234,28 @@ def project_scripts(project_dir: Path) -> list[str]:
     return sorted(found)
 
 
+def _import_project(ship: _Ship) -> None:
+    """Run ``--import`` first: a fresh checkout has no ``.godot/`` class cache or imports.
+
+    Without it, ``--check-only`` fails on every script that names a ``class_name`` type.
+    """
+    result = _godot_run(ship, ["--import"], ship.gate_lines)
+    if result is not None and (result.returncode != 0 or _error_lines(result, "ERROR:")):
+        raise ShipError(
+            code="ship.import_failed",
+            message=f"godot --import failed for {ship.project_dir}: {_first_error(result)}",
+            remediation=(
+                "Read the import output above, fix or remove the reported resource, then rerun "
+                "the ship."
+            ),
+            stage="import",
+        )
+
+
 def _check_scripts(ship: _Ship) -> None:
     for rel in project_scripts(ship.project_dir):
         result = _godot_run(ship, ["--check-only", "-s", f"res://{rel}"], ship.gate_lines)
-        if result is not None and (result.returncode != 0 or _script_errors(result)):
+        if result is not None and (result.returncode != 0 or _error_lines(result, "SCRIPT ERROR:")):
             raise ShipError(
                 code="ship.script_check_failed",
                 message=f"{rel} does not parse: {_first_error(result)}",
@@ -256,9 +277,9 @@ def _run_project_tests(ship: _Ship) -> None:
         )
 
 
-def _script_errors(result: CommandResult) -> list[str]:
+def _error_lines(result: CommandResult, prefix: str) -> list[str]:
     lines = f"{result.stdout}\n{result.stderr}".splitlines()
-    return [line.strip() for line in lines if line.strip().startswith("SCRIPT ERROR:")]
+    return [line.strip() for line in lines if line.strip().startswith(prefix)]
 
 
 def _first_error(result: CommandResult) -> str:

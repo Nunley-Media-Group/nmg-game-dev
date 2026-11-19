@@ -19,6 +19,7 @@ from typing import Any, Final
 
 import pytest
 
+from nmg_game_dev.pipeline.errors import PipelineError
 from tests.godot.make_crate_glb import build as build_crate_glb
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
@@ -79,8 +80,11 @@ if rest[:1] == ["-s"] and not rest[1].endswith("probe_asset.gd"):
     name = rest[1].rsplit("/", 1)[-1]
     params = record["params"]
     if name == "probe_anims.gd":
-        result = {"clips": {}, "skeletons": {glb: {"found": True, "bones": []}
-                                            for glb in params["skeletons"]}}
+        result = json.loads((project / "expected-anims.json").read_text())["result"]
+        if mode == "anims_mismatch":
+            result["clips"]["Wave"]["frame_count"] = 25
+    elif name == "probe_terrain.gd" and params["mode"] == "scene":
+        result = json.loads((project / "expected-terrain.json").read_text())["result"]
     elif name == "probe_terrain.gd":
         result = {"meshes": {glb: ["Crate"] for glb in params["glbs"]}}
     else:
@@ -348,15 +352,18 @@ def test_steps_run_import_then_addon_tests_then_probe(gate: Gate) -> None:
     probes = sorted(path.name for path in (REPO_ROOT / "src/nmg_game_dev/godot/gd").glob("*.gd"))
     checked = [command for command in commands if command[:1] == ["--check-only"]]
     assert checked == [["--check-only", "-s", f"res://.godot/nmg_probes/{name}"] for name in probes]
-    smoke = {
-        call["argv"][call["argv"].index("-s") + 1].rsplit("/", 1)[-1]: call["params"]
+    smoke = [
+        (call["argv"][call["argv"].index("-s") + 1].rsplit("/", 1)[-1], call["params"])
         for call in calls[3 + len(probes) :]
-    }
-    assert smoke == {
-        "probe_anims.gd": {"clips": [], "skeletons": ["res://Crate.glb"]},
-        "probe_terrain.gd": {"mode": "meshes", "glbs": ["res://Crate.glb"]},
-        "probe_audio.gd": {"stream": "res://Beep.wav"},
-    }
+    ]
+    expected_anims = json.loads((FIXTURE / "expected-anims.json").read_text(encoding="utf-8"))
+    expected_terrain = json.loads((FIXTURE / "expected-terrain.json").read_text(encoding="utf-8"))
+    assert smoke == [
+        ("probe_anims.gd", expected_anims["params"]),
+        ("probe_terrain.gd", expected_terrain["params"]),
+        ("probe_terrain.gd", {"mode": "meshes", "glbs": ["res://Crate.glb"]}),
+        ("probe_audio.gd", {"stream": "res://Beep.wav"}),
+    ]
     for call in calls:
         assert call["argv"][:3] == ["--headless", "--audio-driver", "Dummy"]
     projects = {call["argv"][call["argv"].index("--path") + 1] for call in calls}
@@ -409,6 +416,15 @@ def test_a_smoke_probe_with_the_wrong_result_shape_exits_9(gate: Gate) -> None:
     assert "probe_audio.gd smoke run failed" in result.stderr
 
 
+def test_a_probe_result_that_differs_from_its_expected_file_exits_9(gate: Gate) -> None:
+    result = gate.run(FAKE_GODOT_MODE="anims_mismatch", **gate.with_path_godot())
+    assert result.returncode == 9
+    assert "probe_anims.gd result differs from tests/godot/fixture/expected-anims.json" in (
+        result.stderr
+    )
+    assert "result.clips.Wave.frame_count: 25 != 15" in result.stderr
+
+
 def test_a_stalled_godot_fails_with_exit_10_after_the_timeout(gate: Gate) -> None:
     result = gate.run(FAKE_GODOT_MODE="hang", GODOT_GATE_TIMEOUT="1", **gate.with_path_godot())
     assert result.returncode == 10
@@ -443,11 +459,13 @@ def test_addon_ships_the_designed_files() -> None:
         "plugin.gd",
         "nmg_assets.gd",
         "nmg_mission_definition.gd",
+        "nmg_variant_scene.gd",
         "terrain/nmg_terrain.gdshader",
         "tests/run_tests.gd",
         "tests/nmg_log_capture.gd",
         "tests/test_nmg_assets.gd",
         "tests/test_mission_definition.gd",
+        "tests/test_nmg_variant_scene.gd",
     ):
         assert (ADDON / rel).is_file(), rel
     plugin = (ADDON / "plugin.gd").read_text(encoding="utf-8")
@@ -470,6 +488,39 @@ def test_gdscript_is_indented_with_tabs() -> None:
     for path in [*ADDON.rglob("*.gd"), *ADDON.rglob("*.gdshader")]:
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             assert not line.startswith(" "), f"{path.name}:{number} is indented with spaces"
+
+
+def test_probe_fixtures_are_the_generator_output() -> None:
+    from tests.godot.make_probe_fixtures import files  # noqa: PLC0415
+
+    stale = [str(path) for path, data in files().items() if path.read_bytes() != data]
+    assert stale == [], "run uv run python -m tests.godot.make_probe_fixtures"
+
+
+def test_probe_fixture_expectations_satisfy_the_python_readers(tmp_path: Path) -> None:
+    """The results the gate requires from real Godot are the ones import_anims and import_godot
+    accept: the slid clip measures frame_end - frame_start, and the terrain matches its sidecar."""
+    from nmg_game_dev.godot.anims import ClipPlan, verify_clips  # noqa: PLC0415
+    from nmg_game_dev.godot.terrain import check_probe  # noqa: PLC0415
+    from tests.godot.make_probe_fixtures import TERRAIN_VARIANT  # noqa: PLC0415
+
+    anims = json.loads((FIXTURE / "expected-anims.json").read_text(encoding="utf-8"))["result"]
+    # Walk is authored from frame 0 to 24; Wave from frame 10 to 25 and exported slid to zero.
+    plans = [
+        ClipPlan("Walk", tmp_path / "A_Rig_Walk.glb", 24.0, 24 - 0),
+        ClipPlan("Wave", tmp_path / "A_Rig_Wave.glb", 30.0, 25 - 10),
+    ]
+    assert verify_clips(plans, anims["clips"]) == {
+        "Walk": ["Hip", "Spine"],
+        "Wave": ["Hip", "Spine"],
+    }
+    # Left unslid, the same clip measures frame_end, so import_anims would reject it.
+    unslid = [ClipPlan("WaveUnslid", tmp_path / "A_Rig_WaveUnslid.glb", 30.0, 25 - 10)]
+    with pytest.raises(PipelineError) as caught:
+        verify_clips(unslid, anims["clips"])
+    assert caught.value.code == "import_anims.clip_mismatch"
+    terrain = json.loads((FIXTURE / "expected-terrain.json").read_text(encoding="utf-8"))["result"]
+    check_probe("Desktop", TERRAIN_VARIANT, terrain)
 
 
 def test_crate_glb_is_the_generator_output() -> None:

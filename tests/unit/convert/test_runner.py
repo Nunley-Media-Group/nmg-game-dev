@@ -425,7 +425,14 @@ def test_deletion_stopped_after_git_rm_resumes_and_finishes(
     assert rerun.finalized == [] and rerun.imported == []
     assert not (consumer / "Content").exists()
     assert not (consumer / "game" / ".nmg-convert.json").exists()
-    assert "done: `Content/`" in (consumer / "godot-conversion-report.md").read_text()
+    resumed = (consumer / "godot-conversion-report.md").read_text()
+    assert "done: `Content/`" in resumed
+    # P2: Source/ and the .umap were already gone, yet the resumed report still lists them for
+    # manual porting and names every deletion of the first run.
+    assert "| `Source/Game/Game.cpp` |" in resumed
+    assert "| `Content/Maps/Main.umap` |" in resumed
+    assert second.plan.deletions == result.plan.deletions
+    assert second.plan.manual_port == result.plan.manual_port
 
 
 def test_dry_run_marks_items_discovery_knows_will_fail(consumer: Path) -> None:

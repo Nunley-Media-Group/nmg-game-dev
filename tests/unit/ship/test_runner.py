@@ -45,7 +45,7 @@ def _output(capsys: pytest.CaptureFixture[str]) -> str:
 # Order of the gates and exports -----------------------------------------------------------------
 
 
-def test_all_runs_script_check_then_tests_then_budget_then_every_export(
+def test_all_runs_import_then_script_check_then_tests_then_budget_then_every_export(
     sandbox: ShipSandbox,
 ) -> None:
     (sandbox.game / "tests").mkdir()
@@ -55,17 +55,19 @@ def test_all_runs_script_check_then_tests_then_budget_then_every_export(
     entries = sandbox.ship("all")
 
     commands = sandbox.godot_commands()
+    assert commands[0] == ["--import"]
     checks = [call for call in commands if call[:1] == ["--check-only"]]
+    assert commands[1 : 1 + len(checks)] == checks
     assert [call[2] for call in checks] == [
         "res://main.gd",
         "res://scripts/player.gd",
         "res://tests/run_tests.gd",
     ]
     assert all(call[1] == "-s" for call in checks)
-    assert commands[len(checks)] == ["-s", "res://tests/run_tests.gd"]
+    assert commands[1 + len(checks)] == ["-s", "res://tests/run_tests.gd"]
     assert sandbox.exports() == ["macOS", "Windows Desktop", "iOS", "Android", "Web"]
     first_export = next(i for i, call in enumerate(commands) if call[0] == "--export-release")
-    assert first_export == len(checks) + 1
+    assert first_export == len(checks) + 2
     assert [entry.platform for entry in entries] == ["macos", "windows", "ios", "android", "web"]
 
 
@@ -96,6 +98,65 @@ def test_a_script_that_does_not_parse_stops_before_any_export(sandbox: ShipSandb
     assert "scripts/player.gd" in caught.value.message
     assert "Parse Error" in caught.value.message
     assert sandbox.exports() == []
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        CommandResult(0, stdout="ERROR: Failed loading resource: res://broken.glb\n"),
+        CommandResult(1, stderr="import crashed\n"),
+    ],
+)
+def test_a_failed_import_stops_before_the_script_check(
+    sandbox: ShipSandbox, result: CommandResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Godot's --import usually exits 0 on a broken resource; the ERROR: line is the signal.
+    calls: list[list[str]] = []
+    original = sandbox.godot.run
+
+    def run(args: list[str], **kwargs: object) -> CommandResult:
+        calls.append(list(args))
+        if args[:1] == ["--import"]:
+            return result
+        return original(args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(sandbox.godot, "run", run)
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("windows")
+    assert caught.value.code == "ship.import_failed"
+    assert calls == [["--import"]]
+
+
+def test_a_fresh_checkout_is_imported_before_class_name_scripts_are_checked(
+    sandbox: ShipSandbox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh clone has no .godot/ global class cache until --import builds it.
+
+    The fake reproduces Godot 4: --check-only on a script naming a class_name type fails with
+    'Could not find type' until an --import has run in that project.
+    """
+    (sandbox.game / "scripts" / "thing.gd").write_text(
+        "class_name FooThing\nextends Node\n", encoding="utf-8"
+    )
+    (sandbox.game / "scripts" / "user.gd").write_text(
+        "extends Node\nvar thing: FooThing\n", encoding="utf-8"
+    )
+    imported: list[Path] = []
+    original = sandbox.godot.run
+
+    def run(args: list[str], *, project: Path, **kwargs: object) -> CommandResult:
+        if args[:1] == ["--import"]:
+            imported.append(project)
+        if args[:1] == ["--check-only"] and args[2] == "res://scripts/user.gd" and not imported:
+            return CommandResult(
+                1, stderr='SCRIPT ERROR: Parse Error: Could not find type "FooThing".\n'
+            )
+        return original(args, project=project, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(sandbox.godot, "run", run)
+    entries = sandbox.ship("windows")
+    assert [entry.platform for entry in entries] == ["windows"]
+    assert imported == [sandbox.game.absolute()]
 
 
 def test_a_script_error_line_fails_the_check_even_on_exit_0(sandbox: ShipSandbox) -> None:
@@ -496,6 +557,7 @@ def test_dry_run_prints_every_command_and_runs_no_godot(
     output = _output(capsys)
     assert "DRY-RUN: godot --headless --audio-driver Dummy --path" in output
     assert "--check-only -s res://main.gd" in output
+    assert output.index(" --import") < output.index("--check-only -s res://main.gd")
     assert "--export-release macOS" in output
     assert "--export-release 'Windows Desktop'" in output
     assert "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=***" in output

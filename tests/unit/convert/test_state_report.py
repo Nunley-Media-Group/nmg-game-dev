@@ -29,7 +29,26 @@ def test_state_round_trips_and_is_written_per_item(tmp_path: Path) -> None:
     assert "audio:SFX/Click" in loaded
 
 
-@pytest.mark.parametrize("text", ["{", "[]", '{"version": 2, "done": []}', '{"version": 1}'])
+def test_state_keeps_the_first_runs_manual_port_and_deletions(tmp_path: Path) -> None:
+    rows = [ManualPort("Source/Game/Game.cpp", "C++ game code")]
+    ConvertState(state_path(tmp_path), manual_port=rows, deletions=["Source/", "a.uproject"]).save()
+    loaded = load_state(tmp_path)
+    assert loaded is not None
+    assert loaded.manual_port == rows
+    assert loaded.deletions == ["Source/", "a.uproject"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "{",
+        "[]",
+        '{"version": 2, "done": []}',
+        '{"version": 1}',
+        '{"version": 1, "done": [], "deletions": "Source/"}',
+        '{"version": 1, "done": [], "manual_port": [{"path": "a"}]}',
+    ],
+)
 def test_invalid_state_raises(tmp_path: Path, text: str) -> None:
     path = state_path(tmp_path)
     path.parent.mkdir(parents=True)

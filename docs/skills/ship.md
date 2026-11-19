@@ -12,17 +12,22 @@ python -m nmg_game_dev.ship <target> --project game/project.godot [--release-dir
 
 1. Preflight: the target, game/project.godot, game/export_presets.cfg with each platform's preset,
    every required variable (ship.env_missing), and the macOS signing identity
-2. godot --check-only -s res://<path> for every .gd file, skipping .godot/   (ship.script_check_failed)
-3. godot -s res://tests/run_tests.gd, when that file exists                   (ship.tests_failed)
-4. ios, android, web: the mobile budget gate over game/assets/**/Mobile/      (also in a dry run)
-5. Per platform, in order:
+2. godot --import, so a fresh clone has its class cache and imports         (ship.import_failed)
+3. godot --check-only -s res://<path> for every .gd file, skipping .godot/   (ship.script_check_failed)
+4. godot -s res://tests/run_tests.gd, when that file exists                   (ship.tests_failed)
+5. ios, android, web: the mobile budget gate over game/assets/**/Mobile/      (also in a dry run)
+6. Per platform, in order:
      ios: patch the iOS preset's team and provisioning-profile UUID, restore it afterwards
      android: --install-android-build-template when game/android/build/ is missing
      godot --export-release "<preset>" release/<platform>/<artifact>          (ship.export_failed)
      macos: sign-macos.sh, then notarize-macos.sh (notarize and staple)
      web: WARNING [ship.web_pack_large] when index.pck is over 38 MB
-6. Write release/RELEASE-NOTES.md with each artifact and its SHA-256
+7. Write release/RELEASE-NOTES.md with each artifact and its SHA-256
 ```
+
+The import runs first because `game/.godot/` is git-ignored: on a fresh clone or CI checkout Godot
+has no global class cache yet, so `--check-only` would fail on any script that names a `class_name`
+type.
 
 A failing gate or export stops the run and leaves no artifact for that platform. A platform that
 already finished keeps its artifact. Godot is resolved from `GODOT_BIN`, then `godot` on PATH, then
@@ -135,6 +140,7 @@ credentials. It needs no Godot install.
 | `ship.unknown_target`, `ship.project_missing` | Bad target or `--project` path | Fix the argument |
 | `ship.presets_missing`, `ship.preset_missing` | `export_presets.cfg` or a platform preset is missing | Run `/onboard-consumer --refresh` |
 | `godot.not_found` | No Godot binary | Install Godot 4 or set `GODOT_BIN` |
+| `ship.import_failed` | `godot --import` exited non-zero or printed an `ERROR:` line | Fix or remove the named resource |
 | `ship.script_check_failed` | A `.gd` file does not parse | Fix the named script |
 | `ship.tests_failed` | `game/tests/run_tests.gd` failed | Fix the failing test |
 | `ship.mobile_budget_exceeded` | A Mobile variant is over budget. A terrain variant reports each over-budget metric | Reduce the asset, or raise the budget |

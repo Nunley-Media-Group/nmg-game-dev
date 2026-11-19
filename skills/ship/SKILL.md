@@ -39,9 +39,10 @@ names only.
    and exits 1. Show both lines as printed, then stop. Do not retry an export, skip a gate, or
    publish a platform that failed.
 
-Before any export the ship runs, in order: `godot --check-only` on every `.gd` file (skipping
-`.godot/`), `game/tests/run_tests.gd` when it exists, and the mobile budget gate for `ios`,
-`android`, and `web`. Mobile and web presets exclude every `Desktop/` asset folder; desktop presets
+Before any export the ship runs, in order: `godot --import` (a fresh clone has no `.godot/` class
+cache until it runs), `godot --check-only` on every `.gd` file (skipping `.godot/`),
+`game/tests/run_tests.gd` when it exists, and the mobile budget gate for `ios`, `android`, and
+`web`. Mobile and web presets exclude every `Desktop/` asset folder; desktop presets
 exclude every `Mobile/` folder. Godot comes from `GODOT_BIN`, then `godot` on PATH, then
 `/Applications/Godot.app`.
 
@@ -60,6 +61,8 @@ consumer-root `nmg-budgets.json` may override the defaults per metric. Both form
 - `ship.presets_missing`, `ship.preset_missing`: `game/export_presets.cfg` is missing or lacks the
   platform's preset. Run `/onboard-consumer --refresh`, then rerun.
 - `godot.not_found`: no Godot binary. Install Godot 4 (latest stable) or set `GODOT_BIN`.
+- `ship.import_failed`: `godot --import` failed or printed an `ERROR:` line. The message names the
+  first error. Fix or remove that resource and rerun.
 - `ship.script_check_failed`: a script does not parse. The message names the file. Fix it and rerun.
 - `ship.tests_failed`: `game/tests/run_tests.gd` reported a failure. Fix the test or the game code.
 - `ship.mobile_budget_exceeded`: a Mobile variant is over budget. The remediation gives the asset,

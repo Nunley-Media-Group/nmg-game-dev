@@ -1,0 +1,13 @@
+{
+  "params": {
+    "mode": "scene",
+    "scene": "res://terrain/Valley.tscn"
+  },
+  "result": {
+    "chunks": 1,
+    "height_min": -0.5,
+    "height_max": 0.5,
+    "mesh_height_min": -0.5,
+    "mesh_height_max": 0.5
+  }
+}

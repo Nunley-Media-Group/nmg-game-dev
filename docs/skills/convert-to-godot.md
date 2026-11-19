@@ -53,8 +53,9 @@ Port these to Godot by hand. Blueprints, levels, and C++ are out of scope.
 2. **Preflight.** `godot.not_found` or `finalize.blender_not_found` when either tool is missing.
 3. **Dry run** stops here, after printing the plan.
 4. **Convert.** Onboard, then each item that is not done yet. A failure is recorded with its error
-   code and remediation, and the other items still run. Each success is written to
-   `game/.nmg-convert.json` (`{"version": 1, "done": [...]}`) at once.
+   code and remediation, and the other items still run. The first run writes
+   `game/.nmg-convert.json` (`{"version": 1, "done": [...], "manual_port": [...], "deletions":
+   [...]}`), and each success is added to `done` at once.
 5. **Hooks and settings** are replaced in `.claude/settings.json` and `.claude/settings.local.json`.
    A file that is not valid JSON fails as `convert.settings_invalid`, like any item.
 6. **Deletions, only when nothing failed.** `git rm -r -q --ignore-unmatch -- Content Source Config
@@ -71,8 +72,10 @@ Port these to Godot by hand. Blueprints, levels, and C++ are out of scope.
 When any item fails, nothing is deleted, the Deletions section reads `kept: N item(s) failed`, and
 the command exits 1. Fix each failure using its remediation and run the command again. The rerun
 reads `game/.nmg-convert.json`, skips the `.uproject` and clean-tree checks, and converts only the
-items that are not done. A sound an interrupted run already imported is checked again and counted
-as done rather than failing `audio.asset_exists`.
+items that are not done. It reports and deletes the first run's manual-port list and deletions,
+so a resume after a deletion that stopped part way still lists the C++ and `.umap` files to port. A
+sound an interrupted run already imported is checked again and counted as done rather than failing
+`audio.asset_exists`.
 
 ## Error codes
 

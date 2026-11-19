@@ -22,6 +22,9 @@
    remove any untracked remainder of those paths and the state file. A failure is recorded as
    ``deletions`` and the state file stays, so a rerun resumes and finishes them.
 7. **Report:** write ``godot-conversion-report.md`` with the final outcome, deletions included.
+
+The first run records its manual-port list and deletions in the state file; a resume reports and
+deletes those, because a deletion that stopped part way has removed what discovery would find.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ import os
 import shutil
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final, TextIO
 
@@ -360,6 +363,17 @@ def _delete(root: Path, deletions: Sequence[str], git: Runner) -> None:
 # --- Entry point --------------------------------------------------------------------------------
 
 
+def _resumed_plan(plan: ConversionPlan, state: ConvertState | None) -> ConversionPlan:
+    """``plan`` with the first run's manual-port list and deletions, when the state has them."""
+    if state is None:
+        return plan
+    if state.manual_port is not None:
+        plan = replace(plan, manual_port=list(state.manual_port))
+    if state.deletions is not None:
+        plan = replace(plan, deletions=list(state.deletions))
+    return plan
+
+
 def run_convert(
     root: Path,
     *,
@@ -382,7 +396,7 @@ def run_convert(
     state = load_state(root)
     _guard(root, git, resume=state is not None)
     preflight()
-    plan = discover(root)
+    plan = _resumed_plan(discover(root), state)
     done = set() if state is None else set(state.done)
     pending = [item for item in plan.items if item.key not in done]
     result = ConvertResult(plan=plan, dry_run=dry_run)
@@ -399,7 +413,9 @@ def run_convert(
         return result
 
     if state is None:
-        state = ConvertState(state_path(root))
+        state = ConvertState(
+            state_path(root), manual_port=plan.manual_port, deletions=plan.deletions
+        )
         state.save()
     result.converted.extend(key for key in state.done)
 

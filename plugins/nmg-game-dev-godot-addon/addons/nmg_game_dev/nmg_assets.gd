@@ -1,5 +1,8 @@
+@tool
 extends Node
 ## NmgAssets autoload: routes an asset path to its Desktop or Mobile variant.
+##
+## @tool so NmgVariantScene can resolve its editor preview; it has no per-frame or editor hooks.
 ##
 ## Finalized assets live at res://assets/<Category>/<Name>/<Desktop|Mobile>/<Name>.<ext>. Game code
 ## names the asset without the variant folder and lets this autoload pick it:

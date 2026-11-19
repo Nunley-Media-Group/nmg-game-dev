@@ -22,9 +22,12 @@
 #   3. src/nmg_game_dev/godot/gd/probe_asset.gd on res://Crate.glb must print an NMG_RESULT line
 #      that matches tests/godot/fixture/expected-probe.json (floats within 0.001).
 #   4. Every src/nmg_game_dev/godot/gd/*.gd must pass godot --check-only.
-#   5. probe_anims.gd (Crate.glb as a skeleton scene), probe_terrain.gd (Crate.glb in meshes mode)
-#      and probe_audio.gd (res://Beep.wav) must each print the NMG_RESULT shape the Python side
-#      reads.
+#   5. probe_anims.gd on the fixture rig and its three animation_library clips, and
+#      probe_terrain.gd in scene mode on the fixture terrain, must print the NMG_RESULT in
+#      tests/godot/fixture/expected-anims.json and expected-terrain.json (floats within 0.001;
+#      tests/godot/make_probe_fixtures.py writes those fixtures). probe_terrain.gd in meshes mode
+#      (Crate.glb) and probe_audio.gd (res://Beep.wav) must print the NMG_RESULT shape the Python
+#      side reads.
 #
 # Every Godot run is bounded by GODOT_GATE_TIMEOUT seconds (default 300), so a Godot that stalls
 # fails the gate instead of hanging it.
@@ -38,7 +41,7 @@
 #   6  the probe failed or printed no NMG_RESULT line
 #   7  the probe result differs from expected-probe.json
 #   8  a probe script failed --check-only
-#   9  a probe smoke run failed or printed the wrong result shape
+#   9  a probe smoke run failed, printed the wrong result shape, or differs from its expected file
 #   10 a Godot run exceeded GODOT_GATE_TIMEOUT
 # Each failure prints ERROR: and Remediation: lines on stderr.
 set -euo pipefail
@@ -188,6 +191,49 @@ with wave.open(sys.argv[1], "wb") as handle:
     handle.writeframes(b"".join(struct.pack("<h", (i % 50) * 400 - 10000) for i in range(2205)))
 PY
 
+# Compare an NMG_RESULT JSON with an expected file (or one key of it); floats within 0.001.
+#   python3 "$compare" <result json> <expected.json> [key]
+compare="$project/.nmg_compare.py"
+cat >"$compare" <<'PY'
+import json
+import sys
+
+TOLERANCE = 0.001
+
+
+def diff(actual, expected, where):
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return [] if actual == expected else [f"{where}: {actual!r} != {expected!r}"]
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        if abs(actual - expected) <= TOLERANCE:
+            return []
+        return [f"{where}: {actual!r} != {expected!r}"]
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        if sorted(actual) != sorted(expected):
+            return [f"{where}: keys {sorted(actual)} != {sorted(expected)}"]
+        return [line for key in expected for line in diff(actual[key], expected[key], f"{where}.{key}")]
+    if isinstance(expected, list) and isinstance(actual, list):
+        if len(actual) != len(expected):
+            return [f"{where}: {len(actual)} items != {len(expected)}"]
+        return [line for i, (a, e) in enumerate(zip(actual, expected)) for line in diff(a, e, f"{where}[{i}]")]
+    return [] if actual == expected else [f"{where}: {actual!r} != {expected!r}"]
+
+
+try:
+    actual = json.loads(sys.argv[1])
+except ValueError as error:
+    print(f"probe result is not JSON: {error}", file=sys.stderr)
+    raise SystemExit(1)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    expected = json.load(handle)
+if len(sys.argv) > 3:
+    expected = expected[sys.argv[3]]
+problems = diff(actual, expected, "result")
+for problem in problems:
+    print(problem, file=sys.stderr)
+raise SystemExit(1 if problems else 0)
+PY
+
 # Run Godot headless in the temp project, killing it after gate_timeout seconds (exit 124).
 run_godot() {
   python3 - "$gate_timeout" "$godot" --headless --audio-driver Dummy --path "$project" "$@" <<'PY'
@@ -255,43 +301,7 @@ if (( status != 0 )) || [[ -z "$result" ]]; then
   die 6 "Read the probe output above; check that the fixture imported and probe_asset.gd parses." "probe_asset.gd failed (exit $status) or printed no NMG_RESULT line"
 fi
 
-if ! python3 - "${result#NMG_RESULT }" "$fixture/expected-probe.json" <<'PY'
-import json
-import sys
-
-TOLERANCE = 0.001
-
-
-def diff(actual, expected, where):
-    if isinstance(expected, bool) or isinstance(actual, bool):
-        return [] if actual == expected else [f"{where}: {actual!r} != {expected!r}"]
-    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
-        if abs(actual - expected) <= TOLERANCE:
-            return []
-        return [f"{where}: {actual!r} != {expected!r}"]
-    if isinstance(expected, dict) and isinstance(actual, dict):
-        if sorted(actual) != sorted(expected):
-            return [f"{where}: keys {sorted(actual)} != {sorted(expected)}"]
-        return [line for key in expected for line in diff(actual[key], expected[key], f"{where}.{key}")]
-    if isinstance(expected, list) and isinstance(actual, list):
-        if len(actual) != len(expected):
-            return [f"{where}: {len(actual)} items != {len(expected)}"]
-        return [line for i, (a, e) in enumerate(zip(actual, expected)) for line in diff(a, e, f"{where}[{i}]")]
-    return [] if actual == expected else [f"{where}: {actual!r} != {expected!r}"]
-
-
-try:
-    actual = json.loads(sys.argv[1])
-except ValueError as error:
-    print(f"probe result is not JSON: {error}", file=sys.stderr)
-    raise SystemExit(1)
-with open(sys.argv[2], encoding="utf-8") as handle:
-    expected = json.load(handle)
-problems = diff(actual, expected, "result")
-for problem in problems:
-    print(problem, file=sys.stderr)
-raise SystemExit(1 if problems else 0)
-PY
+if ! python3 "$compare" "${result#NMG_RESULT }" "$fixture/expected-probe.json"
 then
   die 7 "Fix the probe or the importer, or regenerate the fixture with tests/godot/make_crate_glb.py and update expected-probe.json." "the probe result differs from tests/godot/fixture/expected-probe.json"
 fi
@@ -324,8 +334,24 @@ smoke() {
     die 9 "Fix src/nmg_game_dev/godot/gd/$name so its NMG_RESULT matches what src/nmg_game_dev/godot/ reads, then rerun." "$name smoke run failed (exit $status) or printed the wrong result shape"
   fi
 }
-smoke probe_anims.gd '{"clips": [], "skeletons": ["res://Crate.glb"]}' \
-  'r["clips"] == {} and r["skeletons"]["res://Crate.glb"]["found"] is True and isinstance(r["skeletons"]["res://Crate.glb"]["bones"], list)'
+# Run a probe with the params in an expected file and require its "result" (floats within 0.001).
+expect() {
+  local name="$1" expected="$2" params_file result
+  params_file="$probe_dir/${name%.gd}.expected.params.json"
+  python3 -c 'import json, sys; json.dump(json.load(open(sys.argv[1]))["params"], open(sys.argv[2], "w"))' \
+    "$expected" "$params_file"
+  status=0
+  output="$(run_godot -s "res://.godot/nmg_probes/$name" -- "$params_file")" || status=$?
+  printf '%s\n' "$output"
+  check_timeout "$status" "$name"
+  result="$(grep '^NMG_RESULT ' <<<"$output" | tail -n 1 || true)"
+  if (( status != 0 )) || [[ -z "$result" ]] \
+    || ! python3 "$compare" "${result#NMG_RESULT }" "$expected" result; then
+    die 9 "Fix src/nmg_game_dev/godot/gd/$name or its writer, or regenerate the fixture with tests/godot/make_probe_fixtures.py, then rerun." "$name result differs from tests/godot/fixture/$(basename "$expected") (exit $status)"
+  fi
+}
+expect probe_anims.gd "$fixture/expected-anims.json"
+expect probe_terrain.gd "$fixture/expected-terrain.json"
 smoke probe_terrain.gd '{"mode": "meshes", "glbs": ["res://Crate.glb"]}' \
   'isinstance(r["meshes"]["res://Crate.glb"], list) and len(r["meshes"]["res://Crate.glb"]) >= 1'
 smoke probe_audio.gd '{"stream": "res://Beep.wav"}' \

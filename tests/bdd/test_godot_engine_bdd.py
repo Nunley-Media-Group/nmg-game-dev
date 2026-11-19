@@ -823,6 +823,9 @@ def _ship_gates_first(state: dict[str, Any]) -> None:
     commands = sandbox.godot_commands()
     first_export = next(i for i, call in enumerate(commands) if call[0] == "--export-release")
     before = commands[:first_export]
+    # A fresh checkout is imported first, so class_name types resolve in the script check.
+    assert before[0] == ["--import"]
+    before = before[1:]
     assert len(before) >= 2
     assert [call[0] for call in before[:-1]] == ["--check-only"] * (len(before) - 1)
     assert before[-1] == ["-s", "res://tests/run_tests.gd"]

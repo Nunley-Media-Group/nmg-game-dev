@@ -31,6 +31,7 @@ nmg-game-dev/
 │           ├── plugin.cfg         # Add-on manifest (version = VERSION)
 │           ├── plugin.gd          # EditorPlugin: registers the NmgAssets autoload
 │           ├── nmg_assets.gd      # NmgAssets.resolve_variant_path: Desktop/Mobile routing
+│           ├── nmg_variant_scene.gd       # NmgVariantScene: instances a split scene's variant (@tool preview)
 │           ├── nmg_mission_definition.gd  # NmgMissionDefinition resource class
 │           ├── terrain/           # nmg_terrain.gdshader (four-layer splat)
 │           └── tests/             # Headless test runner (run_tests.gd) + test_*.gd; not installed
@@ -172,7 +173,8 @@ Level composition (placing several assets together) happens afterwards, in Godot
         │
         ▼
 ┌───────────────────────┐
-│ Pre-export gates      │ ← --check-only on every .gd, game/tests/run_tests.gd, mobile budgets
+│ Pre-export gates      │ ← --import, --check-only on every .gd, game/tests/run_tests.gd,
+│                       │   mobile budgets
 └───────┬───────────────┘
         ▼
 ┌───────────────────────┐
@@ -200,7 +202,7 @@ Level composition (placing several assets together) happens afterwards, in Godot
 | MCP servers (Blender add-on, texture-gen, finalize, meshy) | Expose tool endpoints; own tool implementation. The finalize server wraps `src/nmg_game_dev/pipeline/` without adding logic. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
 | Ship (`src/nmg_game_dev/ship/`) | Export, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
-| Godot runtime add-on (`addons/nmg_game_dev`) | Ships inside consumer games: variant resolver autoload, mission resource class, terrain shader | Authoring, importing, or anything editor-only beyond registering its autoload |
+| Godot runtime add-on (`addons/nmg_game_dev`) | Ships inside consumer games: variant resolver autoload, `NmgVariantScene` (instances a split scene's variant at run time, previews Desktop in the editor), mission resource class, terrain shader | Authoring, importing, or anything editor-only beyond registering its autoload |
 
 ---
 
@@ -276,6 +278,7 @@ A single asset with aggressive LODs would still ship the full source mesh in eve
 ### Asset reference rules (consumer gameplay code)
 
 - Gameplay code refers to a split asset by its variant-free path (`res://assets/<Category>/<Name>/<Name>.glb`) and loads it at runtime through `NmgAssets.resolve_variant_path(path)`, from the `addons/nmg_game_dev` add-on. The resolver picks `Mobile/` when the platform has the `mobile` or `web` feature tag, and `Desktop/` otherwise.
+- A scene that ships on every platform places a split scene through an `NmgVariantScene` node whose `scene_path` is the variant-free path (`res://assets/<Category>/<Name>/<Name>.tscn`); it instances the variant `NmgAssets` picks when it enters the tree. `/design` writes one for each region's terrain. In the editor it shows the Desktop variant as an unowned preview that is never saved.
 - Never `preload()` or hard-link a `Desktop/` or `Mobile/` path from a scene or script that ships on every platform; the export filter would leave a dangling reference.
 - Never reference `Mobile/` from `Desktop/`, or vice versa. The folder boundary is the contract.
 
