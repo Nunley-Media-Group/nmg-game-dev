@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-11-19
+
+### Fixed
+
+- Detect and repair one-edge twist seams so geometry.normals settles (#243)
+
 ## [0.29.0] - 2026-11-19
 
 ### Added

@@ -50,3 +50,21 @@ def test_consumer_doc_no_longer_describes_normals_as_a_flat_count() -> None:
     text = DOC.read_text(encoding="utf-8")
     assert OLD_NORMALS_WORDING not in text
     assert "connected island" in text
+
+
+def test_each_document_names_the_twist_seam_rule() -> None:
+    """#243 FR6: every document names geometry.twist_seam and says it is a reversed-winding seam."""
+    for path in DOCUMENTS:
+        text = path.read_text(encoding="utf-8")
+        where = path.relative_to(REPO_ROOT).as_posix()
+        assert "geometry.twist_seam" in text, f"{where} does not name geometry.twist_seam"
+        assert "reversed winding" in text.lower(), f"{where} does not describe the twist seam"
+    section = _contract_section_3(CONTRACT.read_text(encoding="utf-8"))
+    assert "geometry.twist_seam" in section, "asset contract section 3 does not name the rule"
+
+
+def test_consumer_doc_locates_twist_seam_samples_on_edges() -> None:
+    """#243: a geometry.twist_seam sample is an edge index located at the edge midpoint."""
+    text = " ".join(DOC.read_text(encoding="utf-8").split())
+    assert "the edge index (`geometry.twist_seam`)" in text
+    assert "edge midpoint for a `geometry.twist_seam` edge" in text

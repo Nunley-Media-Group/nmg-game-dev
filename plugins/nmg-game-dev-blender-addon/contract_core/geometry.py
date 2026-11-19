@@ -1,4 +1,5 @@
-"""Mesh checks: loose vertices, zero-area faces, duplicate vertices, and inconsistent normals.
+"""Mesh checks: loose vertices, zero-area faces, duplicate vertices, inconsistent normals, and
+twist seams.
 
 The caller passes a mesh it owns (an evaluated copy), so nothing here touches the scene. Each
 finding counts every offending element and carries located samples: the lowest SAMPLE_LIMIT
@@ -85,7 +86,7 @@ def geometry_findings(
                     samples,
                 )
             )
-        flagged = normal_violations(bm)
+        flagged, seam_edges = normal_violations(bm)
         if flagged:
             samples = [_face_sample(face, world, deform, names) for face in flagged[:SAMPLE_LIMIT]]
             findings.append(
@@ -94,6 +95,20 @@ def geometry_findings(
                     name,
                     f"{name} has {len(flagged)} face(s) whose normals are inconsistent or inward",
                     len(flagged),
+                    samples,
+                )
+            )
+        if seam_edges:
+            samples = [
+                _edge_sample(edge, world, deform, names) for edge in seam_edges[:SAMPLE_LIMIT]
+            ]
+            findings.append(
+                _located(
+                    "geometry.twist_seam",
+                    name,
+                    f"{name} has {len(seam_edges)} twist seam edge(s) "
+                    "where no winding is consistent",
+                    len(seam_edges),
                     samples,
                 )
             )
@@ -112,20 +127,52 @@ def recalc_island_normals(bm: bmesh.types.BMesh) -> None:
         bmesh.ops.recalc_face_normals(bm, faces=island)
 
 
-def normal_violations(bm: bmesh.types.BMesh) -> list[bmesh.types.BMFace]:
-    """Return, in index order, the faces that break the normals rule for their island.
+def normal_violations(
+    bm: bmesh.types.BMesh,
+) -> tuple[list[bmesh.types.BMFace], list[bmesh.types.BMEdge]]:
+    """Return, in index order, the faces that break the normals rule and the twist seam edges.
 
     An open island has an edge with one linked face, so it is a sheet: only its winding is checked,
     and nothing about its position or an outside direction matters. A closed island must face
-    outward, judged on that island alone so other islands cannot change the answer.
+    outward, judged on that island alone so other islands cannot change the answer. A closed island
+    that still has twist seam edges after its recalculation has no consistent winding at all, so it
+    contributes those edges and none of its faces (#243).
     """
     flagged: list[bmesh.types.BMFace] = []
+    seams: list[bmesh.types.BMEdge] = []
     for island in _islands(bm):
         if any(len(edge.link_faces) == 1 for face in island for edge in face.edges):
             flagged.extend(_winding_violations(island))
+            continue
+        outward = _outward_violations(bm, island)
+        island_seams = twist_seam_edges(island)
+        if island_seams:
+            seams.extend(island_seams)
         else:
-            flagged.extend(_outward_violations(bm, island))
-    return sorted(flagged, key=lambda face: face.index)
+            flagged.extend(outward)
+    return sorted(flagged, key=lambda face: face.index), sorted(seams, key=lambda edge: edge.index)
+
+
+def twist_seam_edges(faces: Iterable[bmesh.types.BMFace]) -> list[bmesh.types.BMEdge]:
+    """Return, in edge-index order, the edges whose two linked faces walk them the same way.
+
+    Only edges with exactly two linked faces, both in ``faces``, count. After its normals are
+    recalculated an orientable island has no such edge, and an island that joins itself with
+    reversed winding always has one; those edges are its twist seam (#243).
+    """
+    members = set(faces)
+    seams: set[bmesh.types.BMEdge] = set()
+    for face in members:
+        for loop in face.loops:
+            edge = loop.edge
+            if edge in seams or len(edge.link_faces) != 2:
+                continue
+            other = next(linked for linked in edge.link_faces if linked != face)
+            if other not in members:
+                continue
+            if _walk_direction(loop) == _walk_direction(_loop_on_edge(other, edge)):
+                seams.add(edge)
+    return sorted(seams, key=lambda edge: edge.index)
 
 
 def _islands(bm: bmesh.types.BMesh) -> list[list[bmesh.types.BMFace]]:
@@ -250,6 +297,20 @@ def _face_sample(
         "index": face.index,
         "position": _position(world @ face.calc_center_median()),
         "vertex_groups": _group_names(face.verts, deform, names),
+    }
+
+
+def _edge_sample(
+    edge: bmesh.types.BMEdge,
+    world: Matrix,
+    deform: bmesh.types.BMLayerItem | None,
+    names: Sequence[str],
+) -> dict[str, Any]:
+    first, second = edge.verts
+    return {
+        "index": edge.index,
+        "position": _position(world @ ((first.co + second.co) / 2)),
+        "vertex_groups": _group_names(edge.verts, deform, names),
     }
 
 
