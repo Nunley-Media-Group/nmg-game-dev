@@ -39,6 +39,23 @@ def find_project(export_root: Path) -> Path:
     )
 
 
+def require_project(project_file: Path) -> Path:
+    """Return the project folder of ``project_file`` (a ``project.godot``), or raise.
+
+    A missing file raises ``godot.project_missing`` (#251): the smoke run, the screenshot, and its
+    MCP tool all start from the consumer's ``game/project.godot``.
+    """
+    if not project_file.is_file():
+        raise PipelineError(
+            code="godot.project_missing",
+            message=f"No Godot project file at {project_file}.",
+            remediation="Run /onboard-consumer to create game/project.godot, or pass --project "
+            "with the path to a project.godot.",
+            stage="godot",
+        )
+    return project_file.parent
+
+
 def res_path(project: Path, path: Path) -> str:
     """Return the ``res://`` path for ``path`` inside ``project``."""
     relative = path.resolve().relative_to(project.resolve())

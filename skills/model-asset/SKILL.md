@@ -78,6 +78,9 @@ checks decide what passes. Build to these rules, which match what `geometry.norm
   faces only, so a consistently wound sheet passes wherever it sits.
 - Closed parts must face outward. The check recalculates each closed part on its own and reports the
   faces that point inward.
+- A closed part must not join itself back with reversed winding through a narrow seam. The check
+  reports such a seam as `geometry.twist_seam`, with the seam edges' midpoints; delete the faces at
+  those edges and rebuild the join.
 - Touching primitives must either merge by distance so they share vertices, or stay about 0.6 mm
   apart. Vertices that coincide without merging raise `geometry.duplicates`.
 

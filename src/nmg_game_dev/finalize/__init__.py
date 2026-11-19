@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .mcp_tools import (
     finalize_asset,
+    game_screenshot,
     get_finalize_job,
     import_audio,
     list_material_variants,
@@ -20,6 +21,7 @@ __all__ = [
     "build_request",
     "default_budgets_path",
     "finalize_asset",
+    "game_screenshot",
     "get_finalize_job",
     "import_audio",
     "list_material_variants",

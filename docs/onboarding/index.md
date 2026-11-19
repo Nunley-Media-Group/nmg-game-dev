@@ -18,7 +18,10 @@ first, then follow the guides in order.
 2. **Make your first asset.** [first-asset.md](first-asset.md) covers prompting for an asset, the
    review loop, the contract checks, texture sources, budget overrides, and import into Godot.
 3. **Ship it.** [first-ship.md](first-ship.md) walks through the `ship` skill on a fixture project.
-4. **Keep up to date.** [upgrading.md](upgrading.md) covers reviewing breaking changes, re-registering
+4. **Run and capture it.** [run-and-capture.md](run-and-capture.md) covers the launch options that
+   read the same on desktop and web, the headless smoke run that `/ship` gates on, and screenshots
+   of the running game.
+5. **Keep up to date.** [upgrading.md](upgrading.md) covers reviewing breaking changes, re-registering
    the plugin, and re-running onboarding with `--refresh`.
 
 ## Converting an existing project

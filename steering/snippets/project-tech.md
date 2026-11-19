@@ -49,8 +49,9 @@ Developer in Claude Code
 │   • Claude Code plugin (skills + MCP configs)              │
 │   • Blender add-on (authoring tools)                       │
 │   • Godot add-on game/addons/nmg_game_dev (runtime: the    │
-│     NmgAssets variant resolver, the NmgVariantScene        │
-│     variant loader, NmgMissionDefinition, terrain shader)  │
+│     NmgAssets variant resolver, the NmgLaunch launch       │
+│     options + autoplay, the NmgVariantScene variant        │
+│     loader, NmgMissionDefinition, terrain shader)          │
 │     in the Godot project under game/                       │
 └────────────────────────────────────────────────────────────┘
 ```

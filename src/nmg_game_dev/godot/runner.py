@@ -77,20 +77,25 @@ def default_timeout(env: Mapping[str, str] | None = None) -> float:
 
 
 class SubprocessGodotRunner:
-    """Runs the real Godot binary headless, with the dummy audio driver.
+    """Runs the real Godot binary with the dummy audio driver, headless unless ``headless`` is off.
 
-    A run with no explicit ``timeout`` is bounded by ``default_timeout`` (``NMG_GODOT_TIMEOUT_S``,
-    else ``DEFAULT_TIMEOUT_S``); past it the process is killed and the result has exit code 124.
+    A windowed run (``headless=False``, used by the game screenshot) omits ``--headless`` and keeps
+    the rest of the argv. A run with no explicit ``timeout`` is bounded by ``default_timeout``
+    (``NMG_GODOT_TIMEOUT_S``, else ``DEFAULT_TIMEOUT_S``); past it the process is killed and the
+    result has exit code 124.
     """
 
-    def __init__(self, binary: Path, *, timeout: float | None = None) -> None:
+    def __init__(
+        self, binary: Path, *, timeout: float | None = None, headless: bool = True
+    ) -> None:
         self.binary = binary
         self.timeout = default_timeout() if timeout is None else timeout
+        self.headless = headless
 
     def argv(self, args: Sequence[str], *, project: Path) -> list[str]:
         return [
             str(self.binary),
-            "--headless",
+            *(["--headless"] if self.headless else []),
             "--audio-driver",
             "Dummy",
             "--path",

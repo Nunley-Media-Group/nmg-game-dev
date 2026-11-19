@@ -106,11 +106,14 @@ rules add fields:
 - `interpenetration` names the two parts in `parts`.
 
 The per-part `geometry` entries are the contract checks: `geometry.loose` (loose vertices),
-`geometry.zero_area` (zero-area faces), `geometry.duplicates` (duplicate vertices), and
-`geometry.normals`. `geometry.normals` judges each connected island on its own. A closed part must
-have every face pointing outward. An open sheet (an island with boundary edges, such as a floor, roof
-plane, or decal) is checked only for consistent winding between neighbouring faces, so it passes
-wherever it sits. They are reported for reference and never block here. `docs/asset-contract.md` and
+`geometry.zero_area` (zero-area faces), `geometry.duplicates` (duplicate vertices),
+`geometry.normals`, and `geometry.twist_seam`. `geometry.normals` judges each connected island on its
+own. A closed part must have every face pointing outward. An open sheet (an island with boundary
+edges, such as a floor, roof plane, or decal) is checked only for consistent winding between
+neighbouring faces, so it passes wherever it sits. `geometry.twist_seam` reports a seam where a
+closed part joins itself with reversed winding, so no outward direction is consistent: it counts the
+seam edges, and that part adds no `geometry.normals` faces. Finalize cleanup deletes the faces at
+those edges. They are reported for reference and never block here. `docs/asset-contract.md` and
 `/finalize-asset` own them.
 
 For an `environment_piece` built from many primitives, follow the rules in `docs/asset-contract.md`
@@ -122,10 +125,10 @@ Each geometry entry carries `count`, the total number of offending elements, and
 of up to 5 located elements. The samples are the lowest element indices, so the same asset always
 gives the same samples. Each sample has:
 
-- `index`: the vertex index (`geometry.loose`, `geometry.duplicates`) or the face index
-  (`geometry.zero_area`, `geometry.normals`).
+- `index`: the vertex index (`geometry.loose`, `geometry.duplicates`), the face index
+  (`geometry.zero_area`, `geometry.normals`), or the edge index (`geometry.twist_seam`).
 - `position`: the world-space position as three floats rounded to 6 decimals. It is the vertex
-  position, or the face center for a face.
+  position, the face center for a face, or the edge midpoint for a `geometry.twist_seam` edge.
 - `vertex_groups`: the sorted names of the vertex groups the element belongs to. A face lists the
   groups of its vertices, and a duplicate lists the groups of both vertices in the pair. The list is
   empty when the object has no vertex groups.

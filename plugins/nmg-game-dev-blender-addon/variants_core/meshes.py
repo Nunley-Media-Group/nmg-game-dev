@@ -4,11 +4,12 @@ budget-fitting decimation."""
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TypedDict
 
 import bmesh
 import bpy
 
-from ..contract_core.geometry import normal_violations, recalc_island_normals
+from ..contract_core.geometry import normal_violations, recalc_island_normals, twist_seam_edges
 from .errors import VariantError
 
 # Each pass lowers the collapse ratio by this factor until the triangle target is met.
@@ -19,6 +20,18 @@ DUPLICATE_DISTANCE = 1e-5
 DEGENERATE_DISTANCE = 1e-6
 # Faces at or below this area are deleted. contract_core/geometry.py flags faces under this limit.
 ZERO_AREA_LIMIT = 1e-8
+
+
+class TwistRepair(TypedDict):
+    """What clean_mesh deleted to remove twist seams (#243).
+
+    ``faces`` is the deleted face count, ``edges`` the seam edge count, and ``midpoints`` each seam
+    edge's midpoint in mesh space, in the order the repair found them.
+    """
+
+    faces: int
+    edges: int
+    midpoints: list[tuple[float, float, float]]
 
 
 def triangle_count(mesh: bpy.types.Mesh) -> int:
@@ -39,14 +52,14 @@ def replace_mesh(obj: bpy.types.Object, mesh: bpy.types.Mesh) -> None:
         bpy.data.meshes.remove(old)
 
 
-def clean_mesh(mesh: bpy.types.Mesh) -> None:
+def clean_mesh(mesh: bpy.types.Mesh) -> TwistRepair:
     """Clean mesh in place so it passes the contract's geometry rules.
 
     Desktop cleanup and every fitted Mobile mesh run this routine. It runs, in order: merge
     doubles, dissolve degenerate edges, delete zero-area faces, delete the faces past the two
     largest on each non-manifold edge, delete repeated faces, delete loose geometry, and settle
     normals (see _settle_normals). Every step is deterministic, so identical input gives
-    identical output.
+    identical output. Returns what the twist repair in _settle_normals deleted.
     """
     bm = bmesh.new()
     try:
@@ -58,22 +71,25 @@ def clean_mesh(mesh: bpy.types.Mesh) -> None:
         _drop_non_manifold_faces(bm)
         _delete_repeated_faces(bm)
         _delete_loose(bm)
-        _settle_normals(bm, mesh)
+        repair = _settle_normals(bm, mesh)
         mesh.update()
     finally:
         bm.free()
+    return repair
 
 
-def _settle_normals(bm: bmesh.types.BMesh, mesh: bpy.types.Mesh) -> None:
+def _settle_normals(bm: bmesh.types.BMesh, mesh: bpy.types.Mesh) -> TwistRepair:
     """Recalculate normals the way geometry.normals judges them, then write bm to mesh.
 
     Each pass recalculates normals per island with the contract's own routine and writes the
-    mesh. It then reads the mesh back as the contract does and collects the faces the rule still
-    flags. A closed island with no consistent orientation (a Klein bottle, say) keeps flagged
-    faces however often it is recalculated, so those faces and any geometry left loose are
-    deleted and the pass repeats (#232). Each repeat deletes at least one face, so the loop ends.
-    to_mesh and from_mesh keep face order, so the probe's face indices are bm's.
+    mesh. It then reads the mesh back as the contract does. A closed island that joins itself
+    with reversed winding keeps twist seam edges, whose two faces walk them the same way, so the
+    faces at those edges and any geometry left loose are deleted first and the pass repeats
+    (#243). Only once no seam remains are the faces the rule still flags deleted the same way
+    (#232). Each repeat deletes at least one face, so the loop ends. to_mesh and from_mesh keep
+    face order, so the probe's face indices are bm's.
     """
+    repair = TwistRepair(faces=0, edges=0, midpoints=[])
     while True:
         recalc_island_normals(bm)
         bm.to_mesh(mesh)
@@ -81,13 +97,22 @@ def _settle_normals(bm: bmesh.types.BMesh, mesh: bpy.types.Mesh) -> None:
         try:
             probe.from_mesh(mesh)
             probe.normal_update()
-            flagged = [face.index for face in normal_violations(probe)]
+            seams = twist_seam_edges(probe.faces)
+            if seams:
+                doomed = sorted({face.index for edge in seams for face in edge.link_faces})
+                repair["faces"] += len(doomed)
+                repair["edges"] += len(seams)
+                for edge in seams:
+                    mid = (edge.verts[0].co + edge.verts[1].co) / 2
+                    repair["midpoints"].append((mid.x, mid.y, mid.z))
+            else:
+                doomed = [face.index for face in normal_violations(probe)[0]]
         finally:
             probe.free()
-        if not flagged:
-            return
+        if not doomed:
+            return repair
         bm.faces.ensure_lookup_table()
-        bmesh.ops.delete(bm, geom=[bm.faces[index] for index in flagged], context="FACES_ONLY")
+        bmesh.ops.delete(bm, geom=[bm.faces[index] for index in doomed], context="FACES_ONLY")
         _delete_loose(bm)
 
 

@@ -91,6 +91,19 @@
       }
     },
     {
+      "name": "game_screenshot",
+      "description": "Save a PNG of the running consumer game after a delay, so an asset can be reviewed under the game's own lighting and materials. Runs the Godot project in a window with the launch options and NmgLaunch's --nmg-shot flag: the root viewport is written to path and the game quits. A relative path resolves against the consumer project. Returns {path, width, height}, or an error object with shot.invalid_after, shot.invalid_path (path is a folder or cannot be written), godot.project_missing, godot.not_found, or shot.no_image (the game exited without writing the PNG; the message carries its last output lines).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string", "description": "Where to write the PNG. A relative path resolves against the consumer project."},
+          "after": {"type": "number", "minimum": 0, "maximum": 60, "default": 3},
+          "options": {"type": ["array", "null"], "items": {"type": "string"}, "description": "Launch options for the game, for example [\"--at=Forest\", \"--hour=18\"]."}
+        },
+        "required": ["path"]
+      }
+    },
+    {
       "name": "get_finalize_job",
       "description": "Return a finalize job's state, step, progress, message, batch progress (total, completed, current collection and index, and each item's state), and result or error. An unknown id returns finalize.job_not_found.",
       "inputSchema": {

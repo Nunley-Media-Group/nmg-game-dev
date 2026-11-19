@@ -17,8 +17,8 @@
 # addons/nmg_game_dev and a generated 0.1 s mono WAV at res://Beep.wav:
 #   1. godot --headless --import must exit 0 and print no ERROR: line.
 #   2. res://addons/nmg_game_dev/tests/run_tests.gd must exit 0, print "N passed, 0 failed", print
-#      no ERROR: or SCRIPT ERROR: line, and print a PASS line for each variant-routing test in
-#      required_tests (desktop, mobile, and the malformed path with its warning).
+#      no ERROR: or SCRIPT ERROR: line, and print a PASS line for each test in required_tests (the
+#      variant-routing tests, and the NmgLaunch option, autoplay, and save-folder tests).
 #   3. src/nmg_game_dev/godot/gd/probe_asset.gd on res://Crate.glb must print an NMG_RESULT line
 #      that matches tests/godot/fixture/expected-probe.json (floats within 0.001).
 #   4. Every src/nmg_game_dev/godot/gd/*.gd must pass godot --check-only.
@@ -56,6 +56,14 @@ required_tests=(
   "test_nmg_assets.gd::test_desktop_variant"
   "test_nmg_assets.gd::test_mobile_variant"
   "test_nmg_assets.gd::test_malformed_path_is_unchanged_with_a_warning"
+  "test_nmg_launch.gd::test_cmdline_options"
+  "test_nmg_launch.gd::test_web_hash_options"
+  "test_nmg_launch.gd::test_flag_reads_true"
+  "test_nmg_launch.gd::test_absent_option_returns_default"
+  "test_nmg_launch.gd::test_autoplay_emits_once"
+  "test_nmg_launch.gd::test_autoplay_reaches_a_scene_that_connects_in_ready"
+  "test_nmg_launch.gd::test_save_dir_with_test_saves"
+  "test_nmg_launch.gd::test_save_dir_default"
 )
 cache_root="${GODOT_CACHE_DIR:-$repo_root/.cache/godot}"
 latest_url="https://api.github.com/repos/godotengine/godot/releases/latest"
@@ -282,7 +290,7 @@ if (( status != 0 )) \
 fi
 for test in "${required_tests[@]}"; do
   if ! grep -qxF "PASS $test" <<<"$output"; then
-    die 5 "Restore the variant-routing test $test in the add-on's tests/test_nmg_assets.gd, then rerun." "add-on tests failed: no PASS line for $test"
+    die 5 "Restore the add-on test $test in its tests/ file, then rerun." "add-on tests failed: no PASS line for $test"
   fi
 done
 
