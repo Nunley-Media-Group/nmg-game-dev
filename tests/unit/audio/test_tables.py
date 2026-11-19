@@ -14,9 +14,14 @@ import pytest
 
 from nmg_game_dev.audio import AudioError
 from nmg_game_dev.audio.tables import TABLE_NAME, refresh_tables, render_table
+from nmg_game_dev.design import backlog
 from nmg_game_dev.design.__main__ import main as design_main
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+FIELDS_NOT_A_MAPPING = (
+    '{"version": 1, "entries": [{"type": "region", "name": "Forest", "asset_name": "Forest", '
+    '"source": "docs/design/forest.md", "status": "planned", "fields": 5}]}'
+)
 TABLE = "game/systems/Audio/audio_table.tres"
 HEADER = '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n'
 
@@ -141,19 +146,25 @@ def test_refresh_without_a_godot_project_raises_the_missing_project_code(tmp_pat
     assert "project.godot" in caught.value.message
 
 
-def _backlog(root: Path, text: str) -> None:
+def _backlog(root: Path, text: str | bytes) -> None:
     path = root / "docs" / "design" / "backlog.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
 
 
 @pytest.mark.parametrize(
     "text",
-    ["{not json", "[]", '{"version": 1, "entries": [{"type": "region"}]}'],
-    ids=["not-json", "no-entries", "entry-without-fields"],
+    [
+        "{not json",
+        "[]",
+        '{"version": 1, "entries": [{"type": "region"}]}',
+        FIELDS_NOT_A_MAPPING,
+        b"\xff\xfe{}",
+    ],
+    ids=["not-json", "no-entries", "entry-without-fields", "fields-not-a-mapping", "not-utf8"],
 )
 def test_an_unreadable_backlog_raises_backlog_invalid_and_writes_nothing(
-    root: Path, text: str
+    root: Path, text: str | bytes
 ) -> None:
     """#237 review F1: a malformed backlog is an AudioError with a remediation, not a traceback."""
     _sound(root, "DoorCreak.wav")
@@ -167,6 +178,61 @@ def test_an_unreadable_backlog_raises_backlog_invalid_and_writes_nothing(
     assert caught.value.stage == "audio"
     assert "backlog.json" in caught.value.message
     assert "design sync" in caught.value.remediation
+    assert table.read_text(encoding="utf-8") == HEADER
+
+
+def test_without_a_name_table_refresh_reads_no_backlog(root: Path) -> None:
+    """#237 review F4: no Audio component means nothing to refresh, so a bad backlog is not read."""
+    _sound(root, "DoorCreak.wav")
+    _table(root, system="Combat", text='[gd_resource type="Resource" format=3]\n')
+    _backlog(root, "{not json")
+
+    assert refresh_tables(root) == []
+
+
+def test_a_table_that_is_not_utf8_is_not_a_name_table_and_is_left_alone(root: Path) -> None:
+    """#237 review F1: a binary audio_table.tres is skipped; the real name table still refreshes."""
+    _sound(root, "DoorCreak.wav")
+    table = _table(root)
+    binary = root / "game" / "systems" / "Binary" / TABLE_NAME
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"\xff\xfe\x00garbage")
+
+    assert refresh_tables(root) == [TABLE]
+    assert binary.read_bytes() == b"\xff\xfe\x00garbage"
+    assert "DoorCreak" in table.read_text(encoding="utf-8")
+
+
+def test_an_unreadable_table_raises_table_unreadable(root: Path) -> None:
+    """#237 review F1: a table path that cannot be read is an AudioError, not an OSError."""
+    (root / "game" / "systems" / "Audio" / TABLE_NAME).mkdir(parents=True)
+
+    with pytest.raises(AudioError) as caught:
+        refresh_tables(root)
+
+    assert caught.value.code == "audio.table_unreadable"
+    assert caught.value.stage == "audio"
+    assert TABLE_NAME in caught.value.message
+    assert caught.value.remediation
+
+
+def test_a_table_that_cannot_be_written_raises_table_unwritable(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#237 review F1: a failed atomic write is an AudioError, and the table keeps its text."""
+    _sound(root, "DoorCreak.wav")
+    table = _table(root)
+
+    def refuse(path: Path, text: str) -> None:
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(backlog, "write_atomic", refuse)
+    with pytest.raises(AudioError) as caught:
+        refresh_tables(root)
+
+    assert caught.value.code == "audio.table_unwritable"
+    assert caught.value.stage == "audio"
+    assert "Permission denied" in caught.value.message
     assert table.read_text(encoding="utf-8") == HEADER
 
 

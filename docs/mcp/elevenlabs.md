@@ -70,7 +70,7 @@ The component has six methods:
 | `sfx(name, position := Vector3.ZERO)` | A sound effect. A zero position plays it without a place; any other position plays it through an `AudioStreamPlayer3D` there, at a pitch within `pitch_jitter` of 1. |
 | `ui(name)` | A non-positional UI sound at the sfx volume, with no pitch change. |
 | `music(name)` | A music track. It crossfades from the track playing over `crossfade_seconds` and replays the track when it finishes. A repeat of the playing track does nothing. |
-| `stinger(name)` | A one-shot over the music. The music drops by `duck_db` while the stinger plays and returns when it finishes. |
+| `stinger(name)` | A one-shot over the music, at its own pitch (no `pitch_jitter`). The music drops by `duck_db` while the stinger plays and returns when it finishes. |
 | `region_music()` | Plays the `music` theme of the current scene's region, when the table names one. It runs when the component is ready. |
 | `set_volumes(master, music, sfx)` | Sets the three linear volumes from 0 to 1 and saves them to `settings_path`, so `_ready` restores them. |
 

@@ -113,7 +113,8 @@ def test_an_unreadable_backlog_leaves_the_import_successful_with_a_refresh_warni
 ) -> None:
     """#237 review F1: the sound is stored and imported, so a table refresh failure only warns.
 
-    A rerun of the same import still succeeds, so a finished import never turns into a failure.
+    The backlog's region ``fields`` is not a mapping, which once raised a TypeError here. A rerun
+    of the same import still succeeds, so a finished import never turns into a failure.
     """
     table = project / "game" / "systems" / "Audio" / "audio_table.tres"
     table.parent.mkdir(parents=True)
@@ -121,7 +122,11 @@ def test_an_unreadable_backlog_leaves_the_import_successful_with_a_refresh_warni
     table.write_text(header, encoding="utf-8")
     backlog = project / "docs" / "design" / "backlog.json"
     backlog.parent.mkdir(parents=True)
-    backlog.write_text("{not json", encoding="utf-8")
+    backlog.write_text(
+        '{"version": 1, "entries": [{"type": "region", "name": "Forest", "asset_name": "Forest", '
+        '"source": "docs/design/forest.md", "status": "planned", "fields": 5}]}',
+        encoding="utf-8",
+    )
 
     for _attempt in range(2):
         result = import_audio(source_file("tone.wav"), "DoorCreak", "sfx", godot=godot)

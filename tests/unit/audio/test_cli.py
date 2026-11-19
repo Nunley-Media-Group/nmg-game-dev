@@ -342,13 +342,40 @@ def test_refresh_without_a_godot_project_exits_one_with_the_code(
 def test_refresh_with_an_unreadable_backlog_prints_the_error_and_exits_one(
     project: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """#237 review F1: the CLI reports ``ERROR [code]`` and a remediation, not a traceback."""
+    """#237 review F1: the CLI reports ``ERROR [code]`` and a remediation, not a traceback.
+
+    The backlog's region entry has ``fields`` that is not a mapping, which once escaped as a
+    TypeError traceback.
+    """
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    table.write_text(
+        '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n',
+        encoding="utf-8",
+    )
     backlog = project / "docs" / "design" / "backlog.json"
     backlog.parent.mkdir(parents=True)
-    backlog.write_text("{not json", encoding="utf-8")
+    backlog.write_text(
+        '{"version": 1, "entries": [{"type": "region", "name": "Forest", "asset_name": "Forest", '
+        '"source": "docs/design/forest.md", "status": "planned", "fields": 5}]}',
+        encoding="utf-8",
+    )
 
     assert main(["refresh", "--project", str(project)]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "ERROR [audio.backlog_invalid]" in captured.err
     assert "Remediation: " in captured.err
+
+
+def test_refresh_skips_a_table_that_is_not_utf8(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#237 review F1: a binary audio_table.tres is not a name table, so refresh exits zero."""
+    table = project / "game" / "systems" / "Binary" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    table.write_bytes(b"\xff\xfe\x00garbage")
+
+    assert main(["refresh", "--project", str(project)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"refreshed_tables": []}
+    assert table.read_bytes() == b"\xff\xfe\x00garbage"

@@ -51,7 +51,8 @@ Developer in Claude Code
 │   • Godot add-on game/addons/nmg_game_dev (runtime: the    │
 │     NmgAssets variant resolver, the NmgLaunch launch       │
 │     options + autoplay, the NmgVariantScene variant        │
-│     loader, NmgMissionDefinition, terrain shader)          │
+│     loader, the NmgAudio player + NmgAudioTable name       │
+│     table, NmgMissionDefinition, terrain shader)           │
 │     in the Godot project under game/                       │
 └────────────────────────────────────────────────────────────┘
 ```

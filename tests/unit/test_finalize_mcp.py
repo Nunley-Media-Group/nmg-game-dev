@@ -412,6 +412,38 @@ def test_refresh_audio_table_with_an_unreadable_backlog_returns_the_error(tmp_pa
     assert result["error"]["remediation"]
 
 
+def test_refresh_audio_table_with_a_backlog_entry_whose_fields_is_not_a_mapping(
+    tmp_path: Path,
+) -> None:
+    """#237 review F1: a TypeError in the backlog loader reaches the tool as a structured error."""
+    project = _audio_project(tmp_path / "project")
+    backlog = project / "docs" / "design" / "backlog.json"
+    backlog.parent.mkdir(parents=True)
+    backlog.write_text(
+        '{"version": 1, "entries": [{"type": "region", "name": "Forest", "asset_name": "Forest", '
+        '"source": "docs/design/forest.md", "status": "planned", "fields": 5}]}',
+        encoding="utf-8",
+    )
+
+    result = refresh_audio_table(str(project))
+
+    assert result["error"]["code"] == "audio.backlog_invalid"
+    assert result["error"]["stage"] == "audio"
+    assert result["error"]["remediation"]
+
+
+def test_refresh_audio_table_with_an_unreadable_table_returns_the_error(tmp_path: Path) -> None:
+    """#237 review F1: a table that cannot be read is a structured error, not an OSError."""
+    project = _audio_project(tmp_path / "project")
+    (project / "game" / "systems" / "Broken" / "audio_table.tres").mkdir(parents=True)
+
+    result = refresh_audio_table(str(project))
+
+    assert result["error"]["code"] == "audio.table_unreadable"
+    assert result["error"]["stage"] == "audio"
+    assert result["error"]["remediation"]
+
+
 def test_tools_json_lists_refresh_audio_table_with_an_optional_project() -> None:
     tools = {
         tool["name"]: tool for tool in json.loads(TOOLS_JSON.read_text(encoding="utf-8"))["tools"]

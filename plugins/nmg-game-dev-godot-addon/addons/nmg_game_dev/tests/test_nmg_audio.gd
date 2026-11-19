@@ -11,6 +11,8 @@ const NmgAudioTableScript: GDScript = preload("res://addons/nmg_game_dev/audio/n
 ## so a saved volume from an earlier run cannot change their levels.
 const SETTINGS_PATH: String = "user://nmg_audio_test_volumes.cfg"
 const UNSAVED_SETTINGS_PATH: String = "user://nmg_audio_test_unsaved.cfg"
+## How long a real-playback test waits for a 0.2 s sound to end.
+const REAL_END_TIMEOUT_S: float = 3.0
 const METHODS: PackedStringArray = ["sfx", "ui", "music", "stinger", "region_music", "set_volumes"]
 
 
@@ -45,6 +47,13 @@ func _audio(table: Resource, settings: String = UNSAVED_SETTINGS_PATH) -> Node:
 	audio.set("crossfade_seconds", 0.0)
 	audio.set("settings_path", settings)
 	return audio
+
+
+## Wait frames until done returns true, or REAL_END_TIMEOUT_S passes.
+func _until(done: Callable) -> void:
+	var deadline: int = Time.get_ticks_msec() + int(REAL_END_TIMEOUT_S * 1000.0)
+	while not done.call() and Time.get_ticks_msec() < deadline:
+		await _tree().process_frame
 
 
 ## Add audio under the tree root and wait a frame, so it is inside the tree and its _ready has run.
@@ -136,12 +145,46 @@ func test_music_repeat_crossfade_loop_and_stinger_duck() -> void:
 	check(b_player.playing, "B plays again when it finishes")
 
 	var base_db: float = b_player.volume_db
+	audio.set("pitch_jitter", 0.5)
 	audio.stinger("S")
 	check(absf(b_player.volume_db - (base_db + duck_db)) < 0.001, "the music ducks by duck_db")
 	var s_player: AudioStreamPlayer = _player_for(audio, s_stream)
 	check(s_player != null and s_player.playing, "S plays")
+	check_eq(s_player.pitch_scale, 1.0, "a stinger plays at its own pitch, without pitch_jitter")
 	s_player.finished.emit()
 	check_eq(b_player.volume_db, base_db, "the music returns when S finishes")
+	await _discard(audio)
+
+
+## Let the streams really end, rather than emitting finished by hand: headless Godot mixes through
+## its dummy audio driver, so a 0.2 s sound finishes in real time.
+func test_music_loops_and_the_duck_ends_when_the_streams_really_end() -> void:
+	var m_path: String = _save_wav("RealEndMusic")
+	var s_path: String = _save_wav("RealEndStinger")
+	var audio: Node = await _add(_audio(_table({"M": m_path, "S": s_path})))
+	audio.music("M")
+	var m_player: AudioStreamPlayer = _player_for(audio, load(m_path))
+	check(m_player != null and m_player.playing, "M plays")
+	if m_player == null:
+		await _discard(audio)
+		return
+	var base_db: float = m_player.volume_db
+	var m_ends: Array[int] = [0]
+	m_player.finished.connect(func() -> void: m_ends[0] += 1)
+	await _until(func() -> bool: return m_ends[0] > 0)
+	check(m_ends[0] > 0, "M reached its end within %s s" % REAL_END_TIMEOUT_S)
+	check(m_player.playing, "M plays again after it really ends")
+
+	audio.stinger("S")
+	var s_player: AudioStreamPlayer = _player_for(audio, load(s_path))
+	check(s_player != null and s_player.playing, "S plays")
+	check(m_player.volume_db < base_db, "the music ducks under S")
+	if s_player != null:
+		var s_ends: Array[int] = [0]
+		s_player.finished.connect(func() -> void: s_ends[0] += 1)
+		await _until(func() -> bool: return s_ends[0] > 0)
+		check(s_ends[0] > 0, "S reached its end within %s s" % REAL_END_TIMEOUT_S)
+	check_eq(m_player.volume_db, base_db, "the music returns when S really ends")
 	await _discard(audio)
 
 

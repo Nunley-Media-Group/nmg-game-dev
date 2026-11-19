@@ -26,6 +26,8 @@ TABLE_SCRIPT: Final = "res://addons/nmg_game_dev/audio/nmg_audio_table.gd"
 SYSTEMS_DIR: Final = "systems"
 MISSING_PROJECT: Final = "audio.godot_project_missing"
 BACKLOG_INVALID: Final = "audio.backlog_invalid"
+TABLE_UNREADABLE: Final = "audio.table_unreadable"
+TABLE_UNWRITABLE: Final = "audio.table_unwritable"
 SOUND_SUFFIXES: Final = (".wav", ".ogg")
 
 
@@ -48,8 +50,11 @@ def refresh_tables(root: Path) -> list[str]:
     """Rewrite each Audio name table under ``game/systems/`` whose text changed.
 
     Returns the project-relative paths rewritten, sorted. A table whose text is already current is
-    left alone. Raises ``audio.godot_project_missing`` without ``game/project.godot``, and
-    ``audio.backlog_invalid`` when ``docs/design/backlog.json`` is not a backlog ``/design`` wrote.
+    left alone, and a project with no name table returns ``[]`` without reading the backlog. Every
+    failure is an ``AudioError``: ``audio.godot_project_missing`` without ``game/project.godot``,
+    ``audio.backlog_invalid`` when ``docs/design/backlog.json`` is not a backlog ``/design`` wrote,
+    and ``audio.table_unreadable`` or ``audio.table_unwritable`` when a table file cannot be read
+    or replaced.
     """
     game = paths.game_project(root)
     if not (game / PROJECT_FILE).is_file():
@@ -59,13 +64,27 @@ def refresh_tables(root: Path) -> list[str]:
             remediation="Run /onboard-consumer to create game/project.godot, then refresh the "
             "audio tables again.",
         )
+    current = {
+        table: raw
+        for table in sorted(game.glob(f"{SYSTEMS_DIR}/*/{TABLE_NAME}"))
+        if _is_name_table(raw := _read(table))
+    }
+    if not current:
+        return []
     text = render_table(root)
     data = text.encode("utf-8")
     rewritten: list[str] = []
-    for table in sorted(game.glob(f"{SYSTEMS_DIR}/*/{TABLE_NAME}")):
-        if not _is_name_table(table) or table.read_bytes() == data:
+    for table, existing in current.items():
+        if existing == data:
             continue
-        backlog.write_atomic(table, text)
+        try:
+            backlog.write_atomic(table, text)
+        except OSError as error:
+            raise AudioError(
+                code=TABLE_UNWRITABLE,
+                message=f"The Audio name table at {table} could not be written: {error}",
+                remediation=f"Make {table.parent} writable, then refresh the audio tables again.",
+            ) from error
         rewritten.append(table.relative_to(root).as_posix())
     return rewritten
 
@@ -87,7 +106,7 @@ def _themes(root: Path) -> dict[str, str]:
     path = backlog_path(root)
     try:
         entries = backlog.load(path)
-    except (ValueError, UnicodeDecodeError) as error:
+    except (ValueError, TypeError, OSError) as error:
         raise AudioError(
             code=BACKLOG_INVALID,
             message=f"The design backlog at {path} could not be read: {error}",
@@ -110,8 +129,23 @@ def _dictionary(mapping: dict[str, str]) -> str:
     return "{" + items + "}"
 
 
-def _is_name_table(path: Path) -> bool:
-    """Return True when the table's header declares the ``NmgAudioTable`` script class."""
-    with path.open(encoding="utf-8") as handle:
-        header = handle.readline()
-    return f'script_class="{TABLE_CLASS}"' in header
+def _read(path: Path) -> bytes:
+    """Return the table file's bytes, or raise ``audio.table_unreadable``."""
+    try:
+        return path.read_bytes()
+    except OSError as error:
+        raise AudioError(
+            code=TABLE_UNREADABLE,
+            message=f"The Audio name table at {path} could not be read: {error}",
+            remediation=f"Make {path} readable, or delete it and rerun /design to scaffold it, "
+            "then refresh the audio tables again.",
+        ) from error
+
+
+def _is_name_table(data: bytes) -> bool:
+    """Return True when the table's first line declares the ``NmgAudioTable`` script class.
+
+    The header is compared as bytes, so a file that is not UTF-8 text is simply not a name table.
+    """
+    header = data.split(b"\n", 1)[0]
+    return f'script_class="{TABLE_CLASS}"'.encode() in header

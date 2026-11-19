@@ -95,6 +95,7 @@ func music(sound_name: StringName) -> void:
 
 
 ## Play a one-shot stinger over the music. The music ducks by duck_db until the stinger finishes.
+## A stinger is musical, so it plays at its own pitch: pitch_jitter applies to sfx only.
 func stinger(sound_name: StringName) -> void:
 	var stream: AudioStream = _stream_for(sound_name)
 	if stream == null:
@@ -102,7 +103,7 @@ func stinger(sound_name: StringName) -> void:
 	_ensure_players()
 	_stinger_player.stream = stream
 	_stinger_player.volume_db = _db(master_volume * sfx_volume)
-	_stinger_player.pitch_scale = _jitter()
+	_stinger_player.pitch_scale = 1.0
 	_stinger_player.play()
 	_ducked = true
 	_refresh_music_volume(crossfade_seconds)
