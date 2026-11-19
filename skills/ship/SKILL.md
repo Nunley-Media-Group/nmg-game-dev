@@ -33,8 +33,11 @@ names only.
    `uv run --project "${CLAUDE_PLUGIN_ROOT}" python -m nmg_game_dev.ship <target> --project game/project.godot`
    Add `--release-dir <dir>` only when the developer names one. The release folder defaults to
    `release/` at the consumer root, beside `game/`.
-4. On success, report each artifact path and its SHA-256 from `release/RELEASE-NOTES.md`, and any
-   `WARNING [ship.web_pack_large]` line.
+   Pass `--bump major|minor|patch` or `--version X.Y.Z` only when the developer names a version
+   bump or a version. The two flags are mutually exclusive. With neither, the project's current
+   version ships unchanged. Pass the same flags to the dry run.
+4. On success, report each artifact path and its SHA-256 from `release/RELEASE-NOTES.md`, the
+   version it ships, and any `WARNING [ship.web_pack_large]` line.
 5. On failure, the CLI prints `ERROR [<code>]: <message>` and `Remediation: <remediation>` to stderr
    and exits 1. Show both lines as printed, then stop. Do not retry an export, skip a gate, or
    publish a platform that failed.
@@ -48,6 +51,23 @@ a non-zero exit, or a run past its timeout, so a game that crashes on its main s
 exclude every `Mobile/` folder. Godot comes from `GODOT_BIN`, then `godot` on PATH, then
 `/Applications/Godot.app`.
 
+## Build version and changelog
+
+Every ship names a version, and the player sees it. Before any Godot command, the ship resolves
+the version and checks the consumer's root `CHANGELOG.md` (the folder above `game/`) for a
+`## X.Y.Z` section (`## [X.Y.Z]` and a trailing date also count) with at least one line of text for
+players. The ship refuses to start without that section, so no build goes out that players cannot
+read about. After the gates and before the first export, the version is written to
+`application/config/version` in `game/project.godot` and to every export preset: macOS and iOS get
+`application/short_version` and `application/version`, Android gets `version/name` and a
+`version/code` one higher, and Windows gets `application/file_version` and
+`application/product_version` as `X.Y.Z.0`. Only those lines change. The game reads its version at
+run time through `NmgBuild.version()` or an `NmgVersionLabel` node from the add-on.
+
+`release/RELEASE-NOTES.md` is headed with the version and carries the changelog section under
+`## Changes`, each gate that ran with its result under `## Gates`, and the artifact SHA-256 table
+under `## Artifacts`. The ship never writes `CHANGELOG.md`; the developer writes the player text.
+
 ## Mobile budgets
 
 Each `game/assets/<Category>/<Name>/Mobile/` folder needs `nmg-asset.json`, which finalize writes. A
@@ -60,6 +80,20 @@ consumer-root `nmg-budgets.json` may override the defaults per metric. Both form
   set it in the environment or in `.claude/settings.local.json`, then rerun.
 - `ship.unknown_target`, `ship.project_missing`: the target or `--project` path is wrong. Fix the
   argument and rerun.
+- `ship.version_invalid`: `--version` is not `X.Y.Z`, both `--bump` and `--version` were given, or
+  `application/config/version` in `game/project.godot` is not `X.Y.Z`. Fix the value and rerun.
+- `ship.version_not_increased`: `--version` is not greater than the current version. Pick a higher
+  version, or use `--bump`. Nothing was written. When `--version` equals the current version, an
+  earlier ship already wrote it and then stopped: rerun with no version flag to ship it.
+- A failure after the gates (export, signing, notarization) leaves the new version written to
+  `game/project.godot` and the presets, which is intended because that version has not shipped
+  yet. Fix the failure and rerun with no `--bump` or `--version`; a version flag would skip past an
+  unshipped version.
+- `ship.version_missing`: the project declares no `application/config/version` and no flag names
+  one. Ask the developer for the first version, then rerun with `--version X.Y.Z`.
+- `ship.changelog_missing`: `CHANGELOG.md` at the consumer root has no `## X.Y.Z` section for the
+  version being shipped, or the section is blank. Ask the developer to write the player-facing
+  entry, then rerun. Do not write the entry yourself. No Godot command ran.
 - `ship.presets_missing`, `ship.preset_missing`: `game/export_presets.cfg` is missing or lacks the
   platform's preset. Run `/onboard-consumer --refresh`, then rerun.
 - `godot.not_found`: no Godot binary. Install Godot 4 (latest stable) or set `GODOT_BIN`.
