@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-11-19
+
+### Fixed
+
+- Let finalize fix or tolerate a millimetre-scale pivot.bottom_center offset on rigged meshes (#244)
+
 ## [0.27.0] - 2026-11-19
 
 ### Added
