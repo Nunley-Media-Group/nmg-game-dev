@@ -1,6 +1,6 @@
 {
   "name": "nmg-game-dev",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "description": "Blender-first, Godot-shipped content pipeline for NMG games: skills, MCP servers, Blender add-on, Godot add-on, export/sign/ship",
   "author": {
     "name": "Nunley Media Group"
