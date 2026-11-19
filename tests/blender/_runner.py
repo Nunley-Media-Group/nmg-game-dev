@@ -31,11 +31,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-# The add-on source directory is hyphenated (nmg-game-dev-blender-addon) for
-# layout consistency with nmg-game-dev-ue-plugin, but Python/Blender require
-# the snake_case module id ``nmg_game_dev_blender_addon``.  Bridge the gap by
-# linking the source directory into Blender's user-addons path under the
-# snake_case name before pytest (and thus addon_utils.enable) runs.
+# The add-on source directory is hyphenated (nmg-game-dev-blender-addon), like the other
+# directories under plugins/, but Python/Blender require the snake_case module id
+# ``nmg_game_dev_blender_addon``.  Bridge the gap by linking the source directory into
+# Blender's user-addons path under the snake_case name before pytest (and thus
+# addon_utils.enable) runs.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADDON_SRC = _REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon"
 _ADDON_MODULE_ID = "nmg_game_dev_blender_addon"

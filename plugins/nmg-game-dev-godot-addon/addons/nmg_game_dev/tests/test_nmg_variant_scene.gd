@@ -43,8 +43,16 @@ func _remove_variants() -> void:
 
 func test_variant_path_routes_desktop_and_mobile() -> void:
 	var node: Node3D = _node(VALLEY)
-	check_eq(node.call("variant_path", false), "res://assets/Terrain/Valley/Desktop/Valley.tscn", "desktop")
-	check_eq(node.call("variant_path", true), "res://assets/Terrain/Valley/Mobile/Valley.tscn", "mobile")
+	check_eq(
+		node.call("variant_path", false),
+		"res://assets/Terrain/Valley/Desktop/Valley.tscn",
+		"desktop"
+	)
+	check_eq(
+		node.call("variant_path", true),
+		"res://assets/Terrain/Valley/Mobile/Valley.tscn",
+		"mobile"
+	)
 	node.free()
 
 
