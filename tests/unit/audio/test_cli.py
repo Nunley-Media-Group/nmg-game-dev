@@ -145,3 +145,161 @@ def test_the_module_runs_as_a_script(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert "--kind" in result.stdout
     assert "--url" not in result.stdout
+
+
+def test_no_loop_turns_a_stored_loop_off_and_omitting_it_keeps_the_stored_value(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = [
+        "import",
+        "--file",
+        str(source_file("tone.wav")),
+        "--name",
+        "DoorCreak",
+        "--kind",
+        "sfx",
+    ]
+
+    assert main([*args, "--loop"]) == 0
+    capsys.readouterr()
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["looping"] is True
+    assert main([*args, "--no-loop"]) == 0
+    assert json.loads(capsys.readouterr().out)["looping"] is False
+
+
+def test_the_finishing_flags_reach_the_import_and_are_stored(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(
+        [
+            "import",
+            "--file",
+            str(source_file("tone.wav")),
+            "--name",
+            "DoorCreak",
+            "--kind",
+            "sfx",
+            "--max-seconds",
+            "0.1",
+            "--loudness-lufs",
+            "-14",
+            "--loop-crossfade-ms",
+            "120",
+        ]
+    )
+
+    assert code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["settings"] == {
+        "finish": True,
+        "max_seconds": 0.1,
+        "loudness_lufs": -14.0,
+        "loop_crossfade_ms": 120,
+    }
+    assert printed["finish"]["loudness_lufs"] == pytest.approx(-14.0, abs=0.1)
+    assert '"max_seconds": 0.1' in (project / "SourceArt/Audio/audio.json").read_text("utf-8")
+
+
+def test_no_finish_imports_the_stored_wav_unchanged(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(
+        [
+            "import",
+            "--file",
+            str(source_file("tone.wav")),
+            "--name",
+            "DoorCreak",
+            "--kind",
+            "sfx",
+            "--no-finish",
+        ]
+    )
+
+    assert code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["finish"] == {"applied": False}
+    assert printed["settings"]["finish"] is False
+    stored = project / "SourceArt/Audio/SFX/DoorCreak.wav"
+    assert (project / "game/assets/Audio/DoorCreak.wav").read_bytes() == stored.read_bytes()
+
+
+def test_finish_turns_finishing_back_on_for_a_sound_stored_without_it(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    src = str(source_file("tone.wav"))
+    base = ["import", "--file", src, "--name", "DoorCreak", "--kind", "sfx"]
+    assert main([*base, "--no-finish"]) == 0
+    capsys.readouterr()
+    assert main(base) == 0
+    assert json.loads(capsys.readouterr().out)["settings"]["finish"] is False
+
+    code = main([*base, "--finish"])
+
+    assert code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["finish"]["applied"] is True
+    assert printed["settings"]["finish"] is True
+    assert main(["refinish", "DoorCreak"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["finish"]["applied"] is True
+
+
+def test_refinish_all_prints_the_list_and_exits_zero(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main(["import", "--file", str(source_file("tone.wav")), "--name", "DoorCreak", "--kind", "sfx"])
+    capsys.readouterr()
+
+    code = main(["refinish", "--all"])
+
+    assert code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert [entry["name"] for entry in printed] == ["DoorCreak"]
+    assert printed[0]["imported_to_godot"] is True
+
+
+def test_refinish_takes_names_and_reports_an_unknown_one(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main(["import", "--file", str(source_file("tone.wav")), "--name", "DoorCreak", "--kind", "sfx"])
+    capsys.readouterr()
+
+    assert main(["refinish", "DoorCreak", "--project", str(project)]) == 0
+    capsys.readouterr()
+
+    code = main(["refinish", "Nope", "--project", str(project)])
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("ERROR [audio.unknown_sound] ")
+    assert "\nRemediation: " in captured.err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["refinish"], ["refinish", "--all", "DoorCreak"]],
+    ids=["neither-all-nor-names", "both"],
+)
+def test_refinish_needs_exactly_one_of_all_or_names(argv: list[str]) -> None:
+    with pytest.raises(SystemExit) as caught:
+        main(argv)
+    assert caught.value.code == 2

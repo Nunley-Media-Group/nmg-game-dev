@@ -58,7 +58,9 @@ Run these steps in order. Do not generate until steps 1 to 4 are settled.
 - `import_audio` returns `audio.invalid_request`: the name is not PascalCase, the kind is not `sfx`
   or `music`, or the file does not exist. Fix the input and call it again.
 - `import_audio` returns the `godot.not_found` warning: the WAV is stored but Godot did not import
-  it. Report the warning. Do not re-import, because the second call stops at `audio.asset_exists`.
+  it. Report the warning. Once Godot is installed, call `import_audio` again with the same file,
+  name, and kind: the bytes match the stored WAV, so the call re-finishes the sound with its stored
+  settings and imports it. A different file under that name stops at `audio.asset_exists`.
 
 ## Test fixtures
 

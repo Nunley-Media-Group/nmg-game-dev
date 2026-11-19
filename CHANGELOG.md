@@ -6,6 +6,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-19
+
+### Added
+
+- `import_audio` finishes the game copy before it imports it: leading silence below -50 dBFS is trimmed, `max_seconds` cuts the sound with a 20 ms fade-out, a looping sound's seam is crossfaded over `loop_crossfade_ms` (default 500 ms, capped at a quarter of the sound), and loudness is matched to BS.1770 integrated -16 LUFS for sound effects or -18 LUFS for music, with a -1 dBFS peak ceiling reported as `loudness_capped`. `SourceArt/Audio/` keeps the bytes you saved. (#252)
+- The `--no-loop`, `--max-seconds`, `--loudness-lufs`, `--loop-crossfade-ms`, and `--finish` / `--no-finish` flags on `python -m nmg_game_dev.audio import`, and the matching `max_seconds`, `loudness_lufs`, `loop_crossfade_ms`, and `finish` parameters on the finalize `import_audio` tool. The result carries `finish` and `settings`. (#252)
+- Per-sound `loop` and finishing settings persist in `SourceArt/Audio/audio.json`, and an omitted `loop` reuses the stored value. A re-import of the same file re-finishes the same game copy, and `python -m nmg_game_dev.audio refinish --all` (or `refinish <Name>`) re-finishes stored sounds from `SourceArt`. A name holds one sound, so importing it as the other kind fails with `audio.asset_exists`. (#252)
+
+### Changed
+
+- `import_audio` now finishes sound effects and music by default, so the `game/assets/Audio/` copy no longer matches the stored WAV byte for byte. Pass `finish: false` (or `--no-finish`) to import the stored WAV unchanged, as before. (#252)
+
 ## [0.28.1] - 2026-11-19
 
 ### Fixed
