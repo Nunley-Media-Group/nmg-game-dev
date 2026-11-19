@@ -9,6 +9,8 @@ difference (seam_metric). Texel density is checked per material slot against the
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import bmesh
@@ -44,6 +46,25 @@ def make_tile() -> bpy.types.Object:
     obj = bpy.data.objects.new(TILE_NAME, mesh)
     bpy.context.scene.collection.objects.link(obj)
     return obj
+
+
+@contextmanager
+def isolated(tile: bpy.types.Object) -> Iterator[None]:
+    """Hide every scene object but the tile from render, and restore each flag on exit.
+
+    The asset stands over the tile at the origin, so its meshes would otherwise occlude the tile's
+    baked ambient occlusion.
+    """
+    saved = {obj.name: obj.hide_render for obj in bpy.context.scene.objects}
+    try:
+        for obj in bpy.context.scene.objects:
+            obj.hide_render = obj != tile
+        yield
+    finally:
+        for name, hidden in saved.items():
+            obj = bpy.data.objects.get(name)
+            if obj is not None:
+                obj.hide_render = hidden
 
 
 def seam_error(rgb: np.ndarray) -> float:
