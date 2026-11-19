@@ -109,7 +109,15 @@ def resolve_version(project_file: Path, bump: str | None, version: str | None) -
                 f"--version {version!r} is not X.Y.Z.",
                 "Pass --version as three numbers, such as 1.3.0.",
             )
-        if target <= base:
+        if target == base:
+            raise ShipError(
+                code="ship.version_not_increased",
+                message=f"--version {version} is already the project's version: an earlier ship "
+                "wrote it and then stopped before it finished.",
+                remediation=f"Rerun the ship without --version or --bump to ship {version}.",
+                stage="preflight",
+            )
+        if target < base:
             raise ShipError(
                 code="ship.version_not_increased",
                 message=f"--version {version} is not greater than the current version "
@@ -160,12 +168,17 @@ def plan_version_edits(plan: VersionPlan, project_dir: Path) -> VersionEdits:
 
 
 def write_version(plan: VersionPlan, project_dir: Path) -> None:
-    """Write ``plan.new`` to game/project.godot and every shipping preset; do nothing unchanged."""
+    """Write ``plan.new`` to every shipping preset and game/project.godot; do nothing unchanged.
+
+    The presets are written first, so the project only declares the new version once every preset
+    carries it. A stop between the two writes leaves the old project version, and the rerun with
+    the same flag writes both files again.
+    """
     if not plan.changed:
         return
     edits = plan_version_edits(plan, project_dir)
-    _replace_file(project_dir / PROJECT_FILE, edits.project_text)
     _replace_file(project_dir / PRESETS_FILE, edits.presets_text)
+    _replace_file(project_dir / PROJECT_FILE, edits.project_text)
 
 
 def patch_preset_literals(text: str, preset_index: int, literals: Mapping[str, str]) -> str:

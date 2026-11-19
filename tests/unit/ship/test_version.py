@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import nmg_game_dev.ship.version as version_module
 from nmg_game_dev.godot.presets import render_export_presets
 from nmg_game_dev.godot.project import parse_config, read_config
 from nmg_game_dev.ship.errors import ShipError
@@ -65,6 +66,38 @@ def test_a_version_not_above_the_current_one_is_refused(tmp_path: Path, version:
         resolve_version(_game(tmp_path) / "project.godot", None, version)
     assert caught.value.code == "ship.version_not_increased"
     assert caught.value.stage == "preflight"
+
+
+def test_the_current_version_as_the_flag_says_to_rerun_without_a_flag(tmp_path: Path) -> None:
+    """A ship that wrote 1.2.3 and then failed is rerun without --version, not with a higher one."""
+    with pytest.raises(ShipError) as caught:
+        resolve_version(_game(tmp_path) / "project.godot", None, "1.2.3")
+    assert caught.value.code == "ship.version_not_increased"
+    assert "without --version or --bump" in caught.value.remediation
+    assert "above the current one" not in caught.value.remediation
+
+
+def test_a_lower_version_says_to_pass_a_higher_one(tmp_path: Path) -> None:
+    with pytest.raises(ShipError) as caught:
+        resolve_version(_game(tmp_path) / "project.godot", None, "1.2.2")
+    assert "above the current one" in caught.value.remediation
+
+
+def test_the_presets_are_written_before_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stop after the first write leaves the old project version, so the same flag reruns."""
+    game = _game(tmp_path)
+    written: list[str] = []
+    real_replace = version_module._replace_file
+
+    def _record(path: Path, text: str) -> None:
+        written.append(path.name)
+        real_replace(path, text)
+
+    monkeypatch.setattr(version_module, "_replace_file", _record)
+    write_version(resolve_version(game / "project.godot", None, "1.3.0"), game)
+    assert written == ["export_presets.cfg", "project.godot"]
 
 
 @pytest.mark.parametrize("version", ["1.3", "v1.3.0", "01.3.0", "1.3.0-rc1", "1.3.0.0", ""])

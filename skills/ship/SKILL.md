@@ -83,7 +83,12 @@ consumer-root `nmg-budgets.json` may override the defaults per metric. Both form
 - `ship.version_invalid`: `--version` is not `X.Y.Z`, both `--bump` and `--version` were given, or
   `application/config/version` in `game/project.godot` is not `X.Y.Z`. Fix the value and rerun.
 - `ship.version_not_increased`: `--version` is not greater than the current version. Pick a higher
-  version, or use `--bump`. Nothing was written.
+  version, or use `--bump`. Nothing was written. When `--version` equals the current version, an
+  earlier ship already wrote it and then stopped: rerun with no version flag to ship it.
+- A failure after the gates (export, signing, notarization) leaves the new version written to
+  `game/project.godot` and the presets, which is intended because that version has not shipped
+  yet. Fix the failure and rerun with no `--bump` or `--version`; a version flag would skip past an
+  unshipped version.
 - `ship.version_missing`: the project declares no `application/config/version` and no flag names
   one. Ask the developer for the first version, then rerun with `--version X.Y.Z`.
 - `ship.changelog_missing`: `CHANGELOG.md` at the consumer root has no `## X.Y.Z` section for the

@@ -49,6 +49,12 @@ version ships and neither file changes. The `/ship` skill passes these flags thr
 
 All of these run before any Godot command, and a dry run checks them too.
 
+A failure after the gates (an export, signing, or notarization failure) leaves the new version
+written, because it is written before the first export. Fix the failure and rerun with no version
+flag: the project already declares the version that has not shipped yet. Rerunning with the same
+`--version` stops with `ship.version_not_increased` and says so, and `--bump` would move past the
+unshipped version.
+
 ### Changelog section format
 
 The consumer root's `CHANGELOG.md` holds one `## X.Y.Z` section per release, written for players.
@@ -223,7 +229,7 @@ runtime error. See [run-and-capture.md](../onboarding/run-and-capture.md) for th
 | `ship.env_missing` | A required variable is unset | Set the named variable |
 | `ship.unknown_target`, `ship.project_missing` | Bad target or `--project` path | Fix the argument |
 | `ship.version_invalid` | `--version` is not `X.Y.Z`, both version flags were given, or the project's version is not `X.Y.Z` | Fix the value |
-| `ship.version_not_increased` | `--version` is not above the current version | Pick a higher version, or use `--bump` |
+| `ship.version_not_increased` | `--version` is not above the current version | Pick a higher version, or use `--bump`; when it equals the current version, an earlier ship wrote it, so rerun with no version flag |
 | `ship.version_missing` | No `application/config/version` and no version flag | Pass `--version X.Y.Z` for the first ship |
 | `ship.changelog_missing` | `CHANGELOG.md` has no `## X.Y.Z` section with text for the version | Write the player-facing section |
 | `ship.presets_missing`, `ship.preset_missing` | `export_presets.cfg` or a platform preset is missing | Run `/onboard-consumer --refresh` |

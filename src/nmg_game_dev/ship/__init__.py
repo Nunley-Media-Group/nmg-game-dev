@@ -2,7 +2,11 @@
 
 Public API::
 
-    run_ship(target, project, release_dir, dry_run, env, *, godot=None) -> list[ReleaseEntry]
+    run_ship(target, project, release_dir, dry_run, env, *, godot=None, bump=None, version=None)
+        -> list[ReleaseEntry]
+
+``bump`` (``major``, ``minor``, or ``patch``) or ``version`` (``X.Y.Z``) sets the build version
+before export (#254); with neither, the project's current version ships.
 
 Failures raise ``ShipError`` with ``code``, ``message``, ``remediation``, and ``stage``.
 """

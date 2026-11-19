@@ -13,6 +13,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 - `release/RELEASE-NOTES.md` is headed with the version, carries the changelog section under `## Changes`, lists each gate that ran with its result under `## Gates`, and keeps the artifact SHA-256 table under `## Artifacts`. (#254)
 - `NmgBuild.version()` and the `NmgVersionLabel` node in the `addons/nmg_game_dev` add-on show the running build's version, with `prefix` defaulting to `"v"`. (#254)
 - `/ship` stops with `ship.version_invalid`, `ship.version_not_increased`, or `ship.version_missing` before any gate or write when `--version` is malformed or not above the current version, both version flags are given, or the project declares no version and no flag names one. (#254)
+- When an export, signing, or notarization fails after the version is written, the rerun takes no version flag; rerunning with the same `--version` stops with `ship.version_not_increased` and says to rerun without one. (#254)
 
 ### Changed
 
