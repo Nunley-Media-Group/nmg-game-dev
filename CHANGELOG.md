@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.25.5] - 2026-11-19
+
 ### Fixed
 
 - Bake each tiling material alone on its tile, so the asset no longer darkens the tile's AO and fails the seam check (#240)
