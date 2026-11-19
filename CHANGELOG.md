@@ -6,9 +6,11 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
-### Fixed
+## [0.27.0] - 2026-11-19
 
-- Make every texture-gen map pass the bake seam rule, and stop `texture seamless` from worsening images that already tile (#238)
+### Added
+
+- The `/generate-audio` skill and a `PreToolUse` hook for ElevenLabs audio generation: each sound-effect, music, or speech call runs one take (`generations_count: 1`, other values denied), music is instrumental unless vocals with lyrics are requested, and prompts come only from the request and the design docs. `docs/mcp/elevenlabs.md` documents the rules. (#242)
 
 ## [0.26.0] - 2026-11-19
 
