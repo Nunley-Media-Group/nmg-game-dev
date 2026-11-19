@@ -114,6 +114,7 @@ def run_export_anims(
     ``content_dir`` and ``sidecar`` are ``None``, and nothing is written.
     """
     probe = _blender(runner, _EXPORT, job_dir, in_blend, {"mode": "probe"}, on_progress)
+    _refuse_clip_identity(request, probe)
     probed = [dict(clip) for clip in _list(probe.get("clips"))]
     invalid = sorted(str(clip["name"]) for clip in probed if clip.get("valid_name") is not True)
     if invalid:
@@ -278,6 +279,39 @@ def run_import_anims(
 def clips_all_cached(outputs: Mapping[str, Any]) -> bool:
     """Return ``True`` only when every clip was served from the cache.  Vacuously true with none."""
     return all(clip.get("cache_hit") is True for clip in _list(outputs.get("clips")))
+
+
+def _refuse_clip_identity(request: FinalizeRequest, probe: Mapping[str, Any]) -> None:
+    """Stop the export when an action carries another rig's suffix or two actions give one clip.
+
+    A probe without ``rig_mismatch`` or ``duplicates`` is read as having none of either.
+    """
+    rig = f"SK_{request.collection}"
+    mismatch = sorted(str(name) for name in _list(probe.get("rig_mismatch")))
+    if mismatch:
+        raise PipelineError(
+            code="finalize.clip_rig_mismatch",
+            message=f"Actions {', '.join(mismatch)} on {rig} carry an @ suffix for another rig, "
+            "so nothing was exported.",
+            remediation=f"Rename each action to <Clip>@{rig} for this rig, or remove the suffix, "
+            "then rerun finalize.",
+            stage=_EXPORT,
+        )
+    duplicates = [item for item in _list(probe.get("duplicates")) if isinstance(item, Mapping)]
+    if duplicates:
+        clauses: list[str] = []
+        for item in sorted(duplicates, key=lambda entry: str(entry.get("name"))):
+            sources = ", ".join(str(action) for action in _list(item.get("actions")))
+            clauses.append(
+                f"Clip {item.get('name')} comes from more than one action on {rig} ({sources})"
+            )
+        raise PipelineError(
+            code="finalize.clip_name_duplicate",
+            message=f"{'; '.join(clauses)}, so nothing was exported.",
+            remediation=f"Keep one action per clip on {rig}: delete or rename the extra action, "
+            "then rerun finalize.",
+            stage=_EXPORT,
+        )
 
 
 def _blender(

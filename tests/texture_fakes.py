@@ -30,7 +30,7 @@ APPLE_SILICON_16GB = HardwareFacts(system="Darwin", machine="arm64", total_ram_g
 INTEL_LINUX = HardwareFacts(system="Linux", machine="x86_64", total_ram_gb=64.0)
 
 FAKE_WORKER_SOURCE = """
-import json, os, sys, time
+import json, os, shutil, sys, time
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +65,10 @@ for item in batch["items"]:
     rgb = np.clip(base[..., None] + noise, 0, 255).astype(np.uint8)
     path = Path(item["path"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgb).save(path)
+    if os.environ.get("FAKE_WORKER_SOURCE_PNG"):
+        shutil.copyfile(os.environ["FAKE_WORKER_SOURCE_PNG"], path)
+    else:
+        Image.fromarray(rgb).save(path)
     print(json.dumps({"index": item["index"], "path": item["path"],
                       "seconds": round(time.monotonic() - started, 3)}), flush=True)
 record("exit")
@@ -81,18 +84,25 @@ def write_fake_worker(directory: Path) -> Path:
 
 
 def fake_spawn(
-    worker: Path, log: Path, *, fail: bool = False, missing_module: str | None = None
+    worker: Path,
+    log: Path,
+    *,
+    fail: bool = False,
+    missing_module: str | None = None,
+    source_png: Path | None = None,
 ) -> Callable[[Path], subprocess.CompletedProcess[str]]:
     """A ``spawn`` for ``run_backend_batches`` that runs the fake worker as a child process.
 
     ``missing_module`` makes the worker exit 1 with ``ModuleNotFoundError`` for that module (#143
-    AC3).
+    AC3). ``source_png`` makes the worker copy that PNG to each item path instead of drawing its
+    synthetic image (#238).
     """
     env = {
         **os.environ,
         "FAKE_WORKER_LOG": str(log),
         "FAKE_WORKER_FAIL": "1" if fail else "0",
         "FAKE_WORKER_MISSING": missing_module or "",
+        "FAKE_WORKER_SOURCE_PNG": str(source_png) if source_png is not None else "",
     }
 
     def spawn(batch_file: Path) -> subprocess.CompletedProcess[str]:
@@ -158,6 +168,50 @@ def periodic_crop(size: int, seed: int, cutoff: float, channels: int = 3) -> np.
     """A size x size crop of a 2 x size periodic field (#147): the first and last columns and rows
     are not neighbours, so the wrap is a real discontinuity on the same texture statistics."""
     return periodic_noise(2 * size, seed, cutoff, channels)[:size, :size]
+
+
+def low_contrast_crop(size: int = 256, seed: int = 5) -> np.ndarray:
+    """A low-contrast band-limited uint8 RGB albedo (#238): a periodic crop squeezed to 10% contrast
+    around mid-grey. After ``make_seamless`` it passes the seam rule, but without the #238 check its
+    derived AO fails."""
+    field = 0.5 + (periodic_crop(size, seed, 0.25) - 0.5) * 0.1
+    rgb: np.ndarray = np.rint(np.clip(field, 0.0, 1.0) * 255.0).astype(np.uint8)
+    return rgb
+
+
+def narrow_seam_albedo() -> np.ndarray:
+    """``make_seamless(synthetic_image(256))`` with its last row raised by 8 levels (#238): it
+    fails the seam rule on axis 0, but within the narrow-failure band."""
+    raised = make_seamless(synthetic_image(256)).astype(np.int16)
+    raised[-1] += 8
+    out: np.ndarray = np.clip(raised, 0, 255).astype(np.uint8)
+    return out
+
+
+def tiling_noise_u8(size: int = 256, seed: int = 1, cutoff: float = 0.1) -> np.ndarray:
+    """A natively tiling uint8 RGB image that is not a ``make_seamless`` output (#238): it passes
+    the seam rule, and ``make_seamless`` would rewrite it and make its wrap larger."""
+    field = np.clip(periodic_noise(size, seed, cutoff), 0.0, 1.0)
+    rgb: np.ndarray = np.rint(field * 255.0).astype(np.uint8)
+    return rgb
+
+
+def cross_fade_failing_crop(size: int = 256, seed: int = 6, cutoff: float = 0.05) -> np.ndarray:
+    """A uint8 RGB periodic crop that still fails the seam rule after ``make_seamless`` (#238 FR1):
+    the generator must add the ``repair_seam`` edge band for its albedo to pass."""
+    rgb: np.ndarray = np.rint(periodic_crop(size, seed, cutoff) * 255.0).astype(np.uint8)
+    return rgb
+
+
+def stepped_normal_map(size: int = 256, seed: int = 0) -> np.ndarray:
+    """A flat (128, 128, 255) normal map with seeded ±1 noise whose last row's R and G are raised
+    by 3 levels (#238): a normal-map-like image that fails the seam rule narrowly."""
+    rng = np.random.default_rng(seed)
+    flat = np.array([128, 128, 255], dtype=np.int16)
+    stepped = flat + rng.integers(-1, 2, size=(size, size, 3))
+    stepped[-1, :, :2] += 3
+    out: np.ndarray = np.clip(stepped, 0, 255).astype(np.uint8)
+    return out
 
 
 def smooth_ramp(size: int = 256) -> np.ndarray:

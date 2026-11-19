@@ -1,9 +1,10 @@
 """Library clip import, rest-relative retargeting, built-in procedural baking, SK_<Name> installs.
 
 Touches Blender data. File-library clips are imported, sampled frame by frame, installed as an
-action named after the clip, and then removed along with their temporary import. Built-in clips
-are solved from their pose definitions against the rig's own rest pose and keyed directly, with
-no file access.
+action named ``<clip>@SK_<Name>``, and then removed along with their temporary import. Built-in
+clips are solved from their pose definitions against the rig's own rest pose and keyed directly,
+with no file access. The suffix lets one .blend hold several rigs that each have their own clip of
+the same name; re-importing a clip replaces only that rig's action.
 """
 
 from __future__ import annotations
@@ -97,7 +98,7 @@ def _library_invalid(message: str) -> RigError:
 
 
 def bake_builtin_clip(armature: bpy.types.Object, clip: ClipDef) -> dict[str, Any]:
-    """Solve a built-in clip against the rig's rest pose and install it as action clip.name.
+    """Solve a built-in clip against the rig's rest pose and install it as ``<clip>@SK_<Name>``.
 
     Each expanded pose is keyed at round(frame × scene fps / AUTHORED_FPS), with sign continuity.
     Every Manny bone is keyed, not only the targeted ones: an unkeyed bone keeps the rotation that
@@ -196,7 +197,7 @@ def _vec3(values: Any) -> Vec3:
 
 
 def bake_clip(armature: bpy.types.Object, library: Library, clip: LibraryClip) -> dict[str, Any]:
-    """Import one clip, retarget it onto armature, and install it as action clip.name."""
+    """Import one clip, retarget it onto armature, and install it as ``<clip>@SK_<Name>``."""
     scene = bpy.context.scene
     view_layer = bpy.context.view_layer
     objects_before = set(bpy.data.objects)
@@ -383,13 +384,17 @@ def _rest_pose(armature: bpy.types.Object) -> None:
 
 
 def _install(armature: bpy.types.Object, action: bpy.types.Action, clip_name: str) -> None:
-    """Replace any action already named clip_name with the freshly baked one."""
+    """Install action as ``<clip_name>@<armature name>``, replacing only this rig's previous one.
+
+    Other rigs' actions, and unsuffixed actions, are never touched.
+    """
+    target = f"{clip_name}@{armature.name}"
     if armature.animation_data is not None:
         armature.animation_data.action = None
-    previous = bpy.data.actions.get(clip_name)
+    previous = bpy.data.actions.get(target)
     if previous is not None:
         bpy.data.actions.remove(previous)
-    action.name = clip_name
+    action.name = target
     action.use_fake_user = True
 
 

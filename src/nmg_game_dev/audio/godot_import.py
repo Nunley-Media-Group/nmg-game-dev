@@ -126,14 +126,15 @@ def import_wav(
     name: str,
     loop: bool,
     runner: GodotRunner | None,
+    replace: bool = False,
 ) -> dict[str, Any]:
     """Copy ``wav`` into the Godot project as a sound effect and import it as ``AudioStreamWAV``.
 
     Returns ``godot_asset`` (the ``res://`` path), ``game_asset`` (the file path), and
     ``imported_to_godot``. Raises ``audio.godot_project_missing``, ``audio.asset_exists``, or
-    ``audio.import_failed``.
+    ``audio.import_failed``. With ``replace`` an existing game copy is overwritten (#252 AC5).
     """
-    target = check_target(project_root, "sfx", name)
+    target = check_target(project_root, "sfx", name, replace=replace)
 
     def write(tmp: Path) -> None:
         shutil.copyfile(wav, tmp)
@@ -158,14 +159,15 @@ def import_ogg(
     loop: bool,
     runner: GodotRunner | None,
     ffmpeg: FfmpegRunner | None = None,
+    replace: bool = False,
 ) -> dict[str, Any]:
     """Encode ``wav`` to Ogg Vorbis in the Godot project and import it as ``AudioStreamOggVorbis``.
 
     ``ffmpeg`` defaults to the binary ``resolve_ffmpeg`` finds; a missing ffmpeg raises
     ``audio.ffmpeg_not_found`` before anything is written under ``game/``. Otherwise raises like
-    ``import_wav``, plus ``audio.encode_failed``.
+    ``import_wav``, plus ``audio.encode_failed``. ``replace`` works as it does for ``import_wav``.
     """
-    target = check_target(project_root, "music", name)
+    target = check_target(project_root, "music", name, replace=replace)
     encoder = ffmpeg if ffmpeg is not None else SubprocessFfmpegRunner(resolve_ffmpeg())
 
     def write(tmp: Path) -> None:
@@ -230,11 +232,12 @@ def _expected(kind: str, loop: bool) -> dict[str, Any]:
     return {"class": "AudioStreamOggVorbis", "loop": bool(loop)}
 
 
-def check_target(project_root: Path, kind: str, name: str) -> Path:
+def check_target(project_root: Path, kind: str, name: str, replace: bool = False) -> Path:
     """Return the ``game/assets/Audio/`` target after checking that nothing blocks writing it.
 
     Raises ``audio.godot_project_missing`` without ``game/project.godot``, and
-    ``audio.asset_exists`` when the target or its ``.import`` file already exists.
+    ``audio.asset_exists`` when the target or its ``.import`` file already exists. ``replace``
+    skips that last check, for a byte-identical re-import or ``refinish`` (#252 AC5).
     """
     game = paths.game_project(project_root)
     if not (game / PROJECT_FILE).is_file():
@@ -245,6 +248,8 @@ def check_target(project_root: Path, kind: str, name: str) -> Path:
             "sound again.",
         )
     target = paths.game_asset(project_root, kind, name)
+    if replace:
+        return target
     for path in (target, _import_file(target)):
         if path.exists():
             raise AudioError(
@@ -272,15 +277,21 @@ def _install(
     import_file = _import_file(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".tmp")
+    replaced = False
     try:
         write(tmp)
         os.replace(tmp, target)
+        # From here the game copy is this call's output, so a failure removes it. Before this
+        # point a failed replace leaves the earlier game copy in place.
+        replaced = True
         import_file.write_text(import_text(res, loop), encoding="utf-8")
         if runner is not None:
             _import_and_probe(runner, paths.game_project(project_root), res, expected)
     except BaseException:
-        for path in (tmp, target, import_file):
-            path.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
+        if replaced:
+            for path in (target, import_file):
+                path.unlink(missing_ok=True)
         raise
     return {
         "godot_asset": res,
