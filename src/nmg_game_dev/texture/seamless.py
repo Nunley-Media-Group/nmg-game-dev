@@ -7,6 +7,15 @@ interior, so it no longer shows as a hard edge.
 ``is_seamless`` uses the same definition as the bake seam check (``bake_core/seam_metric.py``,
 #147): integer images are normalised by their dtype maximum, and each axis passes when its wrap is
 at most ``max(ratio × interior, SEAM_FLOOR)``. A parity test keeps the two implementations in step.
+
+``make_seamless`` alone does not guarantee a pass: at the wrap it still joins two original pixels,
+so the wrap/interior ratio can land just over the rule (#238). ``repair_seam`` is the guaranteed
+repair. ``edge_band`` cross-fades the lines within ``EDGE_BAND_WIDTH`` pixels of each edge with
+their mirror lines across the wrap, weight 0.5 at the wrap, so the two wrap lines become identical.
+``fix_seam`` picks a repair by severity: a passing image is returned unchanged, a narrow failure
+(every axis within ``GROSS_SEAM_RATIO`` of its allowance) gets only the edge band, and a gross
+failure gets ``make_seamless`` and then the edge band. Its wrap never ends up larger than the
+input's on either axis.
 """
 
 from __future__ import annotations
@@ -20,6 +29,8 @@ Image = NDArray[np.generic]
 
 SEAM_RATIO: Final = 1.5
 SEAM_FLOOR: Final = 2 / 255
+EDGE_BAND_WIDTH: Final = 8
+GROSS_SEAM_RATIO: Final = 3.0
 
 
 def make_seamless(img: Image) -> Image:
@@ -67,3 +78,87 @@ def is_seamless(img: Image, ratio: float = SEAM_RATIO) -> bool:
     return all(
         seam_mad(work, axis) <= max(ratio * interior_mad(work, axis), SEAM_FLOOR) for axis in (0, 1)
     )
+
+
+def seam_wraps(img: Image) -> tuple[float, float]:
+    """The normalised wrap seam per axis (0, then 1), as ``is_seamless`` measures it."""
+    work = _normalize(img)
+    return seam_mad(work, 0), seam_mad(work, 1)
+
+
+def seam_ratios(img: Image) -> tuple[float, float]:
+    """Wrap ÷ ``max(SEAM_RATIO × interior, SEAM_FLOOR)`` per axis; an axis passes at ≤ 1."""
+    work = _normalize(img)
+    ratios = [
+        seam_mad(work, axis) / max(SEAM_RATIO * interior_mad(work, axis), SEAM_FLOOR)
+        for axis in (0, 1)
+    ]
+    return ratios[0], ratios[1]
+
+
+def failing_axes(img: Image, reference: Image | None = None) -> tuple[int, ...]:
+    """Axes that fail ``is_seamless``, or whose wrap exceeds ``reference``'s on that axis."""
+    work = _normalize(img)
+    limits = seam_wraps(reference) if reference is not None else (np.inf, np.inf)
+    failing = []
+    for axis in (0, 1):
+        wrap = seam_mad(work, axis)
+        allowance = max(SEAM_RATIO * interior_mad(work, axis), SEAM_FLOOR)
+        if wrap > allowance or wrap > limits[axis]:
+            failing.append(axis)
+    return tuple(failing)
+
+
+def edge_band(img: Image, axis: int, width: int = EDGE_BAND_WIDTH) -> NDArray[np.float64]:
+    """Cross-fade the lines within ``width`` pixels of both edges along ``axis`` with their mirror
+    lines across the wrap, as float64. The weight is 0.5 at the wrap, so the first and last lines
+    become identical, and falls linearly toward 0 inward. Lines are read from an unmodified copy."""
+    src = img.astype(np.float64)
+    out = src.copy()
+    n = src.shape[axis]
+    band = max(1, min(width, n // 2))
+    for k in range(band):
+        t = 0.5 * (1.0 - k / band)
+        near = np.take(src, k, axis=axis)
+        far = np.take(src, n - 1 - k, axis=axis)
+        index: list[int | slice] = [slice(None)] * src.ndim
+        index[axis] = k
+        out[tuple(index)] = (1.0 - t) * near + t * far
+        index[axis] = n - 1 - k
+        out[tuple(index)] = (1.0 - t) * far + t * near
+    return out
+
+
+def _as_dtype(work: NDArray[np.float64], dtype: np.dtype[np.generic]) -> Image:
+    """``work`` in ``dtype``: integer results are rounded and clipped to the dtype's range."""
+    if np.issubdtype(dtype, np.integer):
+        info = np.iinfo(np.dtype(dtype.name))
+        return np.clip(np.rint(work), info.min, info.max).astype(dtype)
+    return work.astype(dtype)
+
+
+def repair_seam(img: Image, reference: Image | None = None) -> Image:
+    """Edge-band every axis that fails ``is_seamless`` (or, with ``reference``, whose wrap exceeds
+    the reference's), recheck, and repeat once for any axis the first pass pushed over. The result
+    passes ``is_seamless`` and keeps ``img``'s shape and dtype."""
+    work = img.astype(np.float64)
+    result: Image = img
+    for _ in range(2):
+        axes = failing_axes(result, reference)
+        if not axes:
+            break
+        for axis in axes:
+            work = edge_band(work, axis)
+        result = _as_dtype(work, img.dtype)
+    return result
+
+
+def fix_seam(img: Image) -> Image:
+    """Return ``img`` unchanged when it passes; edge-band a narrow failure (every axis within
+    ``GROSS_SEAM_RATIO`` of its allowance); otherwise ``make_seamless`` and then edge-band. The
+    result passes, and on neither axis is its wrap larger than ``img``'s."""
+    if is_seamless(img):
+        return img
+    if max(seam_ratios(img)) <= GROSS_SEAM_RATIO:
+        return repair_seam(img, reference=img)
+    return repair_seam(make_seamless(img), reference=img)

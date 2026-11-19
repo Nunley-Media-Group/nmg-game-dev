@@ -7,20 +7,30 @@ Every test injects a ``FakeGodotRunner`` and, for music, a fake ffmpeg. The auto
 from __future__ import annotations
 
 import functools
+import io
+import json
 import wave
 from collections.abc import Callable
 from pathlib import Path
 
 import miniaudio
+import numpy as np
 import pytest
 
-from nmg_game_dev.audio import AudioError, import_audio
+from nmg_game_dev.audio import AudioError, import_audio, refinish
 from nmg_game_dev.audio.ffmpeg import resolve_ffmpeg
+from nmg_game_dev.audio.finish import integrated_loudness
 from nmg_game_dev.audio.paths import project_root
 from nmg_game_dev.godot.project import parse_config
 from nmg_game_dev.pipeline.errors import PipelineError
 from tests.godot_fakes import FakeGodotRunner
-from tests.unit.audio.conftest import OGG_STUB, FakeFfmpeg
+from tests.unit.audio.conftest import (
+    OGG_STUB,
+    FakeFfmpeg,
+    read_wav_float,
+    sine,
+    write_wav,
+)
 
 SFX_WAV = "SourceArt/Audio/SFX/DoorCreak.wav"
 MUSIC_WAV = "SourceArt/Audio/Music/ForestTheme.wav"
@@ -46,7 +56,12 @@ def test_a_wav_sound_effect_is_stored_and_imported_as_an_audio_stream_wav(
 
     stored = project / SFX_WAV
     assert stored.read_bytes() == src.read_bytes()
-    assert (project / SFX_GAME).read_bytes() == src.read_bytes()
+    # The game copy is the finished WAV (#252): not the source bytes, but the same rate.
+    game_samples, game_rate = read_wav_float(project / SFX_GAME)
+    assert game_rate == 22050
+    assert game_samples.shape[1] == 1
+    assert result["finish"]["applied"] is True
+    assert result["finish"]["loudness_lufs"] == pytest.approx(-16.0, abs=0.1)
     config = _import_config(project / SFX_GAME)
     assert config[("remap", "importer")] == '"wav"'
     assert config[("remap", "type")] == '"AudioStreamWAV"'
@@ -54,7 +69,7 @@ def test_a_wav_sound_effect_is_stored_and_imported_as_an_audio_stream_wav(
     assert godot.calls[0] == ["--import"]
     assert godot.projects[0] == project / "game"
     assert godot.params == [{"stream": "res://assets/Audio/DoorCreak.wav"}]
-    assert result == {
+    assert {key: result[key] for key in result if key not in {"finish"}} == {
         "kind": "sfx",
         "name": "DoorCreak",
         "source_art": str(stored),
@@ -66,6 +81,12 @@ def test_a_wav_sound_effect_is_stored_and_imported_as_an_audio_stream_wav(
         "duration_seconds": 0.25,
         "looping": False,
         "imported_to_godot": True,
+        "settings": {
+            "finish": True,
+            "max_seconds": None,
+            "loudness_lufs": -16.0,
+            "loop_crossfade_ms": 500,
+        },
     }
 
 
@@ -90,7 +111,15 @@ def test_compressed_music_is_stored_encoded_to_ogg_and_imported(
         assert reader.getframerate() == info.sample_rate
         assert reader.getnchannels() == info.nchannels
     [call] = ffmpeg.calls
-    assert call[:-1] == ["-i", str(stored), "-c:a", "libvorbis", "-q:a", "5"]
+    # ffmpeg encodes the finished WAV in the scratch folder, not the stored source (#252 FR1).
+    assert call[:-1] == ["-i", call[1], "-c:a", "libvorbis", "-q:a", "5"]
+    assert call[1] != str(stored)
+    assert Path(call[1]).name == "ForestTheme.wav"
+    [encoded_input] = ffmpeg.inputs
+    with wave.open(io.BytesIO(encoded_input), "rb") as finished:
+        assert finished.getsampwidth() == 2
+        assert finished.getframerate() == info.sample_rate
+        assert finished.getnchannels() == info.nchannels
     assert call[-1].endswith(".ogg")
     assert (project / MUSIC_GAME).read_bytes() == OGG_STUB
     config = _import_config(project / MUSIC_GAME)
@@ -185,8 +214,16 @@ def test_music_without_ffmpeg_fails_before_writing_anything(
 
 
 def test_a_sound_effect_needs_no_ffmpeg(
-    project: Path, source_file: Callable[[str], Path], godot: FakeGodotRunner
+    project: Path,
+    source_file: Callable[[str], Path],
+    godot: FakeGodotRunner,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "nmg_game_dev.audio.core.resolve_ffmpeg",
+        functools.partial(resolve_ffmpeg, {}, lambda _name: None),
+    )
+
     result = import_audio(source_file("tone.wav"), "DoorCreak", "sfx", godot=godot)
 
     assert result["imported_to_godot"] is True
@@ -345,3 +382,315 @@ def test_a_corrupt_mp3_fails_cleanly_with_no_godot_call(
     assert not (folder / "ForestTheme.wav.tmp").exists()
     assert godot.calls == []
     assert ffmpeg.calls == []
+
+
+# --- Finishing (#252) ----------------------------------------------------------------------------
+
+RATE = 22050
+SFX_STORED = "SourceArt/Audio/SFX/Door.wav"
+SFX_GAME_DOOR = "game/assets/Audio/Door.wav"
+_ONE_KHZ_OFFSET_LUFS = 3.0036  # a 1 kHz sine of amplitude A measures -3.0036 + 20 log10(A) LUFS
+
+
+def _saved_wav(tmp_path: Path, name: str, samples: np.ndarray, rate: int = RATE) -> Path:
+    return write_wav(tmp_path / "saved" / name, samples, rate)
+
+
+def _float_samples(data: bytes) -> tuple[np.ndarray, int]:
+    with wave.open(io.BytesIO(data), "rb") as reader:
+        channels = reader.getnchannels()
+        rate = reader.getframerate()
+        raw = reader.readframes(reader.getnframes())
+    values = np.frombuffer(raw, dtype="<i2").astype(np.float64) / 32768.0
+    return values.reshape(-1, channels), rate
+
+
+def test_leading_silence_is_trimmed_from_the_game_copy_and_the_source_is_kept(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    silence = np.zeros((round(0.4 * RATE), 1))
+    src = _saved_wav(tmp_path, "Chime.wav", np.concatenate([silence, sine(0.5, RATE, 440.0, 0.5)]))
+    original = src.read_bytes()
+
+    import_audio(src, "Chime", "sfx", godot=godot)
+
+    assert (project / "SourceArt/Audio/SFX/Chime.wav").read_bytes() == original
+    samples, _ = read_wav_float(project / "game/assets/Audio/Chime.wav")
+    first_loud = int(np.argmax(np.abs(samples[:, 0]) > 10.0 ** (-50.0 / 20.0)))
+    assert first_loud / RATE <= 0.010
+
+
+def test_a_sound_is_cut_to_max_seconds_and_fades_out(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Whoosh.wav", sine(4.0, RATE, 440.0, 0.5))
+
+    result = import_audio(src, "Whoosh", "sfx", max_seconds=1.5, godot=godot)
+
+    samples, rate = read_wav_float(project / "game/assets/Audio/Whoosh.wav")
+    assert abs(samples.shape[0] / rate - 1.5) <= 0.010
+    assert samples[-1, 0] == 0.0
+    fade = round(0.020 * rate)
+    assert np.abs(samples[-fade:, 0]).max() < np.abs(samples[-2 * fade : -fade, 0]).max()
+    assert result["finish"]["cut"] is True
+
+
+@pytest.mark.parametrize("input_lufs", [-30.0, -6.0], ids=["quiet", "loud"])
+def test_sfx_loudness_lands_at_minus_16_lufs(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner, input_lufs: float
+) -> None:
+    amplitude = 10.0 ** ((input_lufs + _ONE_KHZ_OFFSET_LUFS) / 20.0)
+    src = _saved_wav(tmp_path, "Beep.wav", sine(2.0, RATE, 1000.0, amplitude))
+
+    result = import_audio(src, "Beep", "sfx", godot=godot)
+
+    samples, rate = read_wav_float(project / "game/assets/Audio/Beep.wav")
+    assert integrated_loudness(samples, rate) == pytest.approx(-16.0, abs=1.0)
+    assert result["finish"]["loudness_capped"] is False
+
+
+def test_music_loudness_lands_at_minus_18_lufs_in_the_wav_handed_to_the_encoder(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner, ffmpeg: FakeFfmpeg
+) -> None:
+    src = _saved_wav(tmp_path, "Theme.wav", sine(2.0, RATE, 1000.0, 0.05))
+
+    import_audio(src, "ForestTheme", "music", godot=godot, ffmpeg=ffmpeg)
+
+    [encoded] = ffmpeg.inputs
+    samples, rate = _float_samples(encoded)
+    assert integrated_loudness(samples, rate) == pytest.approx(-18.0, abs=1.0)
+
+
+def test_a_peak_ceiling_caps_the_gain_and_reports_it(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    samples = sine(1.0, RATE, 1000.0, 10.0 ** ((-37.0 + _ONE_KHZ_OFFSET_LUFS) / 20.0))
+    samples[RATE // 2, 0] = 0.9
+    src = _saved_wav(tmp_path, "Click.wav", samples)
+
+    result = import_audio(src, "Click", "sfx", godot=godot)
+
+    out, _ = read_wav_float(project / "game/assets/Audio/Click.wav")
+    assert result["finish"]["loudness_capped"] is True
+    assert float(np.abs(out).max()) <= 10.0 ** (-1.0 / 20.0) + 1e-4
+
+
+def test_a_loop_is_crossfaded_so_its_seam_step_is_no_larger_than_an_internal_step(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Hum.wav", sine(0.25, RATE, 440.0, 0.5))
+
+    import_audio(src, "Hum", "sfx", loop=True, godot=godot)
+
+    x = read_wav_float(project / "game/assets/Audio/Hum.wav")[0][:, 0]
+    internal = np.abs(np.diff(x)).max()
+    assert abs(x[0] - x[-1]) <= internal
+
+
+def test_a_byte_identical_reimport_finishes_the_same_game_copy_with_stored_settings(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    import_audio(src, "Door", "sfx", max_seconds=0.5, godot=godot)
+    game = project / SFX_GAME_DOOR
+    first = game.read_bytes()
+    again = tmp_path / "again" / "Door.wav"
+    again.parent.mkdir()
+    again.write_bytes(src.read_bytes())
+
+    result = import_audio(again, "Door", "sfx", godot=godot)
+
+    assert game.read_bytes() == first
+    assert result["settings"]["max_seconds"] == 0.5
+    assert result["finish"]["cut"] is True
+
+
+def test_a_reimport_that_omits_loop_keeps_the_stored_loop_and_crossfade(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    first = import_audio(src, "Door", "sfx", loop=True, godot=godot)
+    game = project / SFX_GAME_DOOR
+    looped = game.read_bytes()
+
+    again = import_audio(src, "Door", "sfx", godot=godot)
+
+    assert first["looping"] is True
+    assert again["looping"] is True
+    assert again["finish"] == first["finish"]
+    assert game.read_bytes() == looped
+    stored = json.loads((project / "SourceArt/Audio/audio.json").read_text("utf-8"))
+    assert stored["sounds"]["Door"]["loop"] is True
+
+
+def test_an_explicit_loop_false_turns_a_stored_loop_off(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    import_audio(src, "Door", "sfx", loop=True, godot=godot)
+
+    result = import_audio(src, "Door", "sfx", loop=False, godot=godot)
+
+    assert result["looping"] is False
+    stored = json.loads((project / "SourceArt/Audio/audio.json").read_text("utf-8"))
+    assert stored["sounds"]["Door"]["loop"] is False
+
+
+def test_a_different_source_under_the_same_name_still_fails_asset_exists(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    import_audio(src, "Door", "sfx", godot=godot)
+    stored = (project / SFX_STORED).read_bytes()
+    other = _saved_wav(tmp_path / "other", "Door.wav", sine(1.0, RATE, 330.0, 0.3))
+
+    with pytest.raises(AudioError) as caught:
+        import_audio(other, "Door", "sfx", godot=godot)
+
+    assert caught.value.code == "audio.asset_exists"
+    assert (project / SFX_STORED).read_bytes() == stored
+
+
+@pytest.mark.parametrize(("first", "second"), [("sfx", "music"), ("music", "sfx")])
+def test_a_name_stored_as_the_other_kind_fails_asset_exists_before_any_write(
+    project: Path,
+    tmp_path: Path,
+    godot: FakeGodotRunner,
+    ffmpeg: FakeFfmpeg,
+    first: str,
+    second: str,
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    import_audio(src, "Door", first, max_seconds=0.5, godot=godot, ffmpeg=ffmpeg)
+    settings = (project / "SourceArt/Audio/audio.json").read_bytes()
+    game = _game_files(project)
+    calls = len(godot.calls)
+
+    with pytest.raises(AudioError) as caught:
+        import_audio(src, "Door", second, godot=godot, ffmpeg=ffmpeg)
+
+    assert caught.value.code == "audio.asset_exists"
+    assert (project / "SourceArt/Audio/audio.json").read_bytes() == settings
+    assert _game_files(project) == game
+    assert len(godot.calls) == calls
+    other = "SFX" if second == "sfx" else "Music"
+    assert not (project / f"SourceArt/Audio/{other}/Door.wav").exists()
+    [entry] = refinish(project_root=project, godot=godot, ffmpeg=ffmpeg)
+    assert (entry["kind"], entry["settings"]["max_seconds"]) == (first, 0.5)
+
+
+def test_refinish_all_rebuilds_deleted_game_copies_byte_for_byte(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    import_audio(
+        _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3)),
+        "Door",
+        "sfx",
+        max_seconds=0.5,
+        godot=godot,
+    )
+    import_audio(
+        _saved_wav(tmp_path, "Hum.wav", sine(0.25, RATE, 440.0, 0.5)),
+        "Hum",
+        "sfx",
+        loop=True,
+        godot=godot,
+    )
+    before = {
+        name: (project / f"game/assets/Audio/{name}.wav").read_bytes() for name in ("Door", "Hum")
+    }
+    for name in ("Door", "Hum"):
+        (project / f"game/assets/Audio/{name}.wav").unlink()
+        (project / f"game/assets/Audio/{name}.wav.import").unlink()
+
+    results = refinish(None, project_root=project, godot=godot)
+
+    assert [entry["name"] for entry in results] == ["Door", "Hum"]
+    for name, data in before.items():
+        assert (project / f"game/assets/Audio/{name}.wav").read_bytes() == data
+    assert results[1]["looping"] is True
+
+
+def test_refinish_a_named_sound_and_reject_an_unknown_name(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    import_audio(
+        _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3)), "Door", "sfx", godot=godot
+    )
+
+    [entry] = refinish(["Door"], project_root=project, godot=godot)
+
+    assert entry["name"] == "Door"
+    with pytest.raises(AudioError) as caught:
+        refinish(["Nope"], project_root=project, godot=godot)
+    assert caught.value.code == "audio.unknown_sound"
+
+
+def test_refinish_without_the_stored_wav_is_unknown_sound(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    import_audio(
+        _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3)), "Door", "sfx", godot=godot
+    )
+    (project / SFX_STORED).unlink()
+
+    with pytest.raises(AudioError) as caught:
+        refinish(None, project_root=project, godot=godot)
+
+    assert caught.value.code == "audio.unknown_sound"
+    assert caught.value.remediation
+
+
+def test_finish_false_copies_the_stored_wav_and_is_stored_per_sound(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    silence = np.zeros((round(0.4 * RATE), 1))
+    src = _saved_wav(tmp_path, "Chime.wav", np.concatenate([silence, sine(0.5, RATE, 440.0, 0.5)]))
+
+    result = import_audio(src, "Chime", "sfx", finish=False, godot=godot)
+
+    assert (project / "SourceArt/Audio/SFX/Chime.wav").read_bytes() == (
+        project / "game/assets/Audio/Chime.wav"
+    ).read_bytes()
+    assert result["finish"] == {"applied": False}
+    stored = project / "SourceArt/Audio/audio.json"
+    assert '"finish": false' in stored.read_text(encoding="utf-8")
+
+
+def test_finish_false_encodes_music_from_the_stored_wav(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner, ffmpeg: FakeFfmpeg
+) -> None:
+    src = _saved_wav(tmp_path, "Theme.wav", sine(1.0, RATE, 440.0, 0.3))
+
+    import_audio(src, "ForestTheme", "music", finish=False, godot=godot, ffmpeg=ffmpeg)
+
+    [encoded] = ffmpeg.inputs
+    assert encoded == (project / MUSIC_WAV).read_bytes()
+
+
+def test_an_invalid_setting_is_rejected_before_anything_is_written(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+
+    with pytest.raises(AudioError) as caught:
+        import_audio(src, "Door", "sfx", loudness_lufs=0.0, godot=godot)
+
+    assert caught.value.code == "audio.invalid_request"
+    assert not (project / "SourceArt").exists()
+    assert godot.calls == []
+
+
+def test_a_malformed_audio_json_fails_before_anything_is_written(
+    project: Path, tmp_path: Path, godot: FakeGodotRunner
+) -> None:
+    (project / "SourceArt" / "Audio").mkdir(parents=True)
+    (project / "SourceArt" / "Audio" / "audio.json").write_text("{nope", encoding="utf-8")
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+
+    with pytest.raises(AudioError) as caught:
+        import_audio(src, "Door", "sfx", godot=godot)
+
+    assert caught.value.code == "audio.settings_invalid"
+    assert not (project / SFX_STORED).exists()
+    assert _game_files(project) == ["project.godot"]

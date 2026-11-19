@@ -33,6 +33,11 @@ viewport or renderer is not done.
   no natural front (terrain, tracks), the side a player first sees faces -Y.
 - Root object origin at the bottom center of the asset (where it meets the ground),
   placed at world origin.
+- A rigged asset (its collection holds an armature named `SK_<Name>`) may sit up to 5 mm off
+  the world origin on each axis at authoring time, measured at the bottom center. Finalize's
+  variants step moves its Desktop mesh data onto the origin, so both exported variants sit
+  there. The root origin, static assets, and export-time validation keep the 1 mm tolerance.
+  A bottom center more than 5 mm off fails validation: move the mesh data closer (#244).
 - Root object transforms applied: location (0,0,0), rotation (0,0,0), scale (1,1,1).
 - Child parts: rotation (0,0,0) and scale (1,1,1), with the origin at the hinge or
   axle and the location wherever that pivot sits relative to the root.
@@ -297,9 +302,17 @@ with each variant's mesh:
 A rigged character's clips are finalized next to its mesh (`docs/mcp/finalize.md`, "Animation
 clips"). The contract for them:
 
+- A clip's name is its action's name minus an optional `@SK_<Name>` suffix, where `<Name>` is the
+  asset's collection. So `Idle@SK_StreetThug` on `SK_StreetThug` is the clip `Idle`, and an action
+  named `Idle` with no suffix is also the clip `Idle`. Several rigs in one `.blend` can each have an
+  `Idle` this way. The pattern `^[A-Za-z][A-Za-z0-9_]*$` applies to the bare clip name, not the
+  suffix. An action with a foreign suffix, such as `Idle@SK_Cop` on `SK_StreetThug`, stops the
+  export with `finalize.clip_rig_mismatch`. Two actions on one rig that give the same clip name, such
+  as `Idle` and `Idle@SK_StreetThug`, stop it with `finalize.clip_name_duplicate`. Neither writes a
+  file.
 - Each clip is one `.glb` at `<export_root>/<Category>/<Name>/Animations/A_<Name>_<Clip>.glb`,
-  holding the armature only and exactly one sampled action. `<Clip>` matches
-  `^[A-Za-z][A-Za-z0-9_]*$`. An action with any other name stops the export.
+  holding the armature only and exactly one sampled action. `<Clip>` is the bare clip name and
+  matches `^[A-Za-z][A-Za-z0-9_]*$`. An action whose bare name breaks the pattern stops the export.
 - `Animations/nmg-animations.json` lists each clip's `name`, `file`, `asset_path`, `frame_start`,
   `frame_end`, `frame_count`, `fps`, and `source`. A provenance clip's `source` is its library,
   file, SHA-256, and source skeleton. An authored clip's `source` is `"authored"`. A built-in clip's

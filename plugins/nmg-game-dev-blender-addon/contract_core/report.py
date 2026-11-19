@@ -33,7 +33,8 @@ RULES: Final[dict[str, str]] = {
     ),
     "pivot.bottom_center": (
         "Set the origin to the bottom center of the asset and place it at the world origin "
-        "(contract section 2)."
+        "(contract section 2). A rigged asset may sit up to 5 mm off at authoring time; finalize's "
+        "variants step moves its mesh data onto the origin. Larger offsets: move the mesh data."
     ),
     "geometry.loose": "Delete loose vertices and edges (Mesh > Clean Up > Delete Loose).",
     "geometry.zero_area": "Delete zero-area faces (Mesh > Clean Up > Degenerate Dissolve).",

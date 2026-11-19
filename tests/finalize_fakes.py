@@ -103,6 +103,8 @@ class FakeStepRunner:
         clips: Optional rig clips the ``export_anims`` probe reports, each a mapping with ``name``,
             ``hash``, and optionally ``valid_name`` (default true) and ``source`` (default
             ``"authored"``).  Empty means an unrigged asset.
+        rig_mismatch: Action names the probe reports as carrying another rig's ``@`` suffix.
+        duplicates: ``{name, actions}`` mappings the probe reports for a clip that two actions give.
 
     The export writes ``<Variant>/<Name>.glb`` and ``<Variant>/nmg-asset.json`` (with ``meshes``)
     for both variants, plus ``nmg-variants.json``.  The clip export writes
@@ -119,6 +121,8 @@ class FakeStepRunner:
         hash_value: str = "asset-hash-0",
         events: list[str] | None = None,
         clips: Sequence[Mapping[str, Any]] = (),
+        rig_mismatch: Sequence[str] = (),
+        duplicates: Sequence[Mapping[str, Any]] = (),
     ) -> None:
         self.request = request
         self.bake_result = dict(bake_result) if bake_result is not None else None
@@ -127,6 +131,8 @@ class FakeStepRunner:
         self.hash_value = hash_value
         self.events = events
         self.clips = [dict(clip) for clip in clips]
+        self.rig_mismatch = list(rig_mismatch)
+        self.duplicates = [dict(duplicate) for duplicate in duplicates]
         self.calls: list[dict[str, Any]] = []
 
     def steps_run(self) -> list[str]:
@@ -235,6 +241,8 @@ class FakeStepRunner:
                     }
                     for clip in self.clips
                 ],
+                "rig_mismatch": list(self.rig_mismatch),
+                "duplicates": [dict(duplicate) for duplicate in self.duplicates],
                 "options": "fake-anim-options",
             }
         folder = request.export_root / request.category / request.collection / "Animations"

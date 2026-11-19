@@ -27,6 +27,9 @@ from .uv import uv_findings
 LOCATION_TOLERANCE = 1e-5
 ANGLE_TOLERANCE = 1e-5
 PIVOT_TOLERANCE = 1e-3
+# A rigged asset's bottom center may sit this far off at authoring time; finalize's variants step
+# re-seats its Desktop mesh data onto the origin (#244). The origin keeps PIVOT_TOLERANCE.
+RIGGED_PIVOT_TOLERANCE = 5e-3
 TEXEL_DENSITY_MIN: dict[str, float] = {"desktop": texel.DESKTOP_MIN, "mobile": texel.MOBILE_MIN}
 ALLOWED_NODE_TYPES = frozenset(
     {
@@ -107,6 +110,8 @@ def validate_asset(
     snapshot: dict[str, Any] = {}
     # A reduced asset keeps one atlas, so an environment piece still gets the overlap check (#139).
     reduced = bool(asset.get("nmg_reduced"))
+    # Only the authored Desktop of a rigged asset gets the 5 mm allowance (#244).
+    rigged_authored = authored and _has_rig(asset)
     objects_by_variant: dict[str, list[bpy.types.Object]] = {}
     for variant, variant_collection in variants:
         root_name = _root_name(collection, variant)
@@ -114,7 +119,13 @@ def validate_asset(
         objects_by_variant[variant] = objects
         tris: dict[str, int] = {}
         texel_entries: dict[str, list[dict[str, Any]]] = {}
-        findings += _structure_findings(collection, variant, objects, root_name)
+        findings += _structure_findings(
+            collection,
+            variant,
+            objects,
+            root_name,
+            rigged_authored=rigged_authored and variant == "desktop",
+        )
         findings += _shared_mesh_findings(objects)
         findings += _mesh_findings(
             collection,
@@ -297,7 +308,12 @@ def _unit_findings() -> list[dict[str, str]]:
 
 
 def _structure_findings(
-    collection: str, variant: str, objects: list[bpy.types.Object], root_name: str
+    collection: str,
+    variant: str,
+    objects: list[bpy.types.Object],
+    root_name: str,
+    *,
+    rigged_authored: bool = False,
 ) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     for obj in objects:
@@ -331,8 +347,7 @@ def _structure_findings(
                 f"{root.name} is not in identity: {', '.join(problems)}.",
             )
         )
-    meshes = [obj for obj in objects if obj.type == "MESH" and not _LOD_EXTRA.search(obj.name)]
-    findings += _pivot_findings(root, meshes)
+    findings += _pivot_findings(root, pivot_meshes(objects), rigged_authored=rigged_authored)
 
     for obj in objects:
         if obj.type != "MESH" or obj.name == root_name or _LOD_ANY.search(obj.name):
@@ -400,27 +415,56 @@ def _basis_problems(obj: bpy.types.Object, check_location: bool) -> list[str]:
     return problems
 
 
-def _pivot_findings(root: bpy.types.Object, meshes: list[bpy.types.Object]) -> list[dict[str, str]]:
-    if not meshes:
-        return []
-    origin = root.matrix_world.translation
+def pivot_meshes(objects: list[bpy.types.Object]) -> list[bpy.types.Object]:
+    """The meshes the pivot measure covers: every mesh except LOD1-LOD9 copies."""
+    return [obj for obj in objects if obj.type == "MESH" and not _LOD_EXTRA.search(obj.name)]
+
+
+def bottom_center(meshes: list[bpy.types.Object]) -> Vector:
+    """World-space bottom center of the meshes' bounding boxes: x and y centers, lowest z.
+
+    It reads each mesh's bound_box corners in world space. The pivot check and the Desktop re-seat
+    both measure with it, so they agree on the box (#244). meshes must not be empty.
+    """
     corners = [obj.matrix_world @ Vector(corner) for obj in meshes for corner in obj.bound_box]
     xs = [corner.x for corner in corners]
     ys = [corner.y for corner in corners]
     zs = [corner.z for corner in corners]
-    bottom_z = min(zs)
-    center_x = (min(xs) + max(xs)) / 2
-    center_y = (min(ys) + max(ys)) / 2
-    checked = (origin.x, origin.y, origin.z, bottom_z, center_x, center_y)
-    if all(abs(value) <= PIVOT_TOLERANCE for value in checked):
+    return Vector(((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, min(zs)))
+
+
+def _has_rig(collection: bpy.types.Collection) -> bool:
+    """True when SK_<Name> is an armature in the collection, the test variants_core.assets uses.
+
+    The check is repeated here instead of imported, because variants_core imports contract_core.
+    """
+    rig = collection.objects.get(f"SK_{collection.name}")
+    return rig is not None and rig.type == "ARMATURE"
+
+
+def _pivot_findings(
+    root: bpy.types.Object, meshes: list[bpy.types.Object], *, rigged_authored: bool = False
+) -> list[dict[str, str]]:
+    if not meshes:
         return []
+    origin = root.matrix_world.translation
+    center = bottom_center(meshes)
+    bottom_tolerance = RIGGED_PIVOT_TOLERANCE if rigged_authored else PIVOT_TOLERANCE
+    origin_ok = all(abs(value) <= PIVOT_TOLERANCE for value in origin)
+    if origin_ok and all(abs(value) <= bottom_tolerance for value in center):
+        return []
+    detail = "both must be at the world origin."
+    if rigged_authored:
+        detail = (
+            "both must be at the world origin; finalize re-seats a rigged mesh only within 5 mm "
+            "of the origin; move the mesh data closer."
+        )
     return [
         finding(
             "pivot.bottom_center",
             root.name,
             f"{root.name} origin is at ({origin.x:.4f}, {origin.y:.4f}, {origin.z:.4f}) and the "
-            f"bottom center is at ({center_x:.4f}, {center_y:.4f}, {bottom_z:.4f}); both must be "
-            "at the world origin.",
+            f"bottom center is at ({center.x:.4f}, {center.y:.4f}, {center.z:.4f}); {detail}",
         )
     ]
 

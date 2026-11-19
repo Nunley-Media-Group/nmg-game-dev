@@ -153,4 +153,4 @@ def test_scn013_import_operator_bakes_the_builtin_library_and_finishes(rig_core:
     stored = _stored_result()
     assert stored["status"] == "ok"
     assert [clip["name"] for clip in stored["clips"]] == ["Idle", "Walk"]
-    assert bpy.data.actions.get("Idle") is not None
+    assert bpy.data.actions.get("Idle@SK_Hero") is not None

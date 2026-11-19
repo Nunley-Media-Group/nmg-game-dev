@@ -33,12 +33,13 @@ def _reset() -> None:
         bpy.data.actions.remove(action)
 
 
-def _rig() -> Any:
-    """Build SK_Hero in collection Hero with a root and a spine bone."""
-    collection = bpy.data.collections.new(_COLLECTION)
+def _rig(name: str = _COLLECTION) -> Any:
+    """Build SK_<name> in collection <name> with a root and a spine bone."""
+    armature = f"SK_{name}"
+    collection = bpy.data.collections.new(name)
     bpy.context.scene.collection.children.link(collection)
-    data = bpy.data.armatures.new(_ARMATURE)
-    rig = bpy.data.objects.new(_ARMATURE, data)
+    data = bpy.data.armatures.new(armature)
+    rig = bpy.data.objects.new(armature, data)
     collection.objects.link(rig)
     bpy.context.view_layer.objects.active = rig
     rig.select_set(True)
@@ -259,3 +260,152 @@ def test_the_entry_step_probes_and_exports_through_finalize_core(
     folder = tmp_path / "Characters" / _COLLECTION / "Animations"
     assert (folder / "A_Hero_Idle.glb").is_file()
     assert not (folder / "A_Hero_Wave.glb").exists()
+
+
+# ----------------------------------------------------------------------------- #233 AC1-AC6
+# A clip's name is its action's name minus an optional @SK_<Name> suffix.  Each case holds its
+# actions on the rig's NLA track, so the rig holds them without an active action.
+
+
+def _hold(rig: Any, action: Any) -> None:
+    """Hold ``action`` on ``rig`` as an NLA strip, so the rig holds it as a clip."""
+    track = rig.animation_data_create().nla_tracks.new()
+    track.strips.new(action.name, 1, action)
+
+
+def _root_lift(action: Any) -> float:
+    """Return the largest root location Z that the re-imported action keys."""
+    keys = [
+        point.co[1]
+        for layer in action.layers
+        for strip in layer.strips
+        for bag in strip.channelbags
+        for curve in bag.fcurves
+        if curve.data_path == 'pose.bones["root"].location' and curve.array_index == 2
+        for point in curve.keyframe_points
+    ]
+    return max(keys)
+
+
+@pytest.fixture()
+def one_file(anims: Any) -> Any:
+    """An empty file for a case to build its rigs in; cleared before and after."""
+    _reset()
+    yield anims
+    _reset()
+
+
+@pytest.fixture()
+def two_characters(one_file: Any) -> Any:
+    """Two rigs in one file, each with its own Idle: SK_StreetThug and SK_Cop (AC1, AC2)."""
+    thug = _rig("StreetThug")
+    _hold(thug, _clip(thug, "Idle@SK_StreetThug", (1, 10), 0.1))
+    cop = _rig("Cop")
+    _hold(cop, _clip(cop, "Idle@SK_Cop", (1, 10), 0.3))
+    return one_file
+
+
+def test_ac1_an_suffixed_action_probes_and_exports_under_its_bare_name(
+    two_characters: Any, tmp_path: Path
+) -> None:
+    # AC1: Idle@SK_StreetThug probes as Idle and exports A_StreetThug_Idle.glb named Idle.
+    report = two_characters.probe("StreetThug")
+
+    assert [(clip["name"], clip["valid_name"]) for clip in report["clips"]] == [("Idle", True)]
+    assert report["rig_mismatch"] == []
+    assert report["duplicates"] == []
+    (record,) = two_characters.export_clips("StreetThug", ["Idle"], tmp_path)
+    assert record["name"] == "Idle"
+    assert record["file"] == "A_StreetThug_Idle.glb"
+    assert (tmp_path / "A_StreetThug_Idle.glb").is_file()
+
+
+def test_ac2_two_characters_in_one_file_each_export_their_own_clip(
+    two_characters: Any, tmp_path: Path
+) -> None:
+    # AC2: each character's Idle is its own action.  Re-imported, the root's lift differs per rig.
+    records = two_characters.export_clips("StreetThug", ["Idle"], tmp_path)
+    records += two_characters.export_clips("Cop", ["Idle"], tmp_path)
+
+    assert [record["file"] for record in records] == ["A_StreetThug_Idle.glb", "A_Cop_Idle.glb"]
+    lifts: dict[str, float] = {}
+    for record in records:
+        bpy.ops.wm.read_homefile(use_empty=True)
+        bpy.ops.import_scene.gltf(filepath=str(tmp_path / record["file"]), disable_bone_shape=True)
+        (action,) = bpy.data.actions
+        lifts[record["file"]] = _root_lift(action)
+    assert lifts["A_Cop_Idle.glb"] == pytest.approx(3 * lifts["A_StreetThug_Idle.glb"], rel=1e-3)
+    assert lifts["A_StreetThug_Idle.glb"] > 0.0
+
+
+def test_ac3_an_unsuffixed_clip_hash_is_the_hash_of_its_action_name(
+    scene_with_clips: Any,
+) -> None:
+    # AC3: an unsuffixed action hashes as its clip name equal to its action name, as before.
+    rig = bpy.data.objects[_ARMATURE]
+    action = bpy.data.actions["Idle"]
+    provenance = scene_with_clips.provenance_of(rig).get("Idle")
+    expected = scene_with_clips.clip_hash(rig, action.name, action, provenance)
+
+    hashes = {clip["name"]: clip["hash"] for clip in scene_with_clips.probe(_COLLECTION)["clips"]}
+
+    assert hashes["Idle"] == expected
+
+
+def test_ac4_a_suffix_naming_another_rig_stops_the_export_before_any_write(
+    one_file: Any, tmp_path: Path
+) -> None:
+    # AC4: StreetThug holds Idle@SK_Cop.  The probe reports it and the export writes nothing.
+    thug = _rig("StreetThug")
+    _hold(thug, _clip(thug, "Idle@SK_StreetThug", (1, 10), 0.1))
+    _hold(thug, _clip(thug, "Idle@SK_Cop", (1, 10), 0.3))
+
+    report = one_file.probe("StreetThug")
+    assert report["rig_mismatch"] == ["Idle@SK_Cop"]
+    assert [clip["name"] for clip in report["clips"]] == ["Idle"]
+
+    out = tmp_path / "Animations"
+    with pytest.raises(one_file.AnimError) as info:
+        one_file.export_clips("StreetThug", ["Idle"], out)
+    assert info.value.code == "finalize.clip_rig_mismatch"
+    assert "Idle@SK_Cop" in info.value.message
+    assert info.value.remediation
+    assert not out.exists()
+
+
+def test_ac5_two_actions_giving_one_clip_name_stop_the_export_before_any_write(
+    one_file: Any, tmp_path: Path
+) -> None:
+    # AC5: StreetThug holds Idle and Idle@SK_StreetThug.  Both are clip Idle, so nothing exports.
+    thug = _rig("StreetThug")
+    _hold(thug, _clip(thug, "Idle", (1, 10), 0.1))
+    _hold(thug, _clip(thug, "Idle@SK_StreetThug", (1, 10), 0.2))
+
+    report = one_file.probe("StreetThug")
+    assert report["duplicates"] == [{"name": "Idle", "actions": ["Idle", "Idle@SK_StreetThug"]}]
+    assert report["clips"] == []
+
+    out = tmp_path / "Animations"
+    with pytest.raises(one_file.AnimError) as info:
+        one_file.export_clips("StreetThug", ["Idle"], out)
+    assert info.value.code == "finalize.clip_name_duplicate"
+    assert "Idle" in info.value.message
+    assert "Idle@SK_StreetThug" in info.value.message
+    assert info.value.remediation
+    assert not out.exists()
+
+
+def test_ac6_the_bare_clip_name_is_still_validated(one_file: Any, tmp_path: Path) -> None:
+    # AC6: 1Idle@SK_StreetThug probes as 1Idle with valid_name false, and the export refuses it.
+    thug = _rig("StreetThug")
+    _hold(thug, _clip(thug, "1Idle@SK_StreetThug", (1, 10), 0.1))
+
+    report = one_file.probe("StreetThug")
+    assert [(clip["name"], clip["valid_name"]) for clip in report["clips"]] == [("1Idle", False)]
+
+    out = tmp_path / "Animations"
+    with pytest.raises(one_file.AnimError) as info:
+        one_file.export_clips("StreetThug", ["1Idle"], out)
+    assert info.value.code == "finalize.clip_name_invalid"
+    assert "1Idle" in info.value.message
+    assert not out.exists()
