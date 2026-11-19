@@ -216,7 +216,7 @@ import_godot → import_anims, and each step can also run alone:
 | `bake` | Blender, writes a copy | Checkpoint to `bake.blend` | Contract texture sets and the bake proof |
 | `variants` | Blender, writes a copy | `bake.blend` to `variants.blend` | Triangle counts per variant |
 | `export` | Blender, read-only | `variants.blend` to `<Variant>/<Name>.glb`, the PNG sets, both `nmg-asset.json` files, and `nmg-variants.json` | Pre-export contract report, gated by `quality.contract_failed` |
-| `export_anims` | Blender, read-only | `checkpoint.blend` (the session's current actions) to `Animations/A_<Name>_<Clip>.glb` and `nmg-animations.json` | One `.glb` per clip, cached per clip. Fails with `finalize.clip_name_invalid` |
+| `export_anims` | Blender, read-only | `checkpoint.blend` (the session's current actions) to `Animations/A_<Name>_<Clip>.glb` and `nmg-animations.json` | One `.glb` per clip, cached per clip. Fails with `finalize.clip_rig_mismatch`, `finalize.clip_name_duplicate`, or `finalize.clip_name_invalid` before any file is written |
 | `reimport` | Blender, factory startup | Exported `.glb` files | Re-import report per variant, gated by `quality.reimport_mismatch` |
 | `import_godot` | Godot, headless | Material-variant `.tres` files, then `--import` and the asset probe | Outputs `desktop_resource_path` and `mobile_resource_path` (`res://assets/<Category>/<Name>/<Variant>/<Name>.glb`) and the probe results under `imports`. Fails with `godot.not_found`, `import_godot.project_missing`, `import_godot.import_failed`, or `import_godot.mismatch` |
 | `import_anims` | Godot, headless | Each changed clip's `.import` file (`importer="animation_library"`), then `--import` and the animation probe | Clip and frame-count check against the sidecar, failing with `import_anims.clip_mismatch` or `import_anims.failed`. Compatible-skeleton report |
@@ -230,9 +230,12 @@ nothing under `Animations/`, and starts no Godot process. Every other output is 
 ### Animation clips
 
 `export_anims` exports every clip on `SK_<Name>`, which is the rig's provenance clips plus the actions
-held in its slot or NLA tracks. Unrelated actions in the file are not exported.
+held in its slot or NLA tracks. Unrelated actions in the file are not exported. A clip's name is its
+action's name minus an optional `@SK_<Name>` suffix, so one .blend can hold several characters that
+each have an `Idle` (`docs/asset-contract.md`, section 7).
 
 - **Layout.** `<export_root>/<Category>/<Name>/Animations/A_<Name>_<Clip>.glb` holds one clip each.
+  `<Clip>` is the bare clip name.
   Each file holds the armature only, no mesh, and exactly one action, sampled on every frame.
 - **Sidecar.** `nmg-animations.json` sits beside the clip files. The top level holds `asset` and
   `armature`. Each entry in `clips` holds `name`, `file`, `asset_path`, `frame_start`, `frame_end`,
@@ -411,7 +414,9 @@ Blender is resolved in this order: `BLENDER_BIN`, then `BLENDER_APP/Contents/Mac
 | `import_godot.import_failed` | The headless `--import` exited non-zero or printed an `ERROR:` line. The first such line is in the message. | Fix the file the error names, then rerun `import_godot`. |
 | `import_godot.mismatch` | A probed variant's mesh names, triangles, material slots, or bounds differ from its `nmg-asset.json`, or a terrain chunk is missing. The message names the mesh and the field. | Rerun finalize with `force` so the variant is re-exported and re-imported. |
 | `import_godot.terrain_height_mismatch` | A terrain scene's collision or chunk height range differs from the sidecar by more than 5 cm. | Re-export the terrain with `force`. If it persists, check the heightmap encoding and the spacing in `nmg-variants.json`. |
-| `finalize.clip_name_invalid` | A clip's action name does not match `^[A-Za-z][A-Za-z0-9_]*$`. The message names it. Nothing was exported. | Rename the action to start with a letter and use only letters, digits, and underscores, then rerun. |
+| `finalize.clip_name_invalid` | A clip's bare name (its action name minus any `@SK_<Name>` suffix) does not match `^[A-Za-z][A-Za-z0-9_]*$`. The message names it. Nothing was exported. | Rename the action to start with a letter and use only letters, digits, and underscores, then rerun. |
+| `finalize.clip_rig_mismatch` | An action on `SK_<Name>` carries an `@` suffix naming another rig, such as `Idle@SK_Cop` on `SK_StreetThug`. The message names each action. Nothing was exported. | Rename each action to `<Clip>@SK_<Name>` for this rig, or remove the suffix, then rerun finalize. |
+| `finalize.clip_name_duplicate` | Two actions on `SK_<Name>` give the same clip name, such as `Idle` and `Idle@SK_<Name>`. The message names the clip and both actions. Nothing was exported. | Keep one action per clip on `SK_<Name>`: delete or rename the extra action, then rerun finalize. |
 | `finalize.skeleton_not_found` | `import_anims` found no Desktop skeleton for the character, or a `compatible_with` target has none. | For the character, run `import_godot` first, then rerun. For a target, finalize that character first, or remove it from `compatible_with`. |
 | `finalize.skeleton_mismatch` | A clip has a bone track that a `compatible_with` target's skeleton lacks. The message lists the bones. | Only register characters rigged with the same bone names. |
 | `import_anims.clip_mismatch` | A clip is absent from its imported `AnimationLibrary`, or its frame count differs from the sidecar. The message names the clip, the expected value, and the measured value. | Re-export the clip, then rerun `import_anims` with `force`. |

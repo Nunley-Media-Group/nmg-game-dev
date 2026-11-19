@@ -1,8 +1,9 @@
 """Built-in procedural clips on two rig_humanoid rigs of different proportions (SCN001-SCN012).
 
 Oracles read the evaluated pose at each authored key frame. The scene runs at 30 fps so an authored
-frame is the scene frame. Each rig is built in its own scene: built-in actions are named after their
-clip, so two rigs in one scene would share and replace each other's actions.
+frame is the scene frame. Each rig is built in its own scene so the cases stay independent. A
+built-in clip is installed as ``<clip>@SK_<Name>``, so the AC7 and AC8 cases below build two rigs in
+one scene and check that baking one rig's clip leaves the other's action alone.
 """
 
 from __future__ import annotations
@@ -88,7 +89,12 @@ def _key_table(action: Any) -> dict[tuple[str, int], list[tuple[float, float]]]:
 
 
 def _play(armature: Any, clip_name: str) -> None:
-    armature.animation_data_create().action = bpy.data.actions[clip_name]
+    armature.animation_data_create().action = bpy.data.actions[_action_of(armature, clip_name)]
+
+
+def _action_of(armature: Any, clip_name: str) -> str:
+    """Return the action a built-in clip is installed as on armature: ``<clip>@SK_<Name>``."""
+    return f"{clip_name}@{armature.name}"
 
 
 def _pose_at(armature: Any, frame: int) -> Any:
@@ -165,7 +171,8 @@ def test_scn001_scn002_every_builtin_clip_bakes_with_no_file_access(
     assert set(AC2_CLIPS) <= set(names)
     assert names == list(clips.BUILTIN_CLIPS)
     for clip in clips.BUILTIN_CLIPS.values():
-        paths = {curve.data_path for curve in _fcurves(bpy.data.actions[clip.name])}
+        action = bpy.data.actions[_action_of(armature, clip.name)]
+        paths = {curve.data_path for curve in _fcurves(action)}
         for bone in clips.targets(clip):
             assert f'pose.bones["{bone}"].rotation_quaternion' in paths, (clip.name, bone)
     assert not [name for name in _action_names() if name.startswith("__nmg_tmp_")]
@@ -180,8 +187,8 @@ def test_scn003_a_subset_bakes_only_the_requested_clips(core: Any, clips: Any, r
 
     assert result["status"] == "ok", result
     assert [clip["name"] for clip in result["clips"]] == ["Idle", "Walk"]
-    built_in = {name for name in _action_names() if name in clips.BUILTIN_CLIPS}
-    assert built_in == {"Idle", "Walk"}
+    built_in = {name for name in _action_names() if name.endswith(f"@SK_{rig}")}
+    assert built_in == {f"Idle@SK_{rig}", f"Walk@SK_{rig}"}
 
 
 # ----------------------------------------------------------------------------- SCN004
@@ -292,23 +299,23 @@ def test_scn007_provenance_matches_the_definition_and_survives_export(
         filepath=str(out_dir / f"{rig}.glb"), disable_bone_shape=True
     ) == {"FINISHED"}
     reimported = {action.name.rsplit("|", 1)[-1] for action in bpy.data.actions}
-    assert set(names) <= reimported
+    assert {f"{name}@SK_{rig}" for name in names} <= reimported
 
 
 # ----------------------------------------------------------------------------- SCN008
 def test_scn008_baking_again_replaces_the_action_with_identical_keys_and_provenance(
     core: Any, rig: str
 ) -> None:
-    _build_rig(core, rig)
+    armature = _build_rig(core, rig)
     first = core.import_animations(rig, library="builtin", clips=["Idle"])
-    keys_first = _key_table(bpy.data.actions["Idle"])
+    keys_first = _key_table(bpy.data.actions[_action_of(armature, "Idle")])
     actions_first = sorted(action.name for action in bpy.data.actions)
 
     second = core.import_animations(rig, library="builtin", clips=["Idle"])
 
     assert second["status"] == "ok", second
     assert second["clips"] == first["clips"]
-    assert _key_table(bpy.data.actions["Idle"]) == keys_first
+    assert _key_table(bpy.data.actions[_action_of(armature, "Idle")]) == keys_first
     assert sorted(action.name for action in bpy.data.actions) == actions_first
     assert not [action.name for action in bpy.data.actions if action.name.startswith("__nmg_tmp_")]
 
@@ -383,3 +390,51 @@ def test_scn012_missing_rig_and_text_motion_keep_their_statuses(core: Any, rig: 
     spike = core.import_animations(rig, library="builtin", motion_prompt="a slow limp")
     assert spike["code"] == "anim.text_motion_unsupported", spike
     assert spike["status"] == "follow-up spike required"
+
+
+# ----------------------------------------------------------------------------- AC7, AC8
+def _two_rigs(core: Any) -> None:
+    """Build Hero and Variant in one scene, each with its own SK_<Name> rig."""
+    reset_scene()
+    bpy.context.scene.render.fps = 30
+    assert core.rig_humanoid("Hero", "humanoid", build_hero())["status"] == "ok"
+    assert core.rig_humanoid("Variant", "humanoid", build_variant())["status"] == "ok"
+
+
+def test_ac7_a_builtin_clip_on_one_rig_leaves_the_other_rigs_clip_and_provenance_alone(
+    core: Any,
+) -> None:
+    _two_rigs(core)
+    assert core.import_animations("Hero", library="builtin", clips=["Idle"])["status"] == "ok"
+    hero_action = bpy.data.actions["Idle@SK_Hero"]
+    hero_keys = _key_table(hero_action)
+    hero_provenance = bpy.data.objects["SK_Hero"].get("nmg_animations")
+
+    baked = core.import_animations("Variant", library="builtin", clips=["Idle"])
+
+    assert baked["status"] == "ok", baked
+    assert bpy.data.actions["Idle@SK_Variant"] != hero_action
+    assert bpy.data.actions["Idle@SK_Hero"] == hero_action
+    assert _key_table(hero_action) == hero_keys
+    assert bpy.data.objects["SK_Hero"].get("nmg_animations") == hero_provenance
+    for rig_name in ("Hero", "Variant"):
+        provenance = json.loads(bpy.data.objects[f"SK_{rig_name}"]["nmg_animations"])
+        assert list(provenance) == ["Idle"], rig_name
+
+
+def test_ac8_rebaking_a_clip_replaces_only_that_rigs_action_with_no_duplicate(core: Any) -> None:
+    _two_rigs(core)
+    assert core.import_animations("Hero", library="builtin", clips=["Idle"])["status"] == "ok"
+    assert core.import_animations("Variant", library="builtin", clips=["Idle"])["status"] == "ok"
+    variant_action = bpy.data.actions["Idle@SK_Variant"]
+    variant_keys = _key_table(variant_action)
+
+    again = core.import_animations("Hero", library="builtin", clips=["Idle"])
+
+    assert again["status"] == "ok", again
+    assert sorted(name for name in _action_names() if name.startswith("Idle")) == [
+        "Idle@SK_Hero",
+        "Idle@SK_Variant",
+    ]
+    assert bpy.data.actions["Idle@SK_Variant"] == variant_action
+    assert _key_table(variant_action) == variant_keys

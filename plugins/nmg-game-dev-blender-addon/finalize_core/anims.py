@@ -5,8 +5,10 @@ decide which clips miss its cache.  ``export_clips`` writes one armature-only GL
 clip, ``A_<Name>_<Clip>.glb``, holding exactly that clip.  Both touch Blender data and run only
 inside the headless ``finalize_entry.py`` process.
 
-The clip set is the rig's provenance clips that resolve to actions, plus every action assigned to
-``SK_<Name>`` or held in its NLA tracks.  Unrelated actions in the file are never exported.
+A clip's name is its action's name minus an optional ``@SK_<Name>`` suffix, so one .blend can hold
+several rigs that each have an ``Idle``.  The clip set is the rig's provenance clips that resolve to
+actions, plus every action assigned to ``SK_<Name>`` or held in its NLA tracks.  Unrelated actions
+in the file are never exported.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
@@ -55,45 +58,108 @@ class AnimError(Exception):
         self.remediation = remediation
 
 
-def probe(collection_name: str) -> dict[str, Any]:
-    """Return ``{clips: [{name, hash, valid_name}], options}`` for the collection's rig.
+@dataclass(frozen=True)
+class ClipResolution:
+    """The rig's clips by bare clip name, and the actions that could not become clips.
 
-    ``options`` fingerprints ``ANIM_EXPORT_OPTIONS``; the host folds it into the export cache key.
-    A collection with no rig, or a rig with no clips, gives an empty list.
+    ``clips`` maps a clip name to its action.  ``rig_mismatch`` lists, sorted, the rig's actions
+    whose ``@`` suffix names another rig.  ``duplicates`` maps each clip name that two distinct
+    actions give to those action names, sorted; such a clip is left out of ``clips``.
+    """
+
+    clips: dict[str, bpy.types.Action]
+    rig_mismatch: list[str]
+    duplicates: dict[str, list[str]]
+
+
+def split_action_name(action_name: str) -> tuple[str, str | None]:
+    """Split an action name at its first ``@``: return ``(bare, suffix)``, None when no ``@``."""
+    bare, separator, suffix = action_name.partition("@")
+    return (bare, suffix if separator else None)
+
+
+def resolve(collection_name: str) -> ClipResolution:
+    """Resolve the rig's actions to clips: provenance clips first, then every action it holds.
+
+    A provenance clip ``<Clip>`` takes the action ``<Clip>@SK_<Name>``, or else one named
+    ``<Clip>``.  A held action's clip is its name minus an ``@SK_<Name>`` suffix; an action whose
+    suffix names another rig is a mismatch and is not a clip.  One action reached twice is one
+    clip; two distinct actions for one clip name are a duplicate.
     """
     rig = asset_armature(collection_name)
-    provenance = provenance_of(rig) if rig is not None else {}
-    clips: list[dict[str, Any]] = []
-    for action in resolve_clips(collection_name):
-        clips.append(
-            {
-                "name": action.name,
-                "hash": clip_hash(rig, action, provenance.get(action.name)),
-                "valid_name": valid_clip_name(action.name),
-            }
-        )
-    return {"clips": clips, "options": options_fingerprint()}
-
-
-def resolve_clips(collection_name: str) -> list[bpy.types.Action]:
-    """Return the rig's clips sorted by name: provenance clips and every action the rig holds."""
-    rig = asset_armature(collection_name)
     if rig is None:
-        return []
-    actions: dict[str, bpy.types.Action] = {}
-    for name in provenance_of(rig):
-        action = bpy.data.actions.get(name)
+        return ClipResolution(clips={}, rig_mismatch=[], duplicates={})
+    own_suffix = f"SK_{collection_name}"
+    offers: dict[str, dict[str, bpy.types.Action]] = {}
+    for clip in provenance_of(rig):
+        action = bpy.data.actions.get(f"{clip}@{own_suffix}")
+        if action is None:
+            action = bpy.data.actions.get(clip)
         if action is not None:
-            actions[name] = action
+            offers.setdefault(clip, {})[action.name] = action
+    held: list[bpy.types.Action] = []
     data = rig.animation_data
     if data is not None:
         if data.action is not None:
-            actions[data.action.name] = data.action
+            held.append(data.action)
         for track in data.nla_tracks:
             for strip in track.strips:
                 if strip.action is not None:
-                    actions[strip.action.name] = strip.action
-    return [actions[name] for name in sorted(actions)]
+                    held.append(strip.action)
+    mismatch: set[str] = set()
+    for action in held:
+        bare, suffix = split_action_name(action.name)
+        if suffix is not None and suffix != own_suffix:
+            mismatch.add(action.name)
+        else:
+            offers.setdefault(bare, {})[action.name] = action
+    clips: dict[str, bpy.types.Action] = {}
+    duplicates: dict[str, list[str]] = {}
+    for clip, candidates in offers.items():
+        if len(candidates) == 1:
+            clips[clip] = next(iter(candidates.values()))
+        else:
+            duplicates[clip] = sorted(candidates)
+    return ClipResolution(clips=clips, rig_mismatch=sorted(mismatch), duplicates=duplicates)
+
+
+def probe(collection_name: str) -> dict[str, Any]:
+    """Return ``{clips, rig_mismatch, duplicates, options}`` for the collection's rig.
+
+    ``clips`` is ``[{name, hash, valid_name}]`` under each clip's bare name.  ``rig_mismatch`` lists
+    the actions whose ``@`` suffix names another rig, and ``duplicates`` lists ``{name, actions}``
+    for each clip two actions give; the host refuses the export for either.  ``options``
+    fingerprints ``ANIM_EXPORT_OPTIONS``; the host folds it into the export cache key.  A collection
+    with no rig, or a rig with no clips, gives empty lists.
+    """
+    rig = asset_armature(collection_name)
+    provenance = provenance_of(rig) if rig is not None else {}
+    resolution = resolve(collection_name)
+    clips: list[dict[str, Any]] = []
+    for name in sorted(resolution.clips):
+        clips.append(
+            {
+                "name": name,
+                "hash": clip_hash(rig, name, resolution.clips[name], provenance.get(name)),
+                "valid_name": valid_clip_name(name),
+            }
+        )
+    duplicates = [
+        {"name": name, "actions": actions}
+        for name, actions in sorted(resolution.duplicates.items())
+    ]
+    return {
+        "clips": clips,
+        "rig_mismatch": resolution.rig_mismatch,
+        "duplicates": duplicates,
+        "options": options_fingerprint(),
+    }
+
+
+def resolve_clips(collection_name: str) -> list[bpy.types.Action]:
+    """Return the rig's clip actions sorted by clip name."""
+    clips = resolve(collection_name).clips
+    return [clips[name] for name in sorted(clips)]
 
 
 def provenance_of(rig: bpy.types.Object) -> dict[str, dict[str, Any]]:
@@ -120,19 +186,20 @@ def options_fingerprint() -> str:
 
 def clip_hash(
     rig: bpy.types.Object | None,
+    clip_name: str,
     action: bpy.types.Action,
     provenance: Mapping[str, Any] | None,
 ) -> str:
     """Return the SHA-256 of everything a clip's exported GLB depends on.
 
-    The payload is the clip name, every F-curve through the action's slots (keyframe points,
+    The payload is the bare clip name, every F-curve through the action's slots (keyframe points,
     handles, interpolation, and modifiers), the rig's bones with parents and rest matrices, the
     provenance entry, and the scene's frame rate.  A change to any of them changes the hash.
     """
     scene = bpy.context.scene
     slot = _slot_of(action, rig)
     payload: dict[str, Any] = {
-        "clip": action.name,
+        "clip": clip_name,
         "curves": _curve_payload(_fcurves(action, slot)),
         "rig": _rig_payload(rig),
         "provenance": dict(provenance) if provenance is not None else None,
@@ -150,9 +217,9 @@ def export_clips(
     """Write ``A_<Name>_<Clip>.glb`` for each named clip into ``out_dir`` and describe each one.
 
     Each record is ``{name, file, frame_start, frame_end, frame_count, fps, source}``.  ``source``
-    is the clip's recorded provenance source, or ``"authored"``.  An invalid name raises before
-    anything is written.  The rig's name, action, slot, and NLA mute states are restored
-    afterwards, even on failure.
+    is the clip's recorded provenance source, or ``"authored"``.  A rig-mismatched action, a clip
+    two actions give, or an invalid name raises before anything is written.  The rig's name,
+    action, slot, and NLA mute states are restored afterwards, even on failure.
     """
     rig = asset_armature(collection_name)
     if rig is None:
@@ -161,7 +228,28 @@ def export_clips(
             f"SK_{collection_name} is not an armature in {collection_name}.",
             f"Run rig_humanoid for {collection_name} before exporting its clips.",
         )
-    actions = {action.name: action for action in resolve_clips(collection_name)}
+    resolution = resolve(collection_name)
+    if resolution.rig_mismatch:
+        raise AnimError(
+            "finalize.clip_rig_mismatch",
+            f"Actions {', '.join(resolution.rig_mismatch)} on SK_{collection_name} carry an @ "
+            "suffix for another rig, so nothing was exported.",
+            f"Rename each action to <Clip>@SK_{collection_name} for this rig, or remove the "
+            "suffix, then rerun finalize.",
+        )
+    if resolution.duplicates:
+        clauses = "; ".join(
+            f"Clip {clip} comes from more than one action on SK_{collection_name} "
+            f"({', '.join(sources)})"
+            for clip, sources in sorted(resolution.duplicates.items())
+        )
+        raise AnimError(
+            "finalize.clip_name_duplicate",
+            f"{clauses}, so nothing was exported.",
+            f"Keep one action per clip on SK_{collection_name}: delete or rename the extra "
+            "action, then rerun finalize.",
+        )
+    actions = resolution.clips
     for name in names:
         if name not in actions:
             raise AnimError(
