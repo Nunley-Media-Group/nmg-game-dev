@@ -1,0 +1,59 @@
+**Issue**: #242
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/130-route-blender-asset-authoring-to-model-asset-automatically/
+
+# File: tests/bdd/features/generate_audio.feature
+# Generated from: specs/242-add-a-generate-audio-skill-that-enforces-one-take-instrumental-brief-faithful-elevenlabs-generation/requirements.md
+Feature: Generate game audio through /generate-audio
+
+  @SCN001
+  Scenario: The first single-take audio generation in a session gets the routing reminder
+    Given an empty hook state directory
+    When the audio guard hook receives a creative_generate_in_flow event with node_type "music" and generations_count 1 for session "s-1"
+    Then it exits 0
+    And its additionalContext names /generate-audio and nmg-game-dev:generate-audio
+    And it makes no permission decision
+
+  @SCN002
+  Scenario: A multi-take audio generation is denied
+    Given an empty hook state directory
+    When the audio guard hook receives a creative_generate_speech event with generations_count 3 for session "s-1"
+    Then it exits 0
+    And its permissionDecision is "deny"
+    And its permissionDecisionReason states generations_count: 1 and names /generate-audio
+
+  @SCN003
+  Scenario: A repeat single-take call in the same session passes silently
+    Given the audio guard hook has already reminded session "s-1"
+    When the audio guard hook receives a creative_generate_in_flow event with node_type "sfx" and generations_count 1 for session "s-1"
+    Then it exits 0 with empty stdout
+
+  @SCN004
+  Scenario: Unreadable hook input fails open
+    Given an empty hook state directory
+    When the audio guard hook receives "not json" on stdin
+    Then it exits 0 with empty stdout
+
+  @SCN005
+  Scenario: The skill makes music instrumental unless vocals come with lyrics
+    Given the body of skills/generate-audio/SKILL.md
+    When its music instructions are read
+    Then they direct setting the instrumental option read from creative_get_model_schema unless the user asked for vocals and supplied lyrics
+    And they direct using only the user's lyrics when vocals are requested
+
+  @SCN006
+  Scenario: The skill builds prompts only from the brief
+    Given the body of skills/generate-audio/SKILL.md
+    When its prompt instructions are read
+    Then they direct reading creative_get_model_guide and the design-doc entry such as docs/design/systems/audio.md
+    And they forbid adding any genre, instrument, mood, or vocal element absent from the request and design doc
+    And they direct generations_count: 1 and importing with import_audio
+
+  @SCN007
+  Scenario: Non-audio ElevenLabs generation is left alone
+    Given an empty hook state directory
+    When the audio guard hook receives a creative_generate_in_flow event with node_type "image" and generations_count 4 for session "s-1"
+    Then it exits 0 with empty stdout
+    And no reminder marker is written
