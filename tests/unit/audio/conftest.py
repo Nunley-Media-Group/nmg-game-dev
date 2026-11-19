@@ -9,11 +9,14 @@ fixture makes both fakes the defaults, for the CLI tests that cannot inject them
 
 from __future__ import annotations
 
+import math
 import shutil
+import wave
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 from nmg_game_dev.godot.project import parse_config
@@ -28,19 +31,57 @@ _WAV_LOOP_MODES = {"2": 1}
 
 
 class FakeFfmpeg:
-    """Records each ffmpeg call and writes a stub Ogg file at the output path."""
+    """Records each ffmpeg call and writes a stub Ogg file at the output path.
+
+    ``inputs`` keeps the bytes of each ``-i`` file at the time of the call, because the import
+    deletes its scratch folder before the test can read it.
+    """
 
     def __init__(self, result: CommandResult | None = None) -> None:
         self.calls: list[list[str]] = []
+        self.inputs: list[bytes] = []
         self.result = result
 
     def run(self, args: Sequence[str]) -> CommandResult:
         argv = list(args)
         self.calls.append(argv)
+        if "-i" in argv:
+            self.inputs.append(Path(argv[argv.index("-i") + 1]).read_bytes())
         if self.result is not None:
             return self.result
         Path(argv[-1]).write_bytes(OGG_STUB)
         return CommandResult(0)
+
+
+def sine(
+    seconds: float, rate: int, freq: float = 1000.0, amplitude: float = 0.5, channels: int = 1
+) -> np.ndarray:
+    """Return (frames, channels) float samples of a sine, the same in every channel."""
+    t = np.arange(round(seconds * rate)) / rate
+    tone = amplitude * np.sin(2.0 * math.pi * freq * t)
+    return np.repeat(tone[:, None], channels, axis=1)
+
+
+def write_wav(path: Path, samples: np.ndarray, rate: int) -> Path:
+    """Write (frames, channels) float samples in [-1, 1] as a 16-bit PCM WAV."""
+    pcm = np.rint(np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(samples.shape[1])
+        writer.setsampwidth(2)
+        writer.setframerate(rate)
+        writer.writeframes(pcm.tobytes())
+    return path
+
+
+def read_wav_float(path: Path) -> tuple[np.ndarray, int]:
+    """Read a 16-bit PCM WAV back as (frames, channels) float samples in [-1, 1], and its rate."""
+    with wave.open(str(path), "rb") as reader:
+        channels = reader.getnchannels()
+        rate = reader.getframerate()
+        raw = reader.readframes(reader.getnframes())
+    values = np.frombuffer(raw, dtype="<i2").astype(np.float64) / 32768.0
+    return values.reshape(-1, channels), rate
 
 
 def _forbidden(*_args: Any, **_kwargs: Any) -> Any:

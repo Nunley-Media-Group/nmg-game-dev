@@ -11,7 +11,7 @@ from PIL import Image as PILImage
 from nmg_game_dev.texture.errors import TextureGenError
 from nmg_game_dev.texture.maps import PRESETS, derive, resolve_material
 from nmg_game_dev.texture.seamless import is_seamless, make_seamless
-from tests.texture_fakes import save_png, synthetic_image
+from tests.texture_fakes import low_contrast_crop, periodic_crop, save_png, synthetic_image
 
 
 def _seamless_albedo(tmp_path: Path, size: int = 128) -> Path:
@@ -62,3 +62,35 @@ def test_bad_material_is_refused(bad: str | tuple[float, float]) -> None:
     with pytest.raises(TextureGenError) as caught:
         resolve_material(bad)
     assert caught.value.code == "texture.invalid_request"
+
+
+# --- #238: every derived map passes the bake seam rule ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "albedo",
+    [make_seamless(synthetic_image(128)), make_seamless(low_contrast_crop())],
+    ids=["seamless-synthetic", "seamless-low-contrast"],
+)
+def test_every_derived_map_passes_the_seam_rule(tmp_path: Path, albedo: np.ndarray) -> None:
+    assert is_seamless(albedo)
+    path = save_png(albedo, tmp_path / "albedo" / "tex_1.png")
+    maps = derive(path, *PRESETS["stone"], ao=True)
+    for written in (maps.normal, maps.roughness, maps.metallic, maps.ao):
+        assert written is not None
+        with PILImage.open(written) as image:
+            assert is_seamless(np.asarray(image)), written.name
+
+
+def test_a_band_repaired_normal_map_is_still_a_unit_vector_encoding(tmp_path: Path) -> None:
+    # A smooth non-tiling albedo gives an N whose wrap fails until the band repair runs.
+    smooth = np.rint(periodic_crop(128, seed=5, cutoff=0.08) * 255.0).astype(np.uint8)
+    path = save_png(smooth, tmp_path / "albedo" / "tex_1.png")
+    maps = derive(path, 0.5, 0.0)
+    encoded = np.asarray(PILImage.open(maps.normal)).astype(np.float64)
+    assert is_seamless(encoded.astype(np.uint8))
+    np.testing.assert_array_equal(encoded[0], encoded[-1])
+    np.testing.assert_array_equal(encoded[:, 0], encoded[:, -1])
+    vectors = encoded / 255.0 * 2.0 - 1.0
+    np.testing.assert_allclose(np.linalg.norm(vectors, axis=-1), 1.0, atol=0.02)
+    assert (vectors[..., 2] > 0).all()

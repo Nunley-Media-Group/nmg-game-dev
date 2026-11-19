@@ -25,7 +25,7 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 | `reduce_asset` | `collection`, `asset_class`, optional `blend`, `budgets_path`, `device`, `cage_extrusion`, `max_ray_distance`, `miss_threshold`, `parts`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds`. See [reduce_asset](#reduce_asset-139). |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?}` |
 | `list_material_variants` | `category`, `collection`, optional `export_root` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants |
-| `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop` | The audio import result. See [elevenlabs.md](elevenlabs.md) |
+| `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop`, `max_seconds`, `loudness_lufs`, `loop_crossfade_ms`, `finish` | The audio import result. See [elevenlabs.md](elevenlabs.md) |
 
 `material_variants_path` names the asset's `<Name>.material-variants.json` declaration. Without it, a
 `--blend` run uses the file beside the blend when one exists. A session run has no blend, so it declares
@@ -434,10 +434,17 @@ the result at once, with no job to poll. The CLI, `python -m nmg_game_dev.audio 
 same function. The flow, the formats, the result fields, and the error codes are in
 [elevenlabs.md](elevenlabs.md).
 
+Before import the game copy is finished (trim, cut, loop crossfade, and loudness match), unless
+`finish` is `false`. The optional parameters are `max_seconds` (above 0), `loudness_lufs` (from -40
+to -5, default -16 for `sfx` and -18 for `music`), `loop_crossfade_ms` (zero or more, default 500),
+and `finish` (default `true`). A parameter you leave out, `loop` included, comes from the sound's entry in
+`SourceArt/Audio/audio.json`. The result carries `finish` and `settings`.
+
 Its errors come back as `{"error": {"code", "message", "remediation", "stage"}}`, with the `audio`
 stage and the codes `audio.invalid_request`, `audio.unsupported_format`, `audio.asset_exists`,
-`audio.decode_failed`, `audio.ffmpeg_not_found`, and `audio.import_failed`. A missing Godot binary is
-not an error: the result carries `imported_to_godot: false` and a `warning` with `godot.not_found`.
+`audio.decode_failed`, `audio.ffmpeg_not_found`, `audio.import_failed`, and `audio.settings_invalid`.
+A missing Godot binary is not an error: the result carries
+`imported_to_godot: false` and a `warning` with `godot.not_found`.
 
 ## Versions
 

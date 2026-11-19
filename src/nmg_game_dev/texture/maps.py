@@ -3,6 +3,11 @@
 Writes ``<stem>_N.png`` (OpenGL normal from luminance height), ``<stem>_R.png`` and ``<stem>_M.png``
 (constant roughness and metallic from a preset or explicit values), and optionally
 ``<stem>_AO.png``. Every map is wrap-around, so each one tiles like the albedo it came from.
+
+Each map is also checked against the bake seam rule (``seamless.is_seamless``) before it is written
+(#238). N and AO are high-pass functions of luminance, so a wrap residual the albedo passes with
+can still fail on them. A failing N is edge-banded on its float normal vectors, renormalized to
+unit length and re-encoded; a failing AO gets ``repair_seam``. R and M are constant.
 """
 
 from __future__ import annotations
@@ -15,6 +20,13 @@ from numpy.typing import NDArray
 from PIL import Image as PILImage
 
 from nmg_game_dev.texture.errors import TextureGenError
+from nmg_game_dev.texture.seamless import (
+    Image,
+    edge_band,
+    failing_axes,
+    is_seamless,
+    repair_seam,
+)
 
 # (roughness, metallic) per material preset.
 PRESETS: dict[str, tuple[float, float]] = {
@@ -78,6 +90,25 @@ def _wrap_box_blur(field: NDArray[np.float64], radius: int) -> NDArray[np.float6
     return blurred
 
 
+def _encode_normal(normal: NDArray[np.float64]) -> NDArray[np.uint8]:
+    return np.clip(np.rint((normal + 1.0) / 2.0 * 255.0), 0, 255).astype(np.uint8)
+
+
+def _seam_safe_normal(normal: NDArray[np.float64]) -> NDArray[np.uint8]:
+    """Encode ``normal``; while the encoding fails the seam rule (at most two passes), edge-band
+    the float vectors along each failing axis and renormalize them to unit length."""
+    encoded = _encode_normal(normal)
+    for _ in range(2):
+        axes = failing_axes(encoded)
+        if not axes:
+            break
+        for axis in axes:
+            normal = edge_band(normal, axis)
+        normal = normal / np.linalg.norm(normal, axis=-1, keepdims=True)
+        encoded = _encode_normal(normal)
+    return encoded
+
+
 def _write_gray(path: Path, value: float, height: int, width: int) -> None:
     level = int(round(min(max(value, 0.0), 1.0) * 255))
     PILImage.fromarray(np.full((height, width), level, dtype=np.uint8)).save(path)
@@ -100,7 +131,7 @@ def derive(
     nx, ny, nz = -dx * strength, -dy * strength, np.ones_like(height_field)
     length = np.sqrt(nx * nx + ny * ny + nz * nz)
     normal = np.stack([nx / length, ny / length, nz / length], axis=-1)
-    normal_rgb = np.clip(np.rint((normal + 1.0) / 2.0 * 255.0), 0, 255).astype(np.uint8)
+    normal_rgb = _seam_safe_normal(normal)
 
     stem = albedo_path.with_suffix("")
     normal_path = Path(f"{stem}_N.png")
@@ -115,6 +146,9 @@ def derive(
         blurred = _wrap_box_blur(height_field, AO_BLUR_RADIUS)
         occlusion = 1.0 - np.clip(AO_STRENGTH * (blurred - height_field), 0.0, 1.0)
         ao_path = Path(f"{stem}_AO.png")
-        PILImage.fromarray(np.rint(occlusion * 255.0).astype(np.uint8)).save(ao_path)
+        ao_u8: Image = np.rint(occlusion * 255.0).astype(np.uint8)
+        if not is_seamless(ao_u8):
+            ao_u8 = repair_seam(ao_u8)
+        PILImage.fromarray(ao_u8).save(ao_path)
 
     return MapSet(normal=normal_path, roughness=roughness_path, metallic=metallic_path, ao=ao_path)

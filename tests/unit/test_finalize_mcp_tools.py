@@ -7,9 +7,11 @@ started.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -18,10 +20,17 @@ from nmg_game_dev.finalize import (
     FinalizeService,
     finalize_asset,
     get_finalize_job,
+    import_audio,
     run_finalize_step,
 )
 from nmg_game_dev.pipeline import FinalizeRequest
 from tests.finalize_fakes import BatchRouter, batch_launcher, dead_pid
+from tests.unit.audio.conftest import fake_godot, sine, write_wav
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TOOLS_JSON = REPO_ROOT / "mcp-servers" / "finalize" / "tools.json"
+VALIDATOR = REPO_ROOT / "scripts" / "validate-mcp-tools.py"
+AUDIO_RATE = 22050
 
 
 def _entries(tmp_path: Path, *names: str) -> list[dict[str, Any]]:
@@ -320,3 +329,95 @@ def test_a_job_whose_process_vanished_is_reported_as_crashed(tmp_path: Path) -> 
 
     assert response["status"] == "failed"
     assert response["error"]["code"] == "finalize.job_crashed"
+
+
+# --- import_audio finishing settings (#252 FR2, T004) -------------------------------
+
+
+def _audio_project(tmp_path: Path) -> Path:
+    root = tmp_path / "project"
+    (root / "game").mkdir(parents=True)
+    (root / "game" / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return root
+
+
+def _audio_source(tmp_path: Path) -> Path:
+    return write_wav(
+        tmp_path / "saved" / "Whoosh.wav", sine(2.0, AUDIO_RATE, 440.0, 0.5), AUDIO_RATE
+    )
+
+
+def test_the_import_audio_tool_passes_the_finishing_settings_through(tmp_path: Path) -> None:
+    response = import_audio(
+        file=str(_audio_source(tmp_path)),
+        name="Whoosh",
+        kind="sfx",
+        max_seconds=0.5,
+        loudness_lufs=-14.0,
+        loop_crossfade_ms=100,
+        project_root=str(_audio_project(tmp_path)),
+        godot=fake_godot(),
+    )
+
+    assert "error" not in response
+    assert response["settings"] == {
+        "finish": True,
+        "max_seconds": 0.5,
+        "loudness_lufs": -14.0,
+        "loop_crossfade_ms": 100,
+    }
+    assert response["finish"]["cut"] is True
+    assert response["finish"]["loudness_lufs"] == pytest.approx(-14.0, abs=0.1)
+
+
+def test_the_import_audio_tool_reports_finish_false_as_not_applied(tmp_path: Path) -> None:
+    response = import_audio(
+        file=str(_audio_source(tmp_path)),
+        name="Whoosh",
+        kind="sfx",
+        finish=False,
+        project_root=str(_audio_project(tmp_path)),
+        godot=fake_godot(),
+    )
+
+    assert response["finish"] == {"applied": False}
+    assert response["settings"]["finish"] is False
+
+
+def test_the_import_audio_tool_returns_an_out_of_range_setting_as_an_error(tmp_path: Path) -> None:
+    response = import_audio(
+        file=str(_audio_source(tmp_path)),
+        name="Whoosh",
+        kind="sfx",
+        loudness_lufs=0.0,
+        project_root=str(_audio_project(tmp_path)),
+        godot=fake_godot(),
+    )
+
+    assert set(response) == {"error"}
+    assert response["error"]["code"] == "audio.invalid_request"
+    assert response["error"]["stage"] == "audio"
+
+
+def test_tools_json_declares_the_optional_settings_with_their_bounds() -> None:
+    tools = json.loads(TOOLS_JSON.read_text(encoding="utf-8"))["tools"]
+    schema = next(tool for tool in tools if tool["name"] == "import_audio")["inputSchema"]
+
+    props = schema["properties"]
+    assert props["max_seconds"]["exclusiveMinimum"] == 0
+    assert props["loudness_lufs"]["minimum"] == -40
+    assert props["loudness_lufs"]["maximum"] == -5
+    assert props["loop_crossfade_ms"]["minimum"] == 0
+    assert "finish" in props
+    assert props["loop"]["type"] == ["boolean", "null"]
+    assert "default" not in props["loop"]
+    assert schema["required"] == ["file", "name", "kind"]
+
+
+def test_the_registered_server_schema_matches_tools_json() -> None:
+    spec = importlib.util.spec_from_file_location("validate_mcp_tools", VALIDATOR)
+    assert spec is not None and spec.loader is not None
+    validator: ModuleType = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+
+    assert validator.check_server(REPO_ROOT / "mcp-servers" / "finalize") == []

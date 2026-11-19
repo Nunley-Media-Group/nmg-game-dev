@@ -84,3 +84,10 @@ def test_ac6_bake_metric_and_is_seamless_agree_on_every_corpus_image() -> None:
 
 def test_ac7_not_seamless_remediation_names_the_seamless_subcommand() -> None:
     assert "python -m nmg_game_dev.texture seamless" in bake_errors.REASONS["not_seamless"]
+
+
+def test_not_seamless_remediation_says_to_reload_or_repack_packed_images() -> None:
+    # #238 FR6: images packed into a .blend keep their old pixels until reloaded or repacked.
+    remediation = bake_errors.REASONS["not_seamless"]
+    assert "packed into the .blend file" in remediation
+    assert "reload or repack them before you rerun the bake" in remediation
