@@ -1,0 +1,57 @@
+**Issue**: #285
+**Date**: 2026-11-19
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/242-add-a-generate-audio-skill-that-enforces-one-take-instrumental-brief-faithful-elevenlabs-generation/
+
+# File: tests/bdd/features/generate_audio_node_types.feature
+# Generated from: specs/285-guard-every-elevenlabs-audio-node-type-with-the-one-take-rule/requirements.md
+Feature: Guard every ElevenLabs audio node type with the one-take rule
+
+  @SCN001
+  Scenario Outline: A multi-take call for any audio node type is denied
+    Given an empty hook state directory
+    When the audio guard hook receives a creative_generate_in_flow event with node_type "<node_type>" and no generations_count for session "s-1"
+    Then it exits 0
+    And its permissionDecision is "deny"
+    And its permissionDecisionReason states generations_count: 1 and names /generate-audio
+
+    Examples:
+      | node_type      |
+      | tts            |
+      | sfx            |
+      | music          |
+      | dubbing-audio  |
+      | voice-changer  |
+      | voice-isolator |
+      | audio-effects  |
+      | video-to-music |
+      | composition    |
+
+  @SCN002
+  Scenario: The guarded set matches the MCP's audio-output node types
+    Given the recorded ElevenLabs node-type list in tests/fixtures/elevenlabs/flow_node_types.json
+    When the audio node types are derived as every audio-output type plus composition
+    Then they equal the guard hook's AUDIO_NODE_TYPES
+    And docs/mcp/elevenlabs.md lists exactly those node types
+
+  @SCN003
+  Scenario Outline: Non-audio node types are left alone
+    Given an empty hook state directory
+    When the audio guard hook receives a creative_generate_in_flow event with node_type "<node_type>" and generations_count 4 for session "s-1"
+    Then it exits 0 with empty stdout
+    And no reminder marker is written
+
+    Examples:
+      | node_type        |
+      | image-generation |
+      | video-generation |
+      | dubbing-video    |
+      | voice-creation   |
+
+  @SCN004
+  Scenario: The skill and the doc name every guarded audio node type
+    Given the bodies of skills/generate-audio/SKILL.md and docs/mcp/elevenlabs.md
+    When they are read
+    Then each names every node type in the guard hook's AUDIO_NODE_TYPES
+    And each states generations_count: 1
