@@ -910,23 +910,50 @@ def test_a_key_also_stops_a_dry_run_before_any_godot_call(
     assert _LEAKED_KEY not in _output(capsys)
 
 
-def test_a_git_consumer_scans_tracked_files_only(sandbox: ShipSandbox) -> None:
-    """AC4: in a git work tree only tracked files are scanned, so an untracked key passes."""
+def test_a_git_consumer_scans_an_untracked_file_under_the_project(sandbox: ShipSandbox) -> None:
+    """AC1 (#296): an untracked, unignored file under game/ is exported, so its key stops the ship
+    before any Godot call, also in a dry run and before a file is added."""
     consumer = sandbox.game.parent
     subprocess.run(["git", "-C", str(consumer), "init", "-q"], check=True, capture_output=True)
-    _plant_key(sandbox)
+    leak = sandbox.game / "scripts" / "leak.gd"
+    leak.write_text(f'var key = "{_LEAKED_KEY}"\n', encoding="utf-8")
 
-    assert sandbox.ship("windows", dry_run=True) == []
-
-    subprocess.run(
-        ["git", "-C", str(consumer), "add", "game/scripts/player.gd"],
-        check=True,
-        capture_output=True,
-    )
     with pytest.raises(ShipError) as caught:
         sandbox.ship("windows", dry_run=True)
+
     assert caught.value.code == "ship.secret_found"
+    digest = hashlib.sha256(_LEAKED_KEY.encode()).hexdigest()
+    assert f"game/scripts/leak.gd:1: meshy msy_… (sha256:{digest})" in caught.value.message
+    assert _LEAKED_KEY not in caught.value.message
     assert sandbox.godot.calls == []
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("macos")
+    assert caught.value.code == "ship.secret_found"
+    assert not sandbox.invoked("codesign")
+
+
+@pytest.mark.parametrize(
+    ("rel", "ignored"),
+    [
+        pytest.param("game/scripts/local.gd", True, id="ignored-under-game"),
+        pytest.param("notes/keys.gd", False, id="outside-game"),
+        pytest.param("game/.godot/editor/keys.gd", False, id="godot-cache"),
+    ],
+)
+def test_untracked_keys_that_are_not_exported_do_not_block_the_ship(
+    sandbox: ShipSandbox, rel: str, ignored: bool
+) -> None:
+    """AC2 (#296): an untracked key that .gitignore covers, that sits outside game/, or that sits
+    in game/.godot/ is never exported, so the ship passes."""
+    consumer = sandbox.game.parent
+    subprocess.run(["git", "-C", str(consumer), "init", "-q"], check=True, capture_output=True)
+    if ignored:
+        (consumer / ".gitignore").write_text(f"{rel}\n", encoding="utf-8")
+    path = consumer / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f'var key = "{_LEAKED_KEY}"\n', encoding="utf-8")
+
+    assert sandbox.ship("windows", dry_run=True) == []
 
 
 def test_a_git_failure_in_the_scan_is_a_structured_ship_error(
@@ -934,16 +961,17 @@ def test_a_git_failure_in_the_scan_is_a_structured_ship_error(
 ) -> None:
     """Review F5: a failing ``git ls-files`` stops the ship with a code, not a traceback."""
 
-    def failing_scan(consumer: Path) -> list[object]:
+    def failing_scan(consumer: Path, project: str) -> list[object]:
         raise GitError(f"git ls-files failed in {consumer}: index file corrupt")
 
-    monkeypatch.setattr(ship_runner, "scan_tracked", failing_scan)
+    monkeypatch.setattr(ship_runner, "scan_shippable", failing_scan)
 
     with pytest.raises(ShipError) as caught:
         sandbox.ship("windows", dry_run=True)
 
     assert caught.value.code == "ship.secret_scan_failed"
     assert "index file corrupt" in caught.value.message
+    assert "could not list the files to scan" in caught.value.message
     assert "git -C" in caught.value.remediation
     assert sandbox.godot.calls == []
 
@@ -957,6 +985,44 @@ def test_a_non_git_consumer_with_keys_in_dotenv_ships(sandbox: ShipSandbox) -> N
     local.write_text(f'{{"env": {{"MESHY_API_KEY": "{_LEAKED_KEY}"}}}}\n', encoding="utf-8")
 
     assert sandbox.ship("windows", dry_run=True) == []
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ".env",
+        ".env.local",
+        ".claude/settings.local.json",
+        ".venv/lib/config.py",
+        "node_modules/pkg/index.js",
+    ],
+)
+def test_outside_git_local_stores_and_dependency_folders_pass_the_ship(
+    sandbox: ShipSandbox, rel: str
+) -> None:
+    """AC3 (#296): outside a git work tree the local secret stores and the .venv/ and
+    node_modules/ folders are skipped, so a key in them does not stop the ship."""
+    path = sandbox.game.parent / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"MESHY_API_KEY={_LEAKED_KEY}\n", encoding="utf-8")
+
+    assert sandbox.ship("windows", dry_run=True) == []
+
+
+def test_outside_git_a_key_in_another_file_under_the_root_stops_the_ship(
+    sandbox: ShipSandbox,
+) -> None:
+    """AC3 (#296): any other regular file under the consumer root is walked and stops the ship."""
+    notes = sandbox.game.parent / "notes" / "keys.txt"
+    notes.parent.mkdir()
+    notes.write_text(f"key {_LEAKED_KEY}\n", encoding="utf-8")
+
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("windows", dry_run=True)
+
+    assert caught.value.code == "ship.secret_found"
+    assert "notes/keys.txt:1: meshy msy_… (sha256:" in caught.value.message
+    assert sandbox.godot.calls == []
 
 
 def test_the_allow_file_suppresses_a_reviewed_false_positive(sandbox: ShipSandbox) -> None:

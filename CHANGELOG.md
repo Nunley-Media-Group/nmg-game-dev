@@ -10,6 +10,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Finalize records: each finished run writes `<consumer>/.nmg/finalize/<Category>/<Name>.json` (the state, times, steps with cache hits, source `.blend`, imported `res://` paths, content hash, logs, and error) and copies its logs to `<Name>.logs/`, which the next run replaces. `python -m nmg_game_dev.finalize check --category C --collection N [--json]` and the `check_finalized` MCP tool answer whether an asset is up to date from its record alone, with no Blender, Godot, or cache lock. `--skip-up-to-date` and `skip_up_to_date` skip the up-to-date items of a batch, and `/onboard-consumer` git-ignores `.nmg/`. (#247)
 
+## [0.37.0] - 2026-11-19
+
+### Fixed
+
+- `/ship`'s secret gate scans the untracked, unignored files under `game/` that Godot exports, not only the tracked files, so a key in a new file stops the ship with `ship.secret_found` before any Godot command runs. Files that `.gitignore` covers, files outside `game/`, and `game/.godot/` are still skipped, and outside a git work tree the scan keeps its walk and its exclusions. (#296)
+
 ## [0.36.0] - 2026-11-19
 
 ### Added

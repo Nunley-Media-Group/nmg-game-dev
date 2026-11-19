@@ -2,8 +2,9 @@
 
 ``run_ship`` follows the design order:
 
-1. Expand the target, check the project, check the environment, scan the consumer's tracked files
-   for API keys (``ship.secret_found``, #255, also in a dry run), resolve the build version from
+1. Expand the target, check the project, check the environment, scan the files the export can
+   include (tracked, plus untracked unignored files under the project, #296) for API keys
+   (``ship.secret_found``, #255, also in a dry run), resolve the build version from
    ``--bump`` or ``--version`` (``ship.version_*``), require the version's ``CHANGELOG.md`` section
    (``ship.changelog_missing``, #254), and resolve the macOS signing identity.
 2. ``--import`` the project, so a fresh checkout without ``.godot/`` has its global class cache
@@ -59,7 +60,7 @@ from nmg_game_dev.quality.mobile_budgets import (
     MobileBudgetAudit,
     check_mobile_budgets,
 )
-from nmg_game_dev.secrets.scan import GitError, scan_tracked
+from nmg_game_dev.secrets.scan import GitError, scan_shippable
 from nmg_game_dev.ship.artifacts import (
     ReleaseEntry,
     artifact_sha256,
@@ -140,7 +141,7 @@ def run_ship(
     project_dir = _check_project(project).absolute()
     release_dir = release_dir.absolute()
     preflight_env(platforms, env)
-    _scan_secrets(project_dir.parent)
+    _scan_secrets(project_dir)
     plan = resolve_version(project_dir / PROJECT_FILE, bump, version)
     changelog = project_dir.parent / CHANGELOG_NAME
     changes = changelog_section(changelog, plan.new)
@@ -241,19 +242,22 @@ def _godot(
     return SubprocessGodotRunner(binary), str(binary)
 
 
-def _scan_secrets(consumer: Path) -> None:
-    """Block the build when a tracked file holds an API key (#255 FR3, AC4).
+def _scan_secrets(project_dir: Path) -> None:
+    """Block the build when a file the export could include holds an API key (#255 FR3, AC4; #296).
 
-    Runs before any Godot command and in a dry run too. Matches are masked in the error. A consumer
-    that is not a git work tree is scanned by a walk of its regular files, skipping local-only
-    secret stores such as ``.env``. A git failure inside a work tree is ``ship.secret_scan_failed``.
+    Runs before any Godot command and in a dry run too. Matches are masked in the error. The scanned
+    files are the tracked files plus the untracked, unignored files under the Godot project folder.
+    A consumer that is not a git work tree is scanned by a walk of its regular files, skipping
+    local-only secret stores such as ``.env``. A git failure inside a work tree is
+    ``ship.secret_scan_failed``.
     """
+    consumer = project_dir.parent
     try:
-        matches = scan_tracked(consumer)
+        matches = scan_shippable(consumer, project_dir.name)
     except GitError as error:
         raise ShipError(
             code="ship.secret_scan_failed",
-            message=f"The secret scan could not list the tracked files: {error}",
+            message=f"The secret scan could not list the files to scan: {error}",
             remediation=(
                 f"Run `git -C {consumer} ls-files` to see the git error, fix the repository, "
                 "then rerun the ship."
