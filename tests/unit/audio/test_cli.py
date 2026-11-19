@@ -210,6 +210,29 @@ def test_no_finish_imports_the_stored_wav_unchanged(
     assert (project / "game/assets/Audio/DoorCreak.wav").read_bytes() == stored.read_bytes()
 
 
+def test_finish_turns_finishing_back_on_for_a_sound_stored_without_it(
+    project: Path,
+    source_file: Callable[[str], Path],
+    wired: Wired,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    src = str(source_file("tone.wav"))
+    base = ["import", "--file", src, "--name", "DoorCreak", "--kind", "sfx"]
+    assert main([*base, "--no-finish"]) == 0
+    capsys.readouterr()
+    assert main(base) == 0
+    assert json.loads(capsys.readouterr().out)["settings"]["finish"] is False
+
+    code = main([*base, "--finish"])
+
+    assert code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["finish"]["applied"] is True
+    assert printed["settings"]["finish"] is True
+    assert main(["refinish", "DoorCreak"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["finish"]["applied"] is True
+
+
 def test_refinish_all_prints_the_list_and_exits_zero(
     project: Path,
     source_file: Callable[[str], Path],

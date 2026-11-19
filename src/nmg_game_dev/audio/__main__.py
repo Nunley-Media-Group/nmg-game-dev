@@ -1,10 +1,11 @@
 """CLI: ``python -m nmg_game_dev.audio`` with ``import`` and ``refinish`` subcommands (#155, #252).
 
 ``import --file F --name N --kind sfx|music [--loop] [--max-seconds S] [--loudness-lufs L]
-[--loop-crossfade-ms MS] [--no-finish]`` calls ``import_audio``. ``refinish (--all | Name ...)``
-calls ``refinish``. Both are the same functions the finalize ``import_audio`` tool and the tests
-call, and they print the same JSON. A ``PipelineError`` prints ``ERROR [<code>] <message>`` and
-``Remediation: <text>`` to stderr and exits 1. Argument errors exit 2.
+[--loop-crossfade-ms MS] [--finish | --no-finish]`` calls ``import_audio``.
+``refinish (--all | Name ...)`` calls ``refinish``. Both are the same functions the finalize
+``import_audio`` tool and the tests call, and they print the same JSON. A ``PipelineError``
+prints ``ERROR [<code>] <message>`` and ``Remediation: <text>`` to stderr and exits 1. Argument
+errors exit 2.
 """
 
 from __future__ import annotations
@@ -55,9 +56,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Length of the loop seam crossfade in milliseconds (default 500).",
     )
     imp.add_argument(
-        "--no-finish",
-        action="store_true",
-        help="Import the stored WAV unchanged: no trim, cut, loop crossfade, or loudness match.",
+        "--finish",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="--no-finish imports the stored WAV unchanged: no trim, cut, loop crossfade, or "
+        "loudness match. --finish turns finishing back on. Default: the stored setting, else on.",
     )
     imp.add_argument("--project", type=Path, default=None, help="Project root (default: CWD).")
 
@@ -85,7 +88,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_seconds=args.max_seconds,
                 loudness_lufs=args.loudness_lufs,
                 loop_crossfade_ms=args.loop_crossfade_ms,
-                finish=False if args.no_finish else None,
+                finish=args.finish,
                 project_root=args.project,
             )
         else:

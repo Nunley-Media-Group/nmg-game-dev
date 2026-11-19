@@ -213,8 +213,16 @@ def test_music_without_ffmpeg_fails_before_writing_anything(
 
 
 def test_a_sound_effect_needs_no_ffmpeg(
-    project: Path, source_file: Callable[[str], Path], godot: FakeGodotRunner
+    project: Path,
+    source_file: Callable[[str], Path],
+    godot: FakeGodotRunner,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "nmg_game_dev.audio.core.resolve_ffmpeg",
+        functools.partial(resolve_ffmpeg, {}, lambda _name: None),
+    )
+
     result = import_audio(source_file("tone.wav"), "DoorCreak", "sfx", godot=godot)
 
     assert result["imported_to_godot"] is True
@@ -509,6 +517,34 @@ def test_a_different_source_under_the_same_name_still_fails_asset_exists(
 
     assert caught.value.code == "audio.asset_exists"
     assert (project / SFX_STORED).read_bytes() == stored
+
+
+@pytest.mark.parametrize(("first", "second"), [("sfx", "music"), ("music", "sfx")])
+def test_a_name_stored_as_the_other_kind_fails_asset_exists_before_any_write(
+    project: Path,
+    tmp_path: Path,
+    godot: FakeGodotRunner,
+    ffmpeg: FakeFfmpeg,
+    first: str,
+    second: str,
+) -> None:
+    src = _saved_wav(tmp_path, "Door.wav", sine(1.0, RATE, 660.0, 0.3))
+    import_audio(src, "Door", first, max_seconds=0.5, godot=godot, ffmpeg=ffmpeg)
+    settings = (project / "SourceArt/Audio/audio.json").read_bytes()
+    game = _game_files(project)
+    calls = len(godot.calls)
+
+    with pytest.raises(AudioError) as caught:
+        import_audio(src, "Door", second, godot=godot, ffmpeg=ffmpeg)
+
+    assert caught.value.code == "audio.asset_exists"
+    assert (project / "SourceArt/Audio/audio.json").read_bytes() == settings
+    assert _game_files(project) == game
+    assert len(godot.calls) == calls
+    other = "SFX" if second == "sfx" else "Music"
+    assert not (project / f"SourceArt/Audio/{other}/Door.wav").exists()
+    [entry] = refinish(project_root=project, godot=godot, ffmpeg=ffmpeg)
+    assert (entry["kind"], entry["settings"]["max_seconds"]) == (first, 0.5)
 
 
 def test_refinish_all_rebuilds_deleted_game_copies_byte_for_byte(

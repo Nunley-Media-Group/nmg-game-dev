@@ -70,7 +70,7 @@ live under `NMG_GAME_DEV_HOOK_STATE_DIR/generate-audio-reminder` when that varia
 | `max_seconds` | no | Cut the finished sound to this many seconds, with a 20 ms fade-out. Must be above 0. CLI `--max-seconds` |
 | `loudness_lufs` | no | Integrated loudness target, from -40 to -5 LUFS. Default -16 for `sfx`, -18 for `music`. CLI `--loudness-lufs` |
 | `loop_crossfade_ms` | no | Length of the loop seam crossfade, in milliseconds, zero or more. Default 500, capped at a quarter of the sound. CLI `--loop-crossfade-ms` |
-| `finish` | no | `false` imports the stored WAV unchanged, with no trim, cut, crossfade, or loudness match. Default `true`. CLI `--no-finish` |
+| `finish` | no | `false` imports the stored WAV unchanged, with no trim, cut, crossfade, or loudness match. Default `true`. CLI `--no-finish`, and `--finish` to turn it back on for a sound stored with it off |
 
 A setting you leave out comes from the sound's entry in `SourceArt/Audio/audio.json`, and then from
 the default for its kind. A setting you pass is stored for that sound, so the next import of the same
@@ -134,7 +134,9 @@ stored WAVs. A file that cannot be read, or that has an invalid entry, fails wit
 
 Importing the same file again under the same name, with the same bytes, finishes the game copy again
 with the stored settings, and the result is byte-identical to the first import. Importing a different
-file under that name still fails with `audio.asset_exists`.
+file under that name still fails with `audio.asset_exists`. A name holds one sound, either a sound
+effect or music, so importing it as the other kind also fails with `audio.asset_exists`, before
+anything is written.
 
 To re-finish stored sounds without importing them again, use `refinish`. It reads each WAV from
 `SourceArt/Audio/`, applies the stored settings, and writes the game copy again:
@@ -198,9 +200,9 @@ call still succeeds. It returns `imported_to_godot: false`, the `source_art` pat
 ```
 
 The stored WAV stays under `SourceArt/Audio/`. Import is not retried automatically. Once Godot is
-installed, a second `import_audio` call with the same name stops at `audio.asset_exists`, because the
-WAV is already there. To import it again, either use a new name or delete the stored WAV first and call
-`import_audio` again.
+installed, call `import_audio` again with the same file, name, and kind. The bytes match the stored
+WAV, so the call re-finishes the sound with its stored settings, replaces the game copy, and imports
+it. `refinish` does the same from the stored WAV.
 
 ## Error codes
 
@@ -208,7 +210,7 @@ WAV is already there. To import it again, either use a new name or delete the st
 |------|---------|-------------|
 | `audio.invalid_request` | The name is not PascalCase or starts with `SFX_` or `MUS_`, the kind is not `sfx` or `music`, the file does not exist, or a setting is out of range (`max_seconds` not above 0, `loudness_lufs` outside -40 to -5, `loop_crossfade_ms` below 0) | Pass a PascalCase name, a kind of `sfx` or `music`, a file that exists, and settings in range |
 | `audio.unsupported_format` | The extension is not `.wav`, `.mp3`, `.ogg`, or `.flac` | Save the sound in one of the four formats |
-| `audio.asset_exists` | `SourceArt/Audio/<SFX\|Music>/<Name>.wav` or the target under `game/assets/Audio/` already holds a different file. Nothing is overwritten. An identical file re-finishes instead | Choose another name, or delete the stored WAV and the Godot file if you mean to replace them |
+| `audio.asset_exists` | `SourceArt/Audio/<SFX\|Music>/<Name>.wav` holds a different file, the name is already stored as the other kind, or the target under `game/assets/Audio/` exists with no stored WAV for it. Nothing is overwritten. An identical file re-finishes instead | Choose another name, or delete the stored WAV and the Godot file if you mean to replace them |
 | `audio.settings_invalid` | `SourceArt/Audio/audio.json` cannot be read, or an entry in it is invalid. Nothing is written | Fix or delete the entry in `audio.json`, then try again |
 | `audio.unknown_sound` | `refinish` was asked for a name with no entry in `audio.json`, or the entry's stored WAV is missing | Pass a name that `audio.json` lists, or run `refinish --all`. Import the sound again if its stored WAV is gone |
 | `audio.decode_failed` | The file could not be decoded. No partial WAV is left behind | Re-export the file, check that it is not truncated, then import again |
@@ -226,5 +228,6 @@ Argument errors exit 2.
   keys or call the ElevenLabs API. It finishes only the game copy (trim, cut, loop crossfade, and
   loudness), and the stored WAV under `SourceArt/Audio/` stays as you saved it.
 - Each import makes one audio stream resource. Audio buses, players, and effects are not created.
-- Overwriting an imported sound in place is not supported.
+- Importing a different file over an imported sound is not supported. Re-importing the same file,
+  or running `refinish`, replaces the game copy in place.
 - The `miniaudio` decoder is a floor dependency (`miniaudio>=1.59`) and tracks its latest release.

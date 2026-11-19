@@ -62,9 +62,9 @@ def import_audio(
     ``finish``) override the sound's stored settings; a value not passed comes from
     ``audio.json`` or the kind's default. ``godot`` defaults to the binary ``resolve_godot``
     finds and ``ffmpeg`` to the one ``resolve_ffmpeg`` finds. Raises ``AudioError`` before any
-    write when the request or a setting is invalid, a different file already holds the name,
-    ``game/project.godot`` is missing, or music has no ffmpeg. A byte-identical file re-finishes
-    the sound with the same settings.
+    write when the request or a setting is invalid, a different file (or a sound of the other
+    kind) already holds the name, ``game/project.godot`` is missing, or music has no ffmpeg. A
+    byte-identical file re-finishes the sound with the same settings.
     """
     request = AudioRequest(file=Path(file), name=name, kind=kind, loop=bool(loop))
     request.validate()
@@ -78,6 +78,15 @@ def import_audio(
         loudness_lufs=loudness_lufs,
         loop_crossfade_ms=loop_crossfade_ms,
     )
+    other_kind = "music" if request.kind == "sfx" else "sfx"
+    other = paths.source_art(root, other_kind, request.name)
+    if other.exists():
+        raise AudioError(
+            code="audio.asset_exists",
+            message=f"{request.name} is already stored as {other_kind} at {other}",
+            remediation="Choose another name. A name holds one sound, either a sound effect or "
+            "music, so its settings in audio.json and refinish stay unambiguous.",
+        )
     target = paths.source_art(root, request.kind, request.name)
     with tempfile.TemporaryDirectory(prefix="nmg-audio-") as scratch_name:
         scratch = Path(scratch_name)
