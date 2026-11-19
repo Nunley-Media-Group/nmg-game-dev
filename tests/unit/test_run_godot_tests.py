@@ -80,13 +80,22 @@ if rest[:2] == ["-s", "res://addons/nmg_game_dev/tests/run_tests.gd"]:
                 "test_nmg_audio.gd::test_music_change_fades_over_crossfade_seconds",
                 "test_nmg_audio.gd::test_volumes_persist_to_a_new_component",
                 "test_nmg_audio.gd::test_new_volumes_reach_the_sfx_ui_and_positional_sounds_playing_now",
-                "test_nmg_audio.gd::test_region_music_plays_the_theme_of_the_current_scene"]
+                "test_nmg_audio.gd::test_region_music_plays_the_theme_of_the_current_scene",
+                "test_nmg_build.gd::test_version_reads_the_project_setting",
+                "test_nmg_build.gd::test_version_is_empty_without_a_setting",
+                "test_nmg_build.gd::test_version_matches_the_running_project",
+                "test_nmg_build.gd::test_version_label_shows_the_prefixed_version",
+                "test_nmg_build.gd::test_version_label_is_empty_without_a_version",
+                "test_nmg_build.gd::test_version_label_defaults_its_prefix_to_v"]
     if mode == "tests_missing_routing":
         required = required[:2]
     if mode == "tests_missing_launch":
         required = required[:3]
     if mode == "tests_missing_autoplay_scene":
         required = [name for name in required if not name.endswith("connects_in_ready")]
+    if mode == "tests_missing_build":
+        dropped = "test_nmg_build.gd::test_version_label_shows_the_prefixed_version"
+        required = [name for name in required if name != dropped]
     for name in required:
         print(f"PASS {name}")
     print(f"{len(required)} passed, 0 failed")
@@ -408,6 +417,7 @@ def test_import_failure_exits_4(gate: Gate, mode: str) -> None:
         "tests_missing_routing",
         "tests_missing_launch",
         "tests_missing_autoplay_scene",
+        "tests_missing_build",
     ],
 )
 def test_addon_test_failure_exits_5(gate: Gate, mode: str) -> None:
@@ -415,6 +425,42 @@ def test_addon_test_failure_exits_5(gate: Gate, mode: str) -> None:
     assert result.returncode == 5
     assert "add-on tests failed" in result.stderr
     assert len(gate.godot_calls()) == 2
+
+
+def test_a_missing_build_test_exits_5_and_names_it(gate: Gate) -> None:
+    result = gate.run(FAKE_GODOT_MODE="tests_missing_build", **gate.with_path_godot())
+    assert result.returncode == 5
+    assert (
+        "add-on tests failed: no PASS line for "
+        "test_nmg_build.gd::test_version_label_shows_the_prefixed_version"
+    ) in result.stderr
+    assert len(gate.godot_calls()) == 2
+
+
+# Required tests ---------------------------------------------------------------------------------
+
+NMG_BUILD_TESTS: Final = ADDON / "tests" / "test_nmg_build.gd"
+
+
+def _required_tests() -> list[str]:
+    """The entries of the required_tests array in scripts/run-godot-tests.sh."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    match = re.search(r"^required_tests=\(\n(.*?)^\)$", text, re.MULTILINE | re.DOTALL)
+    assert match is not None, "required_tests array missing"
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+
+def _build_test_ids() -> list[str]:
+    """The required-test id of every func test_* in test_nmg_build.gd."""
+    text = NMG_BUILD_TESTS.read_text(encoding="utf-8")
+    return [f"test_nmg_build.gd::{name}" for name in re.findall(r"^func (test_\w+)", text, re.M)]
+
+
+def test_required_tests_list_every_build_test() -> None:
+    build_ids = _build_test_ids()
+    assert build_ids, "test_nmg_build.gd has no test_* functions"
+    required = _required_tests()
+    assert [test for test in build_ids if test not in required] == []
 
 
 @pytest.mark.parametrize("mode", ["probe_none", "probe_exit"])

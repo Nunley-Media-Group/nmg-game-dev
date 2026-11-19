@@ -18,8 +18,8 @@
 #   1. godot --headless --import must exit 0 and print no ERROR: line.
 #   2. res://addons/nmg_game_dev/tests/run_tests.gd must exit 0, print "N passed, 0 failed", print
 #      no ERROR: or SCRIPT ERROR: line, and print a PASS line for each test in required_tests (the
-#      variant-routing tests, the NmgLaunch option, autoplay, and save-folder tests, and the
-#      NmgAudio tests).
+#      variant-routing tests, the NmgLaunch option, autoplay, and save-folder tests, the NmgAudio
+#      tests, and the NmgBuild version tests).
 #   3. src/nmg_game_dev/godot/gd/probe_asset.gd on res://Crate.glb must print an NMG_RESULT line
 #      that matches tests/godot/fixture/expected-probe.json (floats within 0.001).
 #   4. Every src/nmg_game_dev/godot/gd/*.gd must pass godot --check-only.
@@ -72,6 +72,12 @@ required_tests=(
   "test_nmg_audio.gd::test_volumes_persist_to_a_new_component"
   "test_nmg_audio.gd::test_new_volumes_reach_the_sfx_ui_and_positional_sounds_playing_now"
   "test_nmg_audio.gd::test_region_music_plays_the_theme_of_the_current_scene"
+  "test_nmg_build.gd::test_version_reads_the_project_setting"
+  "test_nmg_build.gd::test_version_is_empty_without_a_setting"
+  "test_nmg_build.gd::test_version_matches_the_running_project"
+  "test_nmg_build.gd::test_version_label_shows_the_prefixed_version"
+  "test_nmg_build.gd::test_version_label_is_empty_without_a_version"
+  "test_nmg_build.gd::test_version_label_defaults_its_prefix_to_v"
 )
 cache_root="${GODOT_CACHE_DIR:-$repo_root/.cache/godot}"
 latest_url="https://api.github.com/repos/godotengine/godot/releases/latest"
