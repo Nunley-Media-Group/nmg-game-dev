@@ -27,13 +27,32 @@ MISSING_MODULE = re.compile(r"No module named '([^']+)'")
 
 @dataclass(frozen=True)
 class ImageItem:
-    """One image to generate: its position in the batch, prompt, seed, size, and output path."""
+    """One image to generate: its position in the batch, prompt, seed, size, and output path.
+
+    ``width`` and ``height`` are set only for non-square art (#253); when they are None the worker
+    uses ``resolution`` for both sides.
+    """
 
     index: int
     prompt: str
     seed: int
     resolution: int
     path: Path
+    width: int | None = None
+    height: int | None = None
+
+    def as_json(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "index": self.index,
+            "prompt": self.prompt,
+            "seed": self.seed,
+            "resolution": self.resolution,
+            "path": str(self.path),
+        }
+        if self.width is not None and self.height is not None:
+            data["width"] = self.width
+            data["height"] = self.height
+        return data
 
 
 @dataclass(frozen=True)
@@ -51,16 +70,7 @@ class Batch:
             "mflux_entry": self.spec.mflux_entry,
             "weights": str(self.weights),
             "steps": self.spec.default_steps,
-            "items": [
-                {
-                    "index": item.index,
-                    "prompt": item.prompt,
-                    "seed": item.seed,
-                    "resolution": item.resolution,
-                    "path": str(item.path),
-                }
-                for item in self.items
-            ],
+            "items": [item.as_json() for item in self.items],
         }
 
 

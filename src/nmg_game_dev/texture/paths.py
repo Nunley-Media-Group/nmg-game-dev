@@ -51,14 +51,18 @@ def install_command(backend_id: str, root: Path) -> str:
     return shlex.join(install_argv(backend_id, root))
 
 
+def project_root(env: Mapping[str, str], cwd: Path) -> Path:
+    """The game project root: ``CLAUDE_PROJECT_DIR`` when set, else the working directory (#253)."""
+    project = env.get(PROJECT_DIR_ENV, "").strip()
+    return Path(project) if project else cwd
+
+
 def output_root(env: Mapping[str, str], cwd: Path) -> Path:
     """Where generated textures go: ``NMG_GAME_DEV_TEXTURE_DIR``, else the project's SourceArt."""
     override = env.get(OUTPUT_DIR_ENV, "").strip()
     if override:
         return Path(override).expanduser()
-    project = env.get(PROJECT_DIR_ENV, "").strip()
-    base = Path(project) if project else cwd
-    return base / DEFAULT_OUTPUT_SUBDIR
+    return project_root(env, cwd) / DEFAULT_OUTPUT_SUBDIR
 
 
 def slugify(text: str) -> str:
