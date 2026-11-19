@@ -29,8 +29,9 @@ nmg-game-dev/
 │   └── nmg-game-dev-godot-addon/
 │       └── addons/nmg_game_dev/   # GDScript runtime add-on, copied into game/addons/ by /onboard-consumer
 │           ├── plugin.cfg         # Add-on manifest (version = VERSION)
-│           ├── plugin.gd          # EditorPlugin: registers the NmgAssets autoload
+│           ├── plugin.gd          # EditorPlugin: registers the NmgAssets and NmgLaunch autoloads
 │           ├── nmg_assets.gd      # NmgAssets.resolve_variant_path: Desktop/Mobile routing
+│           ├── nmg_launch.gd      # NmgLaunch: launch options (cmdline / web hash), autoplay signal, test saves, --nmg-shot
 │           ├── nmg_variant_scene.gd       # NmgVariantScene: instances a split scene's variant (@tool preview)
 │           ├── nmg_mission_definition.gd  # NmgMissionDefinition resource class
 │           ├── terrain/           # nmg_terrain.gdshader (four-layer splat)
@@ -45,7 +46,7 @@ nmg-game-dev/
 │   └── convert-to-godot/          # Migrates an existing consumer from an older engine project
 ├── hooks/                         # Plugin PreToolUse hooks: model_asset_reminder.py, generate_audio_guard.py (hooks.json)
 ├── mcp-servers/                   # NMG-authored MCP servers
-│   ├── finalize/                  # finalize MCP: finalize_asset, run_finalize_step, get_finalize_job, import_audio
+│   ├── finalize/                  # finalize MCP: finalize_asset, run_finalize_step, get_finalize_job, import_audio, game_screenshot
 │   │   ├── pyproject.toml
 │   │   ├── tools.json
 │   │   └── src/finalize_mcp/
@@ -121,7 +122,7 @@ driven from `src/nmg_game_dev/godot/`.
 | Path | Contents |
 |------|----------|
 | `plugins/nmg-game-dev-godot-addon/` | The GDScript runtime add-on (`addons/nmg_game_dev/`) and its headless tests |
-| `src/nmg_game_dev/godot/` | The engine boundary: `resolve_godot`, the headless runner, probes, and `project.godot` / `export_presets.cfg` writers |
+| `src/nmg_game_dev/godot/` | The engine boundary: `resolve_godot`, the headless runner, probes, `project.godot` / `export_presets.cfg` writers, and `python -m nmg_game_dev.godot` (`smoke`: the headless autoplay run `/ship` gates on; `shot`: an on-demand windowed game screenshot) |
 | `src/nmg_game_dev/convert/` | `python -m nmg_game_dev.convert`, behind `/convert-to-godot` |
 | `tests/godot/` | The fixture Godot project that `gate-godot-headless` imports and `ship-smoke.sh` dry-runs |
 
@@ -204,7 +205,7 @@ Level composition (placing several assets together) happens afterwards, in Godot
 | MCP servers (Blender add-on, texture-gen, finalize, meshy) | Expose tool endpoints; own tool implementation. The finalize server wraps `src/nmg_game_dev/pipeline/` without adding logic. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
 | Ship (`src/nmg_game_dev/ship/`) | Export, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
-| Godot runtime add-on (`addons/nmg_game_dev`) | Ships inside consumer games: variant resolver autoload, `NmgVariantScene` (instances a split scene's variant at run time, previews Desktop in the editor), mission resource class, terrain shader | Authoring, importing, or anything editor-only beyond registering its autoload |
+| Godot runtime add-on (`addons/nmg_game_dev`) | Ships inside consumer games: variant resolver autoload, `NmgLaunch` autoload (launch options, autoplay signal, test save folder, screenshot flag), `NmgVariantScene` (instances a split scene's variant at run time, previews Desktop in the editor), mission resource class, terrain shader | Authoring, importing, or anything editor-only beyond registering its autoload |
 
 ---
 

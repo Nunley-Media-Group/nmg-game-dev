@@ -148,3 +148,39 @@ def test_changelog_has_both_unreleased_entries_ending_with_issue() -> None:
     assert len(bullets) == 2
     assert all(line.rstrip().endswith("(#7)") for line in bullets)
     assert "onboard" in bullets[0].lower() and "texture" in bullets[1].lower()
+
+
+def test_run_and_capture_docs_cover_launch_options_smoke_and_screenshots() -> None:
+    """FR7 (#251): the launch options, smoke gate, and screenshot are documented where they ship."""
+    guide = (ONBOARDING / "run-and-capture.md").read_text(encoding="utf-8")
+    for topic in (
+        "NmgLaunch",
+        "get_option",
+        "has_option",
+        "autoplay_requested",
+        "save_dir()",
+        "user://nmg-test/",
+        "--nmg-autoplay",
+        "--nmg-test-saves",
+        "#hour=12&at=Forest",
+        "smoke passed (600 frames)",
+        "smoke.runtime_error",
+        "smoke.timeout",
+        "--nmg-shot",
+        "game_screenshot",
+        "shot.no_image",
+    ):
+        assert topic in guide, topic
+    index = (ONBOARDING / "index.md").read_text(encoding="utf-8")
+    assert "(run-and-capture.md)" in index
+    ship_skill = (REPO / "skills" / "ship" / "SKILL.md").read_text(encoding="utf-8")
+    ship_doc = (REPO / "docs" / "skills" / "ship.md").read_text(encoding="utf-8")
+    for text in (ship_skill, ship_doc, (ONBOARDING / "first-ship.md").read_text(encoding="utf-8")):
+        assert "ship.smoke_failed" in text
+    assert "--nmg-autoplay" in ship_skill
+    finalize_doc = (REPO / "docs" / "mcp" / "finalize.md").read_text(encoding="utf-8")
+    assert "game_screenshot" in finalize_doc and "shot.invalid_after" in finalize_doc
+    install = (REPO / "skills" / "onboard-consumer" / "references" / "install-steps.md").read_text(
+        encoding="utf-8"
+    )
+    assert 'NmgLaunch="*res://addons/nmg_game_dev/nmg_launch.gd"' in install

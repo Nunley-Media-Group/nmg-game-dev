@@ -656,6 +656,16 @@ def _no_godot(state: dict[str, Any]) -> None:
 _REGION_SCENE = "game/levels/OldTown/OldTown.tscn"
 _MISSION_TRES = "game/missions/FirstLight.tres"
 _SYSTEM_GD = "game/systems/Stealth/stealth.gd"
+_SMOKE_CALL: Final = [
+    "--fixed-fps",
+    "60",
+    "--quit-after",
+    "600",
+    "--",
+    "--nmg-autoplay",
+    "--nmg-test-saves",
+]
+"""The headless autoplay smoke run ship gates on (#251); the ship's Godot argv after the flags."""
 
 
 @given('a backlog with region "OldTown", mission "FirstLight", and system "Stealth"')
@@ -795,7 +805,7 @@ def _addon_routes(state: dict[str, Any]) -> None:
 @then('it prints "N passed, M failed" and exits non-zero on any failure')
 def _addon_summary(state: dict[str, Any]) -> None:
     passing, _log = state["gate"]["pass"]
-    assert f"{len(_ROUTING_TESTS)} passed, 0 failed" in passing.stdout.splitlines()
+    assert any(re.fullmatch(r"\d+ passed, 0 failed", line) for line in passing.stdout.splitlines())
     assert "gate-godot-headless: import, add-on tests, and probes passed" in passing.stdout
     for label in ("fail", "script_error"):
         failing, _log = state["gate"][label]
@@ -826,9 +836,10 @@ def _ship_gates_first(state: dict[str, Any]) -> None:
     # A fresh checkout is imported first, so class_name types resolve in the script check.
     assert before[0] == ["--import"]
     before = before[1:]
-    assert len(before) >= 2
-    assert [call[0] for call in before[:-1]] == ["--check-only"] * (len(before) - 1)
-    assert before[-1] == ["-s", "res://tests/run_tests.gd"]
+    assert len(before) >= 3
+    # The headless smoke run (#251) sits between the project tests and the first export.
+    assert [call[0] for call in before[:-2]] == ["--check-only"] * (len(before) - 2)
+    assert before[-2:] == [["-s", "res://tests/run_tests.gd"], _SMOKE_CALL]
     # The budget gate passed on the within-budget Mobile report, so the mobile exports ran.
     assert sorted(sandbox.exports()) == sorted(
         ["macOS", "iOS", "Android", "Windows Desktop", "Web"]

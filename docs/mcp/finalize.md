@@ -26,6 +26,7 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?}` |
 | `list_material_variants` | `category`, `collection`, optional `export_root` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants |
 | `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop`, `max_seconds`, `loudness_lufs`, `loop_crossfade_ms`, `finish` | The audio import result. See [elevenlabs.md](elevenlabs.md) |
+| `game_screenshot` | `path`, optional `after` (0 to 60 seconds, default 3), optional `options` (launch options for the game) | `{"path", "width", "height"}` for the saved PNG. See [game_screenshot](#game_screenshot-251) |
 
 `material_variants_path` names the asset's `<Name>.material-variants.json` declaration. Without it, a
 `--blend` run uses the file beside the blend when one exists. A session run has no blend, so it declares
@@ -445,6 +446,32 @@ stage and the codes `audio.invalid_request`, `audio.unsupported_format`, `audio.
 `audio.decode_failed`, `audio.ffmpeg_not_found`, `audio.import_failed`, and `audio.settings_invalid`.
 A missing Godot binary is not an error: the result carries
 `imported_to_godot: false` and a `warning` with `godot.not_found`.
+
+## game_screenshot (#251)
+
+`game_screenshot` saves a PNG of the running consumer game, so an asset can be reviewed under the
+game's own lighting and materials. It runs `game/project.godot` in a window with your `options` after
+`--`, plus `--nmg-test-saves` and `--nmg-shot=<absolute path>`, so `NmgLaunch` writes the root
+viewport to `path` after `after` seconds and quits. A relative `path` resolves against the consumer
+root. The window needs a display.
+
+```json
+{"path": "build/shots/forest.png", "after": 3, "options": ["--at=Forest", "--hour=18"]}
+```
+
+On success it returns `{"path", "width", "height"}`, with the absolute path and the size read from the
+PNG header. A failure returns `{"error": {"code", "message", "remediation", "stage"}}`:
+
+- `shot.invalid_after`: `after` is outside 0 to 60 seconds.
+- `shot.invalid_path`: `path` is a folder, or its folder cannot be created or written to.
+- `godot.project_missing`: there is no `game/project.godot`.
+- `godot.not_found`: no Godot binary (`GODOT_BIN`, then `godot` on PATH, then `/Applications/Godot.app`).
+- `shot.no_image`: the game exited, or ran past `after` plus 60 seconds, without writing the PNG. The
+  message carries the game's last 20 output lines.
+
+The CLI, `python -m nmg_game_dev.godot shot <path> [--after S] [-- <options>]`, runs the same capture
+and prints the same JSON. The launch options, the smoke run, and the autoload are in
+[docs/onboarding/run-and-capture.md](../onboarding/run-and-capture.md).
 
 ## Versions
 

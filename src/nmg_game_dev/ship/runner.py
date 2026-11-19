@@ -9,13 +9,15 @@
 3. ``--check-only`` every ``.gd`` under the project, skipping ``.godot/``
    (``ship.script_check_failed``).
 4. ``res://tests/run_tests.gd`` when the project has one (``ship.tests_failed``).
-5. The mobile budget gate for ios, android, and web, also in a dry run.
-6. Per platform, ``--export-release "<preset>" <out>`` into ``release/<platform>/``. iOS patches
+5. The headless autoplay smoke run, which fails with ``ship.smoke_failed`` (#251). In a dry run it
+   prints the smoke command only.
+6. The mobile budget gate for ios, android, and web, also in a dry run.
+7. Per platform, ``--export-release "<preset>" <out>`` into ``release/<platform>/``. iOS patches
    its preset's team and provisioning UUID and restores ``export_presets.cfg`` byte-for-byte
    afterwards. Android installs the build template when ``android/build/`` is missing and passes
    the keystore only in the child environment. macOS is signed and notarized. A web ``index.pck``
    over 38 MiB prints ``ship.web_pack_large``.
-7. ``release/RELEASE-NOTES.md`` with each artifact's SHA-256.
+8. ``release/RELEASE-NOTES.md`` with each artifact's SHA-256.
 
 A failing gate or export raises ``ShipError`` and stops the run; a platform that already finished
 keeps its artifact. A dry run prints every Godot, ``security``, sign and notarize command as
@@ -44,6 +46,7 @@ from nmg_game_dev.godot.binary import resolve_godot
 from nmg_game_dev.godot.presets import PRESETS
 from nmg_game_dev.godot.project import godot_string, parse_config, read_config
 from nmg_game_dev.godot.runner import CommandResult, GodotRunner, SubprocessGodotRunner
+from nmg_game_dev.godot.smoke import DEFAULT_FRAMES, check_smoke, smoke_args
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.quality.mobile_budgets import (
     GATE_CODE_ORDER,
@@ -133,6 +136,7 @@ def run_ship(
     _import_project(ship)
     _check_scripts(ship)
     _run_project_tests(ship)
+    _run_smoke(ship)
     if any(platform in BUDGET_PLATFORMS for platform in platforms):
         _gate_mobile_budgets(
             check_mobile_budgets(project_dir / "assets", project_dir.parent / OVERRIDES_NAME)
@@ -275,6 +279,26 @@ def _run_project_tests(ship: _Ship) -> None:
             remediation="Fix the failing project tests reported above, then rerun the ship.",
             stage="tests",
         )
+
+
+def _run_smoke(ship: _Ship) -> None:
+    """The headless autoplay smoke run as a pre-export gate (#251 FR5, AC4).
+
+    A dry run prints the command only. A failing run raises ``ship.smoke_failed``, which keeps the
+    smoke code, its error lines, and its remediation, and no export runs.
+    """
+    result = _godot_run(ship, smoke_args(DEFAULT_FRAMES), ship.gate_lines)
+    if result is None:
+        return
+    try:
+        check_smoke(result)
+    except PipelineError as error:
+        raise ShipError(
+            code="ship.smoke_failed",
+            message=f"The smoke run failed with {error.code}: {error.message}",
+            remediation=error.remediation,
+            stage="smoke",
+        ) from error
 
 
 def _error_lines(result: CommandResult, prefix: str) -> list[str]:

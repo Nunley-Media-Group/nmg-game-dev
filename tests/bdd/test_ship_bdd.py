@@ -335,8 +335,10 @@ def _gates_first(ship: ShipScenario) -> None:
     # A fresh checkout is imported first, so class_name types resolve in the script check.
     assert before[0] == ["--import"]
     before = before[1:]
-    assert [call[0] for call in before[:-1]] == ["--check-only"] * (len(before) - 1)
-    assert before[-1] == ["-s", "res://tests/run_tests.gd"]
+    # The headless smoke run (#251) sits between the project tests and the first export.
+    smoke = ["--fixed-fps", "60", "--quit-after", "600", "--", "--nmg-autoplay", "--nmg-test-saves"]
+    assert [call[0] for call in before[:-2]] == ["--check-only"] * (len(before) - 2)
+    assert before[-2:] == [["-s", "res://tests/run_tests.gd"], smoke]
     # The budget gate passed (a within-budget Mobile report exists), so the mobile exports ran.
     assert "iOS" in ship.sandbox.exports()
 

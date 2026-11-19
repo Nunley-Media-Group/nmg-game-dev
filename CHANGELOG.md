@@ -6,6 +6,16 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-19
+
+### Added
+
+- `NmgLaunch` autoload in the `addons/nmg_game_dev` add-on: `get_option` and `has_option` read the same launch options on desktop (`-- --name=value`) and web (`#name=value`), a bare flag reads `"true"`, `autoplay_requested` emits once after the main scene's `_ready` with `--nmg-autoplay`, so a main scene that connects in `_ready` receives it, and `save_dir()` returns `user://nmg-test/` with `--nmg-test-saves`. (#251)
+- `python -m nmg_game_dev.godot smoke`: a headless 600-frame autoplay run that fails with `smoke.runtime_error` on a script error, `Parse Error`, `ERROR:` line, or non-zero exit, and with `smoke.timeout` past the timeout. `/ship` runs it as a gate after the project tests and before the mobile budget gate and every export, failing with `ship.smoke_failed` and exporting nothing. (#251)
+- `python -m nmg_game_dev.godot shot <path>` and the finalize MCP tool `game_screenshot`: save a PNG of the running game after a delay, with launch options, and return `{path, width, height}`. Failures are `shot.no_image`, `shot.invalid_after`, `shot.invalid_path`, `godot.project_missing`, and `godot.not_found`. (#251)
+- `/onboard-consumer` writes, refreshes, and drift-checks the `NmgLaunch` autoload in `game/project.godot`. (#251)
+- `docs/onboarding/run-and-capture.md` documents the launch options, the smoke run, and screenshots, with the ship and finalize MCP docs updated to match. (#251)
+
 ## [0.29.1] - 2026-11-19
 
 ### Fixed
