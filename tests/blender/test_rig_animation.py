@@ -13,7 +13,13 @@ import pytest
 
 bpy = pytest.importorskip("bpy")
 
-from .rig_fixtures import MANNY_BONE_NAMES, build_hero, build_library, reset_scene  # noqa: E402
+from .rig_fixtures import (  # noqa: E402
+    MANNY_BONE_NAMES,
+    build_hero,
+    build_library,
+    build_variant,
+    reset_scene,
+)
 
 _REIMPORT_CHECK = """\
 import json
@@ -46,7 +52,9 @@ def rest_relative(armature, bone_name, frame):
     return pose.to_3x3() @ rest.to_3x3().inverted(), pose.to_translation(), rest.to_translation()
 
 
-walk = next(action for action in bpy.data.actions if action.name.rsplit("|", 1)[-1] == "Walk")
+walk = next(
+    action for action in bpy.data.actions if action.name.rsplit("|", 1)[-1] == "Walk@SK_Hero"
+)
 rig.animation_data_create().action = walk
 samples = []
 for frame in (10, 25):
@@ -106,8 +114,8 @@ def test_ac2_library_clips_bake_and_export_with_provenance(
         "sha256": _sha256(library / "walk.bvh"),
         "skeleton": "mixamo",
     }
-    assert bpy.data.actions["Idle"].use_fake_user
-    assert bpy.data.actions["Walk"].use_fake_user
+    assert bpy.data.actions["Idle@SK_Hero"].use_fake_user
+    assert bpy.data.actions["Walk@SK_Hero"].use_fake_user
     assert [obj.name for obj in bpy.data.objects if obj.type == "ARMATURE"] == ["SK_Hero"]
 
     out_dir = tmp_path / "out"
@@ -169,8 +177,8 @@ def test_ac2_fresh_blender_reimport_has_mannequin_bones_and_matching_thigh(
     assert result["root_bones"] == ["root"]
     assert result["armatures"] == 1
     assert "EMPTY" not in result["object_types"]
-    assert result["actions"]["Idle"] == [1.0, 30.0]
-    assert result["actions"]["Walk"] == [1.0, 40.0]
+    assert result["actions"]["Idle@SK_Hero"] == [1.0, 30.0]
+    assert result["actions"]["Walk@SK_Hero"] == [1.0, 40.0]
     for sample in result["samples"]:
         assert sample["angle_deg"] < 1.0, sample
         assert sample["head_shift"] < 1e-3, sample
@@ -252,3 +260,69 @@ def test_ac3_custom_bone_map_must_reach_required_targets(
     assert result["status"] == "fallback required"
     assert result["code"] == "anim.bone_map_incomplete"
     assert "thigh_l" in result["message"]
+
+
+# ----------------------------------------------------------------------------- AC7, AC8
+def _key_table(action: Any) -> list[tuple[str, int, tuple[tuple[float, ...], ...]]]:
+    """Every F-curve's key points, in curve order, so an action can be compared before and after."""
+    return [
+        (
+            curve.data_path,
+            curve.array_index,
+            tuple(tuple(point.co) for point in curve.keyframe_points),
+        )
+        for layer in action.layers
+        for strip in layer.strips
+        for bag in strip.channelbags
+        for curve in bag.fcurves
+    ]
+
+
+def _two_rigs(rig_core: Any) -> None:
+    """Build Hero and Variant in one scene, each with its own SK_<Name> rig."""
+    reset_scene()
+    assert rig_core.rig_humanoid("Hero", "humanoid", build_hero())["status"] == "ok"
+    assert rig_core.rig_humanoid("Variant", "humanoid", build_variant())["status"] == "ok"
+
+
+def test_ac7_library_clip_on_one_rig_leaves_the_other_rigs_action_and_provenance_alone(
+    rigged_library: tuple[Any, Path],
+) -> None:
+    rig_core, library = rigged_library
+    _two_rigs(rig_core)
+    assert rig_core.import_animations("Hero", str(library), clips=["Idle"])["status"] == "ok"
+    hero_action = bpy.data.actions["Idle@SK_Hero"]
+    hero_keys = _key_table(hero_action)
+    hero_provenance = bpy.data.objects["SK_Hero"]["nmg_animations"]
+
+    baked = rig_core.import_animations("Variant", str(library), clips=["Idle"])
+
+    assert baked["status"] == "ok", baked
+    assert bpy.data.actions["Idle@SK_Variant"] != hero_action
+    assert bpy.data.actions["Idle@SK_Hero"] == hero_action
+    assert _key_table(hero_action) == hero_keys
+    assert bpy.data.objects["SK_Hero"]["nmg_animations"] == hero_provenance
+    for rig_name in ("Hero", "Variant"):
+        provenance = json.loads(bpy.data.objects[f"SK_{rig_name}"]["nmg_animations"])
+        assert list(provenance) == ["Idle"], rig_name
+
+
+def test_ac8_reimporting_a_library_clip_replaces_only_that_rigs_action(
+    rigged_library: tuple[Any, Path],
+) -> None:
+    rig_core, library = rigged_library
+    _two_rigs(rig_core)
+    assert rig_core.import_animations("Hero", str(library), clips=["Idle"])["status"] == "ok"
+    assert rig_core.import_animations("Variant", str(library), clips=["Idle"])["status"] == "ok"
+    variant_action = bpy.data.actions["Idle@SK_Variant"]
+    variant_keys = _key_table(variant_action)
+
+    again = rig_core.import_animations("Hero", str(library), clips=["Idle"])
+
+    assert again["status"] == "ok", again
+    assert sorted(action.name for action in bpy.data.actions if action.name.startswith("Idle")) == [
+        "Idle@SK_Hero",
+        "Idle@SK_Variant",
+    ]
+    assert bpy.data.actions["Idle@SK_Variant"] == variant_action
+    assert _key_table(variant_action) == variant_keys

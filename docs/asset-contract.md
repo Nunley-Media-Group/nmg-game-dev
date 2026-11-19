@@ -290,9 +290,17 @@ with each variant's mesh:
 A rigged character's clips are finalized next to its mesh (`docs/mcp/finalize.md`, "Animation
 clips"). The contract for them:
 
+- A clip's name is its action's name minus an optional `@SK_<Name>` suffix, where `<Name>` is the
+  asset's collection. So `Idle@SK_StreetThug` on `SK_StreetThug` is the clip `Idle`, and an action
+  named `Idle` with no suffix is also the clip `Idle`. Several rigs in one `.blend` can each have an
+  `Idle` this way. The pattern `^[A-Za-z][A-Za-z0-9_]*$` applies to the bare clip name, not the
+  suffix. An action with a foreign suffix, such as `Idle@SK_Cop` on `SK_StreetThug`, stops the
+  export with `finalize.clip_rig_mismatch`. Two actions on one rig that give the same clip name, such
+  as `Idle` and `Idle@SK_StreetThug`, stop it with `finalize.clip_name_duplicate`. Neither writes a
+  file.
 - Each clip is one `.glb` at `<export_root>/<Category>/<Name>/Animations/A_<Name>_<Clip>.glb`,
-  holding the armature only and exactly one sampled action. `<Clip>` matches
-  `^[A-Za-z][A-Za-z0-9_]*$`. An action with any other name stops the export.
+  holding the armature only and exactly one sampled action. `<Clip>` is the bare clip name and
+  matches `^[A-Za-z][A-Za-z0-9_]*$`. An action whose bare name breaks the pattern stops the export.
 - `Animations/nmg-animations.json` lists each clip's `name`, `file`, `asset_path`, `frame_start`,
   `frame_end`, `frame_count`, `fps`, and `source`. A provenance clip's `source` is its library,
   file, SHA-256, and source skeleton. An authored clip's `source` is `"authored"`. A built-in clip's
