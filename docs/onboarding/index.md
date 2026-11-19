@@ -10,7 +10,7 @@ first, then follow the guides in order.
    project in `game/` (`game/project.godot` with the Compatibility renderer for mobile and web, the
    `nmg_game_dev` add-on in `game/addons/nmg_game_dev/`, and `game/export_presets.cfg` with one
    preset per ship target), the Blender add-on link, the two local texture models, `.gitignore`
-   entries for `.env` and `game/.godot/`, and Git LFS tracking for binary assets (install Git LFS
+   entries for `.env`, `game/.godot/`, and `.nmg/` (the per-asset finalize records), and Git LFS tracking for binary assets (install Git LFS
    first; see below). It also creates `docs/design/` for your design docs, and reports whether Godot
    4 (`GODOT_BIN`, then `godot` on PATH) and ffmpeg (`FFMPEG_BIN`, then PATH) were found. The `CLAUDE.md` block it writes routes Blender asset authoring and editing to `/model-asset`;
    scene inspection and `/finalize-asset` runs are exempt (see [model-asset.md](../skills/model-asset.md)).

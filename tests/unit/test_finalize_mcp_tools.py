@@ -19,6 +19,7 @@ import pytest
 
 from nmg_game_dev.finalize import (
     FinalizeService,
+    check_finalized,
     finalize_asset,
     game_screenshot,
     get_finalize_job,
@@ -29,6 +30,12 @@ from nmg_game_dev.godot.runner import CommandResult
 from nmg_game_dev.pipeline import FinalizeRequest
 from nmg_game_dev.pipeline.errors import PipelineError
 from tests.finalize_fakes import BatchRouter, batch_launcher, dead_pid
+from tests.finalize_records_support import (
+    asset_request,
+    manual_record,
+    up_to_date_asset,
+    write_record_file,
+)
 from tests.godot_fakes import FakeGodotRunner
 from tests.unit.audio.conftest import fake_godot, sine, write_wav
 
@@ -514,3 +521,98 @@ def test_the_registered_server_schema_matches_tools_json() -> None:
     spec.loader.exec_module(validator)
 
     assert validator.check_server(REPO_ROOT / "mcp-servers" / "finalize") == []
+
+
+# check_finalized and the batch skip option (#247 AC6, AC11).
+
+
+def test_check_finalized_reports_each_asset_from_its_record(tmp_path: Path) -> None:
+    crate = up_to_date_asset(tmp_path, "Crate")
+    barrel = asset_request(tmp_path, "Barrel")
+    result = check_finalized(
+        assets=[
+            {"category": "Props", "collection": "Crate"},
+            {"category": "Props", "collection": "Barrel"},
+        ],
+        export_root=str(crate.export_root),
+    )
+
+    rows = {row["collection"]: row for row in result["assets"]}
+    assert set(rows) == {"Crate", "Barrel"}
+    assert rows["Crate"]["up_to_date"] is True
+    assert rows["Crate"]["reason"] == "up_to_date"
+    assert set(rows["Crate"]["record"]) == {"state", "ended_at", "error_code"}
+    assert rows["Barrel"]["up_to_date"] is False
+    assert rows["Barrel"]["reason"] == "no_record"
+    assert rows["Barrel"]["record"] is None
+    assert barrel.blend is not None
+
+
+def test_check_finalized_takes_one_category_and_collection(tmp_path: Path) -> None:
+    crate = up_to_date_asset(tmp_path, "Crate")
+    result = check_finalized(
+        category="Props", collection="Crate", export_root=str(crate.export_root)
+    )
+    assert [row["collection"] for row in result["assets"]] == ["Crate"]
+    assert result["assets"][0]["up_to_date"] is True
+
+
+def test_check_finalized_reports_an_error_record_code(tmp_path: Path) -> None:
+    request = asset_request(tmp_path)
+    write_record_file(
+        request,
+        manual_record(
+            request,
+            state="failed",
+            error={"code": "bake.quality.bad", "message": "m", "remediation": "r", "stage": "bake"},
+        ),
+    )
+    row = check_finalized(
+        category="Props", collection="Crate", export_root=str(request.export_root)
+    )["assets"][0]
+    assert row["reason"] == "last_run_failed"
+    assert row["record"]["error_code"] == "bake.quality.bad"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {
+            "category": "Props",
+            "collection": "Crate",
+            "assets": [{"category": "Props", "collection": "Crate"}],
+        },
+        {"category": "Props"},
+        {},
+        {"assets": []},
+        {"assets": [{"category": "Props"}]},
+        {"category": "props", "collection": "Crate"},
+    ],
+)
+def test_check_finalized_refuses_an_invalid_request(arguments: dict[str, Any]) -> None:
+    result = check_finalized(**arguments)
+    assert result["error"]["code"] == "finalize.invalid_request"
+    assert result["error"]["stage"] == "finalize"
+    assert result["error"]["remediation"]
+
+
+def test_finalize_asset_refuses_skip_up_to_date_for_one_collection(tmp_path: Path) -> None:
+    result = finalize_asset(
+        collection="Crate",
+        category="Props",
+        asset_class="standard_prop",
+        export_root=str(tmp_path / "game" / "assets"),
+        skip_up_to_date=True,
+    )
+    assert result["error"]["code"] == "finalize.invalid_request"
+
+
+def test_tools_json_lists_check_finalized_and_the_skip_option() -> None:
+    tools = {
+        tool["name"]: tool for tool in json.loads(TOOLS_JSON.read_text(encoding="utf-8"))["tools"]
+    }
+    check_schema = tools["check_finalized"]["inputSchema"]
+    assert {"category", "collection", "assets", "export_root"} <= set(check_schema["properties"])
+    assert check_schema["required"] == []
+    skip = tools["finalize_asset"]["inputSchema"]["properties"]["skip_up_to_date"]
+    assert skip["type"] == "boolean" and skip["default"] is False

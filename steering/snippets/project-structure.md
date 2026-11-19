@@ -49,7 +49,7 @@ nmg-game-dev/
 │   └── convert-to-godot/          # Migrates an existing consumer from an older engine project
 ├── hooks/                         # Plugin PreToolUse hooks: model_asset_reminder.py, generate_audio_guard.py (hooks.json)
 ├── mcp-servers/                   # NMG-authored MCP servers
-│   ├── finalize/                  # finalize MCP: finalize_asset, run_finalize_step, get_finalize_job, import_audio, game_screenshot
+│   ├── finalize/                  # finalize MCP: finalize, reduce, job status, check_finalized, audio, material variants, screenshot
 │   │   ├── pyproject.toml
 │   │   ├── tools.json
 │   │   └── src/finalize_mcp/
@@ -115,7 +115,7 @@ driven from `src/nmg_game_dev/godot/`.
 | `plugins/nmg-game-dev-blender-addon/finalize_core/` | Finalize steps run in background Blender: content hash, step runner, and load-back |
 | `scripts/blender/finalize_entry.py` | Headless entry for one finalize step, run as `blender --background --python` |
 | `scripts/blender/finalize_session.py` | Live-session operations (content hash and load-back) sent through the Blender MCP |
-| `mcp-servers/finalize/` | The `finalize` MCP server: `finalize_asset`, `run_finalize_step`, `get_finalize_job` |
+| `mcp-servers/finalize/` | The `finalize` MCP server: `finalize_asset`, `run_finalize_step`, `reduce_asset`, `get_finalize_job`, `check_finalized`, `list_material_variants`, `import_audio`, `refresh_audio_table`, `game_screenshot` |
 | `src/nmg_game_dev/finalize/` | `python -m nmg_game_dev.finalize` CLI over the same implementation |
 | `src/nmg_game_dev/pipeline/` | Finalize orchestrator: steps, cache, job runner, Blender and Godot clients |
 | `src/nmg_game_dev/godot/` | Godot binary resolution, headless runner, `NMG_RESULT` parsing, `import_godot`, `import_anims`, and terrain scene writing |
