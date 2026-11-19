@@ -82,6 +82,10 @@ def validate_asset(
     With ``progress``, it is called before each mesh check with the share of checks already done
     and a message naming the variant, check, and object (#133). The report does not depend on it.
     """
+    # Imported here, not at module top: variants_core imports this module (cleanup.py), so a
+    # module-level import would cycle.
+    from ..variants_core.rest_pose import rest_pose  # noqa: PLC0415
+
     budgets = _budgets(asset_class, budgets_path)
     bpy.context.view_layer.update()
     asset = bpy.data.collections.get(collection)
@@ -113,36 +117,39 @@ def validate_asset(
     # Only the authored Desktop of a rigged asset gets the 5 mm allowance (#244).
     rigged_authored = authored and _has_rig(asset)
     objects_by_variant: dict[str, list[bpy.types.Object]] = {}
-    for variant, variant_collection in variants:
-        root_name = _root_name(collection, variant)
-        objects = sorted(variant_collection.all_objects, key=lambda obj: obj.name)
-        objects_by_variant[variant] = objects
-        tris: dict[str, int] = {}
-        texel_entries: dict[str, list[dict[str, Any]]] = {}
-        findings += _structure_findings(
-            collection,
-            variant,
-            objects,
-            root_name,
-            rigged_authored=rigged_authored and variant == "desktop",
-        )
-        findings += _shared_mesh_findings(objects)
-        findings += _mesh_findings(
-            collection,
-            variant,
-            asset_class,
-            objects,
-            budgets[variant],
-            root_name,
-            tris,
-            texel_entries,
-            units,
-            reduced=reduced,
-        )
-        for obj in objects:
-            snapshot[obj.name] = object_snapshot(obj, variant, tris.get(obj.name, 0))
-            if obj.name in texel_entries:
-                snapshot[obj.name]["texel"] = texel_entries[obj.name]
+    # Every check reads the rest shape, so a leftover pose never fails the pivot or changes a
+    # measure (#236). rest_pose restores the rig's pose_position when the block exits.
+    with rest_pose([obj for _, vc in variants for obj in vc.all_objects]):
+        for variant, variant_collection in variants:
+            root_name = _root_name(collection, variant)
+            objects = sorted(variant_collection.all_objects, key=lambda obj: obj.name)
+            objects_by_variant[variant] = objects
+            tris: dict[str, int] = {}
+            texel_entries: dict[str, list[dict[str, Any]]] = {}
+            findings += _structure_findings(
+                collection,
+                variant,
+                objects,
+                root_name,
+                rigged_authored=rigged_authored and variant == "desktop",
+            )
+            findings += _shared_mesh_findings(objects)
+            findings += _mesh_findings(
+                collection,
+                variant,
+                asset_class,
+                objects,
+                budgets[variant],
+                root_name,
+                tris,
+                texel_entries,
+                units,
+                reduced=reduced,
+            )
+            for obj in objects:
+                snapshot[obj.name] = object_snapshot(obj, variant, tris.get(obj.name, 0))
+                if obj.name in texel_entries:
+                    snapshot[obj.name]["texel"] = texel_entries[obj.name]
     if mobile is not None:
         findings += _variant_name_findings(
             objects_by_variant["desktop"], objects_by_variant["mobile"]

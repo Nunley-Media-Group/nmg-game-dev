@@ -11,6 +11,7 @@ from ..contract_core.geometry import SAMPLE_LIMIT
 from ..contract_core.validate import bottom_center, pivot_meshes
 from .assets import asset_armature, asset_meshes, require_asset
 from .meshes import TwistRepair, clean_mesh, evaluated_mesh, replace_mesh, triangle_count
+from .rest_pose import rest_pose
 
 _POSITION_DECIMALS = 6
 
@@ -67,7 +68,9 @@ def reseat_desktop(collection_name: str) -> dict[str, Any]:
     collection, _root = require_asset(collection_name)
     meshes = asset_meshes(collection)
     bpy.context.view_layer.update()
-    offset = bottom_center(pivot_meshes(meshes))
+    # The offset is measured at rest: a leftover pose must not move the rest geometry (#236).
+    with rest_pose(meshes):
+        offset = bottom_center(pivot_meshes(meshes))
     if all(round(component, 6) == 0.0 for component in offset):
         return {"reseated": False, "offset": [0.0, 0.0, 0.0]}
     for obj in meshes:

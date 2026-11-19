@@ -23,14 +23,19 @@ from ..variants_core.meshes import (
     replace_mesh,
     triangle_count,
 )
+from ..variants_core.rest_pose import rest_pose
 from .plan import DEFAULTS, ReduceError
 
 
 def make_copy(
     source: bpy.types.Object, collection: bpy.types.Collection, name: str
 ) -> bpy.types.Object:
-    """A new object in collection holding source's evaluated geometry at source's transform."""
-    mesh = evaluated_mesh(source)
+    """A new object in collection holding source's rest-pose geometry at source's transform (#236).
+
+    A rigged source is evaluated at rest, so a leftover pose never becomes the copy's geometry.
+    """
+    with rest_pose([source]):
+        mesh = evaluated_mesh(source)
     mesh.name = name
     obj = bpy.data.objects.new(name, mesh)
     collection.objects.link(obj)

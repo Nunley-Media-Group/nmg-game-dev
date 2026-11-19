@@ -297,6 +297,7 @@ def _export_one(
     saved_action = data.action
     saved_slot = getattr(data, "action_slot", None)
     saved_mutes = [(track, track.mute) for track in data.nla_tracks]
+    saved_pose = [_pose_of(bone) for bone in rig.pose.bones]
     saved_range = (scene.frame_start, scene.frame_end)
     start, end = action.frame_range
     frame_start, frame_end = round(start), round(end)
@@ -318,6 +319,9 @@ def _export_one(
             data.action_slot = saved_slot
         for track, mute in saved_mutes:
             track.mute = mute
+        # Sampling the clip leaves the pose bones at its last frame; put each one back (#236).
+        for bone, pose in zip(rig.pose.bones, saved_pose, strict=True):
+            _set_pose(bone, pose)
         rig.name = saved_name
     return {
         "frame_start": frame_start,
@@ -325,6 +329,28 @@ def _export_one(
         "frame_count": frame_end - frame_start + 1,
         "fps": scene.render.fps / scene.render.fps_base,
     }
+
+
+#: The pose-bone fields a clip export can change, in the order they are restored.
+_POSE_FIELDS: Final = (
+    "rotation_mode",
+    "location",
+    "rotation_quaternion",
+    "rotation_euler",
+    "rotation_axis_angle",
+    "scale",
+)
+
+
+def _pose_of(bone: Any) -> dict[str, Any]:
+    """A pose bone's rotation mode and transform, copied out as plain values."""
+    values = {field: getattr(bone, field) for field in _POSE_FIELDS}
+    return {key: value if isinstance(value, str) else tuple(value) for key, value in values.items()}
+
+
+def _set_pose(bone: Any, pose: Mapping[str, Any]) -> None:
+    for field in _POSE_FIELDS:
+        setattr(bone, field, pose[field])
 
 
 def _slot_of(action: bpy.types.Action, rig: bpy.types.Object | None) -> Any:
