@@ -230,6 +230,7 @@ Sync reports every error it finds. A sync error exits 1 and leaves the backlog u
 | `design.dir_missing` | `docs/design/` does not exist. Sync exits 1. |
 | `design.scaffold_failed` | Writing the file for one scaffold item failed. The item keeps its status, the other items still run, and scaffold exits 1. |
 | `design.godot_project_missing` | Scaffold found no `game/project.godot`. Nothing is written, and scaffold exits 1. Run `/onboard-consumer` first. |
+| `audio.duplicate_sound` | Scaffold was rendering an Audio system's name table, and two files under `game/assets/Audio/` share a sound name (for example `Theme.wav` and `Theme.ogg`). Scaffold stops and exits 1 with the error naming both files. That table is not written, and items scaffolded before it keep their files. Keep one file per sound name, then run scaffold again. |
 | `design.backlog_update_failed` | Warning only. Finalize could not update the backlog after a successful job. The job still succeeds, and the warning is in its result. Sync and scaffold never raise it. |
 
 ## 10. Finalize fallback
