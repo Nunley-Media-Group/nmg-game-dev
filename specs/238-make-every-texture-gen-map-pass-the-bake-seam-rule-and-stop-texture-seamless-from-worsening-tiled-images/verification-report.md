@@ -1,10 +1,10 @@
 # Verification Report: Generated texture maps fail the bake seam rule and `texture seamless` worsens tiled images
 
-**Date**: 2026-11-18
+**Date**: 2026-11-19
 **Issue**: #238
 **Reviewer**: Claude (nmg-sdlc verify worker, gate phase)
 **Scope**: Implementation verification against spec
-**Verification head**: 7b327076511aafff3e8e4f7efa3c35ee31bbba1c
+**Verification head**: 6da3259bbd94aa050314b9951777128f35067867
 
 ---
 
@@ -21,9 +21,9 @@
 | **Overall** | 5.0 |
 
 ### Implementation Status: Pass
-**Total Issues**: 0 (one `info` note, no defects)
+**Total Issues**: 0 (four `info` notes, no defects)
 
-The review passed at head `1bb2eec72b65881adf95cc22cf96b78d8d589966` (scoped, after a full review at `84542b5`) with no finding above `info`. Between that head and the verification head there are two commits. `d83947a fix: deliver issue #238` is the version preparation. It changed `VERSION` 0.25.4, `.claude-plugin/plugin.json`, `plugins/nmg-game-dev-blender-addon/blender_manifest.toml`, `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` and `CHANGELOG.md`. `7b32707 docs: record verification for #238` is the report-only commit that added `specs/238-make-every-texture-gen-map-pass-the-bake-seam-rule-and-stop-texture-seamless-from-worsening-tiled-images/verification-report.md`. No source changed. The registered gate was run again at the verification head `7b327076511aafff3e8e4f7efa3c35ee31bbba1c`, so that the recorded identity matches the parent of this report. All 11 registered pre-merge validations were recorded at that head. 8 applied and passed, and 3 did not apply to the changed paths.
+The review passed in full mode at head `92c3fa87be81c19dc4f7ee933bf1ca369f7e0c66` with no finding above `info` (four `info` notes, I1-I4). Since that head the branch has two commits. `096a6db` merges `origin/main` at `273e969` (#279, #278), which brings no change to any #238 path. `6da3259 fix: deliver issue #238` prepares version 0.28.1: it changes `VERSION`, `.claude-plugin/plugin.json`, `plugins/nmg-game-dev-blender-addon/blender_manifest.toml`, `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/plugin.cfg` and `CHANGELOG.md`. No #238 source changed. The branch is at the head of the merge queue with `origin/main` (`273e969`) integrated. The registered pre-merge gate ran once at the verification head `6da3259bbd94aa050314b9951777128f35067867`. All 11 registered validations were recorded: 8 applied and passed, and 3 did not apply to the changed paths.
 
 ---
 
@@ -47,7 +47,7 @@ The review passed at head `1bb2eec72b65881adf95cc22cf96b78d8d589966` (scoped, af
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Artifact: `.nmg-sdlc/verification/238.json`. Its identity is head `7b327076511aafff3e8e4f7efa3c35ee31bbba1c`, steering `sha256:7db2c1fd…b5bc93`, spec `sha256:aaedde37…abe22`, with a clean tree.
+- Artifact: `.nmg-sdlc/verification/238.json`. Its identity is head `6da3259bbd94aa050314b9951777128f35067867`, steering `sha256:f7a60903…805cfa`, spec `sha256:aaedde37…abe22`, with a clean tree.
 - Ceiling: none.
 - Coverage: declared 11, recorded 11, complete `true`, with nothing missing, duplicated or unknown.
 - Tiers: the project declares none, so every result records `tier: null` and `selection: null`.
@@ -64,7 +64,7 @@ The evidence comes from the passed review record `.nmg-sdlc/verification/238-rev
 | AC2 | Derived maps pass for any passing albedo | Pass | real entry point | `tests/unit/texture/test_maps.py::test_every_derived_map_passes_the_seam_rule[seamless-synthetic\|seamless-low-contrast]` and SCN002 call `maps.derive` on a written PNG. |
 | AC3 | `texture seamless` leaves a passing image unchanged | Pass | real entry point | `tests/unit/texture/test_cli.py::test_seamless_leaves_a_passing_png_unchanged` covers cross-faded and natively tiling inputs, written in place and with `--out`. A mutation probe that reverted the CLI to `make_seamless` made 2 tests fail. |
 | AC4 | `texture seamless` repairs failing maps without making them worse | Pass | real entry point | `tests/unit/texture/test_cli.py:292-308` runs `main(['seamless', png])` on 4 failing inputs, including `cross_fade_failing_crop`. It asserts that the output passes and that neither axis's wrap is larger than the input's. A mutation probe that bypassed `fix_seam` made the cross-fade-failing case fail. |
-| AC5 | Existing behaviour is preserved | Pass | real entry point | `git diff main...HEAD -- tests/unit` only adds test functions and imports. SCN005 reruns the texture unit and BDD suites. The full `repository.tests` run passed: 1760 passed, 14 skipped. |
+| AC5 | Existing behaviour is preserved | Pass | real entry point | `git diff main...HEAD -- tests/unit` only adds test functions and imports. SCN005 reruns the texture unit and BDD suites. The full `repository.tests` run passed: 1911 passed, 19 skipped. |
 | AC6 | Docs tell consumers to reload or repack after fixing files on disk | Pass | real entry point | `docs/onboarding/texture-models.md` and `docs/skills/bake-materials.md` both contain the reload/repack note, which SCN006 asserts. |
 
 | FR | Status | Evidence |
@@ -102,7 +102,7 @@ Every changed path on this branch, written as its exact repo-relative path (`git
 - `docs/skills/bake-materials.md`
 - `plugins/nmg-game-dev-blender-addon/bake_core/errors.py`
 - `plugins/nmg-game-dev-blender-addon/blender_manifest.toml`
-- `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin`
+- `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/plugin.cfg`
 - `src/nmg_game_dev/texture/__main__.py`
 - `src/nmg_game_dev/texture/generate.py`
 - `src/nmg_game_dev/texture/maps.py`
@@ -113,6 +113,7 @@ Every changed path on this branch, written as its exact repo-relative path (`git
 - `tests/unit/texture/test_cli.py`
 - `tests/unit/texture/test_generate.py`
 - `tests/unit/texture/test_maps.py`
+- `tests/unit/texture/test_seam_metric.py`
 - `tests/unit/texture/test_seamless.py`
 - `specs/238-make-every-texture-gen-map-pass-the-bake-seam-rule-and-stop-texture-seamless-from-worsening-tiled-images/verification-report.md` (the report-only commit)
 
@@ -157,12 +158,12 @@ None of these validations is marked heavy.
 
 | Gate | Status | Tier / Selection | Evidence |
 |------|--------|------------------|----------|
-| `repository.tests` | Pass | null / null | `uv run pytest tests/unit tests/bdd -q`: 1760 passed, 14 skipped in 842.25s |
+| `repository.tests` | Pass | null / null | `uv run pytest tests/unit tests/bdd -q`: 1911 passed, 19 skipped in 213.60s |
 | `repository.lint` | Pass | null / null | `uv run ruff check .`: All checks passed! |
-| `repository.format` | Pass | null / null | `uv run ruff format --check .`: 418 files already formatted |
-| `repository.types` | Pass | null / null | `uv run mypy src tests`: Success, no issues found in 266 source files |
-| `gate-blender-headless` | Pass | null / null | `scripts/run-blender-tests.sh`: 382 passed, 4 skipped in 272.56s. It applies because `plugins/nmg-game-dev-blender-addon/bake_core/errors.py` and `plugins/nmg-game-dev-blender-addon/blender_manifest.toml` changed. |
-| `gate-ue-compile` | Pass | null / null | `project.ue-compile`: DogfoodEditor compiled against `/Users/Shared/Epic Games/UE_5.8`. It applies because `plugins/nmg-game-dev-ue-plugin/nmg-game-dev.uplugin` changed its version. |
+| `repository.format` | Pass | null / null | `uv run ruff format --check .`: 430 files already formatted |
+| `repository.types` | Pass | null / null | `uv run mypy src tests`: Success, no issues found in 278 source files |
+| `gate-blender-headless` | Pass | null / null | `scripts/run-blender-tests.sh`: 420 passed, 4 skipped in 181.45s. It applies because `plugins/nmg-game-dev-blender-addon/bake_core/errors.py` and `plugins/nmg-game-dev-blender-addon/blender_manifest.toml` changed. |
+| `gate-godot-headless` | Pass | null / null | `scripts/run-godot-tests.sh`: import, add-on tests, and probes passed. It applies because `plugins/nmg-game-dev-godot-addon/addons/nmg_game_dev/plugin.cfg` changed its version. |
 | `gate-mcp-schema` | Not applicable | null / null | The change touches no `mcp-servers/**` path |
 | `gate-shellcheck` | Not applicable | null / null | The change touches no `scripts/**.sh` path |
 | `gate-ship-smoke` | Not applicable | null / null | The change touches no ship path |
@@ -187,7 +188,12 @@ The review's earlier findings were fixed in implement before the review passed. 
 
 None blocking, major or minor.
 
-- **Info (I1)**: the remediation string in `plugins/nmg-game-dev-blender-addon/bake_core/errors.py` now tells users to reload or repack before rerunning the bake. No test pins that wording in the code string. AC6 and FR6 are docs-scoped and pin the docs. The change brought `gate-blender-headless` into scope, and that gate passed.
+The passed review record carries four `info` notes, none of which blocks delivery:
+
+- **Info (I1)**: for an image with a 1-px axis, `interior_mad` on that axis is NaN, so `is_seamless` never passes and `fix_seam` writes an image that reports `seamless: false` (`src/nmg_game_dev/texture/seamless.py`). This is a pre-existing seam-metric limitation; no real texture has a 1-px axis.
+- **Info (I2)**: design.md's Blast Radius says `bake_core` is untouched, but the branch edits the `not_seamless` remediation string in `plugins/nmg-game-dev-blender-addon/bake_core/errors.py`. The change is string-only and consistent with FR6, and it brought `gate-blender-headless` into scope, which passed.
+- **Info (I3)**: the spec-named AC4 fixtures also pass under a `make_seamless`-only CLI, so SCN004 alone would not catch that regression; `tests/unit/texture/test_cli.py` (`cross_fade_failing_crop`) and the narrow-branch tests in `tests/unit/texture/test_seamless.py` do.
+- **Info (I4)**: SCN005 in `tests/bdd/test_texture_seam_repair_bdd.py` reruns the texture unit tests and two texture BDD modules in a child pytest, so those tests run twice per gate.
 
 ---
 
