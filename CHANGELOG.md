@@ -6,6 +6,22 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `/ship --bump major|minor|patch` and `--version X.Y.Z` set the build version in `game/project.godot` and in every export preset: macOS and iOS `application/short_version` and `application/version`, Android `version/name` with `version/code` one higher, and Windows `application/file_version` and `application/product_version` as `X.Y.Z.0`. Only those lines change, and the version is written after the gates and before the first export. (#254)
+- `/ship` requires a `## X.Y.Z` section in the consumer's root `CHANGELOG.md` with at least one line of text for players, and stops with `ship.changelog_missing` before any Godot command when there is none. (#254)
+- `release/RELEASE-NOTES.md` is headed with the version, carries the changelog section under `## Changes`, lists each gate that ran with its result under `## Gates`, and keeps the artifact SHA-256 table under `## Artifacts`. (#254)
+- `NmgBuild.version()` and the `NmgVersionLabel` node in the `addons/nmg_game_dev` add-on show the running build's version, with `prefix` defaulting to `"v"`. (#254)
+- `/ship` stops with `ship.version_invalid`, `ship.version_not_increased`, or `ship.version_missing` before any gate or write when `--version` is malformed or not above the current version, both version flags are given, or the project declares no version and no flag names one. (#254)
+
+### Changed
+
+- **BREAKING CHANGE:** `/ship` requires a `CHANGELOG.md` section for the version it ships, and a project that declares no `application/config/version` needs `--version X.Y.Z` on its first ship. (#254)
+
+### Migration Notes
+
+- Add a `CHANGELOG.md` at the consumer root with a `## X.Y.Z` section for the version you ship, and pass `--version X.Y.Z` on the first ship of a project that declares no version. (#254)
+
 ## [0.31.0] - 2026-11-19
 
 ### Added

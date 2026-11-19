@@ -2,8 +2,9 @@
 
 ``run_ship`` follows the design order:
 
-1. Expand the target, check the project, check the environment, and resolve the macOS signing
-   identity.
+1. Expand the target, check the project, check the environment, resolve the build version from
+   ``--bump`` or ``--version`` (``ship.version_*``), require the version's ``CHANGELOG.md`` section
+   (``ship.changelog_missing``, #254), and resolve the macOS signing identity.
 2. ``--import`` the project, so a fresh checkout without ``.godot/`` has its global class cache
    and imported resources; a non-zero exit or any ``ERROR:`` line is ``ship.import_failed``.
 3. ``--check-only`` every ``.gd`` under the project, skipping ``.godot/``
@@ -12,12 +13,15 @@
 5. The headless autoplay smoke run, which fails with ``ship.smoke_failed`` (#251). In a dry run it
    prints the smoke command only.
 6. The mobile budget gate for ios, android, and web, also in a dry run.
-7. Per platform, ``--export-release "<preset>" <out>`` into ``release/<platform>/``. iOS patches
+7. The build version is written into ``game/project.godot`` and every shipping preset, after the
+   gates and before the first export (#254). A dry run prints its lines instead.
+8. Per platform, ``--export-release "<preset>" <out>`` into ``release/<platform>/``. iOS patches
    its preset's team and provisioning UUID and restores ``export_presets.cfg`` byte-for-byte
    afterwards. Android installs the build template when ``android/build/`` is missing and passes
    the keystore only in the child environment. macOS is signed and notarized. A web ``index.pck``
    over 38 MiB prints ``ship.web_pack_large``.
-8. ``release/RELEASE-NOTES.md`` with each artifact's SHA-256.
+9. ``release/RELEASE-NOTES.md`` with the version, the changelog section, each gate's result, and
+   each artifact's SHA-256.
 
 A failing gate or export raises ``ShipError`` and stops the run; a platform that already finished
 keeps its artifact. A dry run prints every Godot, ``security``, sign and notarize command as
@@ -60,10 +64,18 @@ from nmg_game_dev.ship.artifacts import (
     export_path,
     release_artifact,
 )
+from nmg_game_dev.ship.changelog import CHANGELOG_NAME, changelog_section
 from nmg_game_dev.ship.errors import ShipError
 from nmg_game_dev.ship.identity import Runner, resolve_signing_identity
 from nmg_game_dev.ship.release_notes import write_release_notes
 from nmg_game_dev.ship.targets import BUDGET_PLATFORMS, Platform, expand_target, preflight_env
+from nmg_game_dev.ship.version import (
+    VersionPlan,
+    patch_preset_literals,
+    plan_version_edits,
+    resolve_version,
+    write_version,
+)
 
 SCRIPTS_DIR: Final[Path] = Path(__file__).resolve().parents[3] / "scripts"
 DRY_RUN_FILE: Final = "DRY-RUN.txt"
@@ -79,6 +91,8 @@ EXPORT_TIMEOUT_S: Final = 3600.0
 
 IOS_TEAM_KEY: Final = "application/app_store_team_id"
 IOS_PROFILE_KEY: Final = "application/provisioning_profile_uuid_release"
+_TEST_SUMMARY: Final = re.compile(r"\d+ passed, \d+ failed")
+"""The summary line the project's ``run_tests.gd`` prints last, shown as the tests gate result."""
 
 
 @dataclass
@@ -94,6 +108,7 @@ class _Ship:
     godot_display: str
     run: Runner
     gate_lines: list[str] = field(default_factory=list)
+    gate_results: list[tuple[str, str]] = field(default_factory=list)
 
 
 def run_ship(
@@ -106,17 +121,25 @@ def run_ship(
     godot: GodotRunner | None = None,
     scripts_dir: Path = SCRIPTS_DIR,
     run: Runner = subprocess.run,
+    bump: str | None = None,
+    version: str | None = None,
 ) -> list[ReleaseEntry]:
     """Ship ``target`` from ``project`` (``game/project.godot``) into ``release_dir``.
 
     ``godot`` runs headless Godot; when ``None`` the binary is resolved from ``env`` (a dry run
     without one prints the literal ``godot``). ``run`` executes ``security`` for the signing
-    identity and the iOS provisioning profile. Returns the published artifacts.
+    identity and the iOS provisioning profile. ``bump`` (major, minor, or patch) or ``version``
+    (X.Y.Z) names the build version to ship (#254); with neither, the current version ships. The
+    version and its changelog section are checked before any Godot command. Returns the published
+    artifacts.
     """
     platforms = expand_target(target)
     project_dir = _check_project(project).absolute()
     release_dir = release_dir.absolute()
     preflight_env(platforms, env)
+    plan = resolve_version(project_dir / PROJECT_FILE, bump, version)
+    changelog = project_dir.parent / CHANGELOG_NAME
+    changes = changelog_section(changelog, plan.new)
     identity = resolve_signing_identity(env, run, dry_run=dry_run) if "macos" in platforms else ""
     presets = _check_presets(project_dir, platforms)
     runner, display = _godot(godot, env, dry_run)
@@ -131,6 +154,10 @@ def run_ship(
         godot=runner,
         godot_display=display,
         run=run,
+        gate_results=[
+            ("version", _version_result(plan)),
+            ("changelog", f"## {plan.new} found"),
+        ],
     )
 
     _import_project(ship)
@@ -141,13 +168,26 @@ def run_ship(
         _gate_mobile_budgets(
             check_mobile_budgets(project_dir / "assets", project_dir.parent / OVERRIDES_NAME)
         )
+        ship.gate_results.append(("mobile budgets", "passed"))
+    else:
+        ship.gate_results.append(("mobile budgets", "not applicable"))
+    _apply_version(ship, plan, changelog)
 
     entries: list[ReleaseEntry] = []
     for platform in platforms:
         entry = _ship_platform(platform, ship, presets[platform])
         if entry is not None:
             entries.append(entry)
-    write_release_notes(release_dir, target, entries, dry_run, platforms)
+    write_release_notes(
+        release_dir,
+        target,
+        entries,
+        dry_run,
+        platforms,
+        version=plan.new,
+        changes=changes,
+        gates=ship.gate_results,
+    )
     return entries
 
 
@@ -254,10 +294,12 @@ def _import_project(ship: _Ship) -> None:
             ),
             stage="import",
         )
+    ship.gate_results.append(("import", _outcome(ship, "passed")))
 
 
 def _check_scripts(ship: _Ship) -> None:
-    for rel in project_scripts(ship.project_dir):
+    scripts = project_scripts(ship.project_dir)
+    for rel in scripts:
         result = _godot_run(ship, ["--check-only", "-s", f"res://{rel}"], ship.gate_lines)
         if result is not None and (result.returncode != 0 or _error_lines(result, "SCRIPT ERROR:")):
             raise ShipError(
@@ -266,10 +308,12 @@ def _check_scripts(ship: _Ship) -> None:
                 remediation=f"Fix the script error in {rel}, then rerun the ship.",
                 stage="script_check",
             )
+    ship.gate_results.append(("scripts", _outcome(ship, f"{len(scripts)} scripts passed")))
 
 
 def _run_project_tests(ship: _Ship) -> None:
     if not (ship.project_dir / TESTS_SCRIPT).is_file():
+        ship.gate_results.append(("tests", "not present"))
         return
     result = _godot_run(ship, ["-s", f"res://{TESTS_SCRIPT}"], ship.gate_lines)
     if result is not None and result.returncode != 0:
@@ -279,6 +323,8 @@ def _run_project_tests(ship: _Ship) -> None:
             remediation="Fix the failing project tests reported above, then rerun the ship.",
             stage="tests",
         )
+    summary = "passed" if result is None else _test_summary(result)
+    ship.gate_results.append(("tests", _outcome(ship, summary)))
 
 
 def _run_smoke(ship: _Ship) -> None:
@@ -288,17 +334,53 @@ def _run_smoke(ship: _Ship) -> None:
     smoke code, its error lines, and its remediation, and no export runs.
     """
     result = _godot_run(ship, smoke_args(DEFAULT_FRAMES), ship.gate_lines)
-    if result is None:
+    if result is not None:
+        try:
+            check_smoke(result)
+        except PipelineError as error:
+            raise ShipError(
+                code="ship.smoke_failed",
+                message=f"The smoke run failed with {error.code}: {error.message}",
+                remediation=error.remediation,
+                stage="smoke",
+            ) from error
+    ship.gate_results.append(("smoke", _outcome(ship, "passed")))
+
+
+def _outcome(ship: _Ship, outcome: str) -> str:
+    """The result a gate records: ``planned (dry run)`` in a dry run, else ``outcome``."""
+    return "planned (dry run)" if ship.dry_run else outcome
+
+
+def _test_summary(result: CommandResult) -> str:
+    """The last ``N passed, M failed`` line the project tests printed, else ``passed``."""
+    lines = (line.strip() for line in f"{result.stdout}\n{result.stderr}".splitlines())
+    summaries = [line for line in lines if _TEST_SUMMARY.fullmatch(line)]
+    return summaries[-1] if summaries else "passed"
+
+
+def _version_result(plan: VersionPlan) -> str:
+    if plan.changed:
+        return f"{plan.current or 'none'} -> {plan.new}"
+    return f"{plan.new} (unchanged)"
+
+
+def _apply_version(ship: _Ship, plan: VersionPlan, changelog: Path) -> None:
+    """Write the version after the gates and before the first export (#254 AC1, AC6).
+
+    A dry run prints the planned version lines and the changelog line, and records them after the
+    gate commands in each DRY-RUN.txt. Without a version flag nothing is written.
+    """
+    if not ship.dry_run:
+        write_version(plan, ship.project_dir)
         return
-    try:
-        check_smoke(result)
-    except PipelineError as error:
-        raise ShipError(
-            code="ship.smoke_failed",
-            message=f"The smoke run failed with {error.code}: {error.message}",
-            remediation=error.remediation,
-            stage="smoke",
-        ) from error
+    lines = [
+        *plan_version_edits(plan, ship.project_dir).lines,
+        f"DRY-RUN: changelog ## {plan.new} found in {changelog}",
+    ]
+    for line in lines:
+        print(line)
+    ship.gate_lines.extend(lines)
 
 
 def _error_lines(result: CommandResult, prefix: str) -> list[str]:
@@ -478,32 +560,11 @@ def patch_preset_options(text: str, preset_index: int, values: Mapping[str, str]
     """Set ``values`` as strings in ``[preset.<index>.options]``; replace or append each key.
 
     Each value is written as an escaped Godot string literal, so a quote or backslash in an
-    environment value cannot break the file.
+    environment value cannot break the file. The line edit itself is ``patch_preset_literals``.
     """
-    lines = text.splitlines(keepends=True)
-    header = f"[preset.{preset_index}.options]"
-    start = next((i for i, line in enumerate(lines) if line.strip() == header), None)
-    if start is None:
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        lines += ["\n", f"{header}\n", "\n"]
-        start = len(lines) - 2
-    end = next(
-        (i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("[")),
-        len(lines),
+    return patch_preset_literals(
+        text, preset_index, {key: godot_string(value) for key, value in values.items()}
     )
-    pending = dict(values)
-    for i in range(start + 1, end):
-        key = lines[i].split("=", 1)[0].strip()
-        if key in pending:
-            lines[i] = f"{key}={godot_string(pending.pop(key))}\n"
-    insert_at = end
-    while insert_at > start + 1 and not lines[insert_at - 1].strip():
-        insert_at -= 1
-    lines[insert_at:insert_at] = [
-        f"{key}={godot_string(value)}\n" for key, value in pending.items()
-    ]
-    return "".join(lines)
 
 
 def warn_large_web_pack(web_dir: Path) -> None:

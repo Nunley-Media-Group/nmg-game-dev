@@ -9,9 +9,11 @@ flow. Every Godot call is headless (`godot --headless --path game ...`); no edit
 
 ```
 python -m nmg_game_dev.ship <target> --project game/project.godot [--release-dir DIR] [--dry-run]
+                             [--bump major|minor|patch | --version X.Y.Z]
 
 1. Preflight: the target, game/project.godot, game/export_presets.cfg with each platform's preset,
-   every required variable (ship.env_missing), and the macOS signing identity
+   every required variable (ship.env_missing), the build version (ship.version_*), the version's
+   CHANGELOG.md section (ship.changelog_missing), and the macOS signing identity
 2. godot --import, so a fresh clone has its class cache and imports         (ship.import_failed)
 3. godot --check-only -s res://<path> for every .gd file, skipping .godot/   (ship.script_check_failed)
 4. godot -s res://tests/run_tests.gd, when that file exists                   (ship.tests_failed)
@@ -19,13 +21,83 @@ python -m nmg_game_dev.ship <target> --project game/project.godot [--release-dir
    the headless autoplay smoke run; a script error, Parse Error, ERROR: line, non-zero exit,
    or timeout fails it                                                       (ship.smoke_failed)
 6. ios, android, web: the mobile budget gate over game/assets/**/Mobile/      (also in a dry run)
-7. Per platform, in order:
+7. Write the build version into game/project.godot and each export preset (not in a dry run)
+8. Per platform, in order:
      ios: patch the iOS preset's team and provisioning-profile UUID, restore it afterwards
      android: --install-android-build-template when game/android/build/ is missing
      godot --export-release "<preset>" release/<platform>/<artifact>          (ship.export_failed)
      macos: sign-macos.sh, then notarize-macos.sh (notarize and staple)
      web: WARNING [ship.web_pack_large] when index.pck is over 38 MB
-8. Write release/RELEASE-NOTES.md with each artifact and its SHA-256
+9. Write release/RELEASE-NOTES.md: the version, the changelog section, each gate's result, and
+   each artifact with its SHA-256
+```
+
+## Build version and changelog
+
+Each ship names a version, and the game shows it. Pass `--bump major`, `--bump minor`, or
+`--bump patch` to raise the current version by one part (the lower parts reset to zero), or
+`--version X.Y.Z` to name it. The two flags are mutually exclusive. With neither, the current
+version ships and neither file changes. The `/ship` skill passes these flags through.
+
+| Check | Rule | Failure |
+|---|---|---|
+| Version format | `X.Y.Z`, three non-negative integers with no leading zero | `ship.version_invalid` |
+| Both flags | `--bump` and `--version` together | `ship.version_invalid` |
+| Increase | `--version` is greater than the current version; an absent current version counts as 0.0.0 | `ship.version_not_increased` |
+| Declared | with no flag, `application/config/version` must hold a version | `ship.version_missing` |
+| Changelog | `CHANGELOG.md` at the consumer root (the folder above `game/`) has a `## X.Y.Z` section with at least one line of text | `ship.changelog_missing` |
+
+All of these run before any Godot command, and a dry run checks them too.
+
+### Changelog section format
+
+The consumer root's `CHANGELOG.md` holds one `## X.Y.Z` section per release, written for players.
+`## X.Y.Z`, `## [X.Y.Z]`, and a trailing date such as `## [1.3.0] - 2026-11-18` all match. The
+section's text runs up to the next `## ` heading, and the ship copies it verbatim under
+`## Changes` in the release notes. The ship never writes this text, so the developer writes it
+before shipping.
+
+### Version keys per platform
+
+After the gates pass, and before the first export, the version is written in place. Only these
+lines change, and every other byte of both files is kept.
+
+| Preset (`game/export_presets.cfg`) | Keys set |
+|---|---|
+| macOS, iOS | `application/short_version` and `application/version` = `X.Y.Z` |
+| Android | `version/name` = `X.Y.Z`; `version/code` = the previous integer plus one (an absent code counts as 0) |
+| Windows Desktop | `application/file_version` and `application/product_version` = `X.Y.Z.0` |
+| Web | none |
+
+`game/project.godot` gets `application/config/version = "X.Y.Z"` under `[application]`. Every
+shipping preset in `game/export_presets.cfg` is updated, not only the targets you ship, so the
+presets always agree.
+
+### Release notes layout
+
+`release/RELEASE-NOTES.md` opens with `# Release notes — X.Y.Z`, then the target, the platforms,
+the mode, and `- Version: X.Y.Z`. Its sections follow in order:
+
+- `## Changes`: the changelog section text.
+- `## Gates`: one line per gate that ran, such as `- version: 1.2.3 -> 1.3.0`,
+  `- changelog: ## 1.3.0 found`, `- import: passed`, `- scripts: 12 scripts passed`,
+  `- tests: 42 passed, 0 failed` (the last `N passed, M failed` line of `run_tests.gd`, or
+  `not present`), `- smoke: passed`, and `- mobile budgets: passed` or `not applicable`.
+  A dry run records `planned (dry run)` for the Godot gates.
+- `## Artifacts`: the SHA-256 table of each artifact.
+
+### The game shows its version
+
+The `nmg_game_dev` add-on (`addons/nmg_game_dev/`) ships two pieces:
+
+- `NmgBuild.version()` is a static helper that returns `application/config/version` of the running
+  build, or `""` when the project declares none.
+- `NmgVersionLabel` is a `Label` node. On `_ready` it shows `prefix + NmgBuild.version()`. Its
+  exported `prefix` defaults to `"v"`, and a build with no version shows nothing. It has no
+  per-frame work.
+
+```gdscript
+var shown: String = NmgBuild.version()    # "1.3.0"
 ```
 
 The import runs first because `game/.godot/` is git-ignored: on a fresh clone or CI checkout Godot
@@ -116,7 +188,7 @@ override must be 127, 253, 505, 1009, 2017, or 4033:
 
 ```
 <consumer root>/release/
-  RELEASE-NOTES.md          target, platforms, each artifact with its SHA-256
+  RELEASE-NOTES.md          version, changelog section, gate results, each artifact with its SHA-256
   macos/MyGame.app          signed, notarized, stapled
   windows/MyGame.exe
   ios/MyGame.ipa
@@ -125,7 +197,10 @@ override must be 127, 253, 505, 1009, 2017, or 4033:
 ```
 
 A dry run writes `release/<platform>/DRY-RUN.txt` with the planned commands, and `RELEASE-NOTES.md`
-marked as a dry run. It writes no artifact and leaves earlier artifacts in place.
+marked as a dry run. With `--bump` or `--version`, each `DRY-RUN.txt` also records the planned
+version and each file change, and the changelog section it found. It writes no artifact, leaves
+earlier artifacts in place, and leaves `game/project.godot`, `game/export_presets.cfg`, and
+`CHANGELOG.md` byte-identical.
 
 ## Dry run and smoke
 
@@ -147,6 +222,10 @@ runtime error. See [run-and-capture.md](../onboarding/run-and-capture.md) for th
 |---|---|---|
 | `ship.env_missing` | A required variable is unset | Set the named variable |
 | `ship.unknown_target`, `ship.project_missing` | Bad target or `--project` path | Fix the argument |
+| `ship.version_invalid` | `--version` is not `X.Y.Z`, both version flags were given, or the project's version is not `X.Y.Z` | Fix the value |
+| `ship.version_not_increased` | `--version` is not above the current version | Pick a higher version, or use `--bump` |
+| `ship.version_missing` | No `application/config/version` and no version flag | Pass `--version X.Y.Z` for the first ship |
+| `ship.changelog_missing` | `CHANGELOG.md` has no `## X.Y.Z` section with text for the version | Write the player-facing section |
 | `ship.presets_missing`, `ship.preset_missing` | `export_presets.cfg` or a platform preset is missing | Run `/onboard-consumer --refresh` |
 | `godot.not_found` | No Godot binary | Install Godot 4 or set `GODOT_BIN` |
 | `ship.import_failed` | `godot --import` exited non-zero or printed an `ERROR:` line | Fix or remove the named resource |
