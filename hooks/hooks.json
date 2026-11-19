@@ -10,6 +10,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "^mcp__.*[Ee]leven[Ll]abs.*__creative_(generate_in_flow|generate_speech)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/generate_audio_guard.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }

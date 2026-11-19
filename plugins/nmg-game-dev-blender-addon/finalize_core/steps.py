@@ -182,7 +182,12 @@ def _variants(
         "Mobile": {"tris": mobile["tris"]},
     }
     summary = f"{collection}: Desktop {cleanup['tris_after']} tris, Mobile {mobile['tris']} tris"
-    return summary, {"blend": str(blend), "tris": tris, "metrics": metrics}
+    return summary, {
+        "blend": str(blend),
+        "tris": tris,
+        "metrics": metrics,
+        "pivot": cleanup["pivot"],
+    }
 
 
 def _export(

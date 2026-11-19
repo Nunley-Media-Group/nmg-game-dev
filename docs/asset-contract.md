@@ -33,6 +33,11 @@ viewport or renderer is not done.
   no natural front (terrain, tracks), the side a player first sees faces -Y.
 - Root object origin at the bottom center of the asset (where it meets the ground),
   placed at world origin.
+- A rigged asset (its collection holds an armature named `SK_<Name>`) may sit up to 5 mm off
+  the world origin on each axis at authoring time, measured at the bottom center. Finalize's
+  variants step moves its Desktop mesh data onto the origin, so both exported variants sit
+  there. The root origin, static assets, and export-time validation keep the 1 mm tolerance.
+  A bottom center more than 5 mm off fails validation: move the mesh data closer (#244).
 - Root object transforms applied: location (0,0,0), rotation (0,0,0), scale (1,1,1).
 - Child parts: rotation (0,0,0) and scale (1,1,1), with the origin at the hinge or
   axle and the location wherever that pivot sits relative to the root.

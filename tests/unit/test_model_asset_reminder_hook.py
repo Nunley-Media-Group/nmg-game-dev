@@ -38,9 +38,24 @@ def _hooks_config() -> Any:
     return json.loads(HOOKS_JSON.read_text(encoding="utf-8"))
 
 
+def _pretooluse_entries() -> list[Any]:
+    entries: list[Any] = _hooks_config()["hooks"]["PreToolUse"]
+    return entries
+
+
+def _blender_entry() -> dict[str, Any]:
+    """Return the PreToolUse entry that runs model_asset_reminder.py (#242 adds a second one)."""
+    (entry,) = [
+        candidate
+        for candidate in _pretooluse_entries()
+        if any("model_asset_reminder.py" in hook["command"] for hook in candidate["hooks"])
+    ]
+    blender: dict[str, Any] = entry
+    return blender
+
+
 def _matcher() -> re.Pattern[str]:
-    (entry,) = _hooks_config()["hooks"]["PreToolUse"]
-    return re.compile(entry["matcher"])
+    return re.compile(_blender_entry()["matcher"])
 
 
 @pytest.mark.parametrize(
@@ -67,14 +82,25 @@ def test_matcher_leaves_other_tools_alone(tool_name: str) -> None:
     assert _matcher().search(tool_name) is None
 
 
-def test_hooks_json_registers_one_command_hook_on_pretooluse() -> None:
+def test_hooks_json_registers_one_command_hook_for_the_blender_entry() -> None:
     config = _hooks_config()
     assert set(config["hooks"]) == {"PreToolUse"}
-    (command_hook,) = config["hooks"]["PreToolUse"][0]["hooks"]
+    (command_hook,) = _blender_entry()["hooks"]
     assert command_hook["type"] == "command"
     assert command_hook["command"] == (
         'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/model_asset_reminder.py"'
     )
+
+
+def test_hooks_json_has_exactly_the_blender_and_elevenlabs_pretooluse_entries() -> None:
+    """#242 T003: the Blender entry and the ElevenLabs audio guard are the only entries."""
+    entries = _pretooluse_entries()
+    assert len(entries) == 2
+    commands = sorted(hook["command"] for entry in entries for hook in entry["hooks"])
+    assert commands == [
+        'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/generate_audio_guard.py"',
+        'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/model_asset_reminder.py"',
+    ]
 
 
 def test_first_call_prints_routing_context_and_no_decision(

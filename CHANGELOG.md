@@ -10,6 +10,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Clip names are per rig, so one .blend can hold several rigged characters that each have their own `Idle`: an action named `<Clip>@SK_<Name>` exports as clip `<Clip>`, built-in and library clip import install `<Clip>@SK_<Name>` and replace only that rig's action, and finalize stops with `finalize.clip_rig_mismatch` or `finalize.clip_name_duplicate` when an action's suffix names another rig or two actions give one clip. Unsuffixed actions export as before. (#233)
 
+## [0.27.1] - 2026-11-19
+
+### Fixed
+
+- Let finalize fix or tolerate a millimetre-scale pivot.bottom_center offset on rigged meshes (#244)
+
+## [0.27.0] - 2026-11-19
+
+### Added
+
+- The `/generate-audio` skill and a `PreToolUse` hook for ElevenLabs audio generation: each sound-effect, music, or speech call runs one take (`generations_count: 1`, other values denied), music is instrumental unless vocals with lyrics are requested, and prompts come only from the request and the design docs. `docs/mcp/elevenlabs.md` documents the rules. (#242)
+
 ## [0.26.0] - 2026-11-19
 
 ### Changed
