@@ -41,7 +41,9 @@ nmg-game-dev/
 │   ├── design/                    # Design docs → backlog → Godot scaffolds (.tscn / .tres / .gd)
 │   ├── ship/                      # Godot export, sign, notarize, package
 │   ├── onboard-consumer/          # Installs hooks, Blender add-on, Godot project + add-on, asset contract
+│   ├── generate-audio/            # One-take ElevenLabs SFX/music/speech generation → import_audio
 │   └── convert-to-godot/          # Migrates an existing consumer from an older engine project
+├── hooks/                         # Plugin PreToolUse hooks: model_asset_reminder.py, generate_audio_guard.py (hooks.json)
 ├── mcp-servers/                   # NMG-authored MCP servers
 │   ├── finalize/                  # finalize MCP: finalize_asset, run_finalize_step, get_finalize_job, import_audio
 │   │   ├── pyproject.toml

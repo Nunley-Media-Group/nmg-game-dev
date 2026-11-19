@@ -16,8 +16,9 @@ ElevenLabs server. Once the server runs, your agent can call its sound-effect an
 
 ## The flow
 
-1. **Generate.** Ask the agent for a sound effect or a music track. It uses the official ElevenLabs
-   MCP tools.
+1. **Generate.** Ask the agent for a sound effect, a music track, or speech. Run it through the
+   `/generate-audio` skill (`nmg-game-dev:generate-audio`), which calls the official ElevenLabs MCP
+   tools under the [generation rules](#generation-rules) below.
 2. **Save.** Save the output to a local file. The server saves MP3 by default. Any of the four
    supported formats imports.
 3. **Import.** Call `import_audio` with the file, a PascalCase name, the kind, and an optional loop
@@ -33,6 +34,27 @@ ElevenLabs server. Once the server runs, your agent can call its sound-effect an
    ```text
    python -m nmg_game_dev.audio import --file door.mp3 --name DoorCreak --kind sfx [--loop]
    ```
+
+## Generation rules
+
+Generate through `/generate-audio` (`nmg-game-dev:generate-audio`). The skill applies these rules,
+and a `PreToolUse` hook enforces the first one:
+
+- **One take.** Every audio generation call passes `generations_count: 1`. The official MCP defaults
+  to several takes per call. The hook denies a `creative_generate_speech` call, or a
+  `creative_generate_in_flow` call whose `node_type` is `sfx`, `music`, or `tts`, when
+  `generations_count` is missing or is anything other than the integer 1. The denial names
+  `/generate-audio`. Set `generations_count: 1` and retry.
+- **Instrumental by default.** For a music track, the skill reads the music model's schema with
+  `creative_get_model_schema` and sets its instrumental option. Vocals come only when you ask for them
+  and supply the lyrics. The skill then uses your lyrics unchanged.
+- **Brief-only prompts.** The skill builds the prompt only from your request and the matching
+  design-doc entry, for example `docs/design/systems/audio.md`. It adds no genre, instrument, mood, or
+  vocal element that neither source names.
+
+The hook reminds the agent once per session to generate through `/generate-audio`. It never blocks any
+other ElevenLabs call, such as an image generation, and it fails open on unreadable input. Its markers
+live under `NMG_GAME_DEV_HOOK_STATE_DIR/generate-audio-reminder` when that variable is set.
 
 ## Parameters
 
