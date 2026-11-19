@@ -225,7 +225,9 @@ uv run --project <plugin root> python -m nmg_game_dev.texture art-finish --kind 
 - `--seeds`: comma-separated seeds, such as `1,2,3`. Default: one random seed.
 - `--backend`: `z-image-turbo` or `flux2-klein-4b` (default `flux2-klein-4b`). `both` is not allowed for art.
 - `--aspect`: `16:9`, `3:2`, or `1:1` for a painting (default `16:9`). Icons and UI art are `1:1`.
-- `--resolution`: the long side, a multiple of 64 from 256 to 2048 (default 1024).
+- `--resolution`: the long side, a multiple of 64 from 256 to 2048 (default 1024). Both sides are
+  multiples of 64, so a `16:9` or `3:2` painting refuses a resolution whose short side would miss the
+  aspect by more than 5 % (such as `16:9` at 512); the message names the nearest resolutions that fit.
 
 | Kind | Framing | Aspects |
 |------|---------|---------|
@@ -244,6 +246,13 @@ Put one sentence in `SourceArt/Art/style.json` to give a set of art one look:
 Every art prompt becomes `<prompt>, <project style>, <kind framing>`. The sentence is recorded as
 `project_style` in the art manifest and in `textures.json`. Texture prompts do not change. Without the
 file, art prompts use only the kind framing, and `project_style` is `null`.
+
+`art` refuses before generating anything when a request is bad:
+
+| Code | Meaning | What to do |
+|------|---------|------------|
+| `art.style_invalid` | `SourceArt/Art/style.json` is not `{"style": "<sentence>"}` | Fix or delete the file |
+| `texture.invalid_request` | A bad kind, name, prompt, seed list, aspect, backend, or resolution | Fix the option named in the message |
 
 ### Raw takes, the manifest, and the contact sheet
 
@@ -281,7 +290,6 @@ import; import the files as you would any other asset.
 | `art.take_not_found` | No raw take for that name and seed | Generate it with `art`, or pick a seed that exists |
 | `art.background_not_flat` | The corners differ in colour | Regenerate on a flat background, or pick another take |
 | `art.subject_cropped` | The subject touches the edge, or there is no subject | Regenerate with room around the subject, or pick another take |
-| `art.style_invalid` | `SourceArt/Art/style.json` is not `{"style": "<sentence>"}` | Fix or delete the file |
 | `texture.invalid_request` | A bad kind, name, aspect, seed list, or `--width` for a non-painting | Fix the option named in the message |
 
 ### Art tools

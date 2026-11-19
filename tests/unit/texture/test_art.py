@@ -141,6 +141,38 @@ def test_size_has_the_long_side_at_resolution_and_multiples_of_64(
     assert abs((width / height) / ratio - 1) <= 0.05
 
 
+@pytest.mark.parametrize("aspect", ["1:1", "16:9", "3:2"])
+@pytest.mark.parametrize("resolution", range(art.MIN_RESOLUTION, art.MAX_RESOLUTION + 1, 64))
+def test_every_accepted_resolution_keeps_the_aspect_within_5_percent(
+    aspect: str, resolution: int
+) -> None:
+    request = _request(kind="painting", aspect=aspect, resolution=resolution)
+    ratio = {"1:1": 1.0, "16:9": 16 / 9, "3:2": 1.5}[aspect]
+    try:
+        art.validate_request(request)
+    except TextureGenError as error:
+        assert error.code == "texture.invalid_request"
+        assert "--resolution" in error.remediation
+        return
+    width, height = size(aspect, resolution)
+    assert width == resolution
+    assert width % 64 == 0 and height % 64 == 0
+    assert abs((width / height) / ratio - 1) <= 0.05
+
+
+@pytest.mark.parametrize(
+    ("aspect", "resolution", "suggested"),
+    [("16:9", 512, "448 or 576"), ("16:9", 256, "448 or 576"), ("3:2", 320, "384 or 576")],
+)
+def test_a_resolution_that_misses_the_aspect_names_the_nearest_valid_ones(
+    aspect: str, resolution: int, suggested: str
+) -> None:
+    with pytest.raises(TextureGenError) as caught:
+        art.validate_request(_request(kind="painting", aspect=aspect, resolution=resolution))
+    assert caught.value.code == "texture.invalid_request"
+    assert f"--resolution {suggested}" in caught.value.remediation
+
+
 def test_full_prompt_adds_the_project_style_between_prompt_and_kind_style() -> None:
     request = _request()
     assert full_prompt(request, STYLE) == f"red potion bottle, {STYLE}, {KINDS['icon'].framing}"

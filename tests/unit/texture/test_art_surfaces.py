@@ -189,6 +189,13 @@ def test_generate_art_reports_a_bad_request_as_a_structured_error(server: Module
     assert result["error"]["remediation"]
 
 
+def test_generate_art_refuses_an_empty_seed_list(server: ModuleType) -> None:
+    result = server.generate_art(kind="icon", name="HealthPotion", prompt="potion", seeds=[])
+    assert set(result) == {"error"}
+    assert result["error"]["code"] == "texture.invalid_request"
+    assert "seed" in result["error"]["message"].lower()
+
+
 def test_finish_art_writes_the_files_and_reports_a_missing_take_as_an_error(
     server: ModuleType, project: Path
 ) -> None:

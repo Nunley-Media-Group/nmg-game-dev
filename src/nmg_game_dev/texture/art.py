@@ -40,6 +40,7 @@ DEFAULT_BACKEND = generate.DEFAULT_BACKEND
 MIN_RESOLUTION = 256
 MAX_RESOLUTION = 2048
 SIDE_MULTIPLE = 64
+ASPECT_TOLERANCE = 0.05
 NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 RAW_RELATIVE = Path("SourceArt") / "Art" / "raw"
 MANIFEST_SUFFIX = ".json"
@@ -169,6 +170,22 @@ def size(aspect: str, resolution: int) -> tuple[int, int]:
     return resolution, short
 
 
+def _aspect_error(aspect: str, resolution: int) -> float:
+    """How far ``size(aspect, resolution)`` is from the aspect's exact ratio, as a fraction."""
+    wide, high = ASPECT_RATIOS[aspect]
+    width, height = size(aspect, resolution)
+    return abs((width / height) / (wide / high) - 1)
+
+
+def _resolutions_for(aspect: str) -> list[int]:
+    """Every allowed resolution whose size keeps ``aspect`` within ``ASPECT_TOLERANCE``."""
+    return [
+        resolution
+        for resolution in range(MIN_RESOLUTION, MAX_RESOLUTION + 1, SIDE_MULTIPLE)
+        if _aspect_error(aspect, resolution) <= ASPECT_TOLERANCE
+    ]
+
+
 def validate_request(
     request: ArtRequest, registry: Mapping[str, BackendSpec] = REGISTRY
 ) -> BackendSpec:
@@ -213,6 +230,17 @@ def validate_request(
             f"Resolution {request.resolution} is not a multiple of 64 from "
             f"{MIN_RESOLUTION} to {MAX_RESOLUTION}.",
             "Use a resolution such as 512, 1024, or 2048.",
+        )
+    aspect = request.resolved_aspect()
+    if _aspect_error(aspect, request.resolution) > ASPECT_TOLERANCE:
+        nearest = sorted(
+            _resolutions_for(aspect), key=lambda valid: (abs(valid - request.resolution), valid)
+        )[:2]
+        raise _invalid(
+            f"Resolution {request.resolution} cannot keep aspect {aspect} within 5 % at sides "
+            "that are multiples of 64.",
+            f"Use --resolution {' or '.join(str(valid) for valid in sorted(nearest))} "
+            f"for aspect {aspect}.",
         )
     return resolve(request.backend, registry)
 

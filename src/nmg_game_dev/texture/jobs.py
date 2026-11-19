@@ -440,7 +440,8 @@ def _run_art_job(
     """Run a queued art request: its missing takes, then its manifest and contact sheet (#253).
 
     The job's total is the number of missing takes. ``start`` already checked that a backend is
-    available for them, so no hardware probe runs here.
+    available for them; ``art.run`` still probes the hardware when ``facts`` is None and takes
+    are missing, before it runs the worker.
     """
     try:
         request = art.request_from_json(stored["art_request"])

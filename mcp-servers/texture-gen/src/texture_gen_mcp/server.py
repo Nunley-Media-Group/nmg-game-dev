@@ -138,7 +138,7 @@ def generate_art(
             "aspect": aspect,
             "resolution": resolution,
         }
-        if seeds:
+        if seeds is not None:
             kwargs["seeds"] = list(seeds)
         job_id = jobs.start(art.ArtRequest(**kwargs))
     except TextureGenError as error:
