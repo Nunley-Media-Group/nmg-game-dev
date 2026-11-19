@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-19
+
 ### Added
 
 - `import_audio` finishes the game copy before it imports it: leading silence below -50 dBFS is trimmed, `max_seconds` cuts the sound with a 20 ms fade-out, a looping sound's seam is crossfaded over `loop_crossfade_ms` (default 500 ms, capped at a quarter of the sound), and loudness is matched to BS.1770 integrated -16 LUFS for sound effects or -18 LUFS for music, with a -1 dBFS peak ceiling reported as `loudness_capped`. `SourceArt/Audio/` keeps the bytes you saved. (#252)
