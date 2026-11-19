@@ -18,10 +18,12 @@ import pytest
 from nmg_game_dev.secrets import scan
 from nmg_game_dev.secrets.__main__ import main as cli_main
 from nmg_game_dev.secrets.scan import (
+    GitError,
     Match,
     fingerprint,
     main,
     mask,
+    scan_shippable,
     scan_staged,
     scan_text,
     scan_tracked,
@@ -263,6 +265,106 @@ def test_tracked_skips_untracked_files_in_a_git_work_tree(repo: Path) -> None:
     (repo / "untracked.gd").write_text(f'var k = "{MESHY}"\n', encoding="utf-8")
 
     assert scan_tracked(repo) == []
+
+
+# The /ship file source: tracked files plus untracked files under the project (#296) -------------
+
+
+def _write(root: Path, rel: str, text: str) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_an_untracked_unignored_file_under_the_project_is_scanned(repo: Path) -> None:
+    """AC1: a key in a file Godot could export is reported before the file is ever added."""
+    _write(repo, "game/scripts/leak.gd", f'var k = "{MESHY}"\n')
+
+    assert [(m.path, m.line, m.pattern) for m in scan_shippable(repo, "game")] == [
+        ("game/scripts/leak.gd", 1, "meshy")
+    ]
+
+
+def test_an_untracked_file_that_gitignore_covers_is_not_scanned(repo: Path) -> None:
+    """AC2: an ignored local file under the project is never exported, so it does not block."""
+    _write(repo, ".gitignore", "game/local_keys.gd\n")
+    _write(repo, "game/local_keys.gd", f'var k = "{MESHY}"\n')
+
+    assert scan_shippable(repo, "game") == []
+
+
+def test_the_allow_file_covers_an_untracked_match_under_the_project(repo: Path) -> None:
+    """FR1: `.nmg/secret-scan-allow` suppresses a reviewed untracked match, by fingerprint or by
+    path and pattern, and leaves every other match reported."""
+    other = "msy_" + "Zz8Yy7Xx6Ww5Vv4Uu3Tt2"
+    _write(repo, "game/scripts/fixture.gd", f'var k = "{MESHY}"\n')
+    _write(repo, "game/scripts/docs.gd", f'var k = "{other}"\nvar a = "{AWS}"\n')
+    _allow(repo, f"{fingerprint(MESHY)}\ngame/scripts/docs.gd:meshy\n")
+
+    assert [(m.path, m.line, m.pattern) for m in scan_shippable(repo, "game")] == [
+        ("game/scripts/docs.gd", 2, "aws")
+    ]
+
+
+def test_an_untracked_file_outside_the_project_is_not_scanned(repo: Path) -> None:
+    """AC2: Godot exports only the project folder, so a key beside it does not block."""
+    _write(repo, "notes/keys.gd", f'var k = "{MESHY}"\n')
+
+    assert scan_shippable(repo, "game") == []
+
+
+def test_an_untracked_file_under_the_godot_cache_is_not_scanned(repo: Path) -> None:
+    """AC2: game/.godot/ is the editor cache that every import rebuilds, never exported."""
+    _write(repo, "game/.godot/editor/keys.gd", f'var k = "{MESHY}"\n')
+
+    assert scan_shippable(repo, "game") == []
+
+
+def test_a_tracked_file_is_scanned_wherever_it_lives(repo: Path) -> None:
+    """Tracked files stay in the scan as they were, whatever folder holds them."""
+    _stage(repo, "notes/keys.txt", f"key {MESHY}\n".encode())
+
+    assert [(m.path, m.line) for m in scan_shippable(repo, "game")] == [("notes/keys.txt", 1)]
+
+
+def test_a_symlink_and_a_nested_repository_under_the_project_are_skipped(repo: Path) -> None:
+    """FR2: a symbolic link is not followed, and a nested repository is listed as a directory."""
+    _write(repo, "game/real.gd", f'var k = "{MESHY}"\n')
+    (repo / "game" / "link.gd").symlink_to("real.gd")
+    nested = repo / "game" / "nested"
+    nested.mkdir()
+    _git(nested, "init", "-q")
+    _write(nested, "inner.gd", f'var k = "{MESHY}"\n')
+
+    assert [m.path for m in scan_shippable(repo, "game")] == ["game/real.gd"]
+
+
+def test_a_failing_untracked_listing_raises_git_error(repo: Path) -> None:
+    """A git failure while listing the untracked files is a GitError, not a silent pass."""
+
+    def failing_untracked(argv: list[str], **_: object) -> subprocess.CompletedProcess[bytes]:
+        if "--others" in argv:
+            return subprocess.CompletedProcess(argv, 128, b"", b"fatal: index file corrupt\n")
+        return subprocess.run(argv, capture_output=True, check=False)
+
+    with pytest.raises(GitError, match="index file corrupt"):
+        scan_shippable(repo, "game", run=failing_untracked)
+
+
+def test_outside_a_work_tree_the_ship_scan_walks_as_before(tmp_path: Path) -> None:
+    """FR3: outside git the walk and its exclusions are unchanged, so a file under the root is
+    scanned while the local stores and the .godot/ cache are skipped."""
+    root = tmp_path / "consumer"
+    root.mkdir()
+    _write(root, "game/notes.txt", f"key {MESHY}\n")
+    _write(root, "notes/keys.txt", f"key {MESHY}\n")
+    for skipped in (".env", ".claude/settings.local.json", ".venv/lib/x.py", "game/.godot/x.txt"):
+        _write(root, skipped, f"MESHY_API_KEY={MESHY}\n")
+
+    assert [(m.path, m.line) for m in scan_shippable(root, "game")] == [
+        ("game/notes.txt", 1),
+        ("notes/keys.txt", 1),
+    ]
 
 
 def test_outside_a_work_tree_tracked_walks_every_file_under_the_root(tmp_path: Path) -> None:

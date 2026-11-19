@@ -242,6 +242,25 @@ def tracked_files(root: Path, run: Runner = subprocess.run) -> Iterator[tuple[st
     return _tracked_from_index(root, _split_z(_git(root, run, "ls-files", "-z")))
 
 
+def shippable_files(
+    root: Path, project: str, run: Runner = subprocess.run
+) -> Iterator[tuple[str, bytes]]:
+    """Each file a ``/ship`` export of the ``project`` folder could include, read one file at a
+    time (#296). In a git work tree these are the tracked files, then the untracked files that
+    ``.gitignore`` does not cover under ``<project>/``, minus its ``.godot/`` cache. Outside a work
+    tree the regular files under ``root`` are walked instead (see ``_walk_files``)."""
+    if not _in_work_tree(root, run):
+        return _walk_files(root)
+    tracked = _split_z(_git(root, run, "ls-files", "-z"))
+    untracked = _split_z(
+        _git(root, run, "ls-files", "-z", "--others", "--exclude-standard", "--", f"{project}/")
+    )
+    cache = (project, ".godot")
+    return _tracked_from_index(
+        root, tracked + [name for name in untracked if Path(name).parts[:2] != cache]
+    )
+
+
 def scan_staged(root: Path, run: Runner = subprocess.run) -> list[Match]:
     """The unallowed matches in the staged index blobs, sorted by path and line."""
     return _unallowed(_scan_files(staged_files(root, run)), load_allow(root))
@@ -250,6 +269,12 @@ def scan_staged(root: Path, run: Runner = subprocess.run) -> list[Match]:
 def scan_tracked(root: Path, run: Runner = subprocess.run) -> list[Match]:
     """The unallowed matches in the tracked files, sorted by path and line."""
     return _unallowed(_scan_files(tracked_files(root, run)), load_allow(root))
+
+
+def scan_shippable(root: Path, project: str, run: Runner = subprocess.run) -> list[Match]:
+    """The unallowed matches in the files a ``/ship`` export could include, sorted by path and
+    line (see ``shippable_files``)."""
+    return _unallowed(_scan_files(shippable_files(root, project, run)), load_allow(root))
 
 
 def _default_root() -> Path:
