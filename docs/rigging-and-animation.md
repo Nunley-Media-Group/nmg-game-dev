@@ -163,7 +163,17 @@ Whatever the map, the source must reach `pelvis`, `thigh_l`, `thigh_r`,
 Each clip is retargeted from rest. Each mapped bone's world rotation relative to
 its rest pose is copied onto the same bone of the rig. The pelvis also gets its
 translation, scaled by the ratio of the two pelvis heights. Unmapped bones stay
-at rest. Each clip is stored as an action named after the clip.
+at rest. Each clip is stored as an action named `<Clip>@SK_<Name>`, for example
+`Idle@SK_StreetThug`. Re-importing a clip replaces only that rig's action, and no
+`.001` copy is left behind. The rig's `nmg_animations` provenance is keyed by the bare
+clip name, `Idle`. So one .blend can hold several rigged characters that each have an
+`Idle`: each rig's clip exports as its own `A_<Name>_Idle.glb` (see
+`docs/asset-contract.md`, section 7).
+
+An action whose `@` suffix names another rig, such as `Idle@SK_Cop` on `SK_StreetThug`, and two
+actions that give one clip name, such as `Idle` and `Idle@SK_StreetThug`, both stop the finalize
+export before any file is written. They fail with `finalize.clip_rig_mismatch` and
+`finalize.clip_name_duplicate`. Their remediations are in `docs/mcp/finalize.md`, "Errors".
 
 ## Built-in library
 
@@ -186,8 +196,8 @@ The built-in clips are `Idle`, `FightIdle`, `Walk`, `Run`, `Punch1`, `Punch2`,
 - With no `clips`, every built-in clip is baked. `clips=["Idle", "Walk"]` bakes
   only those. An unknown name fails with `anim.clip_not_found`, lists the built-in
   names, and bakes nothing.
-- Each clip is an action named after the clip. Baking a clip again replaces the
-  action with identical keys and provenance.
+- Each clip is an action named `<Clip>@SK_<Name>`. Baking a clip again replaces that
+  rig's action with identical keys and provenance, and leaves other rigs' actions alone.
 - Clips play in place, with no root motion. `Idle`, `FightIdle`, `Walk`, and `Run`
   loop. `Walk` and `Run` are authored as half cycles, and the second half is the
   left/right mirror of the first.

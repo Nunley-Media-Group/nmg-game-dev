@@ -10,6 +10,18 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 - Make every texture-gen map pass the bake seam rule, and stop `texture seamless` from worsening images that already tile (#238)
 
+## [0.28.0] - 2026-11-19
+
+### Added
+
+- Clip names are per rig, so one .blend can hold several rigged characters that each have their own `Idle`: an action named `<Clip>@SK_<Name>` exports as clip `<Clip>`, built-in and library clip import install `<Clip>@SK_<Name>` and replace only that rig's action, and finalize stops with `finalize.clip_rig_mismatch` or `finalize.clip_name_duplicate` when an action's suffix names another rig or two actions give one clip. Unsuffixed actions export as before. (#233)
+
+## [0.27.1] - 2026-11-19
+
+### Fixed
+
+- Let finalize fix or tolerate a millimetre-scale pivot.bottom_center offset on rigged meshes (#244)
+
 ## [0.27.0] - 2026-11-19
 
 ### Added
