@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-19
+
 ### Fixed
 
 - `/ship`'s secret gate scans the untracked, unignored files under `game/` that Godot exports, not only the tracked files, so a key in a new file stops the ship with `ship.secret_found` before any Godot command runs. Files that `.gitignore` covers, files outside `game/`, and `game/.godot/` are still skipped, and outside a git work tree the scan keeps its walk and its exclusions. (#296)
