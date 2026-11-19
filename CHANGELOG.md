@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-19
+
 ### Added
 
 - `NmgLaunch` autoload in the `addons/nmg_game_dev` add-on: `get_option` and `has_option` read the same launch options on desktop (`-- --name=value`) and web (`#name=value`), a bare flag reads `"true"`, `autoplay_requested` emits once after the main scene's `_ready` with `--nmg-autoplay`, so a main scene that connects in `_ready` receives it, and `save_dir()` returns `user://nmg-test/` with `--nmg-test-saves`. (#251)
