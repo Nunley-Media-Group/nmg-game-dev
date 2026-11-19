@@ -234,7 +234,7 @@ def test_state_dir_defaults_under_the_temp_directory(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.parametrize("count", [MISSING, 1, 4])
-@pytest.mark.parametrize("node_type", ["image", "video"])
+@pytest.mark.parametrize("node_type", ["image", "video", "image-generation", "video-generation"])
 def test_non_audio_in_flow_generation_is_left_alone(
     node_type: str, count: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
