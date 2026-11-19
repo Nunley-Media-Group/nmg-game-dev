@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-19
+
 ### Added
 
 - `/ship --bump major|minor|patch` and `--version X.Y.Z` set the build version in `game/project.godot` and in every export preset: macOS and iOS `application/short_version` and `application/version`, Android `version/name` with `version/code` one higher, and Windows `application/file_version` and `application/product_version` as `X.Y.Z.0`. Only those lines change, and the version is written after the gates and before the first export. (#254)
