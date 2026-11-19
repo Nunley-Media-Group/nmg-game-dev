@@ -4,9 +4,9 @@ extends Node
 ## crossfades and loops, and stingers that duck the music.
 ##
 ## The scaffolded <Name>Component extends this and loads its table in _init. Gameplay calls
-## sfx("DoorCreak", position), ui("Click"), music("ForestTheme"), and stinger("Fanfare"). A name the
-## table does not hold plays nothing and pushes one warning. Volumes are linear 0 to 1 and persist in
-## settings_path, so the player's choice survives a restart.
+## sfx("DoorCreak", position), ui("Click"), music("ForestTheme"), and stinger("Fanfare"). A
+## name the table does not hold plays nothing and pushes one warning. Volumes are linear 0 to 1
+## and persist in settings_path, so the player's choice survives a restart.
 
 const MIN_DB: float = -80.0
 const VOLUMES_SECTION: String = "volumes"
@@ -44,8 +44,8 @@ func _ready() -> void:
 	call_deferred("region_music")
 
 
-## Play a sound effect. A zero position plays it without a place. Any other position plays it through
-## an AudioStreamPlayer3D there, which is freed when it finishes.
+## Play a sound effect. A zero position plays it without a place. Any other position plays it
+## through an AudioStreamPlayer3D there, which is freed when it finishes.
 func sfx(sound_name: StringName, position: Vector3 = Vector3.ZERO) -> void:
 	var stream: AudioStream = _stream_for(sound_name)
 	if stream == null:
