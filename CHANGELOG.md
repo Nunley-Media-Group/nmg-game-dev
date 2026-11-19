@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-19
+
 ### Added
 
 - `python -m nmg_game_dev.texture art` generates 2D game art (`icon`, `ui`, or `painting`) with the local texture models. Each take is written untiled to `SourceArt/Art/raw/<kind>/`, with a `<Name>.json` manifest and a `<Name>_sheet.png` contact sheet, and seeds that already have a take are skipped without loading a model. (#253)
