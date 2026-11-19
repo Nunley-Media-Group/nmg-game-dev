@@ -1,10 +1,10 @@
 """The ``finalize`` MCP server (#69).
 
-Registers eight tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
+Registers ten tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
 ``reduce_asset`` (#139), ``get_finalize_job``, ``list_material_variants`` (#148), ``import_audio``
-(#155), ``refresh_audio_table`` (#237), and ``game_screenshot`` (#251).  The tool logic lives in the
-package, so the CLI and this
-server share one implementation.  stdout is the MCP channel, so logs go to stderr only.
+(#155), ``refresh_audio_table`` (#237), ``game_screenshot`` (#251), and ``check_finalized`` (#247).
+The tool logic lives in the package, so the CLI and this server share one implementation.  stdout
+is the MCP channel, so logs go to stderr only.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from nmg_game_dev.finalize import check_finalized as _check_finalized
 from nmg_game_dev.finalize import finalize_asset as _finalize_asset
 from nmg_game_dev.finalize import game_screenshot as _game_screenshot
 from nmg_game_dev.finalize import get_finalize_job as _get_finalize_job
@@ -51,6 +52,7 @@ def finalize_asset(
     wait_for_lock: bool = False,
     lock_wait_seconds: float | None = None,
     compatible_with: list[str] | None = None,
+    skip_up_to_date: bool = False,
 ) -> dict[str, Any]:
     """Finalize an authored collection, or a batch, through every step and import it into Godot.
 
@@ -61,8 +63,9 @@ def finalize_asset(
     and probes each variant; it fails with godot.not_found, import_godot.project_missing,
     import_godot.import_failed, import_godot.mismatch, or import_godot.terrain_height_mismatch.
     fail_fast skips the rest of a batch after a failed collection, and by default the rest still
-    run. wait_for_lock waits for another finalize job to release the lock, for at most
-    lock_wait_seconds, instead of failing with finalize.job_running.
+    run. skip_up_to_date (batch only) skips each collection that check_finalized reports up to date,
+    counting it under result.batch.up_to_date. wait_for_lock waits for another finalize job to
+    release the lock, for at most lock_wait_seconds, instead of failing with finalize.job_running.
 
     Returns {"job_id", "status"} at once. When wait_seconds (0-150) is given and the job finishes in
     time, the result is included: for a batch, result.batch lists each collection's state and any
@@ -89,6 +92,7 @@ def finalize_asset(
             wait_for_lock=wait_for_lock,
             lock_wait_seconds=lock_wait_seconds,
             compatible_with=compatible_with,
+            skip_up_to_date=skip_up_to_date,
         )
     )
 
@@ -178,6 +182,30 @@ def get_finalize_job(job_id: str) -> dict[str, Any]:
     For a batch, batch reports the total, the completed count, the current collection and its
     index, and each item's state. An unknown id returns finalize.job_not_found."""
     return _logged(_get_finalize_job(job_id))
+
+
+@mcp.tool(name="check_finalized")
+def check_finalized(
+    category: str | None = None,
+    collection: str | None = None,
+    assets: list[dict[str, str]] | None = None,
+    export_root: str | None = None,
+) -> dict[str, Any]:
+    """Say whether assets are up to date, from their finalize records, without running anything.
+
+    Pass one category and collection, or assets as a list of {category, collection} objects, not
+    both. Returns {"assets": [...]} with, per asset, category, collection, up_to_date, reason, and
+    record: {state, ended_at, error_code}, or null without a record. Reasons are up_to_date,
+    no_record, record_unreadable, last_run_failed, not_full_run, no_source_blend, source_missing,
+    source_newer, import_missing, and project_missing. The check reads only the record and file
+    times: it starts no Blender or Godot and takes no cache lock. export_root defaults to
+    <project>/game/assets.
+    """
+    return _logged(
+        _check_finalized(
+            category=category, collection=collection, assets=assets, export_root=export_root
+        )
+    )
 
 
 @mcp.tool(name="list_material_variants")

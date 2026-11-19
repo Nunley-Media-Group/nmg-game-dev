@@ -42,6 +42,7 @@ from typing import Any, Final
 
 from nmg_game_dev.design import backlog as design_backlog
 
+from . import records
 from .blender_proc import StepRunner, SubprocessStepRunner
 from .cache import ArtifactCache, default_cache_root
 from .engine import FinalizeClients, FinalizeSessionChangedError, execute
@@ -56,7 +57,7 @@ Sleep = Callable[[float], None]
 Clock = Callable[[], float]
 
 TERMINAL_STATES: Final = frozenset({"succeeded", "failed"})
-_ITEM_DONE_STATES: Final = frozenset({"succeeded", "failed", "skipped"})
+_ITEM_DONE_STATES: Final = frozenset({"succeeded", "failed", "skipped", "up_to_date"})
 REDUCE_KIND: Final = "reduce"
 _LOCK_NAME: Final = "lock"
 _POLL_S: Final = 0.5
@@ -126,6 +127,7 @@ def start_batch(
     *,
     force: bool = False,
     fail_fast: bool = False,
+    skip_up_to_date: bool = False,
     cache_root: Path | None = None,
     launcher: Launcher | None = None,
     wait_for_lock: bool = False,
@@ -134,7 +136,8 @@ def start_batch(
     """Create one job that finalizes ``requests`` in order and return its job id.
 
     The requests must already be validated (``finalize.invalid_batch`` is the service's check).
-    The batch holds the cache lock from start to end.
+    The batch holds the cache lock from start to end.  With ``skip_up_to_date`` (#247 AC11), an
+    item that passes the up-to-date check runs no step and is reported as ``up_to_date``.
     """
     if not requests:
         raise PipelineError(
@@ -160,6 +163,7 @@ def start_batch(
             "steps": list(steps),
             "force": force,
             "fail_fast": fail_fast,
+            "skip_up_to_date": skip_up_to_date,
             "items": [request.to_json_dict() for request in requests],
         },
         request_json=None,
@@ -294,6 +298,8 @@ def _run_single(
     runner: StepRunner | None,
 ) -> None:
     request = FinalizeRequest.model_validate_json((job_dir / "request.json").read_text("utf-8"))
+    started_at = records.now()
+    source = records.source_at_start(request)
 
     def on_progress(event: dict[str, Any]) -> None:
         current.update(
@@ -309,8 +315,9 @@ def _run_single(
         steps_status[result.step] = result.model_dump(mode="json")
         _write_json(job_dir / "status.json", current)
 
+    outcome: FinalizeResult | None = None
     try:
-        result = execute(
+        outcome = execute(
             request,
             steps,
             force=force,
@@ -322,14 +329,36 @@ def _run_single(
             on_step=on_step,
         )
     except FinalizeSessionChangedError as error:
+        outcome = error.result
         current.update(
-            state="failed", error=_error_dict(error), result=error.result.model_dump(mode="json")
+            state="failed", error=_error_dict(error), result=outcome.model_dump(mode="json")
         )
     except Exception as error:
         current.update(state="failed", error=_failure_dict(error, current.get("step")))
     else:
-        result = _mark_backlog(request, steps, result)
-        current.update(state="succeeded", result=result.model_dump(mode="json"), progress=1.0)
+        outcome = _mark_backlog(request, steps, outcome)
+        current.update(state="succeeded", result=outcome.model_dump(mode="json"), progress=1.0)
+
+    warnings = _record_run(
+        request,
+        requested=steps,
+        job_dir=job_dir,
+        run_dir=job_dir,
+        current=current,
+        started_at=started_at,
+        source=source,
+        state=str(current["state"]),
+        error=current.get("error") if current["state"] == "failed" else None,
+        outcome=outcome,
+    )
+    if not warnings:
+        return
+    if current["state"] == "succeeded":
+        result_status = dict(current["result"])
+        result_status["warnings"] = [*result_status.get("warnings", []), *warnings]
+        current["result"] = result_status
+    else:
+        current["warnings"] = warnings
 
 
 def _run_batch(
@@ -352,11 +381,17 @@ def _run_batch(
         for index, request in enumerate(requests)
     ]
     batch.update(total=len(requests), completed=0, current=None, current_index=None, items=items)
+    skip_up_to_date = bool(job.get("skip_up_to_date"))
 
     stop = False
     for index, request in enumerate(requests):
         if stop:
             items[index]["state"] = "skipped"
+        elif (
+            skip_up_to_date
+            and records.check(request.category, request.collection, request.export_root).up_to_date
+        ):
+            items[index]["state"] = "up_to_date"
         else:
             _run_item(
                 job_dir,
@@ -386,6 +421,7 @@ def _run_batch(
             "succeeded": counts["succeeded"],
             "failed": failed,
             "skipped": skipped,
+            "up_to_date": counts["up_to_date"],
             "items": items,
         }
     }
@@ -424,6 +460,8 @@ def _run_item(
     batch.update(current=request.collection, current_index=index)
     current.update(steps={}, step=None, progress=_batch_progress(batch, 0.0), message="starting")
     _write_json(job_dir / "status.json", current)
+    started_at = records.now()
+    source = records.source_at_start(request)
 
     def on_progress(event: dict[str, Any]) -> None:
         fraction = event.get("progress")
@@ -439,8 +477,9 @@ def _run_item(
         current.setdefault("steps", {})[result.step] = result.model_dump(mode="json")
         _write_json(job_dir / "status.json", current)
 
+    outcome: FinalizeResult | None = None
     try:
-        result = execute(
+        outcome = execute(
             request,
             steps,
             force=force,
@@ -454,10 +493,56 @@ def _run_item(
     except Exception as error:
         item.update(state="failed", error=_failure_dict(error, current.get("step")))
     else:
-        _mark_backlog(request, steps, result)
+        _mark_backlog(request, steps, outcome)
         item["state"] = "succeeded"
     finally:
         batch.update(current=None, current_index=None)
+
+    # Each item's record is written before the next item starts (#247 AC3).
+    warnings = _record_run(
+        request,
+        requested=steps,
+        job_dir=job_dir,
+        run_dir=item_dir,
+        current=current,
+        started_at=started_at,
+        source=source,
+        state=str(item["state"]),
+        error=item.get("error") if item["state"] == "failed" else None,
+        outcome=outcome,
+    )
+    if warnings:
+        item["warnings"] = warnings
+
+
+def _record_run(
+    request: FinalizeRequest,
+    *,
+    requested: tuple[str, ...],
+    job_dir: Path,
+    run_dir: Path,
+    current: dict[str, Any],
+    started_at: str,
+    source: dict[str, Any] | None,
+    state: str,
+    error: dict[str, Any] | None,
+    outcome: FinalizeResult | None,
+) -> list[dict[str, str]]:
+    """Write the record for a run that reached a terminal state, and return its warnings (#247)."""
+    return records.write_record(
+        request,
+        requested=requested,
+        job_dir=job_dir,
+        run_dir=run_dir,
+        job_id=str(current.get("job_id", "")),
+        started_at=started_at,
+        ended_at=records.now(),
+        state=state,
+        source=source,
+        steps=list((current.get("steps") or {}).values()),
+        result=outcome,
+        error=error,
+    )
 
 
 def _batch_progress(batch: dict[str, Any], fraction: object) -> float:

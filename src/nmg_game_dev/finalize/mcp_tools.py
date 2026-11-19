@@ -26,6 +26,7 @@ from nmg_game_dev.godot.material_variants import list_material_variants as list_
 from nmg_game_dev.godot.project import require_project
 from nmg_game_dev.godot.runner import GodotRunner
 from nmg_game_dev.godot.shot import take_shot
+from nmg_game_dev.pipeline import records
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import STEP_ORDER, parse_step
@@ -39,9 +40,20 @@ from .service import (
     clamp_wait,
     default_export_root,
     error_dict,
+    skip_needs_batch_error,
 )
 
-_JOB_FIELDS = ("job_id", "state", "step", "progress", "message", "result", "error", "batch")
+_JOB_FIELDS = (
+    "job_id",
+    "state",
+    "step",
+    "progress",
+    "message",
+    "result",
+    "error",
+    "batch",
+    "warnings",
+)
 _PASCAL: Final = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 MAX_SHOT_AFTER_S: Final = 60.0
 
@@ -59,6 +71,7 @@ def finalize_asset(
     wait_seconds: float = 0,
     requests: list[dict[str, Any]] | None = None,
     fail_fast: bool = False,
+    skip_up_to_date: bool = False,
     wait_for_lock: bool = False,
     lock_wait_seconds: float | None = None,
     compatible_with: list[str] | None = None,
@@ -69,6 +82,8 @@ def finalize_asset(
     Pass exactly one of ``collection`` or ``requests``.  The batch entries take the finalize
     request keys.  The top-level category, asset class, export root, blend, and budgets fill in any
     key an entry omits.  Without an export root anywhere, ``<project>/game/assets`` is used.
+    ``skip_up_to_date`` (#247) applies to a batch only: an item that passes ``check_finalized``
+    runs no step and is reported as ``up_to_date``.
     """
     active = service or FinalizeService()
     if requests is not None:
@@ -95,6 +110,7 @@ def finalize_asset(
                 STEP_ORDER,
                 force=force,
                 fail_fast=fail_fast,
+                skip_up_to_date=skip_up_to_date,
                 wait_for_lock=wait_for_lock,
                 lock_wait_s=lock_wait_seconds,
             ),
@@ -102,6 +118,8 @@ def finalize_asset(
             wait_seconds=wait_seconds,
         )
 
+    if skip_up_to_date:
+        return {"error": skip_needs_batch_error()}
     if collection is None:
         return {"error": _invalid("Pass collection for one asset, or requests for a batch.")}
     try:
@@ -185,6 +203,64 @@ def get_finalize_job(job_id: str, *, service: FinalizeService | None = None) -> 
     except PipelineError as error:
         return {"error": error_dict(error)}
     return {field: status.get(field) for field in _JOB_FIELDS if field in status}
+
+
+def check_finalized(
+    *,
+    category: str | None = None,
+    collection: str | None = None,
+    assets: list[dict[str, str]] | None = None,
+    export_root: str | None = None,
+) -> dict[str, Any]:
+    """Say whether each asset is up to date, from its finalize record alone (#247 AC6).
+
+    Pass one ``category`` and ``collection``, or an ``assets`` list of ``{category, collection}``
+    objects, never both.  Returns ``{"assets": [...]}`` with, per asset, ``category``,
+    ``collection``, ``up_to_date``, ``reason``, and ``record`` (``state``, ``ended_at``, and
+    ``error_code``, or ``null`` without a record).  ``export_root`` defaults to
+    ``<project>/game/assets``.  The check starts no Blender or Godot and takes no lock.
+    """
+    if assets is not None and (category is not None or collection is not None):
+        return {"error": _invalid_check("Pass category and collection, or assets, not both.")}
+    if assets is None:
+        if category is None or collection is None:
+            return {"error": _invalid_check("Pass category and collection, or assets.")}
+        pairs = [(category, collection)]
+    else:
+        if not assets:
+            return {"error": _invalid_check("assets must name at least one asset.")}
+        pairs = []
+        for entry in assets:
+            if not isinstance(entry, Mapping) or not {"category", "collection"} <= entry.keys():
+                return {"error": _invalid_check("Each assets entry needs category and collection.")}
+            pairs.append((str(entry["category"]), str(entry["collection"])))
+    if not all(records.valid_asset_names(name, asset) for name, asset in pairs):
+        return {"error": _invalid_check("category and collection must be PascalCase names.")}
+
+    root = Path(export_root) if export_root else default_export_root()
+    rows: list[dict[str, Any]] = []
+    for name, asset in pairs:
+        check = records.check(name, asset, root)
+        rows.append(
+            {
+                "category": name,
+                "collection": asset,
+                "up_to_date": check.up_to_date,
+                "reason": check.reason,
+                "record": records.summary(check.record),
+            }
+        )
+    return {"assets": rows}
+
+
+def _invalid_check(message: str) -> dict[str, str]:
+    return {
+        "code": "finalize.invalid_request",
+        "message": message,
+        "remediation": "Pass category and collection for one asset, or assets as a list of "
+        "{category, collection} objects, with PascalCase names.",
+        "stage": "finalize",
+    }
 
 
 def list_material_variants(

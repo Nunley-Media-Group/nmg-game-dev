@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "finalize_asset",
-      "description": "Finalize an authored collection, or a batch of requests, through every step into the Godot project: exports .glb Desktop and Mobile variants under export_root (default <project>/game/assets), runs godot --headless --import once and probes each variant against its nmg-asset.json (import_godot), and imports one animation .glb per rig clip as a Godot animation library (import_anims). Failures carry a code and remediation, e.g. godot.not_found, import_godot.project_missing, import_godot.import_failed, import_godot.mismatch, import_godot.terrain_height_mismatch. Pass exactly one of collection or requests, a list of finalize requests that run one at a time in order under one job lock; the top-level options fill in any key a request omits. fail_fast skips the rest of a batch after a failure, otherwise the rest still run. wait_for_lock waits for another finalize job to release the lock, for at most lock_wait_seconds, instead of failing with finalize.job_running. compatible_with lists <Category>/<Name> characters whose Desktop skeleton must hold every bone the clips animate. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150), and for a batch result.batch lists each collection's state with succeeded, failed, and skipped counts.",
+      "description": "Finalize an authored collection, or a batch of requests, through every step into the Godot project: exports .glb Desktop and Mobile variants under export_root (default <project>/game/assets), runs godot --headless --import once and probes each variant against its nmg-asset.json (import_godot), and imports one animation .glb per rig clip as a Godot animation library (import_anims). Failures carry a code and remediation, e.g. godot.not_found, import_godot.project_missing, import_godot.import_failed, import_godot.mismatch, import_godot.terrain_height_mismatch. Pass exactly one of collection or requests, a list of finalize requests that run one at a time in order under one job lock; the top-level options fill in any key a request omits. fail_fast skips the rest of a batch after a failure, otherwise the rest still run. skip_up_to_date (batch only) skips each collection that check_finalized reports up to date, counting it under result.batch.up_to_date. wait_for_lock waits for another finalize job to release the lock, for at most lock_wait_seconds, instead of failing with finalize.job_running. compatible_with lists <Category>/<Name> characters whose Desktop skeleton must hold every bone the clips animate. Returns {job_id, status} at once; includes the result when the job finishes within wait_seconds (0-150), and for a batch result.batch lists each collection's state with succeeded, failed, and skipped counts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -22,6 +22,7 @@
             "description": "A batch: finalize request objects with the collection keys (collection, category, asset_class, export_root, blend, budgets_path, device, compatible_with, material_variants_path). Exclusive with collection."
           },
           "fail_fast": {"type": "boolean", "default": false},
+          "skip_up_to_date": {"type": "boolean", "default": false, "description": "Batch only (requests). An item that check_finalized reports up to date runs no step and is counted under result.batch.up_to_date. With collection, the call fails with finalize.invalid_request."},
           "wait_for_lock": {"type": "boolean", "default": false},
           "lock_wait_seconds": {"type": ["number", "null"], "minimum": 0},
           "compatible_with": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*/[A-Z][A-Za-z0-9]*$"}, "default": []}
@@ -112,6 +113,31 @@
           "options": {"type": ["array", "null"], "items": {"type": "string"}, "description": "Launch options for the game, for example [\"--at=Forest\", \"--hour=18\"]."}
         },
         "required": ["path"]
+      }
+    },
+    {
+      "name": "check_finalized",
+      "description": "Say whether assets are up to date, from their finalize records, without running anything. Pass one category and collection, or assets as a list of {category, collection} objects, not both. Returns {assets: [...]} with, per asset, category, collection, up_to_date, reason, and record ({state, ended_at, error_code}, or null without a record). Reasons: up_to_date; no_record; record_unreadable; last_run_failed; not_full_run; no_source_blend; source_missing; source_newer (the .blend changed after the run began); import_missing; project_missing. The check reads only the record and file times, so it starts no Blender or Godot and takes no cache lock. export_root defaults to <project>/game/assets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {"type": ["string", "null"], "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "collection": {"type": ["string", "null"], "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "assets": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+                "collection": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"}
+              },
+              "required": ["category", "collection"]
+            },
+            "description": "Several assets to check. Exclusive with category and collection."
+          },
+          "export_root": {"type": ["string", "null"], "description": "Directory the variants are written under. Defaults to <project>/game/assets."}
+        },
+        "required": []
       }
     },
     {

@@ -32,6 +32,7 @@ from tests.finalize_fakes import (
     FinalizeGodot,
     batch_launcher,
 )
+from tests.finalize_records_support import asset_request, up_to_date_asset
 
 
 def _dead_pid() -> int:
@@ -551,3 +552,111 @@ def test_compatible_with_repeats_into_the_request(tmp_path: Path) -> None:
         compatible_with=args.compatible_with,
     )
     assert request.compatible_with == ("Characters/Guard", "Characters/Villager")
+
+
+# The check subcommand and the batch skip flag (#247 AC5, FR4, AC11).
+
+
+def _check_argv(export_root: Path, *extra: str) -> list[str]:
+    return [
+        "check",
+        "--category",
+        "Props",
+        "--collection",
+        "Crate",
+        "--export-root",
+        str(export_root),
+        *extra,
+    ]
+
+
+def test_check_prints_up_to_date_and_exits_zero(tmp_path: Path) -> None:
+    request = up_to_date_asset(tmp_path)
+    out, err = StringIO(), StringIO()
+    code = main(_check_argv(request.export_root), stdout=out, stderr=err)
+    assert code == EXIT_OK
+    assert out.getvalue() == "Props/Crate: up to date\n"
+
+
+def test_check_prints_the_reason_and_exits_one_when_not_up_to_date(tmp_path: Path) -> None:
+    request = asset_request(tmp_path)
+    out = StringIO()
+    code = main(_check_argv(request.export_root), stdout=out, stderr=StringIO())
+    assert code == EXIT_FAILED
+    assert out.getvalue() == "Props/Crate: not up to date (no_record)\n"
+
+
+def test_check_json_holds_the_result_and_the_record(tmp_path: Path) -> None:
+    request = up_to_date_asset(tmp_path)
+    out = StringIO()
+    code = main(_check_argv(request.export_root, "--json"), stdout=out, stderr=StringIO())
+    payload = json.loads(out.getvalue())
+    assert code == EXIT_OK
+    assert payload["up_to_date"] is True
+    assert payload["reason"] == "up_to_date"
+    assert payload["record"]["collection"] == "Crate"
+    assert (payload["category"], payload["collection"]) == ("Props", "Crate")
+
+
+def test_check_json_for_a_missing_record_has_a_null_record_and_exits_one(tmp_path: Path) -> None:
+    request = asset_request(tmp_path)
+    out = StringIO()
+    code = main(_check_argv(request.export_root, "--json"), stdout=out, stderr=StringIO())
+    payload = json.loads(out.getvalue())
+    assert code == EXIT_FAILED
+    assert (payload["up_to_date"], payload["reason"], payload["record"]) == (
+        False,
+        "no_record",
+        None,
+    )
+
+
+@pytest.mark.parametrize("category, collection", [("props", "Crate"), ("Props", "Crate Two")])
+def test_check_refuses_a_name_that_is_not_pascal_case_with_exit_two(
+    tmp_path: Path, category: str, collection: str
+) -> None:
+    err = StringIO()
+    argv = ["check", "--category", category, "--collection", collection]
+    code = main(argv, stdout=StringIO(), stderr=err)
+    assert code == EXIT_PREREQUISITE
+    assert "ERROR [finalize.invalid_request]" in err.getvalue()
+
+
+def test_check_defaults_the_export_root_to_the_project_game_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    up_to_date_asset(tmp_path)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    out = StringIO()
+    code = main(
+        ["check", "--category", "Props", "--collection", "Crate"], stdout=out, stderr=StringIO()
+    )
+    assert code == EXIT_OK
+    assert out.getvalue() == "Props/Crate: up to date\n"
+
+
+def test_skip_up_to_date_with_one_collection_is_refused(tmp_path: Path) -> None:
+    err = StringIO()
+    argv = [
+        "all",
+        "--collection",
+        "Crate",
+        "--category",
+        "Props",
+        "--class",
+        "standard_prop",
+        "--export-root",
+        str(tmp_path / "game" / "assets"),
+        "--skip-up-to-date",
+    ]
+    code = main(argv, stdout=StringIO(), stderr=err)
+    assert code == EXIT_FAILED
+    assert "ERROR [finalize.invalid_request]" in err.getvalue()
+
+
+def test_skip_up_to_date_parses_for_a_batch() -> None:
+    args = build_parser().parse_args(
+        ["all", "--collection", "Crate", "--collection", "Barrel", "--skip-up-to-date"]
+    )
+    assert args.skip_up_to_date is True
+    assert build_parser().parse_args(["all", "--collection", "Crate"]).skip_up_to_date is False

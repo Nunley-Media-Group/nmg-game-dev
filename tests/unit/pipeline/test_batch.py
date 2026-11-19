@@ -18,6 +18,7 @@ from nmg_game_dev.finalize import FinalizeService, finalize_asset
 from nmg_game_dev.finalize.service import build_batch
 from nmg_game_dev.pipeline import FinalizeRequest, PipelineError, jobs
 from tests.finalize_fakes import BatchRouter, Failure, batch_launcher, dead_pid
+from tests.finalize_records_support import write_imports
 
 
 def _request(tmp_path: Path, collection: str) -> FinalizeRequest:
@@ -338,3 +339,113 @@ def test_an_empty_batch_is_refused_before_anything_is_written(tmp_path: Path) ->
         FinalizeService(cache).start_batch([])
     assert info.value.code == "finalize.invalid_batch"
     assert not (cache / "jobs").exists()
+
+
+# Per-item records and the up-to-date skip (#247 AC3, AC11).  Each item's export root sits in
+# <tmp>/game/assets, so its records land in <tmp>/.nmg/finalize/.
+
+
+def _record_requests(tmp_path: Path, *names: str) -> dict[str, FinalizeRequest]:
+    requests: dict[str, FinalizeRequest] = {}
+    for name in names:
+        blend = tmp_path / f"{name.lower()}.blend"
+        blend.write_bytes(b"authored")
+        requests[name] = FinalizeRequest(
+            collection=name,
+            category="Props",
+            asset_class="standard_prop",
+            export_root=tmp_path / "game" / "assets",
+            blend=blend,
+        )
+    return requests
+
+
+def _record_service(
+    cache: Path,
+    requests: dict[str, FinalizeRequest],
+    *,
+    failures: dict[str, dict[str, Failure]] | None = None,
+    on_step: Callable[[Path, str], None] | None = None,
+) -> FinalizeService:
+    project = next(iter(requests.values())).export_root.parent
+
+    def make_router(_: dict[str, FinalizeRequest]) -> BatchRouter:
+        return BatchRouter(requests, failures=failures, on_step=on_step)
+
+    return FinalizeService(cache, launcher=batch_launcher(make_router, project=project))
+
+
+def test_each_items_record_is_written_before_the_next_item_starts(tmp_path: Path) -> None:
+    """AC3: when Barrel's first step starts, Crate's record already exists."""
+    requests = _record_requests(tmp_path, "Crate", "Barrel")
+    crate_record = tmp_path / ".nmg" / "finalize" / "Props" / "Crate.json"
+    seen: list[bool] = []
+
+    def on_step(item_dir: Path, step: str) -> None:
+        if "Barrel" in item_dir.name and step == "validate":
+            seen.append(crate_record.is_file())
+
+    service = _record_service(tmp_path / "cache", requests, on_step=on_step)
+    result = service.run_batch(list(requests.values()))
+
+    assert result["state"] == "succeeded"
+    assert seen == [True]
+
+
+def test_a_fail_fast_skip_leaves_the_earlier_record_unchanged(tmp_path: Path) -> None:
+    """AC3: Barrel fails, Lamp is skipped, and Lamp's earlier record stays as it was."""
+    requests = _record_requests(tmp_path, "Crate", "Barrel", "Lamp")
+    lamp_record = tmp_path / ".nmg" / "finalize" / "Props" / "Lamp.json"
+    lamp_record.parent.mkdir(parents=True)
+    earlier = json.dumps({"schema_version": 1, "state": "succeeded", "marker": "earlier"})
+    lamp_record.write_text(earlier, encoding="utf-8")
+    failures = {"Barrel": {"validate": ("quality.contract_failed", "bad", "fix it")}}
+
+    service = _record_service(tmp_path / "cache", requests, failures=failures)
+    result = service.run_batch(list(requests.values()), fail_fast=True)
+
+    items = {item["collection"]: item["state"] for item in result["result"]["batch"]["items"]}
+    assert items == {"Crate": "succeeded", "Barrel": "failed", "Lamp": "skipped"}
+    assert lamp_record.read_text(encoding="utf-8") == earlier
+    barrel = json.loads((lamp_record.parent / "Barrel.json").read_text(encoding="utf-8"))
+    assert barrel["state"] == "failed"
+
+
+def test_skip_up_to_date_runs_no_step_for_an_up_to_date_item(tmp_path: Path) -> None:
+    """AC11: an item that passes the check is up_to_date, runs nothing, and keeps its record."""
+    requests = _record_requests(tmp_path, "Crate", "Barrel")
+    crate_service = _record_service(tmp_path / "cache", {"Crate": requests["Crate"]})
+    crate_service.run_batch([requests["Crate"]])
+    write_imports(requests["Crate"])
+    crate_record = tmp_path / ".nmg" / "finalize" / "Props" / "Crate.json"
+    before = crate_record.read_bytes()
+    ran: list[str] = []
+
+    def on_step(item_dir: Path, step: str) -> None:
+        ran.append(item_dir.name)
+
+    service = _record_service(tmp_path / "cache", requests, on_step=on_step)
+    result = service.run_batch(list(requests.values()), skip_up_to_date=True)
+
+    batch = result["result"]["batch"]
+    states = {item["collection"]: item["state"] for item in batch["items"]}
+    assert states == {"Crate": "up_to_date", "Barrel": "succeeded"}
+    assert batch["up_to_date"] == 1
+    assert batch["failed"] == 0 and batch["skipped"] == 0
+    assert result["state"] == "succeeded"
+    assert not any("Crate" in name for name in ran), "no step may run for the up-to-date item"
+    assert any("Barrel" in name for name in ran)
+    assert crate_record.read_bytes() == before
+
+
+def test_without_skip_up_to_date_every_item_runs(tmp_path: Path) -> None:
+    """AC11: without the option, an up-to-date asset is finalized again like any other."""
+    requests = _record_requests(tmp_path, "Crate")
+    _record_service(tmp_path / "cache", requests).run_batch(list(requests.values()))
+    write_imports(requests["Crate"])
+
+    result = _record_service(tmp_path / "cache", requests).run_batch(list(requests.values()))
+
+    batch = result["result"]["batch"]
+    assert [item["state"] for item in batch["items"]] == ["succeeded"]
+    assert batch["up_to_date"] == 0

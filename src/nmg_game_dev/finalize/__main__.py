@@ -14,6 +14,9 @@
         [--export-root R] [--json]
         (lists the asset's material variants from the files finalize wrote, #148)
 
+    python -m nmg_game_dev.finalize check --category C --collection N [--export-root R] [--json]
+        (is the asset up to date from its finalize record? exit 0 yes, 1 no, 2 invalid, #247)
+
     python -m nmg_game_dev.finalize run-job <job_dir>        (internal: the background job body)
 
 Several ``--collection`` values, or a ``--batch`` file of finalize requests, run as one batch: the
@@ -22,6 +25,8 @@ own keys, and the asset options given on the command line fill in any key an ent
 ``--material-variants`` and ``--compatible-with`` apply to one collection only.  ``--export-root``
 defaults to ``<project>/game/assets`` (the project is ``CLAUDE_PROJECT_DIR`` or the working
 directory).
+``--skip-up-to-date`` (a batch only, #247) finalizes nothing that ``check`` already reports up to
+date; those items are counted as ``up_to_date``.
 
 Exit codes: 0 success; 1 a step or a collection failed (``ERROR [code] message`` and
 ``Remediation:`` on stderr; a batch prints one line per collection); 2 a prerequisite is missing
@@ -40,7 +45,7 @@ from typing import Any, Final, TextIO
 
 from pydantic import ValidationError
 
-from nmg_game_dev.pipeline import jobs
+from nmg_game_dev.pipeline import jobs, records
 from nmg_game_dev.pipeline.errors import PipelineError
 from nmg_game_dev.pipeline.reduce import parts_from_json
 from nmg_game_dev.pipeline.steps import STEP_ORDER
@@ -52,12 +57,15 @@ from .service import (
     build_batch,
     build_reduce_request,
     build_request,
+    default_export_root,
     error_dict,
     is_prerequisite,
+    skip_needs_batch_error,
 )
 
 STEP_COMMANDS: Final = ("all", *STEP_ORDER)
 LIST_VARIANTS_COMMAND: Final = "material-variants"
+CHECK_COMMAND: Final = "check"
 EXIT_OK: Final = 0
 EXIT_FAILED: Final = 1
 EXIT_PREREQUISITE: Final = 2
@@ -87,6 +95,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--export-root", help="The finalize export root. Defaults to <project>/game/assets."
     )
     listing.add_argument("--json", action="store_true", help="Print the rows as JSON on stdout.")
+    check = commands.add_parser(
+        CHECK_COMMAND,
+        help="Say whether an asset is up to date, from its finalize record (no Blender or Godot).",
+    )
+    check.add_argument("--category", required=True, help="Asset category, e.g. Props.")
+    check.add_argument("--collection", required=True, help="Asset name, e.g. Crate.")
+    check.add_argument(
+        "--export-root", help="The finalize export root. Defaults to <project>/game/assets."
+    )
+    check.add_argument("--json", action="store_true", help="Print the check as JSON on stdout.")
     run_job = commands.add_parser(
         "run-job", help="Internal: run a job directory in the background."
     )
@@ -189,6 +207,12 @@ def _add_asset_arguments(parser: argparse.ArgumentParser) -> None:
         help="Stop a batch at the first failed collection; the rest are reported as skipped.",
     )
     parser.add_argument(
+        "--skip-up-to-date",
+        action="store_true",
+        help="In a batch, skip each collection that its finalize record shows up to date (#247). "
+        "A single collection is refused.",
+    )
+    parser.add_argument(
         "--wait",
         action="store_true",
         help="Wait for the finalize job lock instead of failing with finalize.job_running.",
@@ -222,10 +246,14 @@ def main(
         return _run_reduce(args, service, out, err)
     if args.command == LIST_VARIANTS_COMMAND:
         return _list_variants(args, out, err)
+    if args.command == CHECK_COMMAND:
+        return _check(args, out, err)
 
     if args.wait_limit is not None and not args.wait:
         parser.error("--wait-limit needs --wait")
     is_batch = args.batch is not None or len(args.collection) > 1
+    if args.skip_up_to_date and not is_batch:
+        return _report_error(skip_needs_batch_error(), args.json, out, err)
     if is_batch and args.material_variants is not None:
         parser.error(
             "--material-variants applies to one --collection; set material_variants_path in "
@@ -331,6 +359,7 @@ def _run_batch_command(
             steps,
             force=args.force,
             fail_fast=args.fail_fast,
+            skip_up_to_date=args.skip_up_to_date,
             wait_for_lock=args.wait,
             lock_wait_s=args.wait_limit,
         )
@@ -424,6 +453,36 @@ def _run_reduce(
     return _report_error(error_payload, False, out, err)
 
 
+def _check(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
+    """Print whether an asset is up to date from its record (#247 AC5).
+
+    Exit 0 when up to date, 1 when not, and 2 for invalid arguments.
+    """
+    if not records.valid_asset_names(args.category, args.collection):
+        err.write(
+            "ERROR [finalize.invalid_request] --category and --collection must be PascalCase\n"
+        )
+        err.write("Remediation: Pass the Props-style category and the Crate-style collection.\n")
+        return EXIT_PREREQUISITE
+    export_root = Path(args.export_root) if args.export_root else default_export_root()
+    check = records.check(args.category, args.collection, export_root)
+    name = f"{args.category}/{args.collection}"
+    if args.json:
+        payload = {
+            "category": args.category,
+            "collection": args.collection,
+            "up_to_date": check.up_to_date,
+            "reason": check.reason,
+            "record": check.record,
+        }
+        out.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    elif check.up_to_date:
+        out.write(f"{name}: up to date\n")
+    else:
+        out.write(f"{name}: not up to date ({check.reason})\n")
+    return EXIT_OK if check.up_to_date else EXIT_FAILED
+
+
 def _list_variants(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     rows = list_material_variants(
         category=args.category,
@@ -467,9 +526,10 @@ def _print_batch(batch: dict[str, Any], as_json: bool, out: TextIO) -> None:
         error = item.get("error")
         if isinstance(error, dict):
             out.write(f"  [{error.get('code')}] {error.get('message')} ({error.get('stage')})\n")
+    up_to_date = f", {batch['up_to_date']} up to date" if batch.get("up_to_date") else ""
     out.write(
         f"Batch: {batch.get('succeeded', 0)} succeeded, {batch.get('failed', 0)} failed, "
-        f"{batch.get('skipped', 0)} skipped\n"
+        f"{batch.get('skipped', 0)} skipped{up_to_date}\n"
     )
 
 
