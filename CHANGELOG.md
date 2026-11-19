@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-19
+
 ### Changed
 
 - **BREAKING CHANGE:** The engine target is now Godot 4 (latest stable, never pinned) instead of Unreal Engine, driven only by `godot --headless` with no live-editor bridge. Consumers keep their Godot project in `game/`, and `/convert-to-godot` migrates an existing Unreal consumer project. (#249)
