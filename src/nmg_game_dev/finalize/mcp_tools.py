@@ -338,7 +338,9 @@ def refresh_audio_table(project: str | None = None) -> dict[str, Any]:
 
     ``project`` defaults to ``CLAUDE_PROJECT_DIR``, else the working directory. Returns
     ``{"refreshed_tables": [...]}``, the project-relative tables whose text changed, or
-    ``{"error": {code, message, remediation, stage}}`` (``audio.godot_project_missing``) (#237 FR8).
+    ``{"error": {code, message, remediation, stage}}``. The error codes are
+    ``audio.godot_project_missing``, ``audio.backlog_invalid``, ``audio.table_unreadable``,
+    ``audio.table_unwritable``, and ``audio.duplicate_sound`` (#237 FR8, #302).
     """
     root = Path(project) if project else audio_paths.project_root()
     try:

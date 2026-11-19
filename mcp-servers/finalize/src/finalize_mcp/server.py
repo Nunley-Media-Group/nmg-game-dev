@@ -244,9 +244,10 @@ def import_audio(
     game/assets/Audio/<name>.wav and imported as an AudioStreamWAV; music is encoded with ffmpeg to
     game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis, looping when loop is
     true. loop and the finishing settings are stored per sound and reused when omitted (loop
-    defaults to false). The result names godot_asset,
-    imported_to_godot, finish, settings, and refreshed_tables. A failure returns {"error": {code,
-    message, remediation, stage}}.
+    defaults to false). The result names godot_asset, imported_to_godot, finish, settings, and
+    refreshed_tables. A failed refresh, such as audio.duplicate_sound, returns refresh_warning with
+    its code and remediation, and the sound is still imported. A failure returns
+    {"error": {code, message, remediation, stage}}.
     """
     return _logged(
         _import_audio(
@@ -269,8 +270,9 @@ def refresh_audio_table(project: str | None = None) -> dict[str, Any]:
     Reads the sounds under game/assets/Audio/ and the region music fields in the design backlog,
     and rewrites every game/systems/*/audio_table.tres that declares NmgAudioTable. Returns
     {"refreshed_tables": [...]}, the project-relative tables whose text changed, or an error object
-    with audio.godot_project_missing. project defaults to CLAUDE_PROJECT_DIR, else the working
-    directory.
+    with audio.godot_project_missing, audio.backlog_invalid, audio.table_unreadable,
+    audio.table_unwritable, or audio.duplicate_sound (two sound files share a name, and nothing is
+    written). project defaults to CLAUDE_PROJECT_DIR, else the working directory.
     """
     return _logged(_refresh_audio_table(project=project))
 

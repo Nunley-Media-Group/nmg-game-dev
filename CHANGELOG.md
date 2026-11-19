@@ -6,6 +6,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-11-19
+
+### Changed
+
+- Match sound files case-insensitively, report duplicate sound names, and document refresh errors (#302)
+
 ## [0.39.0] - 2026-11-19
 
 ### Changed

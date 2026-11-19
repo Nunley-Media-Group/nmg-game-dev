@@ -53,7 +53,9 @@ order:
    `refreshed_tables` lists the tables it changed.
 3. **Refresh.** Rebuild the tables after files change outside an import, with
    `python -m nmg_game_dev.audio refresh` or the `refresh_audio_table` MCP tool. A refresh that
-   finds nothing changed writes nothing.
+   finds nothing changed writes nothing. A sound name holds one file: if two files under
+   `game/assets/Audio/` share a name, such as `Theme.wav` and `Theme.ogg`, the refresh stops with
+   `audio.duplicate_sound` and writes no table until one of them is renamed or deleted.
 4. **Play.** Call the component from gameplay code:
 
    ```gdscript

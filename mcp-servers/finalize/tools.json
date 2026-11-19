@@ -75,7 +75,7 @@
     },
     {
       "name": "import_audio",
-      "description": "Import a saved ElevenLabs sound effect or music file into the Godot project. Stores a 16-bit WAV under SourceArt/Audio/<SFX|Music>/ and finishes the game copy unless finish is false: trims leading silence below -50 dBFS, cuts to max_seconds with a 20 ms fade-out, crossfades a looping seam over loop_crossfade_ms, and matches loudness to loudness_lufs (default -16 sfx, -18 music, with a -1 dBFS peak ceiling). A sound effect is copied to game/assets/Audio/<name>.wav and imported as an AudioStreamWAV; music is encoded with ffmpeg to game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis (looping when loop is true). loop and the finishing settings are stored per sound in SourceArt/Audio/audio.json and reused when omitted. The result names godot_asset, imported_to_godot, finish, settings, and refreshed_tables (the Audio component name tables this import changed); without Godot it reports imported_to_godot false with a warning. Returns the result, or an error object (e.g. audio.ffmpeg_not_found).",
+      "description": "Import a saved ElevenLabs sound effect or music file into the Godot project. Stores a 16-bit WAV under SourceArt/Audio/<SFX|Music>/ and finishes the game copy unless finish is false: trims leading silence below -50 dBFS, cuts to max_seconds with a 20 ms fade-out, crossfades a looping seam over loop_crossfade_ms, and matches loudness to loudness_lufs (default -16 sfx, -18 music, with a -1 dBFS peak ceiling). A sound effect is copied to game/assets/Audio/<name>.wav and imported as an AudioStreamWAV; music is encoded with ffmpeg to game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis (looping when loop is true). loop and the finishing settings are stored per sound in SourceArt/Audio/audio.json and reused when omitted. The result names godot_asset, imported_to_godot, finish, settings, and refreshed_tables (the Audio component name tables this import changed); without Godot it reports imported_to_godot false with a warning. A failed table refresh, such as audio.duplicate_sound, returns refresh_warning with its code and remediation, and the sound is still imported. Returns the result, or an error object (e.g. audio.ffmpeg_not_found).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -93,7 +93,7 @@
     },
     {
       "name": "refresh_audio_table",
-      "description": "Rewrite each Audio component's name table (game/systems/*/audio_table.tres) from the sounds imported under game/assets/Audio/ and the region music fields in the design backlog, so a sound that import_audio added is in the table. Writes nothing when the tables are current, so a second call is a no-op. Returns {refreshed_tables: [...]}, the project-relative tables whose text changed, or an error object with audio.godot_project_missing.",
+      "description": "Rewrite each Audio component's name table (game/systems/*/audio_table.tres) from the sounds imported under game/assets/Audio/ and the region music fields in the design backlog, so a sound that import_audio added is in the table. Writes nothing when the tables are current, so a second call is a no-op. Returns {refreshed_tables: [...]}, the project-relative tables whose text changed, or an error object with audio.godot_project_missing, audio.backlog_invalid, audio.table_unreadable, audio.table_unwritable, or audio.duplicate_sound (two sound files share a name, and nothing is written).",
       "inputSchema": {
         "type": "object",
         "properties": {

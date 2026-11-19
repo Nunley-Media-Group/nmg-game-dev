@@ -140,6 +140,30 @@ def test_an_unreadable_backlog_leaves_the_import_successful_with_a_refresh_warni
     assert table.read_text(encoding="utf-8") == header
 
 
+def test_a_same_stem_sound_is_imported_and_its_duplicate_name_is_a_refresh_warning(
+    project: Path, source_file: Callable[[str], Path], godot: FakeGodotRunner
+) -> None:
+    """#302 FR3: the sound is stored and imported, and audio.duplicate_sound only warns."""
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    header = '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n'
+    table.write_text(header, encoding="utf-8")
+    existing = project / "game" / "assets" / "Audio" / "Theme.ogg"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_bytes(OGG_STUB)
+
+    result = import_audio(source_file("tone.wav"), "Theme", "sfx", godot=godot)
+
+    assert result["godot_asset"] == "res://assets/Audio/Theme.wav"
+    assert result["imported_to_godot"] is True
+    assert result["refreshed_tables"] == []
+    assert result["refresh_warning"]["code"] == "audio.duplicate_sound"
+    assert "Theme.ogg" in result["refresh_warning"]["message"]
+    assert "Theme.wav" in result["refresh_warning"]["message"]
+    assert result["refresh_warning"]["remediation"]
+    assert table.read_text(encoding="utf-8") == header
+
+
 @pytest.mark.parametrize(
     "fixture", ["tone.mp3", "tone.ogg", "tone.flac"], ids=["mp3", "ogg", "flac"]
 )
