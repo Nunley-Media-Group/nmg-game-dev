@@ -14,6 +14,12 @@ adheres to semver per `steering/tech.md` § Versioning.
 - `/onboard-consumer` writes, refreshes, and drift-checks the `NmgLaunch` autoload in `game/project.godot`. (#251)
 - `docs/onboarding/run-and-capture.md` documents the launch options, the smoke run, and screenshots, with the ship and finalize MCP docs updated to match. (#251)
 
+## [0.29.1] - 2026-11-19
+
+### Fixed
+
+- Detect and repair one-edge twist seams so geometry.normals settles (#243)
+
 ## [0.29.0] - 2026-11-19
 
 ### Added
