@@ -13,6 +13,7 @@ import importlib
 import importlib.util
 import sys
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -377,3 +378,49 @@ def test_scn003_tiling_bake_restores_scene_state(
     finally:
         scene.world = previous_world
         bpy.data.worlds.remove(world)
+
+
+def test_scn003_a_failed_channel_bake_restores_visibility_on_leaving_isolation(
+    core: Any, tiling: Any, enabled_addon: str, tmp_path: Path, budgets: str, monkeypatch: Any
+) -> None:
+    """SCN003 (AC3): a raise inside isolation restores each flag before BakeState releases them.
+
+    The flags are compared as isolation exits, so BakeState.release cannot mask a missing restore.
+    """
+    _road_with_occluder(_periodic_material("M_Road_Src"))
+    _extra_object("Extra_Visible", hide_render=False)
+    _extra_object("Extra_Hidden", hide_render=True)
+    core_module = importlib.import_module(f"{enabled_addon}.bake_core.core")
+    real_isolated = tiling.isolated
+    entered: dict[str, bool] = {}
+    left: dict[str, bool] = {}
+
+    def _flags() -> dict[str, bool]:
+        return {
+            obj.name: obj.hide_render
+            for obj in bpy.context.scene.objects
+            if obj.name != tiling.TILE_NAME
+        }
+
+    @contextmanager
+    def _observed(tile: Any) -> Iterator[None]:
+        entered.update(_flags())
+        try:
+            with real_isolated(tile):
+                yield
+        finally:
+            left.update(_flags())
+
+    def _failing(*_args: Any, **_kwargs: Any) -> Any:
+        raise core.BakeError("internal_error", "channel bake failed inside isolation")
+
+    monkeypatch.setattr(tiling, "isolated", _observed)
+    monkeypatch.setattr(core_module.bake, "bake_channel", _failing)
+
+    with pytest.raises(core.BakeError) as info:
+        core.bake_asset("Road", "environment_piece", tmp_path / "out", budgets, "CPU", 4)
+
+    assert info.value.reason == "internal_error"
+    assert entered
+    assert left == entered
+    assert tiling.TILE_NAME not in bpy.data.objects
