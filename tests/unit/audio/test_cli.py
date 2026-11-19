@@ -303,3 +303,37 @@ def test_refinish_needs_exactly_one_of_all_or_names(argv: list[str]) -> None:
     with pytest.raises(SystemExit) as caught:
         main(argv)
     assert caught.value.code == 2
+
+
+def test_refresh_prints_the_refreshed_tables_then_nothing_on_a_rerun(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#237 AC3: refresh rewrites the Audio name table and a rerun changes nothing."""
+    sound = project / "game" / "assets" / "Audio" / "DoorCreak.wav"
+    sound.parent.mkdir(parents=True)
+    sound.write_bytes(b"sound")
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    table.write_text(
+        '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n',
+        encoding="utf-8",
+    )
+
+    assert main(["refresh", "--project", str(project)]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "refreshed_tables": ["game/systems/Audio/audio_table.tres"]
+    }
+
+    assert main(["refresh", "--project", str(project)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"refreshed_tables": []}
+
+
+def test_refresh_without_a_godot_project_exits_one_with_the_code(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = main(["refresh", "--project", str(tmp_path)])
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("ERROR [audio.godot_project_missing] ")
+    assert "\nRemediation: " in captured.err

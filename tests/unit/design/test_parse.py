@@ -347,3 +347,41 @@ def test_valid_files_produce_sorted_entries_and_no_errors(tmp_path: Path) -> Non
     ]
     mission = entries[0]
     assert mission.fields == {"act": 1, "region": "Old Town"}
+
+
+@pytest.mark.parametrize(
+    "raw", ["lights", "''", "Audio", "[audio]"], ids=["other", "empty", "capitalised", "list"]
+)
+def test_system_template_other_than_audio_reports_invalid_field(tmp_path: Path, raw: str) -> None:
+    """#237 AC9: a system's template is audio, or left out."""
+    _write(
+        tmp_path, "systems/lights.md", f"---\ntype: system\nname: Lights\ntemplate: {raw}\n---\n"
+    )
+
+    _assert_line(
+        _only(tmp_path), "design.invalid_field", "docs/design/systems/lights.md", "template"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw", ["''", "'   '", "3", "[ForestTheme]"], ids=["empty", "blank", "number", "list"]
+)
+def test_region_music_must_be_a_non_empty_string(tmp_path: Path, raw: str) -> None:
+    """#237 AC9: a region's music names a sound, so it is a non-empty string."""
+    _write(tmp_path, "regions/forest.md", f"---\ntype: region\nname: Forest\nmusic: {raw}\n---\n")
+
+    _assert_line(_only(tmp_path), "design.invalid_field", "docs/design/regions/forest.md", "music")
+
+
+def test_valid_audio_template_and_region_music_report_no_errors(tmp_path: Path) -> None:
+    _write(tmp_path, "systems/audio.md", "---\ntype: system\nname: Audio\ntemplate: audio\n---\n")
+    _write(
+        tmp_path, "regions/forest.md", "---\ntype: region\nname: Forest\nmusic: ForestTheme\n---\n"
+    )
+
+    entries, errors = parse_tree(tmp_path)
+
+    assert errors == []
+    fields = {entry.asset_name: entry.fields for entry in entries}
+    assert fields["Forest"]["music"] == "ForestTheme"
+    assert fields["Audio"]["template"] == "audio"

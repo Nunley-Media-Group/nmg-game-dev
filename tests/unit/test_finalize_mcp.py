@@ -21,6 +21,7 @@ from nmg_game_dev.finalize import (
     finalize_asset,
     get_finalize_job,
     import_audio,
+    refresh_audio_table,
     run_finalize_step,
 )
 from nmg_game_dev.finalize.__main__ import build_parser
@@ -350,3 +351,58 @@ def test_import_audio_tool_and_cli_return_the_same_json(
     )
     assert cli_json == tool_json
     assert tool_json["godot_asset"] == "res://assets/Audio/ForestTheme.ogg"
+
+
+_AUDIO_TABLE_HEADER = (
+    '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n'
+)
+
+
+def _audio_project(root: Path) -> Path:
+    """A Godot project with one imported sound and an Audio name table that has not seen it yet."""
+    (root / "game" / "assets" / "Audio").mkdir(parents=True)
+    (root / "game" / "assets" / "Audio" / "DoorCreak.wav").write_bytes(b"sound")
+    (root / "game" / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    table = root / "game" / "systems" / "Audio" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    table.write_text(_AUDIO_TABLE_HEADER, encoding="utf-8")
+    return root
+
+
+def test_refresh_audio_table_returns_the_tables_it_changed(tmp_path: Path) -> None:
+    """#237 AC3 via the MCP tool: the first refresh rewrites the table, a rerun changes nothing."""
+    project = _audio_project(tmp_path / "project")
+
+    assert refresh_audio_table(str(project)) == {
+        "refreshed_tables": ["game/systems/Audio/audio_table.tres"]
+    }
+    assert refresh_audio_table(str(project)) == {"refreshed_tables": []}
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+    assert '"DoorCreak": "res://assets/Audio/DoorCreak.wav"' in table.read_text(encoding="utf-8")
+
+
+def test_refresh_audio_table_defaults_to_the_claude_project_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _audio_project(tmp_path / "project")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project))
+
+    assert refresh_audio_table() == {"refreshed_tables": ["game/systems/Audio/audio_table.tres"]}
+
+
+def test_refresh_audio_table_without_a_godot_project_returns_the_error(tmp_path: Path) -> None:
+    result = refresh_audio_table(str(tmp_path))
+
+    assert result["error"]["code"] == "audio.godot_project_missing"
+    assert result["error"]["stage"] == "audio"
+    assert result["error"]["remediation"]
+
+
+def test_tools_json_lists_refresh_audio_table_with_an_optional_project() -> None:
+    tools = {
+        tool["name"]: tool for tool in json.loads(TOOLS_JSON.read_text(encoding="utf-8"))["tools"]
+    }
+
+    schema = tools["refresh_audio_table"]["inputSchema"]
+    assert "project" in schema["properties"]
+    assert schema["required"] == []

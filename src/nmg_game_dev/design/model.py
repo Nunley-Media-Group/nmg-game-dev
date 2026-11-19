@@ -21,6 +21,8 @@ ASSET_CLASSES: Final = (
     "environment_piece",
     "terrain",
 )
+AUDIO_TEMPLATE: Final = "audio"
+"""The only ``template`` a system entry may name: the Audio component (#237)."""
 PASCAL_CASE: Final = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 _WORD: Final = re.compile(r"[A-Za-z0-9]+")
 

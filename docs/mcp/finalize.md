@@ -25,7 +25,8 @@ bake, variant, or export for longer than the 180 s Blender MCP timeout.
 | `reduce_asset` | `collection`, `asset_class`, optional `blend`, `budgets_path`, `device`, `cage_extrusion`, `max_ray_distance`, `miss_threshold`, `parts`, `wait_seconds` | `{"job_id", "status"}`, plus `result` when the job finishes within `wait_seconds`. See [reduce_asset](#reduce_asset-139). |
 | `get_finalize_job` | `job_id` | `{"job_id", "state", "step", "progress", "message", "batch"?, "result"?, "error"?}` |
 | `list_material_variants` | `category`, `collection`, optional `export_root` | A list of `{"name", "material", "desktop", "mobile"}` rows, sorted by material then name; `[]` when the asset has no material variants |
-| `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop`, `max_seconds`, `loudness_lufs`, `loop_crossfade_ms`, `finish` | The audio import result. See [elevenlabs.md](elevenlabs.md) |
+| `import_audio` | `file`, `name`, `kind` (`sfx` or `music`), optional `loop`, `max_seconds`, `loudness_lufs`, `loop_crossfade_ms`, `finish` | The audio import result, with `refreshed_tables`. See [elevenlabs.md](elevenlabs.md) |
+| `refresh_audio_table` | optional `project` (default `CLAUDE_PROJECT_DIR`, else the working directory) | `{"refreshed_tables": [...]}`, the project-relative Audio name tables whose text changed. See [refresh_audio_table](#refresh_audio_table-237) |
 | `game_screenshot` | `path`, optional `after` (0 to 60 seconds, default 3), optional `options` (launch options for the game) | `{"path", "width", "height"}` for the saved PNG. See [game_screenshot](#game_screenshot-251) |
 
 `material_variants_path` names the asset's `<Name>.material-variants.json` declaration. Without it, a
@@ -439,7 +440,20 @@ Before import the game copy is finished (trim, cut, loop crossfade, and loudness
 `finish` is `false`. The optional parameters are `max_seconds` (above 0), `loudness_lufs` (from -40
 to -5, default -16 for `sfx` and -18 for `music`), `loop_crossfade_ms` (zero or more, default 500),
 and `finish` (default `true`). A parameter you leave out, `loop` included, comes from the sound's entry in
-`SourceArt/Audio/audio.json`. The result carries `finish` and `settings`.
+`SourceArt/Audio/audio.json`. The result carries `finish`, `settings`, and `refreshed_tables`.
+
+A successful import also refreshes each Audio component's name table (#237), so the sound is in the
+table without a separate call. `refreshed_tables` lists the project-relative tables whose text
+changed. See [refresh_audio_table](#refresh_audio_table-237).
+
+## refresh_audio_table (#237)
+
+`refresh_audio_table` rebuilds each `game/systems/*/audio_table.tres` that declares
+`NmgAudioTable`, from the sounds under `game/assets/Audio/` and the region `music` fields in the
+design backlog. It returns `{"refreshed_tables": [...]}`, and writes nothing when the tables are
+already current. Its only error is `audio.godot_project_missing`, with the `audio` stage, when
+`game/project.godot` is missing. The CLI, `python -m nmg_game_dev.audio refresh [--project DIR]`,
+runs the same function. The flow is in [elevenlabs.md](elevenlabs.md#the-audio-component).
 
 Its errors come back as `{"error": {"code", "message", "remediation", "stage"}}`, with the `audio`
 stage and the codes `audio.invalid_request`, `audio.unsupported_format`, `audio.asset_exists`,

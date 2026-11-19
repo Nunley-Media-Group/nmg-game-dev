@@ -38,6 +38,51 @@ ElevenLabs server. Once the server runs, your agent can call its sound-effect an
 4. **Finish.** The game copy is finished before it is imported, unless you turn that off. See
    [Finishing](#finishing).
 
+## The audio component
+
+Gameplay plays sounds and music by name through an `NmgAudio` component. The flow runs in this
+order:
+
+1. **Scaffold.** Give a `system` design entry `template: audio`, for example
+   `docs/design/audio.md` with `type: system`, `name: Audio`, and `template: audio`. Then run
+   `python -m nmg_game_dev.design scaffold`. It writes `game/systems/Audio/audio.gd`, an
+   `AudioComponent` that extends `NmgAudio`, and `game/systems/Audio/audio_table.tres`, the
+   `NmgAudioTable` the component plays from. Add the component to a scene.
+2. **Import.** Each `import_audio` call adds its sound to the table. A successful import refreshes
+   the table itself, so the sound plays at once with no separate call, and the result's
+   `refreshed_tables` lists the tables it changed.
+3. **Refresh.** Rebuild the tables after files change outside an import, with
+   `python -m nmg_game_dev.audio refresh` or the `refresh_audio_table` MCP tool. A refresh that
+   finds nothing changed writes nothing.
+4. **Play.** Call the component from gameplay code:
+
+   ```gdscript
+   $Audio.sfx("DoorCreak", door.global_position)  # Vector3.ZERO plays it without a place
+   $Audio.ui("Click")
+   $Audio.music("ForestTheme")  # the track already playing is left alone
+   $Audio.stinger("Fanfare")    # the music ducks by duck_db until the stinger finishes
+   ```
+
+The component has six methods:
+
+| Method | Behavior |
+|--------|----------|
+| `sfx(name, position := Vector3.ZERO)` | A sound effect. A zero position plays it without a place; any other position plays it through an `AudioStreamPlayer3D` there, at a pitch within `pitch_jitter` of 1. |
+| `ui(name)` | A non-positional UI sound at the sfx volume, with no pitch change. |
+| `music(name)` | A music track. It crossfades from the track playing over `crossfade_seconds` and replays the track when it finishes. A repeat of the playing track does nothing. |
+| `stinger(name)` | A one-shot over the music. The music drops by `duck_db` while the stinger plays and returns when it finishes. |
+| `region_music()` | Plays the `music` theme of the current scene's region, when the table names one. It runs when the component is ready. |
+| `set_volumes(master, music, sfx)` | Sets the three linear volumes from 0 to 1 and saves them to `settings_path`, so `_ready` restores them. |
+
+The exports are `table`, `crossfade_seconds` (default 1.0), `duck_db` (-12.0), `pitch_jitter`
+(0.05), and `settings_path` (default `user://nmg_audio.cfg`). A name the table does not hold plays
+nothing and pushes one warning that names it, however often it is called.
+
+A region entry with `music: ForestTheme` maps the region's scene name to that sound, so the
+component plays it while that scene is current. The table is written from the imported sounds in
+`game/assets/Audio/` and from the `music` fields in the design backlog. See
+[design-contract.md section 8](../design-contract.md#8-scaffolded-files).
+
 ## Generation rules
 
 Generate through `/generate-audio` (`nmg-game-dev:generate-audio`). The skill applies these rules,
