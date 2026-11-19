@@ -11,14 +11,14 @@ flow. Every Godot call is headless (`godot --headless --path game ...`); no edit
 python -m nmg_game_dev.ship <target> --project game/project.godot [--release-dir DIR] [--dry-run]
                              [--bump major|minor|patch | --version X.Y.Z]
 
-1. Secret scan: the consumer's tracked files for API keys, before any Godot command and also in a
-   dry run. Outside a git work tree every regular file under the consumer root is scanned, except
-   .env and .env.* files, .claude/settings.local.json, and the .git/, release/, game/.godot/,
-   .venv/, and node_modules/ folders (ship.secret_found, ship.secret_scan_failed). Then
-   preflight: the target, game/project.godot, game/export_presets.cfg with
-   each platform's preset, every required variable (ship.env_missing), the build version
-   (ship.version_*), the version's CHANGELOG.md section (ship.changelog_missing), and the macOS
-   signing identity
+1. Preflight: the target, game/project.godot, and every required variable (ship.env_missing).
+   Then the secret scan: the consumer's tracked files for API keys, before any Godot command and
+   also in a dry run. Outside a git work tree every regular file under the consumer root is
+   scanned, except .env and .env.* files, .claude/settings.local.json, and the .git/, release/,
+   game/.godot/, .venv/, and node_modules/ folders (ship.secret_found, ship.secret_scan_failed).
+   Then the build version (ship.version_*), the version's CHANGELOG.md section
+   (ship.changelog_missing), the macOS signing identity, and game/export_presets.cfg with each
+   platform's preset
 2. godot --import, so a fresh clone has its class cache and imports         (ship.import_failed)
 3. godot --check-only -s res://<path> for every .gd file, skipping .godot/   (ship.script_check_failed)
 4. godot -s res://tests/run_tests.gd, when that file exists                   (ship.tests_failed)

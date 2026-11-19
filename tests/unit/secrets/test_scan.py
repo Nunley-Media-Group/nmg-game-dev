@@ -369,6 +369,16 @@ def test_a_staged_type_change_is_scanned(repo: Path) -> None:
     assert main(["--staged", "--root", str(repo)]) == 1
 
 
+def test_a_staged_path_that_looks_like_an_index_stage_is_scanned(repo: Path) -> None:
+    """``:0:x`` would read stage 0 of ``x``; the blob read must name stage 0 explicitly
+    (review F1)."""
+    _stage(repo, "0:x", f"{AWS}\n".encode())
+    _stage(repo, "clean.gd", b"var ok = 1\n")
+
+    assert [(m.path, m.pattern) for m in scan_staged(repo)] == [("0:x", "aws")]
+    assert main(["--staged", "--root", str(repo)]) == 1
+
+
 def test_a_staged_rename_is_scanned_under_its_new_path(repo: Path) -> None:
     _stage(repo, "old.gd", f'var k = "{MESHY}"\n'.encode())
     _allow(repo, "old.gd:meshy\n")

@@ -221,9 +221,10 @@ def _staged_paths(root: Path, run: Runner) -> list[str]:
 
 def staged_files(root: Path, run: Runner = subprocess.run) -> Iterator[tuple[str, bytes]]:
     """Each staged added, copied, modified, renamed, or type-changed path with its index blob
-    bytes."""
+    bytes. The explicit stage-0 form ``:0:<path>`` keeps a path such as ``0:x`` from being
+    read as an index stage."""
     names = _staged_paths(root, run)
-    return ((name, _git(root, run, "cat-file", "blob", f":{name}")) for name in names)
+    return ((name, _git(root, run, "cat-file", "blob", f":0:{name}")) for name in names)
 
 
 def _tracked_from_index(root: Path, names: list[str]) -> Iterator[tuple[str, bytes]]:
