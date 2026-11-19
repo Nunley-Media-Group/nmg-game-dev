@@ -44,6 +44,11 @@ RULES: Final[dict[str, str]] = {
         "outside; flip only the faces wound opposite to their neighbours (Mesh > Normals > Flip), "
         "so the sheet is wound consistently and faces the viewer."
     ),
+    "geometry.twist_seam": (
+        "A narrow seam joins this part back to itself with reversed winding, so no outward "
+        "direction is consistent. Delete the faces at the reported seam edges and rebuild that "
+        "join, or let finalize cleanup delete them."
+    ),
     "uv.single_map": "Keep exactly one UV map on every mesh, named UVMap (contract section 4).",
     "uv.overlap": (
         "Unwrap so UV islands do not overlap; environment pieces use the tiling mode instead "

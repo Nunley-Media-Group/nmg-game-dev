@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import bpy
+from mathutils import Vector
 
+from ..contract_core.geometry import SAMPLE_LIMIT
 from .assets import asset_armature, asset_meshes, require_asset
-from .meshes import clean_mesh, evaluated_mesh, replace_mesh, triangle_count
+from .meshes import TwistRepair, clean_mesh, evaluated_mesh, replace_mesh, triangle_count
+
+_POSITION_DECIMALS = 6
 
 
 def cleanup_desktop(collection_name: str) -> dict[str, Any]:
@@ -18,9 +22,14 @@ def cleanup_desktop(collection_name: str) -> dict[str, Any]:
     for obj in asset_meshes(collection):
         tris_before = triangle_count(obj.data)
         _apply_modifiers(obj, rig)
-        clean_mesh(obj.data)
+        repair = clean_mesh(obj.data)
         objects.append(
-            {"name": obj.name, "tris_before": tris_before, "tris_after": triangle_count(obj.data)}
+            {
+                "name": obj.name,
+                "tris_before": tris_before,
+                "tris_after": triangle_count(obj.data),
+                "twist_repair": _twist_report(obj, repair),
+            }
         )
     return {
         "collection": collection_name,
@@ -28,6 +37,15 @@ def cleanup_desktop(collection_name: str) -> dict[str, Any]:
         "tris_before": sum(item["tris_before"] for item in objects),
         "tris_after": sum(item["tris_after"] for item in objects),
     }
+
+
+def _twist_report(obj: bpy.types.Object, repair: TwistRepair) -> dict[str, Any]:
+    """The twist repair clean_mesh made, with up to SAMPLE_LIMIT seam midpoints in world space."""
+    samples = [
+        [round(float(coord), _POSITION_DECIMALS) for coord in obj.matrix_world @ Vector(point)]
+        for point in repair["midpoints"][:SAMPLE_LIMIT]
+    ]
+    return {"faces": repair["faces"], "edges": repair["edges"], "samples": samples}
 
 
 def _apply_modifiers(obj: bpy.types.Object, rig: bpy.types.Object | None) -> None:

@@ -1,5 +1,8 @@
 """clean_mesh settles normals the way geometry.normals judges them: AC1-AC5 of #232 (SCN001-SCN005).
 
+Since #243 the clean deletes a twist seam's faces before any face the rule still flags, so SCN004
+accepts either kind of removed face.
+
 A figure-8 Klein bottle is a closed surface with no consistent orientation. With a fin on one
 edge it is an open island whose winding passes the contract. The clean drops the fin, which
 closes the island, and before the fix its whole-mesh recalculation left faces the per-island
@@ -11,7 +14,6 @@ Run with scripts/run-blender-tests.sh. Under plain CPython the module is skipped
 from __future__ import annotations
 
 import importlib
-import math
 from collections.abc import Iterator
 from typing import Any
 
@@ -23,9 +25,11 @@ import bmesh  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
 from .contract_fixtures import build_crate, clear_scene  # noqa: E402
+from .normals_fixtures import klein, klein_bmesh, to_mesh  # noqa: E402
 
 NORMALS = "geometry.normals"
-KLEIN_RADIUS = 2.0
+TWIST = "geometry.twist_seam"
+Corners = frozenset[tuple[float, ...]]
 FIN_HEIGHT = 0.02
 #: Bound on the fixture's winding repair; it settles in a pass or two.
 WINDING_PASSES = 20
@@ -63,49 +67,9 @@ def contract(enabled_addon: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _klein_point(u: float, v: float) -> tuple[float, float, float]:
-    ring = KLEIN_RADIUS + math.cos(u / 2) * math.sin(v) - math.sin(u / 2) * math.sin(2 * v)
-    z = math.sin(u / 2) * math.sin(v) + math.cos(u / 2) * math.sin(2 * v)
-    return (ring * math.cos(u), ring * math.sin(u), z)
-
-
-def _klein_bmesh(nu: int, nv: int) -> Any:
-    """Figure-8 Klein bottle as a quad grid; row nu - 1 closes onto row 0 with a twisted seam."""
-    bm = bmesh.new()
-    grid = [
-        [
-            bm.verts.new(_klein_point(2 * math.pi * i / nu, 2 * math.pi * (j + 0.5) / nv))
-            for j in range(nv)
-        ]
-        for i in range(nu)
-    ]
-
-    def vert(i: int, j: int) -> Any:
-        if i == nu:
-            return grid[0][(-j) % nv]
-        return grid[i][j % nv]
-
-    for i in range(nu):
-        for j in range(nv):
-            bm.faces.new((vert(i, j), vert(i + 1, j), vert(i + 1, j + 1), vert(i, j + 1)))
-    return bm
-
-
-def _to_mesh(name: str, bm: Any) -> Any:
-    mesh = bpy.data.meshes.new(name)
-    bm.to_mesh(mesh)
-    bm.free()
-    mesh.update()
-    return mesh
-
-
-def klein(nu: int = 16, nv: int = 8, name: str = "Klein") -> Any:
-    return _to_mesh(name, _klein_bmesh(nu, nv))
-
-
 def fin_klein(geometry: Any, name: str = "Klein") -> Any:
     """The Klein bottle with a fin on face 0's first edge, wound so the winding check passes."""
-    bm = _klein_bmesh(16, 8)
+    bm = klein_bmesh(16, 8)
     bm.normal_update()
     bm.faces.ensure_lookup_table()
     face = bm.faces[0]
@@ -114,14 +78,14 @@ def fin_klein(geometry: Any, name: str = "Klein") -> Any:
     bm.faces.new((b, a, bm.verts.new(tip)))
     for _ in range(WINDING_PASSES):
         bm.faces.index_update()
-        flagged = geometry.normal_violations(bm)
+        flagged, _seams = geometry.normal_violations(bm)
         if not flagged:
             break
         bmesh.ops.reverse_faces(bm, faces=flagged)
         bm.normal_update()
     else:
         pytest.fail("the fin_klein winding repair did not settle")
-    return _to_mesh(name, bm)
+    return to_mesh(name, bm)
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +147,12 @@ def test_scn001_cleanup_output_never_fails_geometry_normals(geometry: Any, meshe
 
     pre_fix = source.copy()
     _pre_fix_clean(meshes, pre_fix)
-    assert NORMALS in _rules(geometry, "Klein", pre_fix), "the fixture must reproduce #232"
+    # Since #243 the twisted closed island is reported as its seam rather than its faces.
+    reproduced = {NORMALS, TWIST} & set(_rules(geometry, "Klein", pre_fix))
+    assert reproduced, "the fixture must reproduce #232"
 
     meshes.clean_mesh(source)
-    assert NORMALS not in _rules(geometry, "Klein", source)
+    assert not {NORMALS, TWIST} & set(_rules(geometry, "Klein", source))
 
 
 # ---------------------------------------------------------------------------
@@ -228,20 +194,33 @@ def test_scn003_mobile_lods_have_no_normals_findings(
 # ---------------------------------------------------------------------------
 
 
+def _removable_faces(geometry: Any, mesh: Any) -> set[Corners]:
+    """Faces clean_mesh may delete from mesh: its twist seam faces after the shared recalculation,
+    then the faces flagged once those are gone and the island is recalculated again (#243)."""
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.normal_update()
+        geometry.recalc_island_normals(bm)
+        seams = geometry.twist_seam_edges(bm.faces)
+        seam_faces = list({face for edge in seams for face in edge.link_faces})
+        removable = {_bm_corners(face) for face in seam_faces}
+        bmesh.ops.delete(bm, geom=seam_faces, context="FACES_ONLY")
+        geometry.recalc_island_normals(bm)
+        bm.normal_update()
+        removable |= {_bm_corners(face) for face in geometry.normal_violations(bm)[0]}
+    finally:
+        bm.free()
+    return removable
+
+
 def test_scn004_unorientable_faces_are_removed_deterministically(
     geometry: Any, meshes: Any
 ) -> None:
     source = klein(name="KleinSource")
     source_faces = {_corners(source, polygon) for polygon in source.polygons}
-    bm = bmesh.new()
-    try:
-        bm.from_mesh(source)
-        bm.normal_update()
-        geometry.recalc_island_normals(bm)
-        flagged = {_bm_corners(face) for face in geometry.normal_violations(bm)}
-    finally:
-        bm.free()
-    assert flagged, "the Klein bottle must keep flagged faces after the shared recalculation"
+    removable = _removable_faces(geometry, source)
+    assert removable, "the Klein bottle must have faces with no consistent orientation"
 
     first, second = klein(name="KleinA"), klein(name="KleinB")
     meshes.clean_mesh(first)
@@ -249,7 +228,7 @@ def test_scn004_unorientable_faces_are_removed_deterministically(
 
     kept = {_corners(first, polygon) for polygon in first.polygons}
     assert kept <= source_faces, "clean_mesh must not add or reshape a face"
-    assert not kept & flagged, "every flagged face must be deleted"
+    assert source_faces - kept <= removable, "only seam faces and still-flagged faces are deleted"
     assert NORMALS not in _rules(geometry, "KleinA", first)
 
     assert [tuple(v.co) for v in first.vertices] == [tuple(v.co) for v in second.vertices]
@@ -259,26 +238,39 @@ def test_scn004_unorientable_faces_are_removed_deterministically(
     assert [tuple(p.normal) for p in first.polygons] == [tuple(p.normal) for p in second.polygons]
 
 
-def test_scn004_each_pass_deletes_only_the_faces_it_flagged(
+def test_scn004_each_pass_deletes_only_the_faces_it_found(
     meshes: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Every settle pass removes exactly the faces its probe flagged, so indices stay aligned."""
-    passes: list[tuple[set[frozenset[tuple[float, ...]]], set[frozenset[tuple[float, ...]]]]] = []
+    """Every settle pass removes exactly the faces its probe found, so indices stay aligned.
+
+    A pass deletes the faces at its twist seam edges when it finds any (#243), otherwise the
+    faces the normals rule flags (#232).
+    """
+    passes: list[tuple[set[Corners], set[Corners]]] = []
+    probe_seams = meshes.twist_seam_edges
     probe_violations = meshes.normal_violations
 
-    def recording(bm: Any) -> Any:
-        flagged = probe_violations(bm)
-        passes.append(({_bm_corners(face) for face in bm.faces}, {_bm_corners(f) for f in flagged}))
-        return flagged
+    def recording_seams(faces: Any) -> Any:
+        faces = list(faces)
+        seams = probe_seams(faces)
+        doomed = {_bm_corners(face) for edge in seams for face in edge.link_faces}
+        passes.append(({_bm_corners(face) for face in faces}, doomed))
+        return seams
 
-    monkeypatch.setattr(meshes, "normal_violations", recording)
+    def recording_violations(bm: Any) -> Any:
+        flagged, seams = probe_violations(bm)
+        passes[-1][1].update(_bm_corners(face) for face in flagged)
+        return flagged, seams
+
+    monkeypatch.setattr(meshes, "twist_seam_edges", recording_seams)
+    monkeypatch.setattr(meshes, "normal_violations", recording_violations)
     meshes.clean_mesh(klein(name="KleinPasses"))
 
     assert len(passes) >= 2, "the Klein bottle must need at least one deletion pass"
-    assert not passes[-1][1], "the final pass must flag nothing"
-    for (faces, flagged), (next_faces, _) in zip(passes, passes[1:], strict=False):
-        assert flagged, "a pass that flags nothing must be the last"
-        assert next_faces == faces - flagged, "a pass must delete exactly the faces it flagged"
+    assert not passes[-1][1], "the final pass must find nothing"
+    for (faces, doomed), (next_faces, _) in zip(passes, passes[1:], strict=False):
+        assert doomed, "a pass that finds nothing must be the last"
+        assert next_faces == faces - doomed, "a pass must delete exactly the faces it found"
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +282,7 @@ def test_scn005_open_quad_passes(geometry: Any) -> None:
     bm = bmesh.new()
     corners = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
     bm.faces.new([bm.verts.new(co) for co in corners])
-    mesh = _to_mesh("Quad", bm)
+    mesh = to_mesh("Quad", bm)
     assert NORMALS not in _rules(geometry, "Quad", mesh)
 
 
@@ -298,7 +290,7 @@ def test_scn005_inside_out_cube_is_turned_outward(geometry: Any, meshes: Any) ->
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1.0)
     bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
-    mesh = _to_mesh("Cube", bm)
+    mesh = to_mesh("Cube", bm)
     findings = geometry.geometry_findings("Cube", mesh)
     assert [item["count"] for item in findings if item["rule"] == NORMALS] == [6]
 
