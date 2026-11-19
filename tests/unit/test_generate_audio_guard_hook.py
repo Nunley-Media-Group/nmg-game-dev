@@ -1,7 +1,8 @@
 """Unit tests for the #242 ElevenLabs audio guard: matcher, deny, reminder, and fail-open.
 
 The hook is a stdlib script under ``hooks/`` rather than a package, so it is loaded by path. The
-subprocess runs that drive it end to end are in ``tests/bdd/test_generate_audio_bdd.py``.
+subprocess runs that drive it end to end are in ``tests/bdd/test_generate_audio_bdd.py`` and
+``tests/bdd/test_generate_audio_node_types_bdd.py``.
 """
 
 from __future__ import annotations
@@ -27,6 +28,33 @@ STATE_ENV = "NMG_GAME_DEV_HOOK_STATE_DIR"
 SPEECH = "mcp__elevenlabs__creative_generate_speech"
 IN_FLOW = "mcp__elevenlabs__creative_generate_in_flow"
 MISSING = object()
+FLOW_NODE_TYPES = REPO_ROOT / "tests" / "fixtures" / "elevenlabs" / "flow_node_types.json"
+DOCS = REPO_ROOT / "docs" / "mcp" / "elevenlabs.md"
+# The nine guarded audio node types (#285 FR1) and every other in-flow type the hook leaves alone.
+GUARDED_NODE_TYPES = (
+    "tts",
+    "sfx",
+    "music",
+    "dubbing-audio",
+    "voice-changer",
+    "voice-isolator",
+    "audio-effects",
+    "video-to-music",
+    "composition",
+)
+UNGUARDED_NODE_TYPES = (
+    "image-generation",
+    "video-generation",
+    "image-transform",
+    "dubbing-video",
+    "voice-creation",
+    "speech-to-text",
+    "llm",
+    "avatar",
+    "random",
+)
+# A row of the "### Guarded node types" table: the node_type identifier in backticks, first column.
+TABLE_ID = re.compile(r"^\|\s*`([a-z][a-z-]*)`\s*\|", re.MULTILINE)
 
 
 def _load_hook() -> ModuleType:
@@ -112,17 +140,67 @@ def test_guard_entry_runs_the_script_as_a_command_hook_with_a_10_second_timeout(
     assert command_hook["timeout"] == 10
 
 
+# --- AC2 / FR1 / FR2 / FR3: the guarded set is the MCP's audio set, and the docs list it ---
+
+
+def _fixture_entries() -> list[dict[str, str]]:
+    data: dict[str, Any] = json.loads(FLOW_NODE_TYPES.read_text(encoding="utf-8"))
+    entries: list[dict[str, str]] = data["node_types"]
+    return entries
+
+
+def _guarded_docs_section() -> str:
+    text = DOCS.read_text(encoding="utf-8")
+    start = text.index("### Guarded node types")
+    end = text.index("## Parameters")
+    return text[start:end]
+
+
+def test_fixture_snapshot_names_its_source_and_capture_date() -> None:
+    """FR2: the recorded list names creative_get_flow_node_types, captured 2026-11-19."""
+    data: dict[str, Any] = json.loads(FLOW_NODE_TYPES.read_text(encoding="utf-8"))
+    assert data["source"] == "creative_get_flow_node_types"
+    assert data["captured"] == "2026-11-19"
+    assert len(_fixture_entries()) == 18
+
+
+def test_audio_types_derived_from_the_recorded_list_are_the_guard_set() -> None:
+    """AC2 / FR2: audio output types plus composition equal AUDIO_NODE_TYPES."""
+    audio = {entry["type"] for entry in _fixture_entries() if entry["output_modality"] == "audio"}
+    assert audio | {"composition"} == set(hook.AUDIO_NODE_TYPES)
+
+
+def test_guard_set_is_exactly_the_nine_guarded_types_with_no_repeats() -> None:
+    """FR1: AUDIO_NODE_TYPES holds the nine guarded identifiers, each once."""
+    assert len(hook.AUDIO_NODE_TYPES) == len(set(hook.AUDIO_NODE_TYPES))
+    assert set(hook.AUDIO_NODE_TYPES) == set(GUARDED_NODE_TYPES)
+
+
+def test_docs_guarded_table_lists_exactly_the_guard_set() -> None:
+    """AC2 / FR3: the docs table's node_type column is exactly AUDIO_NODE_TYPES."""
+    assert set(TABLE_ID.findall(_guarded_docs_section())) == set(hook.AUDIO_NODE_TYPES)
+
+
+def test_docs_name_every_recorded_type_the_hook_leaves_alone() -> None:
+    """FR3: the docs name each recorded non-audio type, so the boundary is written down."""
+    section = _guarded_docs_section()
+    recorded = {entry["type"] for entry in _fixture_entries()}
+    for node_type in sorted(recorded - set(hook.AUDIO_NODE_TYPES)):
+        assert f"`{node_type}`" in section, f"docs do not name the unguarded type {node_type!r}"
+
+
+def test_unguarded_list_is_every_recorded_type_outside_the_guard() -> None:
+    """FR2: the non-audio parametrization covers exactly the recorded types the guard leaves out."""
+    recorded = {entry["type"] for entry in _fixture_entries()}
+    assert set(UNGUARDED_NODE_TYPES) == recorded - set(hook.AUDIO_NODE_TYPES)
+
+
 # --- AC2 / FR2: multi-take or unclear counts are denied ---
 
 
 @pytest.mark.parametrize(
     ("tool_name", "node_type"),
-    [
-        (IN_FLOW, "sfx"),
-        (IN_FLOW, "music"),
-        (IN_FLOW, "tts"),
-        (SPEECH, None),
-    ],
+    [*((IN_FLOW, node_type) for node_type in GUARDED_NODE_TYPES), (SPEECH, None)],
 )
 @pytest.mark.parametrize("count", [MISSING, 0, 2, "1", 1.5, True])
 def test_multi_take_or_unclear_count_is_denied(
@@ -160,12 +238,7 @@ def test_deny_writes_no_marker_and_leaves_the_reminder_for_a_later_call(
 
 @pytest.mark.parametrize(
     ("tool_name", "node_type"),
-    [
-        (IN_FLOW, "sfx"),
-        (IN_FLOW, "music"),
-        (IN_FLOW, "tts"),
-        (SPEECH, None),
-    ],
+    [*((IN_FLOW, node_type) for node_type in GUARDED_NODE_TYPES), (SPEECH, None)],
 )
 def test_first_single_take_call_gets_the_reminder_and_no_decision(
     tool_name: str, node_type: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -234,7 +307,7 @@ def test_state_dir_defaults_under_the_temp_directory(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.parametrize("count", [MISSING, 1, 4])
-@pytest.mark.parametrize("node_type", ["image", "video", "image-generation", "video-generation"])
+@pytest.mark.parametrize("node_type", [*UNGUARDED_NODE_TYPES, "image", "video"])
 def test_non_audio_in_flow_generation_is_left_alone(
     node_type: str, count: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

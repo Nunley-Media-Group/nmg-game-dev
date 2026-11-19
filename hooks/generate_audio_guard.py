@@ -1,8 +1,9 @@
 """PreToolUse guard for ElevenLabs audio generation (#242 FR2, FR3, FR4, FR7).
 
 Claude Code runs this before each ElevenLabs ``creative_generate_speech`` call and each
-``creative_generate_in_flow`` call. It denies an audio call whose ``generations_count`` is not the
-integer 1, because game audio is generated one take at a time. An allowed audio call gets a
+``creative_generate_in_flow`` call. An audio call is a speech call or an in-flow call whose
+``node_type`` is in ``AUDIO_NODE_TYPES``. It denies an audio call whose ``generations_count`` is not
+the integer 1, because game audio is generated one take at a time. An allowed audio call gets a
 once-per-session ``additionalContext`` reminder that names the ``/generate-audio`` skill. Calls
 for other ElevenLabs generation (for example ``node_type`` ``image``) are left alone. Any error
 leaves the call alone: exit 0 with no output.
@@ -28,7 +29,19 @@ REMINDER = (
     "from the user's request and the design docs. Import the saved file with import_audio."
 )
 STATE_ENV = "NMG_GAME_DEV_HOOK_STATE_DIR"
-AUDIO_NODE_TYPES = ("sfx", "music", "tts")
+# In-flow node types whose output is audio, plus composition (a mixed audio file when only audio
+# sources are connected). tests/fixtures/elevenlabs/flow_node_types.json derives this set.
+AUDIO_NODE_TYPES = (
+    "tts",
+    "sfx",
+    "music",
+    "dubbing-audio",
+    "voice-changer",
+    "voice-isolator",
+    "audio-effects",
+    "video-to-music",
+    "composition",
+)
 SPEECH_SUFFIX = "__creative_generate_speech"
 IN_FLOW_SUFFIX = "__creative_generate_in_flow"
 
@@ -42,7 +55,7 @@ def state_dir() -> Path:
 
 
 def _is_audio_call(tool_name: str, tool_input: dict[str, object]) -> bool:
-    """Return True for speech calls and for in-flow calls whose node is sfx, music, or tts."""
+    """Return True for speech calls and for in-flow calls whose node_type is in AUDIO_NODE_TYPES."""
     if tool_name.endswith(SPEECH_SUFFIX):
         return True
     if tool_name.endswith(IN_FLOW_SUFFIX):
