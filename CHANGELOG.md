@@ -6,6 +6,14 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-19
+
+### Added
+
+- `python -m nmg_game_dev.secrets scan` and the onboarded `scripts/nmg_secret_scan.py` block a commit that stages an API key (Meshy, ElevenLabs, Anthropic, OpenAI, GitHub, AWS, or a PEM private key) or a file named `.env`. Each match prints one masked line with its file, line, pattern, and fingerprint, and the scan exits 1. `.nmg/secret-scan-allow` allows a reviewed false positive by fingerprint or by `<path>:<pattern>`. (#255)
+- Onboarding copies the secret scanner and installs a `pre-commit` hook that runs it on staged content. A foreign `pre-commit` hook is never overwritten: the step reports `conflict` with `onboard.precommit_hook_conflict` and names the line to add to it. (#255)
+- `/ship` scans the consumer's tracked files as its first gate, also in a dry run, and stops with `ship.secret_found`, listing masked matches, before any Godot command runs. Outside a git work tree it walks the consumer's files but skips `.env` and `.env.*` files, `.claude/settings.local.json`, and `.venv/` and `node_modules/` folders, where keys are meant to live; a git failure stops with `ship.secret_scan_failed`. A staged submodule no longer fails the pre-commit scan, a staged type change (a symlink replaced by a file) is scanned, and onboarding skips the hook when the consumer is a subfolder of a larger repository. (#255)
+
 ## [0.35.0] - 2026-11-19
 
 ### Added

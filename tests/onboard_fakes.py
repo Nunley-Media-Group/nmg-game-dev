@@ -57,6 +57,9 @@ def make_framework(root: Path) -> Path:
         'schema_version = "1.0.0"\nid = "nmg_game_dev_blender_addon"\nversion = "0.13.0"\n'
     )
     (addon / "__init__.py").write_text("bl_info = {}\n", encoding="utf-8")
+    secrets = root / "src" / "nmg_game_dev" / "secrets"
+    secrets.mkdir(parents=True)
+    shutil.copy(REPO_ROOT / "src" / "nmg_game_dev" / "secrets" / "scan.py", secrets / "scan.py")
     (root / "fixtures").mkdir()
     (root / "fixtures" / "sample.txt").write_text("framework-only\n")
     (root / ".mcp.json").write_text('{"mcpServers": {}}\n')
