@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,8 @@ import pytest
 from nmg_game_dev.pipeline import PipelineError
 from nmg_game_dev.pipeline.request import FinalizeRequest
 from nmg_game_dev.pipeline.steps import (
+    _BAKE_VERSION,
+    _STEP_VERSION,
     STEP_ORDER,
     blobs_for,
     chain_input,
@@ -17,7 +21,16 @@ from nmg_game_dev.pipeline.steps import (
     gate_outputs,
     ordered_steps,
     parse_step,
+    settings_hash,
     ue_destination,
+)
+
+_BAKE_CACHE = (
+    Path(__file__).resolve().parents[3]
+    / "plugins"
+    / "nmg-game-dev-blender-addon"
+    / "bake_core"
+    / "cache.py"
 )
 
 
@@ -181,3 +194,24 @@ def test_import_ue_chain_is_unchanged_by_the_new_steps() -> None:
         "reimport",
         "import_ue",
     )
+
+
+def test_a_bake_key_from_before_the_bake_version_bump_misses(tmp_path: Path) -> None:
+    # #240: the tiling bake changed its output, so a bake cached before it must not be restored.
+    request = _request(tmp_path)
+    pre_bump = {
+        "step": "bake",
+        "version": _STEP_VERSION,
+        "collection": request.collection,
+        "asset_class": request.asset_class,
+        "device": request.device,
+        "budgets": "budgets",
+    }
+    pre_bump_key = hashlib.sha256(json.dumps(pre_bump, sort_keys=True).encode()).hexdigest()
+    assert settings_hash("bake", request, "budgets") != pre_bump_key
+
+
+def test_the_bake_key_version_mirrors_the_add_on_bake_version() -> None:
+    match = re.search(r'^BAKE_VERSION = "([^"]+)"$', _BAKE_CACHE.read_text(), re.MULTILINE)
+    assert match is not None
+    assert match.group(1) == _BAKE_VERSION

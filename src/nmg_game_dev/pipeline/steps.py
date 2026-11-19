@@ -51,6 +51,9 @@ ENVELOPE_SCHEMA_VERSION: Final = 1
 _STEP_VERSION: Final = (
     "4"  # bumped for #148 (material-variants keys) and #138 (per-clip anim steps)
 )
+# Mirrors BAKE_VERSION in the add-on's bake_core/cache.py, which imports bpy.  Only the bake key
+# carries it, so a bake change (#240) misses cached bake outputs without moving _STEP_VERSION.
+_BAKE_VERSION: Final = "2"
 _REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 _BUDGET_TABLE: Final = (
     _REPO_ROOT / "plugins" / "nmg-game-dev-blender-addon" / "utils" / "budgets.py"
@@ -199,6 +202,7 @@ def settings_hash(step: StepName, request: FinalizeRequest, budgets: str) -> str
             "collection": request.collection,
             "asset_class": request.asset_class,
             "device": request.device,
+            "bake_version": _BAKE_VERSION,
         }
         settings["budgets"] = budgets
     elif step == "variants":
