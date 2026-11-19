@@ -19,6 +19,8 @@ from typing import Any, Final
 from pydantic import ValidationError
 
 from nmg_game_dev.audio import import_audio as _import_audio
+from nmg_game_dev.audio import paths as audio_paths
+from nmg_game_dev.audio.tables import refresh_tables
 from nmg_game_dev.design.paths import project_root as _project_root
 from nmg_game_dev.godot.material_variants import list_material_variants as list_variants
 from nmg_game_dev.godot.project import require_project
@@ -236,7 +238,7 @@ def import_audio(
     ``game/assets/Audio/``. ``loop`` and the finishing arguments (``max_seconds``,
     ``loudness_lufs``, ``loop_crossfade_ms``, ``finish``) override the sound's stored settings.
     Returns the same result JSON as ``python -m nmg_game_dev.audio import`` (``godot_asset``,
-    ``imported_to_godot``, ``finish``, ``settings``), or ``{"error"}``.
+    ``imported_to_godot``, ``finish``, ``settings``, ``refreshed_tables``), or ``{"error"}``.
     """
     try:
         return _import_audio(
@@ -251,6 +253,20 @@ def import_audio(
             project_root=Path(project_root) if project_root else None,
             godot=godot,
         )
+    except PipelineError as error:
+        return {"error": error_dict(error)}
+
+
+def refresh_audio_table(project: str | None = None) -> dict[str, Any]:
+    """Rewrite each Audio component's name table from the imported sounds and the design backlog.
+
+    ``project`` defaults to ``CLAUDE_PROJECT_DIR``, else the working directory. Returns
+    ``{"refreshed_tables": [...]}``, the project-relative tables whose text changed, or
+    ``{"error": {code, message, remediation, stage}}`` (``audio.godot_project_missing``) (#237 FR8).
+    """
+    root = Path(project) if project else audio_paths.project_root()
+    try:
+        return {"refreshed_tables": refresh_tables(root)}
     except PipelineError as error:
         return {"error": error_dict(error)}
 

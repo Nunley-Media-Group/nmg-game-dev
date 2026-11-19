@@ -12,6 +12,7 @@ from .mcp_tools import (
     import_audio,
     list_material_variants,
     reduce_asset,
+    refresh_audio_table,
     run_finalize_step,
 )
 from .service import FinalizeService, build_request, default_budgets_path
@@ -26,5 +27,6 @@ __all__ = [
     "import_audio",
     "list_material_variants",
     "reduce_asset",
+    "refresh_audio_table",
     "run_finalize_step",
 ]

@@ -52,6 +52,7 @@ Developer in Claude Code
 │     NmgAssets variant resolver, the NmgLaunch launch       │
 │     options + autoplay, the NmgVariantScene variant        │
 │     loader, NmgBuild + NmgVersionLabel build version,      │
+│     the NmgAudio player + NmgAudioTable name table,        │
 │     NmgMissionDefinition, terrain shader)                  │
 │     in the Godot project under game/                       │
 └────────────────────────────────────────────────────────────┘

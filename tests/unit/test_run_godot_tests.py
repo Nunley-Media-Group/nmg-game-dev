@@ -73,7 +73,14 @@ if rest[:2] == ["-s", "res://addons/nmg_game_dev/tests/run_tests.gd"]:
                 "test_nmg_launch.gd::test_autoplay_emits_once",
                 "test_nmg_launch.gd::test_autoplay_reaches_a_scene_that_connects_in_ready",
                 "test_nmg_launch.gd::test_save_dir_with_test_saves",
-                "test_nmg_launch.gd::test_save_dir_default"]
+                "test_nmg_launch.gd::test_save_dir_default",
+                "test_nmg_audio.gd::test_component_has_the_six_methods",
+                "test_nmg_audio.gd::test_missing_sound_plays_nothing_and_warns_once",
+                "test_nmg_audio.gd::test_music_repeat_crossfade_loop_and_stinger_duck",
+                "test_nmg_audio.gd::test_music_change_fades_over_crossfade_seconds",
+                "test_nmg_audio.gd::test_volumes_persist_to_a_new_component",
+                "test_nmg_audio.gd::test_new_volumes_reach_the_sfx_ui_and_positional_sounds_playing_now",
+                "test_nmg_audio.gd::test_region_music_plays_the_theme_of_the_current_scene"]
     if mode == "tests_missing_routing":
         required = required[:2]
     if mode == "tests_missing_launch":

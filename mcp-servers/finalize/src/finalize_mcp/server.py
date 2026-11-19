@@ -1,8 +1,9 @@
 """The ``finalize`` MCP server (#69).
 
-Registers seven tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
+Registers eight tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
 ``reduce_asset`` (#139), ``get_finalize_job``, ``list_material_variants`` (#148), ``import_audio``
-(#155), and ``game_screenshot`` (#251).  The tool logic lives in the package, so the CLI and this
+(#155), ``refresh_audio_table`` (#237), and ``game_screenshot`` (#251).  The tool logic lives in the
+package, so the CLI and this
 server share one implementation.  stdout is the MCP channel, so logs go to stderr only.
 """
 
@@ -20,6 +21,7 @@ from nmg_game_dev.finalize import get_finalize_job as _get_finalize_job
 from nmg_game_dev.finalize import import_audio as _import_audio
 from nmg_game_dev.finalize import list_material_variants as _list_material_variants
 from nmg_game_dev.finalize import reduce_asset as _reduce_asset
+from nmg_game_dev.finalize import refresh_audio_table as _refresh_audio_table
 from nmg_game_dev.finalize import run_finalize_step as _run_finalize_step
 
 logger = logging.getLogger("finalize_mcp")
@@ -215,8 +217,8 @@ def import_audio(
     game/assets/Audio/<name>.ogg and imported as an AudioStreamOggVorbis, looping when loop is
     true. loop and the finishing settings are stored per sound and reused when omitted (loop
     defaults to false). The result names godot_asset,
-    imported_to_godot, finish, and settings. A failure returns {"error": {code, message,
-    remediation, stage}}.
+    imported_to_godot, finish, settings, and refreshed_tables. A failure returns {"error": {code,
+    message, remediation, stage}}.
     """
     return _logged(
         _import_audio(
@@ -230,6 +232,19 @@ def import_audio(
             finish=finish,
         )
     )
+
+
+@mcp.tool(name="refresh_audio_table")
+def refresh_audio_table(project: str | None = None) -> dict[str, Any]:
+    """Rewrite each Audio component's name table from the imported sounds and the design backlog.
+
+    Reads the sounds under game/assets/Audio/ and the region music fields in the design backlog,
+    and rewrites every game/systems/*/audio_table.tres that declares NmgAudioTable. Returns
+    {"refreshed_tables": [...]}, the project-relative tables whose text changed, or an error object
+    with audio.godot_project_missing. project defaults to CLAUDE_PROJECT_DIR, else the working
+    directory.
+    """
+    return _logged(_refresh_audio_table(project=project))
 
 
 @mcp.tool(name="game_screenshot")

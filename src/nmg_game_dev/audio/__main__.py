@@ -1,11 +1,12 @@
-"""CLI: ``python -m nmg_game_dev.audio`` with ``import`` and ``refinish`` subcommands (#155, #252).
+"""CLI: ``python -m nmg_game_dev.audio`` with ``import``, ``refinish``, ``refresh`` (#155, #252).
 
 ``import --file F --name N --kind sfx|music [--loop | --no-loop] [--max-seconds S]
 [--loudness-lufs L] [--loop-crossfade-ms MS] [--finish | --no-finish]`` calls ``import_audio``.
-``refinish (--all | Name ...)`` calls ``refinish``. Both are the same functions the finalize
-``import_audio`` tool and the tests call, and they print the same JSON. A ``PipelineError``
-prints ``ERROR [<code>] <message>`` and ``Remediation: <text>`` to stderr and exits 1. Argument
-errors exit 2.
+``refinish (--all | Name ...)`` calls ``refinish``. ``refresh [--project DIR]`` rewrites each Audio
+component's name table and prints the tables it changed (#237). These are the same functions the
+finalize MCP tools call, and they print the same JSON. A ``PipelineError`` prints
+``ERROR [<code>] <message>`` and ``Remediation: <text>`` to stderr and exits 1. Argument errors
+exit 2.
 """
 
 from __future__ import annotations
@@ -17,8 +18,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from nmg_game_dev.audio import paths
 from nmg_game_dev.audio.core import import_audio, refinish
 from nmg_game_dev.audio.request import KINDS
+from nmg_game_dev.audio.tables import refresh_tables
 from nmg_game_dev.pipeline.errors import PipelineError
 
 
@@ -77,6 +80,13 @@ def _build_parser() -> argparse.ArgumentParser:
     ref.add_argument("names", nargs="*", metavar="Name", help="Sound names listed in audio.json.")
     ref.add_argument("--all", action="store_true", help="Re-finish every sound in audio.json.")
     ref.add_argument("--project", type=Path, default=None, help="Project root (default: CWD).")
+
+    tables = sub.add_parser(
+        "refresh",
+        help="Rewrite each Audio component's name table from the imported sounds and the design "
+        "backlog.",
+    )
+    tables.add_argument("--project", type=Path, default=None, help="Project root (default: CWD).")
     return parser
 
 
@@ -85,7 +95,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
         result: Any
-        if args.command == "import":
+        if args.command == "refresh":
+            root = args.project if args.project is not None else paths.project_root()
+            result = {"refreshed_tables": refresh_tables(root)}
+        elif args.command == "import":
             result = import_audio(
                 args.file,
                 args.name,

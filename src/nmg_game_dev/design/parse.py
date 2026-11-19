@@ -15,6 +15,7 @@ import yaml
 from .model import (
     ASSET_CLASSES,
     ASSET_TYPES,
+    AUDIO_TEMPLATE,
     ENTITY_TYPES,
     PASCAL_CASE,
     DesignError,
@@ -229,6 +230,26 @@ def _check_optional_fields(
                     source,
                     "terrain",
                     "terrain must name an environment entry with asset_class terrain",
+                )
+            )
+    if entry_type == "system" and "template" in data and data["template"] != AUDIO_TEMPLATE:
+        errors.append(
+            DesignError(
+                "design.invalid_field",
+                source,
+                "template",
+                f'template must be "{AUDIO_TEMPLATE}" or left out',
+            )
+        )
+    if entry_type == "region" and "music" in data:
+        music = data["music"]
+        if not isinstance(music, str) or not music.strip():
+            errors.append(
+                DesignError(
+                    "design.invalid_field",
+                    source,
+                    "music",
+                    "music must name a sound: a non-empty string",
                 )
             )
 

@@ -38,6 +38,8 @@ Wooden crate by the harbor gate. Free text.
 | `depends_on` | no | all | List of other entries' `name` values. |
 | `region` | no | `mission` | The `name` of a `region` entry. |
 | `terrain` | no | `region` | The `name` of an `environment` entry whose `asset_class` is `terrain`. The region's ground is that terrain's scene, loaded for each platform's variant (section 8). |
+| `template` | no | `system` | Only `audio`. An `audio` system scaffolds an `NmgAudio` component and its name table (section 8). Any other value is `design.invalid_field`. |
+| `music` | no | `region` | A non-empty string: the name of an imported sound. The region's scene plays it while it is current (section 8). Any other value is `design.invalid_field`. |
 
 The types `character`, `vehicle`, `prop`, and `environment` are asset types. Finalize turns them
 into assets. The types `region`, `mission`, and `system` are scaffolded as Godot files (section 6).
@@ -196,6 +198,7 @@ a file path and a class name.
 | `region` | `game/levels/<Name>/<Name>.tscn` | A `Node3D` root with a `Marker3D` named `PlayerSpawn`, a `DirectionalLight3D`, a `WorldEnvironment` with an `Environment` sub-resource, and a ground: a flat plane, or the terrain scene described below. |
 | `mission` | `game/missions/<Name>.tres` | An `NmgMissionDefinition` resource (the add-on's `res://addons/nmg_game_dev/nmg_mission_definition.gd`) with `mission_name`, `act`, `region`, `depends_on` (`Array[StringName]`), and `design_doc_path` from the entry. `act` is 0 when it is absent. `region` and `depends_on` hold asset names. |
 | `system` | `game/systems/<Name>/<snake_name>.gd` | A component script: `class_name <Name>Component` and `extends Node`, where `<snake_name>` is the snake_case form of `<Name>`. |
+| `system` with `template: audio` | `game/systems/<Name>/<snake_name>.gd` and `game/systems/<Name>/audio_table.tres` | A component script: `class_name <Name>Component` and `extends NmgAudio`, whose `_init` loads `res://systems/<Name>/audio_table.tres` into `table`. The table is an `NmgAudioTable` resource with `sounds`, each file under `game/assets/Audio/` keyed by its file stem to its `res://` path, and `themes`, each region's `music` field keyed by the region's asset name. `python -m nmg_game_dev.audio refresh` and every successful `import_audio` rewrite the table; scaffold never overwrites either file once it exists. |
 
 A region with a `terrain` field, once that terrain is finalized (its
 `res://assets/<Category>/<Name>/Desktop/<Name>.tscn` exists), gets an `NmgVariantScene` node (the
@@ -220,7 +223,7 @@ Sync reports every error it finds. A sync error exits 1 and leaves the backlog u
 | `design.frontmatter_invalid` | The frontmatter block is not valid YAML. |
 | `design.unknown_type` | `type` is not one of the seven types in section 2. |
 | `design.missing_field` | A required field is absent (section 2). |
-| `design.invalid_field` | A field value breaks its rule in section 2, such as an unknown `asset_class`, a `category` that is not PascalCase, an `act` that is not an integer of 1 or more, or a region's `terrain` that is not a non-empty string. |
+| `design.invalid_field` | A field value breaks its rule in section 2, such as an unknown `asset_class`, a `category` that is not PascalCase, an `act` that is not an integer of 1 or more, a region's `terrain` that is not a non-empty string, a system's `template` other than `audio` (for example `template: lights`), or a region's `music` that is not a non-empty string. |
 | `design.duplicate_name` | Two entries derive the same `asset_name`. |
 | `design.invalid_name` | `name` does not yield a valid `asset_name` (section 3). |
 | `design.unknown_reference` | A `depends_on` name matches no entry, a `region` name matches no `region` entry, or a region's `terrain` names no `environment` entry with `asset_class` `terrain`. Sync reports it, and scaffold reports it for that region. |

@@ -36,6 +36,7 @@ nmg-game-dev/
 │           ├── nmg_build.gd       # NmgBuild.version(): the running build's application/config/version
 │           ├── nmg_version_label.gd       # NmgVersionLabel: a Label that shows the build version
 │           ├── nmg_mission_definition.gd  # NmgMissionDefinition resource class
+│           ├── audio/             # NmgAudio (nmg_audio.gd: plays sounds by name) + NmgAudioTable (nmg_audio_table.gd)
 │           ├── terrain/           # nmg_terrain.gdshader (four-layer splat)
 │           └── tests/             # Headless test runner (run_tests.gd) + test_*.gd; not installed
 ├── skills/                        # Claude Code skills shipped to consumers
@@ -207,7 +208,7 @@ Level composition (placing several assets together) happens afterwards, in Godot
 | MCP servers (Blender add-on, texture-gen, finalize, meshy) | Expose tool endpoints; own tool implementation. The finalize server wraps `src/nmg_game_dev/pipeline/` without adding logic. | Know about skills or pipelines upstream |
 | Quality gates (`src/nmg_game_dev/quality/`) | Deterministic checks; pass/fail reports with remediation | Generate content; rewrite inputs |
 | Ship (`src/nmg_game_dev/ship/`) | Export, sign, notarize, package per platform | Touch content — by the time ship runs, content is frozen |
-| Godot runtime add-on (`addons/nmg_game_dev`) | Ships inside consumer games: variant resolver autoload, `NmgLaunch` autoload (launch options, autoplay signal, test save folder, screenshot flag), `NmgVariantScene` (instances a split scene's variant at run time, previews Desktop in the editor), `NmgBuild` and `NmgVersionLabel` (the build version in game), mission resource class, terrain shader | Authoring, importing, or anything editor-only beyond registering its autoload |
+| Godot runtime add-on (`addons/nmg_game_dev`) | Ships inside consumer games: variant resolver autoload, `NmgLaunch` autoload (launch options, autoplay signal, test save folder, screenshot flag), `NmgVariantScene` (instances a split scene's variant at run time, previews Desktop in the editor), `NmgBuild` and `NmgVersionLabel` (the build version in game), `NmgAudio` (plays imported sounds by name from an `NmgAudioTable`), mission resource class, terrain shader | Authoring, importing, or anything editor-only beyond registering its autoload |
 
 ---
 

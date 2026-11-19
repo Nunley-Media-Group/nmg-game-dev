@@ -14,7 +14,10 @@ Targets:
   and the scene never hard-links a ``Desktop/`` or ``Mobile/`` path the export presets drop.
   Otherwise it gets a 200 m ground: a ``PlaneMesh`` on a ``StaticBody3D`` with a ``BoxShape3D``.
 - mission: ``NmgMissionDefinition`` resource ``game/missions/<Name>.tres``.
-- system: component script ``game/systems/<Name>/<snake_name>.gd`` (``<Name>Component``).
+- system: component script ``game/systems/<Name>/<snake_name>.gd`` (``<Name>Component``). With
+  ``template: audio`` the script extends ``NmgAudio`` and loads its name table, and
+  ``game/systems/<Name>/audio_table.tres`` (an ``NmgAudioTable`` rendered from the imported sounds
+  and the backlog's region music) is written beside it (#237).
 
 An existing file is reported ``unchanged`` and is still marked ``scaffolded``. A region whose
 ``terrain`` names no terrain entry is a ``design.unknown_reference`` item; an entry whose asset name
@@ -32,11 +35,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
+from nmg_game_dev.audio.tables import TABLE_NAME, render_table
 from nmg_game_dev.godot.project import PROJECT_FILE, godot_string
 from nmg_game_dev.pipeline.errors import PipelineError
 
 from . import backlog
-from .model import PASCAL_CASE, Entry
+from .model import AUDIO_TEMPLATE, PASCAL_CASE, Entry
 from .paths import backlog_path
 
 SCAFFOLD_TYPES: Final = ("region", "mission", "system")
@@ -170,6 +174,8 @@ def run_scaffold(
                     "created" if created else "unchanged", entry.type, entry.asset_name, shown
                 )
             )
+            if _is_audio_system(entry):
+                _scaffold_audio_table(root, game, entry, report)
     finally:
         if marked:
             backlog.update_statuses(path, marked)
@@ -183,6 +189,28 @@ def target_path(entry: Entry) -> Path:
     if entry.type == "mission":
         return Path("missions") / f"{name}.tres"
     return Path("systems") / name / f"{snake_case(name)}.gd"
+
+
+def audio_table_path(entry: Entry) -> Path:
+    """Return the Audio component's name table, relative to the Godot project (#237 FR7)."""
+    return Path("systems") / entry.asset_name / TABLE_NAME
+
+
+def _is_audio_system(entry: Entry) -> bool:
+    return entry.type == "system" and entry.fields.get("template") == AUDIO_TEMPLATE
+
+
+def _scaffold_audio_table(root: Path, game: Path, entry: Entry, report: ScaffoldReport) -> None:
+    """Write the Audio component's name table beside its script, as a line of its own (#237)."""
+    shown = f"{GAME_DIR}/{audio_table_path(entry).as_posix()}"
+    try:
+        created = _write_new(game / audio_table_path(entry), render_table(root))
+    except OSError as error:
+        _record_failure(report, entry, f"{shown}: {error}")
+        return
+    report.lines.append(
+        ScaffoldLine("created" if created else "unchanged", entry.type, entry.asset_name, shown)
+    )
 
 
 def snake_case(name: str) -> str:
@@ -216,6 +244,8 @@ def _render(
         return region_scene(entry.asset_name, scene)
     if entry.type == "mission":
         return mission_resource(entry, names)
+    if _is_audio_system(entry):
+        return audio_system_script(entry)
     return system_script(entry)
 
 
@@ -314,6 +344,25 @@ def system_script(entry: Entry) -> str:
         "## Add it as a child of the node it serves.\n"
         f"class_name {entry.asset_name}Component\n"
         "extends Node\n"
+    )
+
+
+def audio_system_script(entry: Entry) -> str:
+    """Return the NmgAudio component script for a system entry with ``template: audio`` (#237 FR7).
+
+    The script loads the component's name table in ``_init``, so sounds that ``import_audio``
+    adds reach the component through the table with no edit to this file.
+    """
+    return (
+        f"## The {entry.name} system: plays sounds and music by name.\n"
+        "##\n"
+        f"## Scaffolded by /design from {entry.source}.\n"
+        f"class_name {entry.asset_name}Component\n"
+        "extends NmgAudio\n"
+        "\n"
+        "\n"
+        "func _init() -> void:\n"
+        f'\ttable = load("res://systems/{entry.asset_name}/{TABLE_NAME}") as NmgAudioTable\n'
     )
 
 
