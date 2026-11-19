@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-19
+
 ### Added
 
 - `python -m nmg_game_dev.secrets scan` and the onboarded `scripts/nmg_secret_scan.py` block a commit that stages an API key (Meshy, ElevenLabs, Anthropic, OpenAI, GitHub, AWS, or a PEM private key) or a file named `.env`. Each match prints one masked line with its file, line, pattern, and fingerprint, and the scan exits 1. `.nmg/secret-scan-allow` allows a reviewed false positive by fingerprint or by `<path>:<pattern>`. (#255)
