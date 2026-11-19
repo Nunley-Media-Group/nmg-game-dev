@@ -120,14 +120,21 @@ func region_music() -> void:
 		music(StringName(String(table.themes[scene_name])))
 
 
-## Set the master, music, and sfx volumes (linear 0 to 1), apply them to the audio playing now, and
-## save them to settings_path.
+## Set the master, music, and sfx volumes (linear 0 to 1), apply them to the audio playing now (the
+## music, the stinger, and every sfx and UI sound, positional ones included), and save them to
+## settings_path.
 func set_volumes(master_level: float, music_level: float, sfx_level: float) -> void:
 	master_volume = clampf(master_level, 0.0, 1.0)
 	music_volume = clampf(music_level, 0.0, 1.0)
 	sfx_volume = clampf(sfx_level, 0.0, 1.0)
 	_ensure_players()
-	_stinger_player.volume_db = _db(master_volume * sfx_volume)
+	var sfx_db: float = _db(master_volume * sfx_volume)
+	_stinger_player.volume_db = sfx_db
+	for player: AudioStreamPlayer in _sfx_pool:
+		player.volume_db = sfx_db
+	for child: Node in get_children():
+		if child is AudioStreamPlayer3D:
+			(child as AudioStreamPlayer3D).volume_db = sfx_db
 	_refresh_music_volume(0.0)
 	_save_volumes()
 

@@ -60,6 +60,8 @@ def import_audio(
     encoded with ffmpeg and becomes an ``AudioStreamOggVorbis`` at
     ``res://assets/Audio/<name>.ogg``. A successful import then refreshes each Audio component's
     name table, and the result's ``refreshed_tables`` lists the tables whose text changed (#237).
+    When the tables cannot be refreshed (an unreadable design backlog), the import still succeeds:
+    ``refreshed_tables`` is empty and ``refresh_warning`` carries the error's code and remediation.
     ``loop`` and the four finishing arguments (``max_seconds``, ``loudness_lufs``,
     ``loop_crossfade_ms``, ``finish``) override the sound's stored settings; a value not passed
     comes from ``audio.json`` or the default (``loop`` false). ``godot`` defaults to the binary
@@ -119,7 +121,19 @@ def import_audio(
             replace=replace,
         )
         sound_settings.save(root, request.name, request.kind, looping, settings)
-    refreshed = refresh_tables(root)
+    refresh_warning: dict[str, str] | None = None
+    try:
+        refreshed = refresh_tables(root)
+    except AudioError as error:
+        # The sound is already stored and imported, so a table that cannot be refreshed is a
+        # warning: failing here would turn every retry of a finished import into an error.
+        refreshed = []
+        refresh_warning = {
+            "code": error.code,
+            "message": f"{error.message} The sound was imported; the Audio name tables were "
+            "not refreshed.",
+            "remediation": error.remediation,
+        }
     result: dict[str, Any] = {
         "kind": request.kind,
         "name": request.name,
@@ -134,6 +148,8 @@ def import_audio(
     }
     if warning is not None:
         result["warning"] = warning
+    if refresh_warning is not None:
+        result["refresh_warning"] = refresh_warning
     return result
 
 

@@ -398,6 +398,20 @@ def test_refresh_audio_table_without_a_godot_project_returns_the_error(tmp_path:
     assert result["error"]["remediation"]
 
 
+def test_refresh_audio_table_with_an_unreadable_backlog_returns_the_error(tmp_path: Path) -> None:
+    """#237 review F1: a malformed backlog comes back as a structured error, not an exception."""
+    project = _audio_project(tmp_path / "project")
+    backlog = project / "docs" / "design" / "backlog.json"
+    backlog.parent.mkdir(parents=True)
+    backlog.write_text("[]", encoding="utf-8")
+
+    result = refresh_audio_table(str(project))
+
+    assert result["error"]["code"] == "audio.backlog_invalid"
+    assert result["error"]["stage"] == "audio"
+    assert result["error"]["remediation"]
+
+
 def test_tools_json_lists_refresh_audio_table_with_an_optional_project() -> None:
     tools = {
         tool["name"]: tool for tool in json.loads(TOOLS_JSON.read_text(encoding="utf-8"))["tools"]

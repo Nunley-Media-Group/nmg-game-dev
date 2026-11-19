@@ -444,15 +444,18 @@ and `finish` (default `true`). A parameter you leave out, `loop` included, comes
 
 A successful import also refreshes each Audio component's name table (#237), so the sound is in the
 table without a separate call. `refreshed_tables` lists the project-relative tables whose text
-changed. See [refresh_audio_table](#refresh_audio_table-237).
+changed. When the tables cannot be refreshed, because `docs/design/backlog.json` cannot be read,
+the import still succeeds: `refreshed_tables` is empty and a `refresh_warning` carries
+`audio.backlog_invalid` with its remediation. See [refresh_audio_table](#refresh_audio_table-237).
 
 ## refresh_audio_table (#237)
 
 `refresh_audio_table` rebuilds each `game/systems/*/audio_table.tres` that declares
 `NmgAudioTable`, from the sounds under `game/assets/Audio/` and the region `music` fields in the
 design backlog. It returns `{"refreshed_tables": [...]}`, and writes nothing when the tables are
-already current. Its only error is `audio.godot_project_missing`, with the `audio` stage, when
-`game/project.godot` is missing. The CLI, `python -m nmg_game_dev.audio refresh [--project DIR]`,
+already current. Its errors, with the `audio` stage, are `audio.godot_project_missing` when
+`game/project.godot` is missing, and `audio.backlog_invalid` when `docs/design/backlog.json` is not
+a backlog `/design` wrote (rerun `python -m nmg_game_dev.design sync`). The CLI, `python -m nmg_game_dev.audio refresh [--project DIR]`,
 runs the same function. The flow is in [elevenlabs.md](elevenlabs.md#the-audio-component).
 
 Its errors come back as `{"error": {"code", "message", "remediation", "stage"}}`, with the `audio`

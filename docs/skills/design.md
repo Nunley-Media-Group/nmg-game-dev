@@ -73,9 +73,15 @@ error <code> <source>: <field> — <message>
 | `region` | `game/levels/<Name>/<Name>.tscn` | `Marker3D` `PlayerSpawn`, `DirectionalLight3D`, `WorldEnvironment`, and a 200 m ground plane, or an `NmgVariantScene` that loads the platform's variant of the finalized terrain scene the region's `terrain` names |
 | `mission` | `game/missions/<Name>.tres` | An `NmgMissionDefinition` resource with `mission_name`, `act`, `region`, `depends_on`, and `design_doc_path` |
 | `system` | `game/systems/<Name>/<snake_name>.gd` | A component script, `class_name <Name>Component` / `extends Node` |
+| `system` with `template: audio` | `game/systems/<Name>/<snake_name>.gd` | An Audio component script, `class_name <Name>Component` / `extends NmgAudio`, that loads the name table below in `_init` (#237) |
+| `system` with `template: audio` | `game/systems/<Name>/audio_table.tres` | The `NmgAudioTable` name table: each imported sound under `game/assets/Audio/` by its file stem, and each region's `music` theme. `import_audio` and `python -m nmg_game_dev.audio refresh` keep it current |
 
 `NmgMissionDefinition` is a `Resource` class from the `addons/nmg_game_dev` add-on that
 `/onboard-consumer` installs. Its fields are filled from the entry.
+
+`NmgAudio` and `NmgAudioTable` are add-on classes too. A region's optional `music` field names the
+sound the Audio component plays as that region's theme. See
+[the Audio component](../mcp/elevenlabs.md#the-audio-component).
 
 ## Failure codes
 
@@ -86,7 +92,7 @@ error <code> <source>: <field> — <message>
 | `design.frontmatter_invalid` | The frontmatter is not valid YAML. | Fix the YAML, then rerun sync. |
 | `design.unknown_type` | `type` is not a listed type. | Use one of the seven types, then rerun sync. |
 | `design.missing_field` | A required field is absent. | Add the field the line names, then rerun sync. |
-| `design.invalid_field` | A value breaks its rule. | Correct the value the line names, then rerun sync. |
+| `design.invalid_field` | A value breaks its rule, for example a `system` `template` other than `audio`, or a region `music` that is not a non-empty string. | Correct the value the line names, then rerun sync. |
 | `design.duplicate_name` | Two entries derive the same asset name. | Rename one `name`, then rerun sync. |
 | `design.invalid_name` | `name` yields no valid asset name. | Use words that form a PascalCase name starting with a letter, then rerun sync. |
 | `design.unknown_reference` | `depends_on` or `region` names no entry. | Fix the name, or add the design file, then rerun sync. |

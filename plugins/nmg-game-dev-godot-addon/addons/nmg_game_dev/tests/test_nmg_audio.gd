@@ -1,11 +1,13 @@
 extends "res://addons/nmg_game_dev/tests/nmg_test_case.gd"
 ## NmgAudio (#237): the six methods (AC1), a missing sound plays nothing and warns once (AC5),
 ## music repeat, crossfade, loop, and stinger ducking (AC6), volumes saved and loaded (AC7), and
-## region music from the current scene.
+## region music from the current scene, a timed crossfade, and new volumes reaching every sound
+## that is playing.
 
 const NmgAudioScript: GDScript = preload("res://addons/nmg_game_dev/audio/nmg_audio.gd")
 const NmgAudioTableScript: GDScript = preload("res://addons/nmg_game_dev/audio/nmg_audio_table.gd")
-## Only the volume test saves here. Other tests use UNSAVED_SETTINGS_PATH, which is never written,
+## Only the volume tests save here, and each removes the file before and after it runs, because
+## user:// persists between runs. Other tests use UNSAVED_SETTINGS_PATH, which is never written,
 ## so a saved volume from an earlier run cannot change their levels.
 const SETTINGS_PATH: String = "user://nmg_audio_test_volumes.cfg"
 const UNSAVED_SETTINGS_PATH: String = "user://nmg_audio_test_unsaved.cfg"
@@ -52,9 +54,21 @@ func _add(audio: Node) -> Node:
 	return audio
 
 
+## Stop every player, free audio, and give the audio server time to drop the stopped playbacks, so
+## no stream or playback is still in use when the runner quits.
 func _discard(audio: Node) -> void:
+	for child: Node in audio.get_children():
+		if child.has_method("stop"):
+			child.call("stop")
 	_tree().root.remove_child(audio)
 	audio.free()
+	await _tree().create_timer(0.1).timeout
+
+
+func _remove_saved_volumes() -> void:
+	var absolute: String = ProjectSettings.globalize_path(SETTINGS_PATH)
+	if FileAccess.file_exists(SETTINGS_PATH):
+		check_eq(DirAccess.remove_absolute(absolute), OK, "remove %s" % SETTINGS_PATH)
 
 
 ## Return the child player that plays stream, or null.
@@ -91,7 +105,7 @@ func test_missing_sound_plays_nothing_and_warns_once() -> void:
 	if warnings.size() == 1:
 		check(warnings[0].contains("NotYetImported"), "the warning names the sound: %s" % warnings[0])
 	check_eq(_playing_count(audio), 0, "nothing plays")
-	_discard(audio)
+	await _discard(audio)
 
 
 func test_music_repeat_crossfade_loop_and_stinger_duck() -> void:
@@ -128,18 +142,76 @@ func test_music_repeat_crossfade_loop_and_stinger_duck() -> void:
 	check(s_player != null and s_player.playing, "S plays")
 	s_player.finished.emit()
 	check_eq(b_player.volume_db, base_db, "the music returns when S finishes")
-	_discard(audio)
+	await _discard(audio)
 
 
 func test_volumes_persist_to_a_new_component() -> void:
+	_remove_saved_volumes()
 	var first: Node = await _add(_audio(null, SETTINGS_PATH))
+	check_eq(first.get("master_volume"), 1.0, "master volume before set_volumes")
+	check_eq(first.get("music_volume"), 1.0, "music volume before set_volumes")
 	first.set_volumes(0.8, 0.5, 1.0)
-	_discard(first)
+	await _discard(first)
+	check(FileAccess.file_exists(SETTINGS_PATH), "set_volumes saved %s" % SETTINGS_PATH)
 	var second: Node = await _add(_audio(null, SETTINGS_PATH))
 	check_eq(second.get("master_volume"), 0.8, "master volume")
 	check_eq(second.get("music_volume"), 0.5, "music volume")
 	check_eq(second.get("sfx_volume"), 1.0, "sfx volume")
-	_discard(second)
+	await _discard(second)
+	_remove_saved_volumes()
+
+
+func test_new_volumes_reach_the_sfx_ui_and_positional_sounds_playing_now() -> void:
+	_remove_saved_volumes()
+	var pooled_path: String = _save_wav("Pooled")
+	var placed_path: String = _save_wav("Placed")
+	var table: Resource = _table({"Pooled": pooled_path, "Placed": placed_path})
+	var audio: Node = await _add(_audio(table, SETTINGS_PATH))
+	audio.set("pitch_jitter", 0.0)
+	audio.sfx("Pooled")
+	audio.sfx("Placed", Vector3(2, 0, 0))
+	var pooled: AudioStreamPlayer = _player_for(audio, load(pooled_path))
+	var placed: AudioStreamPlayer3D = null
+	for child: Node in audio.get_children():
+		if child is AudioStreamPlayer3D:
+			placed = child as AudioStreamPlayer3D
+	check(pooled != null and pooled.playing, "the pooled sfx plays")
+	check(placed != null and placed.playing, "the positional sfx plays")
+	check(pooled != null and absf(pooled.volume_db) < 0.001, "the pooled sfx starts at 0 dB")
+
+	audio.set_volumes(0.5, 1.0, 0.5)
+	var expected_db: float = linear_to_db(0.25)
+	if pooled != null:
+		check(absf(pooled.volume_db - expected_db) < 0.001, "pooled sfx at %f dB" % pooled.volume_db)
+	if placed != null:
+		check(
+			absf(placed.volume_db - expected_db) < 0.001,
+			"positional sfx at %f dB" % placed.volume_db,
+		)
+	await _discard(audio)
+	_remove_saved_volumes()
+
+
+func test_music_change_fades_over_crossfade_seconds() -> void:
+	var a_path: String = _save_wav("FadeA")
+	var b_path: String = _save_wav("FadeB")
+	var audio: Node = _audio(_table({"FadeA": a_path, "FadeB": b_path}))
+	audio.set("crossfade_seconds", 0.2)
+	await _add(audio)
+
+	audio.music("FadeA")
+	await _tree().create_timer(0.4).timeout
+	var a_player: AudioStreamPlayer = _player_for(audio, load(a_path))
+	check(a_player != null and absf(a_player.volume_db) < 0.01, "A has faded in to 0 dB")
+
+	audio.music("FadeB")
+	var b_player: AudioStreamPlayer = _player_for(audio, load(b_path))
+	check(b_player != null and b_player.volume_db < -40.0, "B starts the fade near silence")
+	await _tree().create_timer(0.4).timeout
+	check(b_player != null and absf(b_player.volume_db) < 0.01, "B has faded in to 0 dB")
+	check(a_player != null and a_player.volume_db < -40.0, "A has faded out")
+	check(a_player != null and not a_player.playing, "A stops after its fade")
+	await _discard(audio)
 
 
 func test_region_music_plays_the_theme_of_the_current_scene() -> void:
@@ -156,4 +228,4 @@ func test_region_music_plays_the_theme_of_the_current_scene() -> void:
 	_tree().current_scene = null
 	_tree().root.remove_child(scene)
 	scene.free()
-	_discard(audio)
+	await _discard(audio)

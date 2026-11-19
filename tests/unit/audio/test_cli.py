@@ -337,3 +337,18 @@ def test_refresh_without_a_godot_project_exits_one_with_the_code(
     captured = capsys.readouterr()
     assert captured.err.startswith("ERROR [audio.godot_project_missing] ")
     assert "\nRemediation: " in captured.err
+
+
+def test_refresh_with_an_unreadable_backlog_prints_the_error_and_exits_one(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#237 review F1: the CLI reports ``ERROR [code]`` and a remediation, not a traceback."""
+    backlog = project / "docs" / "design" / "backlog.json"
+    backlog.parent.mkdir(parents=True)
+    backlog.write_text("{not json", encoding="utf-8")
+
+    assert main(["refresh", "--project", str(project)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "ERROR [audio.backlog_invalid]" in captured.err
+    assert "Remediation: " in captured.err

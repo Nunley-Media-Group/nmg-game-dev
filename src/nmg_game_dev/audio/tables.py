@@ -25,6 +25,7 @@ TABLE_CLASS: Final = "NmgAudioTable"
 TABLE_SCRIPT: Final = "res://addons/nmg_game_dev/audio/nmg_audio_table.gd"
 SYSTEMS_DIR: Final = "systems"
 MISSING_PROJECT: Final = "audio.godot_project_missing"
+BACKLOG_INVALID: Final = "audio.backlog_invalid"
 SOUND_SUFFIXES: Final = (".wav", ".ogg")
 
 
@@ -47,7 +48,8 @@ def refresh_tables(root: Path) -> list[str]:
     """Rewrite each Audio name table under ``game/systems/`` whose text changed.
 
     Returns the project-relative paths rewritten, sorted. A table whose text is already current is
-    left alone. Raises ``audio.godot_project_missing`` without ``game/project.godot``.
+    left alone. Raises ``audio.godot_project_missing`` without ``game/project.godot``, and
+    ``audio.backlog_invalid`` when ``docs/design/backlog.json`` is not a backlog ``/design`` wrote.
     """
     game = paths.game_project(root)
     if not (game / PROJECT_FILE).is_file():
@@ -82,8 +84,18 @@ def _sounds(root: Path) -> dict[str, str]:
 
 def _themes(root: Path) -> dict[str, str]:
     """Map each region's asset name to the ``music`` sound its backlog entry names."""
+    path = backlog_path(root)
+    try:
+        entries = backlog.load(path)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise AudioError(
+            code=BACKLOG_INVALID,
+            message=f"The design backlog at {path} could not be read: {error}",
+            remediation="Run `python -m nmg_game_dev.design sync` (/design) to rewrite the "
+            "backlog from docs/design/, then refresh the audio tables again.",
+        ) from error
     themes: dict[str, str] = {}
-    for entry in backlog.load(backlog_path(root)):
+    for entry in entries:
         music = entry.fields.get("music")
         if entry.type == "region" and isinstance(music, str) and music.strip():
             themes[entry.asset_name] = music

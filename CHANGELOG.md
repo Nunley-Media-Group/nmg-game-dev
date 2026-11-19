@@ -8,7 +8,7 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ### Added
 
-- Audio component: `design scaffold` with `template: audio` on a `system` entry writes a component script that extends the new `NmgAudio` add-on class and its `audio_table.tres` name table. `NmgAudio` plays sounds by name (`sfx`, `ui`, `music` with crossfades and loops, `stinger` with ducking, `region_music` from a region's `music` field, and volumes saved by `set_volumes`), and a sound the table does not hold plays nothing and warns once. `python -m nmg_game_dev.audio refresh` and the `refresh_audio_table` MCP tool rebuild the tables; every successful `import_audio` refreshes them and returns `refreshed_tables`. `design sync` reports `design.invalid_field` for a `template` other than `audio` or a region `music` that is not a non-empty string. (#237)
+- Audio component: `design scaffold` with `template: audio` on a `system` entry writes a component script that extends the new `NmgAudio` add-on class and its `audio_table.tres` name table. `NmgAudio` plays sounds by name (`sfx`, `ui`, `music` with crossfades and loops, `stinger` with ducking, `region_music` from a region's `music` field, and volumes saved by `set_volumes`), and a sound the table does not hold plays nothing and warns once. `python -m nmg_game_dev.audio refresh` and the `refresh_audio_table` MCP tool rebuild the tables; every successful `import_audio` refreshes them and returns `refreshed_tables`. An unreadable design backlog is `audio.backlog_invalid`: an error from a refresh, and a `refresh_warning` on an import that otherwise succeeded. `design sync` reports `design.invalid_field` for a `template` other than `audio` or a region `music` that is not a non-empty string. (#237)
 
 ## [0.30.1] - 2026-11-19
 

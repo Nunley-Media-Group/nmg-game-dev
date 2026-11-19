@@ -141,6 +141,35 @@ def test_refresh_without_a_godot_project_raises_the_missing_project_code(tmp_pat
     assert "project.godot" in caught.value.message
 
 
+def _backlog(root: Path, text: str) -> None:
+    path = root / "docs" / "design" / "backlog.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["{not json", "[]", '{"version": 1, "entries": [{"type": "region"}]}'],
+    ids=["not-json", "no-entries", "entry-without-fields"],
+)
+def test_an_unreadable_backlog_raises_backlog_invalid_and_writes_nothing(
+    root: Path, text: str
+) -> None:
+    """#237 review F1: a malformed backlog is an AudioError with a remediation, not a traceback."""
+    _sound(root, "DoorCreak.wav")
+    table = _table(root)
+    _backlog(root, text)
+
+    with pytest.raises(AudioError) as caught:
+        refresh_tables(root)
+
+    assert caught.value.code == "audio.backlog_invalid"
+    assert caught.value.stage == "audio"
+    assert "backlog.json" in caught.value.message
+    assert "design sync" in caught.value.remediation
+    assert table.read_text(encoding="utf-8") == HEADER
+
+
 def test_docs_describe_the_audio_component_flow_fields_and_tool() -> None:
     elevenlabs = (REPO_ROOT / "docs" / "mcp" / "elevenlabs.md").read_text(encoding="utf-8")
     contract = (REPO_ROOT / "docs" / "design-contract.md").read_text(encoding="utf-8")

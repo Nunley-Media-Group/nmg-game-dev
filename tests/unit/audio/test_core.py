@@ -108,6 +108,33 @@ def test_a_successful_import_refreshes_the_audio_name_table(
     assert '"DoorCreak": "res://assets/Audio/DoorCreak.wav"' in table.read_text(encoding="utf-8")
 
 
+def test_an_unreadable_backlog_leaves_the_import_successful_with_a_refresh_warning(
+    project: Path, source_file: Callable[[str], Path], godot: FakeGodotRunner
+) -> None:
+    """#237 review F1: the sound is stored and imported, so a table refresh failure only warns.
+
+    A rerun of the same import still succeeds, so a finished import never turns into a failure.
+    """
+    table = project / "game" / "systems" / "Audio" / "audio_table.tres"
+    table.parent.mkdir(parents=True)
+    header = '[gd_resource type="Resource" script_class="NmgAudioTable" load_steps=2 format=3]\n'
+    table.write_text(header, encoding="utf-8")
+    backlog = project / "docs" / "design" / "backlog.json"
+    backlog.parent.mkdir(parents=True)
+    backlog.write_text("{not json", encoding="utf-8")
+
+    for _attempt in range(2):
+        result = import_audio(source_file("tone.wav"), "DoorCreak", "sfx", godot=godot)
+
+        assert result["imported_to_godot"] is True
+        assert result["refreshed_tables"] == []
+        assert result["refresh_warning"]["code"] == "audio.backlog_invalid"
+        assert result["refresh_warning"]["remediation"]
+        assert "warning" not in result
+    assert (project / "game" / "assets" / "Audio" / "DoorCreak.wav").is_file()
+    assert table.read_text(encoding="utf-8") == header
+
+
 @pytest.mark.parametrize(
     "fixture", ["tone.mp3", "tone.ogg", "tone.flac"], ids=["mp3", "ogg", "flac"]
 )
