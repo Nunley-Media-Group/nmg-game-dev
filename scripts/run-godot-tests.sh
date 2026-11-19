@@ -61,6 +61,7 @@ required_tests=(
   "test_nmg_launch.gd::test_flag_reads_true"
   "test_nmg_launch.gd::test_absent_option_returns_default"
   "test_nmg_launch.gd::test_autoplay_emits_once"
+  "test_nmg_launch.gd::test_autoplay_reaches_a_scene_that_connects_in_ready"
   "test_nmg_launch.gd::test_save_dir_with_test_saves"
   "test_nmg_launch.gd::test_save_dir_default"
 )

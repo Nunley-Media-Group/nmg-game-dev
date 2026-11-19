@@ -9,8 +9,8 @@ extends Node
 ##     var at: String = NmgLaunch.get_option("at", "Town")
 ## A bare flag such as --nmg-autoplay or #nmg-autoplay reads "true".
 ##
-## The framework reads these flags: --nmg-autoplay emits autoplay_requested once the main scene
-## loads; --nmg-test-saves makes save_dir() return a test folder; --nmg-shot=<path> with
+## The framework reads these flags: --nmg-autoplay emits autoplay_requested once the main scene's
+## _ready has run, so a main scene that connects in its own _ready receives it; --nmg-test-saves makes save_dir() return a test folder; --nmg-shot=<path> with
 ## --nmg-shot-after=<seconds> saves the root viewport as a PNG and quits.
 
 signal autoplay_requested
@@ -20,11 +20,14 @@ const DEFAULT_SAVE_DIR: String = "user://"
 const AUTOPLAY_WAIT_FRAMES: int = 600
 
 var _options: Dictionary = {}
+var _configured: bool = false
 var _autoplay_sent: bool = false
 
 
+## Read the launch options, unless configure() already set them before the node entered the tree.
 func _ready() -> void:
-	configure(OS.get_cmdline_user_args(), _web_hash())
+	if not _configured:
+		configure(OS.get_cmdline_user_args(), _web_hash())
 	if has_option("nmg-shot"):
 		_take_shot()
 	if has_option("nmg-autoplay"):
@@ -36,6 +39,7 @@ func _ready() -> void:
 ## wins when a name appears in both.
 func configure(user_args: PackedStringArray, url_hash: String) -> void:
 	_options.clear()
+	_configured = true
 	for token: String in user_args:
 		if token.begins_with("--"):
 			_store_pair(token.substr(2), false)
@@ -89,11 +93,14 @@ func _store_pair(pair: String, decode: bool) -> void:
 		_options[option_name] = value
 
 
+## The autoload's _ready runs before the main scene's _ready, even when the main scene is already
+## current, so wait at least one frame, then until the current scene is ready.
 func _autoplay_when_scene_ready() -> void:
 	for _frame: int in AUTOPLAY_WAIT_FRAMES:
-		if get_tree().current_scene != null:
-			break
 		await get_tree().process_frame
+		var scene: Node = get_tree().current_scene
+		if scene != null and scene.is_node_ready():
+			break
 	request_autoplay()
 
 

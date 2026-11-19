@@ -451,6 +451,7 @@ On success it returns `{"path", "width", "height"}`, with the absolute path and 
 PNG header. A failure returns `{"error": {"code", "message", "remediation", "stage"}}`:
 
 - `shot.invalid_after`: `after` is outside 0 to 60 seconds.
+- `shot.invalid_path`: `path` is a folder, or its folder cannot be created or written to.
 - `godot.project_missing`: there is no `game/project.godot`.
 - `godot.not_found`: no Godot binary (`GODOT_BIN`, then `godot` on PATH, then `/Applications/Godot.app`).
 - `shot.no_image`: the game exited, or ran past `after` plus 60 seconds, without writing the PNG. The

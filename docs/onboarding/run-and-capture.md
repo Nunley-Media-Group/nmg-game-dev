@@ -31,9 +31,10 @@ if NmgLaunch.has_option("at"):
 
 Two more calls cover the test runs and the autoplay:
 
-- `NmgLaunch.autoplay_requested` is a signal. With `--nmg-autoplay`, it fires once after the main
-  scene loads. Connect it to whatever your game does when a player takes over. Autoplay itself is
-  the game's own behavior.
+- `NmgLaunch.autoplay_requested` is a signal. With `--nmg-autoplay`, it fires once, on a frame
+  after the main scene's `_ready`, so connecting it in the main scene's `_ready` is enough. Connect
+  it to whatever your game does when a player takes over. Autoplay itself is the game's own
+  behavior.
 - `NmgLaunch.save_dir()` returns `user://nmg-test/` (created on demand) when the game runs with
   `--nmg-test-saves`, and `user://` otherwise. Save through it, so test runs never touch the
   player's saves.
@@ -83,6 +84,7 @@ The finalize MCP server exposes the same capture as the `game_screenshot` tool. 
 | `smoke.runtime_error` | The smoke run printed an error line or exited non-zero | Fix the first error line, then rerun |
 | `smoke.timeout` | The smoke run did not finish in time | Make sure the main scene quits after its frames and does not hang, or raise `NMG_GODOT_TIMEOUT_S` |
 | `shot.no_image` | The game exited without writing the PNG | Check that the game starts in a window and that `NmgLaunch` is registered. The message carries the last output lines |
+| `shot.invalid_path` | The path is a folder, or its folder cannot be written to | Pass a `.png` file path in a folder you can write to |
 | `shot.invalid_after` | `after` is negative (CLI) or outside 0 to 60 seconds (tool) | Pass a shorter or non-negative delay |
 | `godot.not_found` | No Godot binary | Install Godot 4 or set `GODOT_BIN` |
 | `godot.project_missing` | No `project.godot` at the expected path | Run `/onboard-consumer`, or pass `--project` |

@@ -1,8 +1,11 @@
 extends "res://addons/nmg_game_dev/tests/nmg_test_case.gd"
 ## NmgLaunch: option parsing on the command line and the web hash, defaults, the single autoplay
-## emission, and the test save folder (#251 AC1, AC2, AC7).
+## emission, the autoplay emission reaching a main scene that connects in its own _ready, and the
+## test save folder (#251 AC1, AC2, AC7).
 
 const NmgLaunchScript: GDScript = preload("res://addons/nmg_game_dev/nmg_launch.gd")
+const AutoplaySceneScript: GDScript = preload("res://addons/nmg_game_dev/tests/nmg_autoplay_scene.gd")
+const AUTOPLAY_TEST_FRAMES: int = 5
 
 var emissions: int = 0
 
@@ -70,6 +73,24 @@ func test_autoplay_emits_once() -> void:
 	launch.request_autoplay()
 	check_eq(emissions, 1, "autoplay_requested emitted once")
 	launch.free()
+
+
+## The launch node's _ready runs while the main scene is already current but before the main
+## scene's _ready, as for the NmgLaunch autoload. The emission must still reach the main scene's
+## handler, exactly once.
+func test_autoplay_reaches_a_scene_that_connects_in_ready() -> void:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	var scene: Node = AutoplaySceneScript.new()
+	var launch: Node = _launch(PackedStringArray(["--nmg-autoplay"]), "")
+	scene.set("launch", launch)
+	scene.add_child(launch)
+	tree.root.add_child(scene)
+	check_eq(scene.get("received"), 0, "autoplay_requested not emitted before a frame passes")
+	for _frame: int in AUTOPLAY_TEST_FRAMES:
+		await tree.process_frame
+	check_eq(scene.get("received"), 1, "the main scene received autoplay_requested once")
+	tree.current_scene = null
+	scene.free()
 
 
 func test_save_dir_with_test_saves() -> void:

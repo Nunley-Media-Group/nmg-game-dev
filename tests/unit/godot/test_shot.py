@@ -111,6 +111,17 @@ def test_a_negative_after_is_shot_invalid_after(tmp_path: Path) -> None:
     assert caught.value.code == "shot.invalid_after"
 
 
+def test_a_folder_path_is_shot_invalid_path_and_godot_never_runs(tmp_path: Path) -> None:
+    folder = tmp_path / "shots"
+    folder.mkdir()
+    runner = FakeGodotRunner()
+    with pytest.raises(PipelineError) as caught:
+        take_shot(tmp_path, folder, 3, [], runner=runner)
+    assert caught.value.code == "shot.invalid_path"
+    assert str(folder) in caught.value.message
+    assert runner.calls == []
+
+
 def test_a_missing_godot_is_godot_not_found(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

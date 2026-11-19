@@ -259,8 +259,8 @@ def game_screenshot(
     NmgLaunch writes the root viewport to ``path`` and quits. A relative ``path`` resolves against
     the consumer root (``CLAUDE_PROJECT_DIR``, else the working directory). Returns
     ``{"path", "width", "height"}``, or ``{"error": {code, message, remediation, stage}}``:
-    ``shot.invalid_after`` for ``after`` outside 0 to 60, ``godot.project_missing``,
-    ``godot.not_found``, or ``shot.no_image``.
+    ``shot.invalid_after`` for ``after`` outside 0 to 60, ``shot.invalid_path``,
+    ``godot.project_missing``, ``godot.not_found``, or ``shot.no_image``.
     """
     try:
         if not 0 <= after <= MAX_SHOT_AFTER_S:

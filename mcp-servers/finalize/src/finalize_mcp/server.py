@@ -217,8 +217,8 @@ def game_screenshot(
     game's own lighting and materials show, and NmgLaunch writes the root viewport to path and
     quits. A relative path resolves against the consumer project. after is 0 to 60 seconds. Returns
     {path, width, height}; a failure returns {"error": {code, message, remediation, stage}} with
-    shot.invalid_after, godot.project_missing, godot.not_found, or shot.no_image (the game exited
-    without writing the PNG, and the message carries its last output lines).
+    shot.invalid_after, shot.invalid_path, godot.project_missing, godot.not_found, or shot.no_image
+    (the game exited without writing the PNG, and the message carries its last output lines).
     """
     return _logged(_game_screenshot(path=path, after=after, options=options))
 

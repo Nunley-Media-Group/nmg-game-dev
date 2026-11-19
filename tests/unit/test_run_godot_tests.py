@@ -71,12 +71,15 @@ if rest[:2] == ["-s", "res://addons/nmg_game_dev/tests/run_tests.gd"]:
                 "test_nmg_launch.gd::test_flag_reads_true",
                 "test_nmg_launch.gd::test_absent_option_returns_default",
                 "test_nmg_launch.gd::test_autoplay_emits_once",
+                "test_nmg_launch.gd::test_autoplay_reaches_a_scene_that_connects_in_ready",
                 "test_nmg_launch.gd::test_save_dir_with_test_saves",
                 "test_nmg_launch.gd::test_save_dir_default"]
     if mode == "tests_missing_routing":
         required = required[:2]
     if mode == "tests_missing_launch":
         required = required[:3]
+    if mode == "tests_missing_autoplay_scene":
+        required = [name for name in required if not name.endswith("connects_in_ready")]
     for name in required:
         print(f"PASS {name}")
     print(f"{len(required)} passed, 0 failed")
@@ -397,6 +400,7 @@ def test_import_failure_exits_4(gate: Gate, mode: str) -> None:
         "tests_no_summary",
         "tests_missing_routing",
         "tests_missing_launch",
+        "tests_missing_autoplay_scene",
     ],
 )
 def test_addon_test_failure_exits_5(gate: Gate, mode: str) -> None:
@@ -481,6 +485,7 @@ def test_addon_ships_the_designed_files() -> None:
         "terrain/nmg_terrain.gdshader",
         "tests/run_tests.gd",
         "tests/nmg_log_capture.gd",
+        "tests/nmg_autoplay_scene.gd",
         "tests/test_nmg_assets.gd",
         "tests/test_nmg_launch.gd",
         "tests/test_mission_definition.gd",

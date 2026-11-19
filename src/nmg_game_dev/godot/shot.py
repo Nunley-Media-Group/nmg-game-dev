@@ -64,7 +64,8 @@ def take_shot(
 
     ``path`` becomes absolute, its folder is created, and a stale file there is removed first. With
     no ``runner``, the windowed ``SubprocessGodotRunner`` runs the binary from ``env``, so
-    ``godot.not_found`` propagates. A missing or non-PNG result raises ``shot.no_image``.
+    ``godot.not_found`` propagates. A path that cannot be prepared (a folder, or an unwritable
+    parent) raises ``shot.invalid_path``; a missing or non-PNG result raises ``shot.no_image``.
     """
     if not 0 <= after:
         raise PipelineError(
@@ -74,8 +75,16 @@ def take_shot(
             stage="shot",
         )
     target = path.absolute()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.unlink(missing_ok=True)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.unlink(missing_ok=True)
+    except OSError as exc:
+        raise PipelineError(
+            code="shot.invalid_path",
+            message=f"Cannot write the screenshot to {target}: {exc.strerror or exc}.",
+            remediation="Pass a .png file path in a folder you can write to.",
+            stage="shot",
+        ) from exc
     active: GodotRunner = (
         runner if runner is not None else SubprocessGodotRunner(resolve_godot(env), headless=False)
     )

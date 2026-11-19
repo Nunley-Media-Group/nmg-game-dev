@@ -4,7 +4,8 @@ extends SceneTree
 ## Run as: godot --headless --path <project> -s res://addons/nmg_game_dev/tests/run_tests.gd
 ## Loads every tests/test_*.gd beside this script, calls each test_* method on a fresh instance,
 ## prints one PASS/FAIL line per method and then "N passed, M failed". Exits 1 on any failure, or
-## when no test ran.
+## when no test ran. A test method may await (for example the tree's process_frame); the runner
+## waits for it to finish before checking it.
 ##
 ## A method fails when a check recorded a failure, or when the engine logged an error while it ran
 ## (a GDScript runtime error aborts the method without recording anything, so the log is the only
@@ -31,7 +32,7 @@ func _initialize() -> void:
 			instance.set("log_capture", capture)
 			capture.call("take_errors")
 			capture.call("take_warnings")
-			instance.call(method_name)
+			await instance.call(method_name)
 			var failures: Array = instance.get("failures")
 			var errors: PackedStringArray = capture.call("take_errors")
 			if failures.is_empty() and errors.is_empty():
