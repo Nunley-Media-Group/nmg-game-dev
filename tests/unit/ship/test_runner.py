@@ -65,10 +65,44 @@ def test_all_runs_import_then_script_check_then_tests_then_budget_then_every_exp
     ]
     assert all(call[1] == "-s" for call in checks)
     assert commands[1 + len(checks)] == ["-s", "res://tests/run_tests.gd"]
+    assert commands[2 + len(checks)] == _SMOKE_ARGS
     assert sandbox.exports() == ["macOS", "Windows Desktop", "iOS", "Android", "Web"]
     first_export = next(i for i, call in enumerate(commands) if call[0] == "--export-release")
-    assert first_export == len(checks) + 2
+    assert first_export == len(checks) + 3
     assert [entry.platform for entry in entries] == ["macos", "windows", "ios", "android", "web"]
+
+
+_SMOKE_ARGS = [
+    "--fixed-fps",
+    "60",
+    "--quit-after",
+    "600",
+    "--",
+    "--nmg-autoplay",
+    "--nmg-test-saves",
+]
+
+
+def test_a_failing_smoke_run_stops_the_ship_before_any_export(sandbox: ShipSandbox) -> None:
+    sandbox.godot.responses["--fixed-fps"] = CommandResult(
+        0, stdout="SCRIPT ERROR: Invalid call. Nonexistent function 'boom'.\n"
+    )
+    with pytest.raises(ShipError) as caught:
+        sandbox.ship("all")
+    error = caught.value
+    assert error.code == "ship.smoke_failed"
+    assert error.stage == "smoke"
+    assert "smoke.runtime_error" in error.message
+    assert "SCRIPT ERROR: Invalid call" in error.message
+    assert error.remediation.startswith("Fix the first error above")
+    assert sandbox.exports() == []
+
+
+def test_a_clean_smoke_run_lets_the_export_proceed(sandbox: ShipSandbox) -> None:
+    sandbox.godot.responses["--fixed-fps"] = CommandResult(0, stdout="Godot Engine v4\n")
+    sandbox.ship("windows")
+    assert sandbox.godot_commands("--fixed-fps") == [_SMOKE_ARGS]
+    assert sandbox.exports() == ["Windows Desktop"]
 
 
 def test_scripts_under_dot_godot_are_not_checked(sandbox: ShipSandbox) -> None:
@@ -573,6 +607,18 @@ def test_dry_run_prints_every_command_and_runs_no_godot(
         assert "--export-release" in dry
     notes = (sandbox.release_dir / "RELEASE-NOTES.md").read_text(encoding="utf-8")
     assert "DRY RUN" in notes
+
+
+def test_dry_run_prints_the_smoke_command_and_runs_no_godot(
+    sandbox: ShipSandbox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sandbox.ship("windows", dry_run=True)
+    output = _output(capsys)
+    assert "DRY-RUN: godot --headless --audio-driver Dummy --path" in output
+    assert "--fixed-fps 60 --quit-after 600 -- --nmg-autoplay --nmg-test-saves" in output
+    assert sandbox.godot.calls == []
+    dry = (sandbox.release_dir / "windows" / "DRY-RUN.txt").read_text(encoding="utf-8")
+    assert "--nmg-autoplay --nmg-test-saves" in dry
 
 
 def test_dry_run_keeps_an_earlier_artifact_and_the_presets(sandbox: ShipSandbox) -> None:

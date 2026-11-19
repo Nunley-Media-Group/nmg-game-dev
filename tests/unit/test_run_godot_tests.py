@@ -63,12 +63,22 @@ if rest[:2] == ["-s", "res://addons/nmg_game_dev/tests/run_tests.gd"]:
         sys.exit(0)
     if mode == "tests_no_summary":
         sys.exit(0)
-    required = ["test_desktop_variant", "test_mobile_variant",
-                "test_malformed_path_is_unchanged_with_a_warning"]
+    required = ["test_nmg_assets.gd::test_desktop_variant",
+                "test_nmg_assets.gd::test_mobile_variant",
+                "test_nmg_assets.gd::test_malformed_path_is_unchanged_with_a_warning",
+                "test_nmg_launch.gd::test_cmdline_options",
+                "test_nmg_launch.gd::test_web_hash_options",
+                "test_nmg_launch.gd::test_flag_reads_true",
+                "test_nmg_launch.gd::test_absent_option_returns_default",
+                "test_nmg_launch.gd::test_autoplay_emits_once",
+                "test_nmg_launch.gd::test_save_dir_with_test_saves",
+                "test_nmg_launch.gd::test_save_dir_default"]
     if mode == "tests_missing_routing":
         required = required[:2]
+    if mode == "tests_missing_launch":
+        required = required[:3]
     for name in required:
-        print(f"PASS test_nmg_assets.gd::{name}")
+        print(f"PASS {name}")
     print(f"{len(required)} passed, 0 failed")
     sys.exit(0)
 if rest[:1] == ["--check-only"]:
@@ -380,7 +390,14 @@ def test_import_failure_exits_4(gate: Gate, mode: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "mode", ["tests_fail", "tests_script_error", "tests_no_summary", "tests_missing_routing"]
+    "mode",
+    [
+        "tests_fail",
+        "tests_script_error",
+        "tests_no_summary",
+        "tests_missing_routing",
+        "tests_missing_launch",
+    ],
 )
 def test_addon_test_failure_exits_5(gate: Gate, mode: str) -> None:
     result = gate.run(FAKE_GODOT_MODE=mode, **gate.with_path_godot())
@@ -458,12 +475,14 @@ def test_addon_ships_the_designed_files() -> None:
     for rel in (
         "plugin.gd",
         "nmg_assets.gd",
+        "nmg_launch.gd",
         "nmg_mission_definition.gd",
         "nmg_variant_scene.gd",
         "terrain/nmg_terrain.gdshader",
         "tests/run_tests.gd",
         "tests/nmg_log_capture.gd",
         "tests/test_nmg_assets.gd",
+        "tests/test_nmg_launch.gd",
         "tests/test_mission_definition.gd",
         "tests/test_nmg_variant_scene.gd",
     ):
@@ -472,6 +491,8 @@ def test_addon_ships_the_designed_files() -> None:
     assert plugin.startswith("@tool\nextends EditorPlugin")
     assert "add_autoload_singleton(AUTOLOAD_NAME, AUTOLOAD_PATH)" in plugin
     assert "remove_autoload_singleton(AUTOLOAD_NAME)" in plugin
+    assert "add_autoload_singleton(LAUNCH_AUTOLOAD_NAME, LAUNCH_AUTOLOAD_PATH)" in plugin
+    assert "remove_autoload_singleton(LAUNCH_AUTOLOAD_NAME)" in plugin
     mission = (ADDON / "nmg_mission_definition.gd").read_text(encoding="utf-8")
     assert "class_name NmgMissionDefinition\nextends Resource" in mission
     for field in (
@@ -562,6 +583,7 @@ def test_fixture_project_uses_the_compatibility_renderer_and_the_addon() -> None
     assert "config_version=5" in text
     assert 'renderer/rendering_method="gl_compatibility"' in text
     assert 'NmgAssets="*res://addons/nmg_game_dev/nmg_assets.gd"' in text
+    assert 'NmgLaunch="*res://addons/nmg_game_dev/nmg_launch.gd"' in text
     assert 'enabled=PackedStringArray("res://addons/nmg_game_dev/plugin.cfg")' in text
 
 

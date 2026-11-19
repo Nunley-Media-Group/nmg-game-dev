@@ -10,6 +10,7 @@ config/name="Fixture"
 [autoload]
 
 NmgAssets="*res://addons/nmg_game_dev/nmg_assets.gd"
+NmgLaunch="*res://addons/nmg_game_dev/nmg_launch.gd"
 
 [editor_plugins]
 

@@ -25,6 +25,7 @@ GODOT_ADDON_FILES: dict[str, str] = {
     "plugin.cfg": '[plugin]\n\nname="nmg-game-dev"\nversion="0.0.0"\nscript="plugin.gd"\n',
     "plugin.gd": "@tool\nextends EditorPlugin\n",
     "nmg_assets.gd": "extends Node\n",
+    "nmg_launch.gd": "extends Node\n",
     "nmg_mission_definition.gd": "class_name NmgMissionDefinition\nextends Resource\n",
     "tests/run_tests.gd": "extends SceneTree\n",
 }

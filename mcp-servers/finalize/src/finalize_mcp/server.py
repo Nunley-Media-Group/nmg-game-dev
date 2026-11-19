@@ -1,9 +1,9 @@
 """The ``finalize`` MCP server (#69).
 
-Registers six tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
-``reduce_asset`` (#139), ``get_finalize_job``, ``list_material_variants`` (#148), and
-``import_audio`` (#155).  The tool logic lives in the package, so the CLI and this server share one
-implementation.  stdout is the MCP channel, so logs go to stderr only.
+Registers seven tools over ``nmg_game_dev``: ``finalize_asset``, ``run_finalize_step``,
+``reduce_asset`` (#139), ``get_finalize_job``, ``list_material_variants`` (#148), ``import_audio``
+(#155), and ``game_screenshot`` (#251).  The tool logic lives in the package, so the CLI and this
+server share one implementation.  stdout is the MCP channel, so logs go to stderr only.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from nmg_game_dev.finalize import finalize_asset as _finalize_asset
+from nmg_game_dev.finalize import game_screenshot as _game_screenshot
 from nmg_game_dev.finalize import get_finalize_job as _get_finalize_job
 from nmg_game_dev.finalize import import_audio as _import_audio
 from nmg_game_dev.finalize import list_material_variants as _list_material_variants
@@ -204,6 +205,22 @@ def import_audio(file: str, name: str, kind: str, loop: bool = False) -> dict[st
     message, remediation, stage}}.
     """
     return _logged(_import_audio(file=file, name=name, kind=kind, loop=loop))
+
+
+@mcp.tool(name="game_screenshot")
+def game_screenshot(
+    path: str, after: float = 3, options: list[str] | None = None
+) -> dict[str, Any]:
+    """Save a PNG of the running consumer game after a delay, for reviewing assets in the engine.
+
+    Runs the Godot project windowed with the launch options (for example "--at=Forest"), so the
+    game's own lighting and materials show, and NmgLaunch writes the root viewport to path and
+    quits. A relative path resolves against the consumer project. after is 0 to 60 seconds. Returns
+    {path, width, height}; a failure returns {"error": {code, message, remediation, stage}} with
+    shot.invalid_after, godot.project_missing, godot.not_found, or shot.no_image (the game exited
+    without writing the PNG, and the message carries its last output lines).
+    """
+    return _logged(_game_screenshot(path=path, after=after, options=options))
 
 
 def main() -> None:

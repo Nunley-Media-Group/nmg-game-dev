@@ -41,8 +41,10 @@ names only.
 
 Before any export the ship runs, in order: `godot --import` (a fresh clone has no `.godot/` class
 cache until it runs), `godot --check-only` on every `.gd` file (skipping `.godot/`),
-`game/tests/run_tests.gd` when it exists, and the mobile budget gate for `ios`, `android`, and
-`web`. Mobile and web presets exclude every `Desktop/` asset folder; desktop presets
+`game/tests/run_tests.gd` when it exists, the headless autoplay smoke run, and the mobile budget gate
+for `ios`, `android`, and `web`. The smoke run starts the game headless for 600 frames with
+`--nmg-autoplay --nmg-test-saves` and fails on any `SCRIPT ERROR`, `Parse Error`, or `ERROR:` line,
+a non-zero exit, or a run past its timeout, so a game that crashes on its main scene never ships. Mobile and web presets exclude every `Desktop/` asset folder; desktop presets
 exclude every `Mobile/` folder. Godot comes from `GODOT_BIN`, then `godot` on PATH, then
 `/Applications/Godot.app`.
 
@@ -65,6 +67,9 @@ consumer-root `nmg-budgets.json` may override the defaults per metric. Both form
   first error. Fix or remove that resource and rerun.
 - `ship.script_check_failed`: a script does not parse. The message names the file. Fix it and rerun.
 - `ship.tests_failed`: `game/tests/run_tests.gd` reported a failure. Fix the test or the game code.
+- `ship.smoke_failed`: the headless smoke run failed. The message names the smoke code
+  (`smoke.runtime_error` or `smoke.timeout`) and the first error lines. Fix the reported error in the
+  game, then rerun. Reproduce it by running the game in Godot. No export ran.
 - `ship.mobile_budget_exceeded`: a Mobile variant is over budget. The remediation gives the asset,
   the metric, the value, the budget, and the overage. Reduce the mobile asset or raise the budget in
   `nmg-budgets.json`, then rerun. Do not change the budget silently.

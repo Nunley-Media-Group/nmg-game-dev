@@ -168,6 +168,7 @@ def test_godot_project_is_created_with_compatibility_renderer(
         'PackedStringArray("res://addons/nmg_game_dev/plugin.cfg")'
     )
     assert config[("autoload", "NmgAssets")] == '"*res://addons/nmg_game_dev/nmg_assets.gd"'
+    assert config[("autoload", "NmgLaunch")] == '"*res://addons/nmg_game_dev/nmg_launch.gd"'
 
 
 def test_godot_addon_is_copied_without_its_tests(
@@ -224,6 +225,49 @@ def test_existing_project_gets_missing_keys_and_keeps_its_own(
     assert config[("autoload", "NmgAssets")] == '"*res://addons/nmg_game_dev/nmg_assets.gd"'
     presets = (consumer / "game" / "export_presets.cfg").read_text(encoding="utf-8")
     assert presets == render_export_presets("Hollow Peak")
+
+
+def test_existing_project_with_only_nmg_assets_gets_nmg_launch_refreshed(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC8 (#251): an existing project with only NmgAssets gets NmgLaunch added and reported."""
+    project = consumer / "game" / "project.godot"
+    project.parent.mkdir()
+    project.write_text(
+        'config_version=5\n\n[autoload]\n\nNmgAssets="*res://addons/nmg_game_dev/nmg_assets.gd"\n',
+        encoding="utf-8",
+    )
+
+    results = {r.name: r for r in install(consumer, framework, models, env)}
+
+    assert results["godot_project"].status == "refreshed"
+    assert "NmgLaunch" in results["godot_project"].detail
+    config = read_config(project)
+    assert config[("autoload", "NmgLaunch")] == '"*res://addons/nmg_game_dev/nmg_launch.gd"'
+    assert config[("autoload", "NmgAssets")] == '"*res://addons/nmg_game_dev/nmg_assets.gd"'
+
+
+def test_a_different_nmg_launch_value_is_drift_until_refreshed(
+    consumer: Path, framework: Path, models: Path, env: dict[str, str]
+) -> None:
+    """AC8 (#251): a changed NmgLaunch autoload is drift, left alone, and restored by --refresh."""
+    install(consumer, framework, models, env)
+    project = consumer / "game" / "project.godot"
+    edited = project.read_text(encoding="utf-8").replace(
+        'NmgLaunch="*res://addons/nmg_game_dev/nmg_launch.gd"',
+        'NmgLaunch="*res://elsewhere/nmg_launch.gd"',
+    )
+    project.write_text(edited, encoding="utf-8")
+
+    drifted = {r.name: r for r in install(consumer, framework, models, env)}
+    assert drifted["godot_project"].status == "drift"
+    assert "[autoload] NmgLaunch" in drifted["godot_project"].detail
+    assert project.read_text(encoding="utf-8") == edited
+
+    refreshed = {r.name: r for r in install(consumer, framework, models, env, refresh=True)}
+    assert refreshed["godot_project"].status == "refreshed"
+    config = read_config(project)
+    assert config[("autoload", "NmgLaunch")] == '"*res://addons/nmg_game_dev/nmg_launch.gd"'
 
 
 def test_renderer_drift_is_reported_then_refreshed(

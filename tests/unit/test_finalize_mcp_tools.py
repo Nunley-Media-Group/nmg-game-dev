@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +18,15 @@ import pytest
 from nmg_game_dev.finalize import (
     FinalizeService,
     finalize_asset,
+    game_screenshot,
     get_finalize_job,
     run_finalize_step,
 )
+from nmg_game_dev.godot.runner import CommandResult
 from nmg_game_dev.pipeline import FinalizeRequest
+from nmg_game_dev.pipeline.errors import PipelineError
 from tests.finalize_fakes import BatchRouter, batch_launcher, dead_pid
+from tests.godot_fakes import FakeGodotRunner
 
 
 def _entries(tmp_path: Path, *names: str) -> list[dict[str, Any]]:
@@ -320,3 +325,91 @@ def test_a_job_whose_process_vanished_is_reported_as_crashed(tmp_path: Path) -> 
 
     assert response["status"] == "failed"
     assert response["error"]["code"] == "finalize.job_crashed"
+
+
+# game_screenshot (#251 FR4, AC5, AC6) -----------------------------------------------------------
+
+
+def _consumer(root: Path) -> Path:
+    """A consumer root holding game/project.godot, the Godot project the screenshot runs."""
+    (root / "game").mkdir(parents=True)
+    (root / "game" / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return root
+
+
+def _shot_godot(width: int = 1280, height: int = 720) -> FakeGodotRunner:
+    def run(args: list[str], project: Path) -> CommandResult:
+        target = next(arg for arg in args if arg.startswith("--nmg-shot=")).removeprefix(
+            "--nmg-shot="
+        )
+        header = (
+            b"\x89PNG\r\n\x1a\n"
+            + struct.pack(">I", 13)
+            + b"IHDR"
+            + struct.pack(">II", width, height)
+            + bytes([8, 6, 0, 0, 0])
+        )
+        Path(target).write_bytes(header + b"\x00\x00\x00\x00")
+        return CommandResult(0)
+
+    return FakeGodotRunner({"--": run})
+
+
+def test_game_screenshot_saves_a_relative_path_under_the_consumer_root(tmp_path: Path) -> None:
+    root = _consumer(tmp_path)
+    godot = _shot_godot()
+    response = game_screenshot(
+        "build/shots/forest.png",
+        after=3,
+        options=["--at=Forest", "--hour=18"],
+        project_root=root,
+        godot=godot,
+    )
+    target = root / "build" / "shots" / "forest.png"
+    assert response == {"path": str(target.absolute()), "width": 1280, "height": 720}
+    assert target.is_file()
+    assert godot.calls[0][:4] == ["--", "--at=Forest", "--hour=18", "--nmg-test-saves"]
+    assert godot.calls[0][-1] == "--nmg-shot-after=3"
+
+
+def test_game_screenshot_defaults_after_to_three_seconds(tmp_path: Path) -> None:
+    godot = _shot_godot()
+    game_screenshot("a.png", project_root=_consumer(tmp_path), godot=godot)
+    assert godot.calls[0][-1] == "--nmg-shot-after=3"
+
+
+@pytest.mark.parametrize("after", [-1, 61])
+def test_game_screenshot_refuses_an_after_outside_0_to_60(tmp_path: Path, after: float) -> None:
+    response = game_screenshot(
+        "a.png", after=after, project_root=_consumer(tmp_path), godot=FakeGodotRunner()
+    )
+    assert response["error"]["code"] == "shot.invalid_after"
+
+
+def test_game_screenshot_without_a_project_is_godot_project_missing(tmp_path: Path) -> None:
+    response = game_screenshot("a.png", project_root=tmp_path, godot=FakeGodotRunner())
+    assert response["error"]["code"] == "godot.project_missing"
+    assert response["error"]["stage"] == "godot"
+
+
+def test_game_screenshot_without_a_png_returns_shot_no_image(tmp_path: Path) -> None:
+    godot = FakeGodotRunner({"--": CommandResult(1, stdout="SCRIPT ERROR: crashed\n")})
+    response = game_screenshot("a.png", project_root=_consumer(tmp_path), godot=godot)
+    assert response["error"]["code"] == "shot.no_image"
+    assert "SCRIPT ERROR: crashed" in response["error"]["message"]
+
+
+def test_game_screenshot_without_godot_returns_godot_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _missing(env: object = None, *args: object, **kwargs: object) -> Path:
+        raise PipelineError(
+            code="godot.not_found",
+            message="Godot was not found.",
+            remediation="Install Godot 4.",
+            stage="godot",
+        )
+
+    monkeypatch.setattr("nmg_game_dev.godot.shot.resolve_godot", _missing)
+    response = game_screenshot("a.png", project_root=_consumer(tmp_path))
+    assert response["error"]["code"] == "godot.not_found"

@@ -1,7 +1,8 @@
 """The Godot onboarding steps: project file, export presets, and tool checks (#249 FR10, AC10).
 
 ``ensure_godot_project`` creates ``<game>/project.godot`` with the Compatibility renderer for mobile
-and web, the ``nmg_game_dev`` editor plugin, and the ``NmgAssets`` autoload. On an existing file it
+and web, the ``nmg_game_dev`` editor plugin, and the ``NmgAssets`` and ``NmgLaunch`` autoloads
+(#251). On an existing file it
 adds missing keys (``refreshed``) and reports a framework key with another value as ``drift``,
 leaving it alone unless ``refresh``. ``[editor_plugins] enabled`` is checked by membership: other
 plugins may be enabled too, and ``refresh`` adds ``nmg_game_dev`` to the list without removing
@@ -38,6 +39,7 @@ PRESETS_FILE: Final = "export_presets.cfg"
 ADDON_REL: Final = "addons/nmg_game_dev"
 PLUGIN_CFG_RES: Final = f"res://{ADDON_REL}/plugin.cfg"
 AUTOLOAD_RES: Final = f"res://{ADDON_REL}/nmg_assets.gd"
+LAUNCH_AUTOLOAD_RES: Final = f"res://{ADDON_REL}/nmg_launch.gd"
 CONFIG_VERSION: Final = "5"
 COMPATIBILITY: Final = '"gl_compatibility"'
 
@@ -46,6 +48,7 @@ DRIFT_CHECKED: Final[dict[ConfigKey, str]] = {
     ("rendering", "renderer/rendering_method.web"): COMPATIBILITY,
     ("editor_plugins", "enabled"): f"PackedStringArray({godot_string(PLUGIN_CFG_RES)})",
     ("autoload", "NmgAssets"): godot_string(f"*{AUTOLOAD_RES}"),
+    ("autoload", "NmgLaunch"): godot_string(f"*{LAUNCH_AUTOLOAD_RES}"),
 }
 """Framework-owned keys: added when missing, reported as drift when they differ."""
 
@@ -95,7 +98,13 @@ def render_project(project_name: str) -> str:
     body = render_config(
         [
             ("application", [("config/name", godot_string(project_name))]),
-            ("autoload", [("NmgAssets", DRIFT_CHECKED[("autoload", "NmgAssets")])]),
+            (
+                "autoload",
+                [
+                    ("NmgAssets", DRIFT_CHECKED[("autoload", "NmgAssets")]),
+                    ("NmgLaunch", DRIFT_CHECKED[("autoload", "NmgLaunch")]),
+                ],
+            ),
             ("editor_plugins", [("enabled", DRIFT_CHECKED[("editor_plugins", "enabled")])]),
             (
                 "rendering",
