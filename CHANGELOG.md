@@ -6,6 +6,8 @@ adheres to semver per `steering/tech.md` § Versioning.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-19
+
 ### Added
 
 - Finalize records: each finished run writes `<consumer>/.nmg/finalize/<Category>/<Name>.json` (the state, times, steps with cache hits, source `.blend`, imported `res://` paths, content hash, logs, and error) and copies its logs to `<Name>.logs/`, which the next run replaces. `python -m nmg_game_dev.finalize check --category C --collection N [--json]` and the `check_finalized` MCP tool answer whether an asset is up to date from its record alone, with no Blender, Godot, or cache lock. `--skip-up-to-date` and `skip_up_to_date` skip the up-to-date items of a batch, and `/onboard-consumer` git-ignores `.nmg/`. (#247)
